@@ -12,6 +12,7 @@ workspace = true
 async-trait = "0.1.89"
 bollard = "0.21.0"
 futures-util = "0.3.32"
+gix = { version = "0.84.0", features = ["blocking-network-client", "blocking-http-transport-reqwest-rust-tls", "worktree-mutation", "credentials"] }
 rand = "0.10.1"
 reqwest = { version = "0.13.4", default-features = false }
 rustix = { version = "1.1.4", features = ["process"] }
@@ -21,3 +22,6 @@ stackless-core.workspace = true
 stackless-daemon.workspace = true
 thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["rt", "time", "macros"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"

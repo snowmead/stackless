@@ -5,6 +5,7 @@
 pub mod container;
 pub mod error;
 pub mod health;
+pub mod materialize;
 pub mod spawn;
 pub mod wiring;
 
@@ -58,6 +59,10 @@ pub struct StartPayload {
 struct MaterializePayload {
     path: String,
     overridden: bool,
+    /// The pinned commit a gix-materialized source is checked out at;
+    /// absent for `--source` overrides (the operator owns that checkout).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    commit: Option<String>,
 }
 
 fn fault(err: LocalError) -> SubstrateFault {
@@ -198,31 +203,63 @@ impl Substrate for LocalSubstrate {
                 })
             }
             StepKind::Materialize => {
-                let Some(path) = ctx.source_overrides.get(service) else {
+                // An explicit `--source service=path` pin still wins (§1):
+                // the operator owns that checkout, we only record it.
+                if let Some(path) = ctx.source_overrides.get(service) {
+                    let canonical = std::fs::canonicalize(path).map_err(|err| {
+                        fault(LocalError::SourcePathInvalid {
+                            service: service.to_owned(),
+                            path: path.clone(),
+                            detail: err.to_string(),
+                        })
+                    })?;
+                    if !canonical.is_dir() {
+                        return Err(fault(LocalError::SourcePathInvalid {
+                            service: service.to_owned(),
+                            path: path.clone(),
+                            detail: "not a directory".into(),
+                        }));
+                    }
+                    let payload = MaterializePayload {
+                        path: canonical.display().to_string(),
+                        overridden: true,
+                        commit: None,
+                    };
+                    return Ok(StepResource {
+                        resource_kind: "source-override".into(),
+                        resource_id: payload.path.clone(),
+                        payload: serde_json::to_string(&payload).unwrap_or_default(),
+                    });
+                }
+                // No pin: materialize the declared git source via gix (§8).
+                let Some(spec) = ctx.def.services.get(service) else {
                     return Err(fault(LocalError::MaterializeUnavailable {
                         service: service.to_owned(),
                     }));
                 };
-                let canonical = std::fs::canonicalize(path).map_err(|err| {
-                    fault(LocalError::SourcePathInvalid {
-                        service: service.to_owned(),
-                        path: path.clone(),
-                        detail: err.to_string(),
-                    })
-                })?;
-                if !canonical.is_dir() {
-                    return Err(fault(LocalError::SourcePathInvalid {
-                        service: service.to_owned(),
-                        path: path.clone(),
-                        detail: "not a directory".into(),
-                    }));
-                }
+                let instance = ctx.instance.to_owned();
+                let service_owned = service.to_owned();
+                let repo = spec.source.repo.clone();
+                let reference = spec.source.reference.clone();
+                // gix's blocking network/checkout work must not run on the
+                // async executor (mirrors run_hook's spawn_blocking).
+                let (path, commit) = tokio::task::spawn_blocking(move || {
+                    materialize::materialize(&instance, &service_owned, &repo, &reference)
+                })
+                .await
+                .map_err(|err| SubstrateFault {
+                    code: stackless_core::fault::codes::LOCAL_GIT_CHECKOUT_FAILED,
+                    message: format!("materialize task panicked: {err}"),
+                    remediation: "re-run `up`".into(),
+                })?
+                .map_err(fault)?;
                 let payload = MaterializePayload {
-                    path: canonical.display().to_string(),
-                    overridden: true,
+                    path: path.display().to_string(),
+                    overridden: false,
+                    commit: Some(commit),
                 };
                 Ok(StepResource {
-                    resource_kind: "source-override".into(),
+                    resource_kind: "source".into(),
                     resource_id: payload.path.clone(),
                     payload: serde_json::to_string(&payload).unwrap_or_default(),
                 })
@@ -376,9 +413,25 @@ impl Substrate for LocalSubstrate {
                     Observation::Gone
                 })
             }
-            // Pinned checkouts are re-recorded on every up and are
-            // never the instance's to keep or destroy; hooks re-run per
-            // their contracts; gates re-prove.
+            // A gix-materialized source (§8): Present iff the checkout
+            // still exists and its detached HEAD names the recorded commit.
+            "source" => {
+                let payload = serde_json::from_str::<MaterializePayload>(&checkpoint.payload).ok();
+                let present = payload
+                    .and_then(|p| p.commit.map(|commit| (p.path, commit)))
+                    .map(|(path, commit)| {
+                        materialize::observe(std::path::Path::new(&path), &commit)
+                    })
+                    .unwrap_or(false);
+                Ok(if present {
+                    Observation::Present
+                } else {
+                    Observation::Gone
+                })
+            }
+            // `--source` overrides (kind "source-override") are the
+            // operator's checkout, re-recorded every up: never ours to
+            // keep. Hooks re-run per their contracts; gates re-prove.
             _ => Ok(Observation::Gone),
         }
     }
@@ -425,7 +478,22 @@ impl Substrate for LocalSubstrate {
                 }
                 Ok(())
             }
-            // Pinned checkouts are the operator's, never removed.
+            // A gix-materialized source (§8): remove the instance's
+            // checkout for the service. The shared per-URL cache stays.
+            "source" => {
+                let payload = serde_json::from_str::<MaterializePayload>(&checkpoint.payload).ok();
+                if let Some(path) = payload.map(|p| p.path) {
+                    materialize::destroy(std::path::Path::new(&path)).map_err(|err| {
+                        SubstrateFault {
+                            code: stackless_core::fault::codes::LOCAL_GIT_CHECKOUT_FAILED,
+                            message: format!("cannot remove source checkout {path}: {err}"),
+                            remediation: format!("remove {path} by hand and re-run `down`"),
+                        }
+                    })?;
+                }
+                Ok(())
+            }
+            // `--source` overrides are the operator's, never removed.
             _ => Ok(()),
         }
     }

@@ -63,6 +63,28 @@ pub enum LocalError {
 
     #[error("could not stop process group {pgid}: {detail}")]
     KillFailed { pgid: u32, detail: String },
+
+    #[error("cannot clone {repo} into the source cache: {detail}")]
+    GitCloneFailed { repo: String, detail: String },
+
+    #[error("cannot fetch updates for {repo} into the source cache: {detail}")]
+    GitFetchFailed { repo: String, detail: String },
+
+    #[error("ref {reference:?} was not found in {repo} for {service:?}: {detail}")]
+    GitRefNotFound {
+        service: String,
+        repo: String,
+        reference: String,
+        detail: String,
+    },
+
+    #[error("cannot check out {service:?} at {commit} into {dest}: {detail}")]
+    GitCheckoutFailed {
+        service: String,
+        commit: String,
+        dest: String,
+        detail: String,
+    },
 }
 
 impl Fault for LocalError {
@@ -79,6 +101,10 @@ impl Fault for LocalError {
             Self::ServiceDied { .. } => codes::LOCAL_SERVICE_DIED,
             Self::EnvResolve { .. } => codes::LOCAL_ENV_RESOLVE,
             Self::KillFailed { .. } => codes::LOCAL_KILL_FAILED,
+            Self::GitCloneFailed { .. } => codes::LOCAL_GIT_CLONE_FAILED,
+            Self::GitFetchFailed { .. } => codes::LOCAL_GIT_FETCH_FAILED,
+            Self::GitRefNotFound { .. } => codes::LOCAL_GIT_REF_NOT_FOUND,
+            Self::GitCheckoutFailed { .. } => codes::LOCAL_GIT_CHECKOUT_FAILED,
         }
     }
 
@@ -115,6 +141,20 @@ impl Fault for LocalError {
             }
             Self::KillFailed { pgid, .. } => {
                 format!("kill process group {pgid} by hand (`kill -9 -{pgid}`) and re-run `down`")
+            }
+            Self::GitCloneFailed { repo, .. } => format!(
+                "check that {repo} is reachable; for private repos configure a git credential helper that answers non-interactively (a prompt cannot be honored here)"
+            ),
+            Self::GitFetchFailed { repo, .. } => format!(
+                "check that {repo} is reachable; for private repos configure a git credential helper that answers non-interactively (a prompt cannot be honored here)"
+            ),
+            Self::GitRefNotFound {
+                reference, repo, ..
+            } => format!(
+                "check that ref {reference:?} exists in {repo}; for private repos configure a git credential helper that answers non-interactively"
+            ),
+            Self::GitCheckoutFailed { dest, .. } => {
+                format!("check that {dest} is writable and has free space, then re-run `up`")
             }
         }
     }

@@ -55,6 +55,10 @@ pub mod codes {
     pub const LOCAL_SERVICE_DIED: &str = "local.service_died";
     pub const LOCAL_ENV_RESOLVE: &str = "local.env_resolve";
     pub const LOCAL_KILL_FAILED: &str = "local.kill_failed";
+    pub const LOCAL_GIT_CLONE_FAILED: &str = "local.git.clone_failed";
+    pub const LOCAL_GIT_FETCH_FAILED: &str = "local.git.fetch_failed";
+    pub const LOCAL_GIT_REF_NOT_FOUND: &str = "local.git.ref_not_found";
+    pub const LOCAL_GIT_CHECKOUT_FAILED: &str = "local.git.checkout_failed";
     pub const CLI_BAD_ARGUMENT: &str = "cli.bad_argument";
     pub const LOCAL_DOCKER_ENGINE: &str = "local.docker.engine";
     pub const LOCAL_DATASTORE_FAILED: &str = "local.datastore.failed";
@@ -107,6 +111,10 @@ pub mod codes {
         LOCAL_SERVICE_DIED,
         LOCAL_ENV_RESOLVE,
         LOCAL_KILL_FAILED,
+        LOCAL_GIT_CLONE_FAILED,
+        LOCAL_GIT_FETCH_FAILED,
+        LOCAL_GIT_REF_NOT_FOUND,
+        LOCAL_GIT_CHECKOUT_FAILED,
         CLI_BAD_ARGUMENT,
         LOCAL_DOCKER_ENGINE,
         LOCAL_DATASTORE_FAILED,
