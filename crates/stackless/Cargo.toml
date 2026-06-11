@@ -16,5 +16,6 @@ serde_json = "1.0.150"
 stackless-core.workspace = true
 stackless-daemon = { version = "0.1.0", path = "../stackless-daemon" }
 stackless-local.workspace = true
+stackless-render.workspace = true
 thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["rt-multi-thread"] }

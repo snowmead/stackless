@@ -54,6 +54,9 @@ enum Command {
         /// Lease duration, e.g. 8h, 45m (default: substrate's).
         #[arg(long)]
         lease: Option<String>,
+        /// Consent to paid cloud resources this invocation (§2/§4).
+        #[arg(long = "confirm-paid")]
+        confirm_paid: bool,
     },
     /// Verified teardown; exits non-zero listing survivors.
     Down { name: String },
@@ -94,6 +97,7 @@ fn main() -> ExitCode {
             on,
             sources,
             lease,
+            confirm_paid,
         } => commands::up(
             commands::UpArgs {
                 name,
@@ -101,6 +105,7 @@ fn main() -> ExitCode {
                 on,
                 sources,
                 lease,
+                confirm_paid,
             },
             &output,
         ),

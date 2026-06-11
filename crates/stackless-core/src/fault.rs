@@ -67,6 +67,20 @@ pub mod codes {
     pub const SECRETS_UNRESOLVED: &str = "secrets.unresolved";
     pub const VERIFY_FAILED: &str = "verify.failed";
     pub const VERIFY_NOT_DECLARED: &str = "verify.not_declared";
+    pub const RENDER_CONFIG_INVALID: &str = "render.config.invalid";
+    pub const RENDER_API_KEY_MISSING: &str = "render.api_key.missing";
+    pub const RENDER_API_FAILED: &str = "render.api.failed";
+    pub const RENDER_STRIPE_UNAVAILABLE: &str = "render.stripe.unavailable";
+    pub const RENDER_STRIPE_AUTH: &str = "render.stripe.auth";
+    pub const RENDER_STRIPE_FAILED: &str = "render.stripe.failed";
+    pub const RENDER_PROJECT_ANCHOR: &str = "render.project.anchor";
+    pub const RENDER_PAYMENT_NOT_CONFIRMED: &str = "render.payment.not_confirmed";
+    pub const RENDER_PROVISION_FAILED: &str = "render.provision.failed";
+    pub const RENDER_DEPLOY_FAILED: &str = "render.deploy.failed";
+    pub const RENDER_DEPLOY_TIMEOUT: &str = "render.deploy.timeout";
+    pub const RENDER_HEALTH_FAILED: &str = "render.health.failed";
+    pub const RENDER_PREPARE_FAILED: &str = "render.prepare.failed";
+    pub const RENDER_TEARDOWN_SURVIVOR: &str = "render.teardown.survivor";
 
     /// Every code in the registry, for uniqueness tests.
     pub const ALL: &[&str] = &[
@@ -124,6 +138,20 @@ pub mod codes {
         SECRETS_UNRESOLVED,
         VERIFY_FAILED,
         VERIFY_NOT_DECLARED,
+        RENDER_CONFIG_INVALID,
+        RENDER_API_KEY_MISSING,
+        RENDER_API_FAILED,
+        RENDER_STRIPE_UNAVAILABLE,
+        RENDER_STRIPE_AUTH,
+        RENDER_STRIPE_FAILED,
+        RENDER_PROJECT_ANCHOR,
+        RENDER_PAYMENT_NOT_CONFIRMED,
+        RENDER_PROVISION_FAILED,
+        RENDER_DEPLOY_FAILED,
+        RENDER_DEPLOY_TIMEOUT,
+        RENDER_HEALTH_FAILED,
+        RENDER_PREPARE_FAILED,
+        RENDER_TEARDOWN_SURVIVOR,
     ];
 }
 

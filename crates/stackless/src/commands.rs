@@ -10,26 +10,39 @@ use stackless_core::engine::{DownOutcome, Engine, UpRequest};
 use stackless_core::state::{InstanceRecord, InstanceStatus, Store};
 use stackless_core::substrate::Substrate;
 use stackless_local::{LocalSubstrate, SUBSTRATE_NAME as LOCAL};
+use stackless_render::{RenderSubstrate, SUBSTRATE_NAME as RENDER};
 
 use crate::KNOWN_SUBSTRATES;
 use crate::error::CliError;
 use crate::output::Output;
 
+/// What a substrate needs to be constructed — the same context whether
+/// it is built for `up`, `down`, or `logs`.
+struct SubstrateCtx {
+    secrets: BTreeMap<String, String>,
+    /// Where the definition lives (render anchors its project here and
+    /// reads the API key from here).
+    definition_dir: PathBuf,
+    /// `--confirm-paid` (render only; ignored by local).
+    confirm_paid: bool,
+}
+
 /// The substrate registry (ground rule: providers register here and
 /// only here; core never names one).
-fn substrate(
-    name: &str,
-    secrets: BTreeMap<String, String>,
-) -> Result<Box<dyn Substrate>, CliError> {
+fn substrate(name: &str, ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliError> {
     match name {
         LOCAL => Ok(Box::new(LocalSubstrate {
             proxy_port: stackless_daemon::proxy::proxy_port(),
-            secrets,
+            secrets: ctx.secrets,
         })),
-        // stackless-render lands in M8 and takes this entry over.
+        RENDER => Ok(Box::new(RenderSubstrate::new(
+            ctx.definition_dir,
+            ctx.secrets,
+            ctx.confirm_paid,
+        ))),
         other => Err(CliError::SubstrateUnknown {
             substrate: other.to_owned(),
-            known: vec![LOCAL.to_owned()],
+            known: KNOWN_SUBSTRATES.iter().map(|s| (*s).to_owned()).collect(),
         }),
     }
 }
@@ -40,6 +53,7 @@ pub struct UpArgs {
     pub on: Option<String>,
     pub sources: Vec<String>,
     pub lease: Option<String>,
+    pub confirm_paid: bool,
 }
 
 pub fn open_store() -> Result<Store, CliError> {
@@ -134,7 +148,14 @@ pub fn up(args: UpArgs, output: &Output) -> Result<(), CliError> {
         .unwrap_or_default();
     let def_dir = std::fs::canonicalize(&def_dir).unwrap_or(def_dir);
     let secrets = crate::secrets::resolve(&def, &def_dir)?;
-    let provider = substrate(&substrate_name, secrets)?;
+    let provider = substrate(
+        &substrate_name,
+        SubstrateCtx {
+            secrets,
+            definition_dir: def_dir.clone(),
+            confirm_paid: args.confirm_paid,
+        },
+    )?;
     let overrides = parse_sources(&args.sources)?;
     let lease = parse_lease(args.lease.as_deref())?;
 
@@ -142,7 +163,8 @@ pub fn up(args: UpArgs, output: &Output) -> Result<(), CliError> {
         store: &store,
         substrate: provider.as_ref(),
     };
-    let outcome = runtime()?.block_on(engine.up(UpRequest {
+    let rt = runtime()?;
+    let outcome = rt.block_on(engine.up(UpRequest {
         instance: &args.name,
         definition_text: &text,
         def: &def,
@@ -153,6 +175,11 @@ pub fn up(args: UpArgs, output: &Output) -> Result<(), CliError> {
 
     let origins = service_origins(&def, &args.name, &substrate_name);
     output.up_ok(&args.name, &substrate_name, &outcome, &origins);
+    // Spend is printed after every cloud `up` (§4 — never silently
+    // nothing; bounded by the project's hard cap).
+    if substrate_name == RENDER {
+        output.message(&rt.block_on(stackless_render::spend_line(&def_dir)));
+    }
     Ok(())
 }
 
@@ -161,17 +188,32 @@ pub fn down(name: &str, output: &Output) -> Result<(), CliError> {
     let record = store
         .instance(name)?
         .ok_or_else(|| stackless_core::state::StateError::InstanceNotFound { name: name.into() })?;
-    let provider = substrate(&record.substrate, BTreeMap::new())?;
+    // Teardown re-runs the same provider; render needs the recorded
+    // definition dir (its project anchor + API key live there).
+    let provider = substrate(
+        &record.substrate,
+        SubstrateCtx {
+            secrets: BTreeMap::new(),
+            definition_dir: PathBuf::from(&record.definition_dir),
+            confirm_paid: false,
+        },
+    )?;
     let engine = Engine {
         store: &store,
         substrate: provider.as_ref(),
     };
-    let outcome = runtime()?.block_on(engine.down(name))?;
+    let rt = runtime()?;
+    let outcome = rt.block_on(engine.down(name))?;
     match outcome {
         DownOutcome::Destroyed => output.message(&format!(
             "{name}: destroyed, verified gone; tombstone and logs kept"
         )),
         DownOutcome::AlreadyDown => output.message(&format!("{name}: already down")),
+    }
+    // Spend is printed after every cloud `down` too (§4).
+    if record.substrate == RENDER {
+        let dir = PathBuf::from(&record.definition_dir);
+        output.message(&rt.block_on(stackless_render::spend_line(&dir)));
     }
     Ok(())
 }
@@ -306,6 +348,26 @@ pub fn logs(
         Some(one) => vec![one.to_owned()],
         None => def.services.keys().cloned().collect(),
     };
+    // On render the daemon never saw these processes — fetch recent logs
+    // through the Render REST API (§2: recent window, no streaming).
+    if record.substrate == RENDER {
+        let dir = PathBuf::from(&record.definition_dir);
+        let rt = runtime()?;
+        for service in &services {
+            output.message(&format!("── {service} ──"));
+            let lines = rt
+                .block_on(stackless_render::fetch_logs(
+                    &dir, &def, name, service, tail,
+                ))
+                .map_err(|err| stackless_core::substrate::SubstrateFault::from_fault(&err))?;
+            if lines.is_empty() {
+                output.message("(no output captured)");
+            } else {
+                output.message(&lines.join("\n"));
+            }
+        }
+        return Ok(());
+    }
     for service in &services {
         let tail_text = stackless_local::spawn::log_tail(name, service, tail);
         output.message(&format!("── {service} ──"));
@@ -325,16 +387,15 @@ pub fn parse_and_validate(text: &str) -> Result<StackDef, CliError> {
 }
 
 fn origin_for(def: &StackDef, instance: &str, service: &str, substrate_name: &str) -> String {
-    if substrate_name == LOCAL {
+    if substrate_name == RENDER {
+        stackless_render::service_origin(def, instance, service)
+    } else {
         stackless_local::wiring::service_origin(
             def,
             instance,
             service,
             stackless_daemon::proxy::proxy_port(),
         )
-    } else {
-        // Render origins land in M8.
-        String::new()
     }
 }
 

@@ -47,6 +47,9 @@ pub enum CliError {
     #[error("verify command exited with {status}")]
     VerifyFailed { status: String },
 
+    #[error(transparent)]
+    Substrate(#[from] stackless_core::substrate::SubstrateFault),
+
     #[error("runtime error: {0}")]
     Runtime(std::io::Error),
 }
@@ -64,6 +67,7 @@ impl Fault for CliError {
             Self::SecretsUnresolved { .. } => codes::SECRETS_UNRESOLVED,
             Self::VerifyNotDeclared => codes::VERIFY_NOT_DECLARED,
             Self::VerifyFailed { .. } => codes::VERIFY_FAILED,
+            Self::Substrate(fault) => fault.code(),
             Self::Runtime(_) => codes::CLI_RUNTIME,
         }
     }
@@ -96,6 +100,7 @@ impl Fault for CliError {
                  `stackless verify`"
                     .into()
             }
+            Self::Substrate(fault) => fault.remediation(),
             Self::Runtime(_) => "re-run the command; if it persists this is a stackless bug".into(),
         }
     }
