@@ -1,0 +1,9 @@
+[stack]
+name = "Bad_Name"
+
+[services.web]
+source = { repo = "https://example.invalid/web", ref = "main" }
+health = { path = "/" }
+
+  [services.web.local]
+  run = "true"

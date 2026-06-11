@@ -1,0 +1,17 @@
+[stack]
+name = "bad"
+
+[services.api]
+source = { repo = "https://example.invalid/api", ref = "main" }
+health = { path = "/health" }
+depends_on = { web = true }
+
+  [services.api.local]
+  run = "true"
+
+[services.web]
+source = { repo = "https://example.invalid/web", ref = "main" }
+health = { path = "/" }
+
+  [services.web.local]
+  run = "true"

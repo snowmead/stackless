@@ -1,0 +1,22 @@
+[workspace]
+resolver = "3"
+members = ["crates/stackless-core", "crates/stackless"]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+license = "MIT"
+repository = "https://github.com/snowmead/stackless"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+dbg_macro = "deny"
+
+[workspace.dependencies]
+stackless-core = { path = "crates/stackless-core" }

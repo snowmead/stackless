@@ -1,0 +1,109 @@
+//! The agent-facing error contract (ARCHITECTURE.md §2).
+//!
+//! Every error stackless emits carries three parts: *what* failed (the
+//! step and instance), *why* (the observed cause), and *how to proceed*
+//! (a concrete command, flag, or fix). Agents branch on stable codes,
+//! never on prose.
+
+use serde::Serialize;
+
+/// Stable machine-readable error codes.
+///
+/// Codes are versioned API surface: renaming one is a breaking change
+/// (ARCHITECTURE.md §2). Every code lives here, in one registry, so the
+/// full surface is greppable and uniqueness is testable.
+pub mod codes {
+    pub const DEF_PARSE_SYNTAX: &str = "def.parse.syntax";
+    pub const DEF_PARSE_SCHEMA: &str = "def.parse.schema";
+    pub const DEF_NAME_INVALID: &str = "def.validate.name_invalid";
+    pub const DEF_NO_SERVICES: &str = "def.validate.no_services";
+    pub const DEF_UNKNOWN_KEY: &str = "def.validate.unknown_key";
+    pub const DEF_DEPENDS_ON_REJECTED: &str = "def.validate.depends_on_rejected";
+    pub const DEF_SUBSTRATE_BLOCK_INVALID: &str = "def.validate.substrate_block_invalid";
+    pub const DEF_SUBSTRATE_CONFIG_MISSING: &str = "def.validate.substrate_config_missing";
+    pub const DEF_ENGINE_UNKNOWN: &str = "def.validate.engine_unknown";
+    pub const DEF_ROOT_ORIGIN_CONFLICT: &str = "def.validate.root_origin_conflict";
+    pub const DEF_REFERENCE_SYNTAX: &str = "def.validate.reference_syntax";
+    pub const DEF_UNDECLARED_REFERENCE: &str = "def.validate.undeclared_reference";
+    pub const DEF_SECRET_NOT_REQUIRED: &str = "def.validate.secret_not_required";
+    pub const DEF_WIRING_CYCLE: &str = "def.validate.wiring_cycle";
+    pub const DEF_ENV_NOT_STRINGS: &str = "def.validate.env_not_strings";
+    pub const CLI_FILE_READ: &str = "cli.file.read";
+    pub const CLI_SUBSTRATE_UNKNOWN: &str = "cli.substrate.unknown";
+
+    /// Every code in the registry, for uniqueness tests.
+    pub const ALL: &[&str] = &[
+        DEF_PARSE_SYNTAX,
+        DEF_PARSE_SCHEMA,
+        DEF_NAME_INVALID,
+        DEF_NO_SERVICES,
+        DEF_UNKNOWN_KEY,
+        DEF_DEPENDS_ON_REJECTED,
+        DEF_SUBSTRATE_BLOCK_INVALID,
+        DEF_SUBSTRATE_CONFIG_MISSING,
+        DEF_ENGINE_UNKNOWN,
+        DEF_ROOT_ORIGIN_CONFLICT,
+        DEF_REFERENCE_SYNTAX,
+        DEF_UNDECLARED_REFERENCE,
+        DEF_SECRET_NOT_REQUIRED,
+        DEF_WIRING_CYCLE,
+        DEF_ENV_NOT_STRINGS,
+        CLI_FILE_READ,
+        CLI_SUBSTRATE_UNKNOWN,
+    ];
+}
+
+/// Implemented by every error enum in every stackless crate.
+///
+/// A new error variant is only complete when its remediation text says
+/// what the operator should actually do (ARCHITECTURE.md §8).
+pub trait Fault: std::error::Error {
+    /// The stable machine-readable code from [`codes`].
+    fn code(&self) -> &'static str;
+    /// How to proceed: a concrete command, flag, or fix.
+    fn remediation(&self) -> String;
+    /// The lifecycle step that failed, when one was executing.
+    fn step(&self) -> Option<&str> {
+        None
+    }
+    /// The instance the failure belongs to, when there is one.
+    fn instance(&self) -> Option<&str> {
+        None
+    }
+}
+
+/// The serialized error shape agents consume in `--json` mode.
+#[derive(Debug, Serialize)]
+pub struct Report {
+    pub code: &'static str,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance: Option<String>,
+    pub remediation: String,
+}
+
+impl Report {
+    pub fn from_fault(fault: &dyn Fault) -> Self {
+        Self {
+            code: fault.code(),
+            message: fault.to_string(),
+            step: fault.step().map(str::to_owned),
+            instance: fault.instance().map(str::to_owned),
+            remediation: fault.remediation(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::codes;
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn codes_are_unique() {
+        let set: BTreeSet<_> = codes::ALL.iter().collect();
+        assert_eq!(set.len(), codes::ALL.len());
+    }
+}

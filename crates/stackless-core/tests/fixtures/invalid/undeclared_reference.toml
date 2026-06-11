@@ -1,0 +1,10 @@
+[stack]
+name = "bad"
+
+[services.api]
+source = { repo = "https://example.invalid/api", ref = "main" }
+env = { DATABASE_URL = "${datastores.db.url}" }
+health = { path = "/health" }
+
+  [services.api.local]
+  run = "true"

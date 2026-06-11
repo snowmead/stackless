@@ -1,0 +1,13 @@
+# §8: errors are thiserror enums end-to-end — no untyped propagation.
+# The ban makes the rule mechanical instead of conventional.
+[bans]
+deny = [
+    { crate = "anyhow", reason = "ARCHITECTURE.md §8: no untyped error propagation; every error carries its stable code and remediation" },
+    { crate = "eyre", reason = "same rule as anyhow" },
+]
+
+[licenses]
+allow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Unicode-3.0", "Zlib", "MPL-2.0", "CDLA-Permissive-2.0"]
+
+[advisories]
+ignore = []

@@ -1,0 +1,64 @@
+# stackless.toml — lives in any repo (the stranger test: this file is enough)
+
+[stack]
+name = "atto"
+
+[stack.render]
+# Recorded after the first cloud `up` creates the stack's long-lived
+# Stripe project — the reproducibility anchor (atto config.ts pattern).
+project = "project_61UqVKJia4fs..."
+region = "oregon"
+
+[stack.verify]
+# The proof contract, run by `stackless verify` (§7).
+run = "bun e2e/smoke.ts"
+env = { ATTO_WEB_ORIGIN = "${services.web.origin}", ATTO_API_ORIGIN = "${services.api.origin}" }
+
+[secrets]
+# v0 posture (§0): operator-visible, test-scoped. Resolved from the stack's
+# Stripe Projects vault pull, with a local env-file override for
+# hand-managed keys (the Clerk lesson).
+required = ["CLERK_SECRET_KEY", "VITE_CLERK_PUBLISHABLE_KEY", "GITHUB_PACKAGES_TOKEN"]
+
+# ── datastores: containers locally, managed services on Render ──
+
+[datastores.db]
+engine = "postgres"        # readiness built in per engine (§7), never declared
+version = "17"
+
+[datastores.db.render]
+plan = "basic-256mb"       # paid → requires --confirm-paid (§4)
+
+# ── services: identity + wiring + health, substrate run config nested ──
+
+[services.api]
+source = { repo = "https://github.com/haaku-co/atto-server", ref = "main" }
+setup = "mise install"     # once, after materialization
+prepare = "just seed"      # every up, deps ready → before start; atto migrates on boot, so seed only
+secrets = ["CLERK_SECRET_KEY"]   # injected as same-named env vars
+env = { DATABASE_URL = "${datastores.db.url}", CORS_ALLOWED_ORIGINS = "${services.web.origin}", TENANT_SLUG = "${instance.name}", RUST_LOG = "info" }
+health = { path = "/health", contains = "ok" }   # status defaults to 200
+
+  [services.api.local]
+  run = "cargo run"        # $PORT injected; runs in the materialized source dir
+
+  [services.api.render]
+  runtime = "rust"
+  build = "cargo build --release"
+  start = "./target/release/atto-server"
+  env = { SQLX_OFFLINE = "true", RUSTUP_TOOLCHAIN = "1.94.0" }   # overlays the common env
+
+[services.web]
+source = { repo = "https://github.com/haaku-co/atto-web", ref = "main" }
+setup = "mise install && bun install"
+root_origin = true         # also claims http://{instance}.localhost (§3)
+secrets = ["VITE_CLERK_PUBLISHABLE_KEY"]
+env = { VITE_API_ORIGIN = "${services.api.origin}" }
+health = { path = "/", contains = 'id="root"' }   # the SPA shell check, productized
+
+  [services.web.local]
+  run = "bunx vite --host 127.0.0.1 --port $PORT --strictPort"
+
+  [services.web.render]
+  static = { build = "bun install && bun run build", publish = "./dist", spa_rewrite = true }
+  env = { BUN_VERSION = "1.3.11", GITHUB_PACKAGES_TOKEN = "${secrets.GITHUB_PACKAGES_TOKEN}" }

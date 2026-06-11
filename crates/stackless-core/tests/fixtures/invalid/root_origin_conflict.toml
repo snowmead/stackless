@@ -1,0 +1,18 @@
+[stack]
+name = "bad"
+
+[services.api]
+source = { repo = "https://example.invalid/api", ref = "main" }
+root_origin = true
+health = { path = "/health" }
+
+  [services.api.local]
+  run = "true"
+
+[services.web]
+source = { repo = "https://example.invalid/web", ref = "main" }
+root_origin = true
+health = { path = "/" }
+
+  [services.web.local]
+  run = "true"

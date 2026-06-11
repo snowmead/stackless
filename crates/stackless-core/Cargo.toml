@@ -1,0 +1,15 @@
+[package]
+name = "stackless-core"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+oxgraph = { version = "0.4.2", features = ["csr"] }
+serde = { version = "1.0.228", features = ["derive"] }
+thiserror = "2.0.18"
+toml = "1.1.2"
