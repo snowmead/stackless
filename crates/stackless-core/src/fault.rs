@@ -36,6 +36,7 @@ pub mod codes {
     pub const STATE_INSTANCE_EXISTS: &str = "state.instance.exists";
     pub const STATE_INSTANCE_NOT_FOUND: &str = "state.instance.not_found";
     pub const STATE_LOCK_HELD: &str = "state.lock.held";
+    pub const STATE_GC_FAILED: &str = "state.gc_failed";
     pub const ENGINE_SUBSTRATE_MISMATCH: &str = "engine.substrate.mismatch";
     pub const ENGINE_SOURCE_OVERRIDE_UNSUPPORTED: &str = "engine.source_override.unsupported";
     pub const ENGINE_STEP_FAILED: &str = "engine.step.failed";
@@ -92,6 +93,7 @@ pub mod codes {
         STATE_INSTANCE_EXISTS,
         STATE_INSTANCE_NOT_FOUND,
         STATE_LOCK_HELD,
+        STATE_GC_FAILED,
         ENGINE_SUBSTRATE_MISMATCH,
         ENGINE_SOURCE_OVERRIDE_UNSUPPORTED,
         ENGINE_STEP_FAILED,

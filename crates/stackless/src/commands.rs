@@ -191,6 +191,10 @@ pub struct InstanceStatusReport {
     pub status: &'static str,
     pub lease_remaining_secs: Option<u64>,
     pub services: Vec<ServiceStatus>,
+    /// A stuck reap, surfaced until a successful teardown clears it
+    /// (§6, invariant 4: silence is not success).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reap_failure: Option<String>,
 }
 
 pub fn status_report(
@@ -234,6 +238,12 @@ pub fn status_report(
         });
     }
     let lease = store.lease(&record.name)?;
+    let reap_failure = store.reap_attempt(&record.name)?.map(|attempt| {
+        format!(
+            "reap failed {} time(s): {} (retrying)",
+            attempt.attempts, attempt.last_error
+        )
+    });
     Ok(InstanceStatusReport {
         name: record.name.clone(),
         substrate: record.substrate.clone(),
@@ -251,6 +261,7 @@ pub fn status_report(
             .as_secs()
         }),
         services,
+        reap_failure,
     })
 }
 
@@ -260,7 +271,10 @@ pub fn status(name: &str, output: &Output) -> Result<(), CliError> {
         .instance(name)?
         .ok_or_else(|| stackless_core::state::StateError::InstanceNotFound { name: name.into() })?;
     let report = status_report(&store, &record)?;
-    output.status(&report);
+    output.status(
+        &report,
+        stackless_daemon::launchd::degradation_warning().as_deref(),
+    );
     Ok(())
 }
 
@@ -270,7 +284,10 @@ pub fn list(output: &Output) -> Result<(), CliError> {
     for record in store.instances()? {
         reports.push(status_report(&store, &record)?);
     }
-    output.list(&reports);
+    output.list(
+        &reports,
+        stackless_daemon::launchd::degradation_warning().as_deref(),
+    );
     Ok(())
 }
 

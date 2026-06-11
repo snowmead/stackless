@@ -17,3 +17,6 @@ serde_json = "1.0.150"
 stackless-core.workspace = true
 thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["full"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"

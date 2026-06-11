@@ -16,6 +16,7 @@ use super::error::StateError;
 const MIGRATIONS: &[&str] = &[
     include_str!("migrations/001_init.sql"),
     include_str!("migrations/002_definition_dir.sql"),
+    include_str!("migrations/003_reaper.sql"),
 ];
 
 pub struct Store {
@@ -86,6 +87,12 @@ impl Store {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0)
+    }
+
+    /// The shared clock, for callers outside the store (the reaper's
+    /// tick). Same value [`Store::now`] writes into rows.
+    pub fn now_secs() -> i64 {
+        Self::now()
     }
 }
 

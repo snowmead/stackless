@@ -27,6 +27,24 @@ struct ErrorEnvelope {
     error: Report,
 }
 
+/// `status --json`: the report plus the persistence degradation line so
+/// an agent can branch on it (§3).
+#[derive(Serialize)]
+struct StatusEnvelope<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    persistence_warning: Option<&'a str>,
+    #[serde(flatten)]
+    report: &'a crate::commands::InstanceStatusReport,
+}
+
+/// `list --json`: the same warning alongside the instance array.
+#[derive(Serialize)]
+struct ListEnvelope<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    persistence_warning: Option<&'a str>,
+    instances: &'a [crate::commands::InstanceStatusReport],
+}
+
 impl Output {
     pub fn new(json: bool) -> Self {
         Self { json }
@@ -123,11 +141,24 @@ impl Output {
         }
     }
 
-    pub fn status(&self, report: &crate::commands::InstanceStatusReport) {
+    pub fn status(
+        &self,
+        report: &crate::commands::InstanceStatusReport,
+        persistence_warning: Option<&str>,
+    ) {
         if self.json {
-            self.emit(report);
+            self.emit(&StatusEnvelope {
+                persistence_warning,
+                report,
+            });
             return;
         }
+        self.persistence_banner(persistence_warning);
+        self.render_report(report);
+    }
+
+    /// One instance's human block (shared by `status` and `list`).
+    fn render_report(&self, report: &crate::commands::InstanceStatusReport) {
         let lease = report
             .lease_remaining_secs
             .map(|secs| format!("{}m remaining", secs / 60))
@@ -136,6 +167,9 @@ impl Output {
             "{} [{}] {} — lease: {}",
             report.name, report.substrate, report.status, lease
         );
+        if let Some(reap_failure) = &report.reap_failure {
+            println!("  ⚠ {reap_failure}");
+        }
         for service in &report.services {
             let alive = match service.alive {
                 Some(true) => " (process alive)",
@@ -149,17 +183,33 @@ impl Output {
         }
     }
 
-    pub fn list(&self, reports: &[crate::commands::InstanceStatusReport]) {
+    /// The loud one-line degradation banner (§3): leases hold only while
+    /// the daemon happens to run when persistence is not registered.
+    fn persistence_banner(&self, warning: Option<&str>) {
+        if let Some(warning) = warning {
+            println!("⚠ DEGRADED: {warning}");
+        }
+    }
+
+    pub fn list(
+        &self,
+        reports: &[crate::commands::InstanceStatusReport],
+        persistence_warning: Option<&str>,
+    ) {
         if self.json {
-            self.emit(&reports);
+            self.emit(&ListEnvelope {
+                persistence_warning,
+                instances: reports,
+            });
             return;
         }
+        self.persistence_banner(persistence_warning);
         if reports.is_empty() {
             println!("no instances");
             return;
         }
         for report in reports {
-            self.status(report);
+            self.render_report(report);
         }
     }
 

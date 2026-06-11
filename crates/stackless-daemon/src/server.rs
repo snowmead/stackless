@@ -34,13 +34,38 @@ pub async fn run() -> std::io::Result<()> {
     let _ = std::fs::remove_file(&path);
     let listener = UnixListener::bind(&path)?;
 
+    // Boot persistence (§3): register as a launchd user agent so leases
+    // survive reboots/crashes. Refusal degrades loudly, never aborts.
+    crate::launchd::ensure_registered();
+
     let state = Arc::new(DaemonState::default());
+
+    // Re-adopt before serving (§3: upgrade = restart + re-adopt). Routes
+    // and supervision live only in memory, so they died with the prior
+    // daemon — rebuild them from the journal before the proxy or socket
+    // can field a request, so the first proxied call already routes.
+    let summary = crate::adopt::readopt(&state);
+    if !summary.adopted.is_empty() || !summary.dead.is_empty() {
+        eprintln!(
+            "stackless daemon: re-adopted {} live process(es), noted {} dead",
+            summary.adopted.len(),
+            summary.dead.len()
+        );
+    }
+
     let port = proxy::proxy_port();
     let proxy_state = state.clone();
     tokio::spawn(async move {
         if let Err(err) = proxy::serve(proxy_state, port).await {
             eprintln!("stackless daemon: proxy failed to bind port {port}: {err}");
         }
+    });
+
+    // The reaper (§6): one immediate pass reaps leases overdue while the
+    // daemon was down (start/wake), then a tick every minute.
+    tokio::spawn(async {
+        crate::reaper::tick_once().await;
+        crate::reaper::run().await;
     });
 
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);

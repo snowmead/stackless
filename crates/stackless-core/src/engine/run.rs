@@ -226,6 +226,9 @@ impl Engine<'_> {
         }
         self.store.tombstone_instance(instance)?;
         self.store.delete_lease(instance)?;
+        // A successful teardown clears any recorded reap failure —
+        // whether this `down` came from the reaper or the operator (§6).
+        self.store.clear_reap_failure(instance)?;
         Ok(DownOutcome::Destroyed)
     }
 

@@ -146,8 +146,25 @@ impl DaemonClient {
     }
 }
 
-/// Spawn `stackless daemon run` detached, under a lock file so two
-/// CLIs racing here spawn exactly one daemon.
+/// Start `stackless daemon run` detached, under a lock file so two CLIs
+/// racing here start exactly one daemon.
+///
+/// Lifecycle (§3): prefer launchd supervision. When the LaunchAgent is
+/// already usable — plist present, naming *this* binary, and bootstrapped —
+/// `kickstart_if_supervised` runs the service so the steady-state daemon
+/// lives under launchd and KeepAlive({SuccessfulExit=false}) actually
+/// restarts a `kill -9`. A clean `daemon stop` (exit 0) still stays down,
+/// since SuccessfulExit gates the restart on a *crash*.
+///
+/// Otherwise we fall back to a direct `Command` spawn (unsupervised). This
+/// covers the first-ever run (no plist) and the post-upgrade respawn (plist
+/// still names the old binary). That spawned daemon's `ensure_registered`
+/// rewrites the plist to the current exe and re-bootstraps, so the *next*
+/// spawn converges onto the supervised kickstart path:
+///   direct spawn → daemon rewrites plist + re-bootstraps → kickstart.
+///
+/// Either path runs under the spawn lock so concurrent CLIs start one
+/// daemon, not a herd.
 fn spawn_daemon() -> Result<(), DaemonError> {
     let lock_path = spawn_lock_path();
     if let Some(dir) = lock_path.parent() {
@@ -160,6 +177,10 @@ fn spawn_daemon() -> Result<(), DaemonError> {
         // Someone else is spawning; wait for their daemon instead.
         None => return Ok(()),
     };
+    // Supervised start: hand the daemon to launchd when the agent is ready.
+    if crate::launchd::kickstart_if_supervised() {
+        return Ok(());
+    }
     let exe = std::env::current_exe().map_err(|err| DaemonError::Spawn {
         detail: err.to_string(),
     })?;

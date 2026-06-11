@@ -3070,6 +3070,7 @@ dependencies = [
  "serde",
  "serde_json",
  "stackless-core",
+ "tempfile",
  "thiserror",
  "tokio",
 ]
