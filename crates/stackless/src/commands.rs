@@ -17,9 +17,15 @@ use crate::output::Output;
 
 /// The substrate registry (ground rule: providers register here and
 /// only here; core never names one).
-fn substrate(name: &str) -> Result<Box<dyn Substrate>, CliError> {
+fn substrate(
+    name: &str,
+    secrets: BTreeMap<String, String>,
+) -> Result<Box<dyn Substrate>, CliError> {
     match name {
-        LOCAL => Ok(Box::new(LocalSubstrate::default())),
+        LOCAL => Ok(Box::new(LocalSubstrate {
+            proxy_port: stackless_daemon::proxy::proxy_port(),
+            secrets,
+        })),
         // stackless-render lands in M8 and takes this entry over.
         other => Err(CliError::SubstrateUnknown {
             substrate: other.to_owned(),
@@ -101,9 +107,34 @@ pub fn up(args: UpArgs, output: &Output) -> Result<(), CliError> {
         Some(record) if record.status == InstanceStatus::Active => record.substrate.clone(),
         _ => args.on.clone().unwrap_or_else(|| LOCAL.to_owned()),
     };
-    let provider = substrate(&substrate_name)?;
     let text = definition_text(args.file.as_ref(), existing.as_ref())?;
     let def = parse_and_validate(&text)?;
+    // Secrets resolve next to the definition file: --file's parent at
+    // creation, the recorded dir on resume — never the ambient CWD of
+    // a later invocation (invariant 1).
+    let def_dir = args
+        .file
+        .as_ref()
+        .and_then(|f| {
+            let p = f.parent();
+            p.map(|p| {
+                if p.as_os_str().is_empty() {
+                    std::path::PathBuf::from(".")
+                } else {
+                    p.to_path_buf()
+                }
+            })
+        })
+        .or_else(|| {
+            existing.as_ref().and_then(|r| {
+                (!r.definition_dir.is_empty()).then(|| std::path::PathBuf::from(&r.definition_dir))
+            })
+        })
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_default();
+    let def_dir = std::fs::canonicalize(&def_dir).unwrap_or(def_dir);
+    let secrets = crate::secrets::resolve(&def, &def_dir)?;
+    let provider = substrate(&substrate_name, secrets)?;
     let overrides = parse_sources(&args.sources)?;
     let lease = parse_lease(args.lease.as_deref())?;
 
@@ -116,6 +147,7 @@ pub fn up(args: UpArgs, output: &Output) -> Result<(), CliError> {
         definition_text: &text,
         def: &def,
         source_overrides: overrides,
+        definition_dir: def_dir.display().to_string(),
         lease,
     }))?;
 
@@ -129,7 +161,7 @@ pub fn down(name: &str, output: &Output) -> Result<(), CliError> {
     let record = store
         .instance(name)?
         .ok_or_else(|| stackless_core::state::StateError::InstanceNotFound { name: name.into() })?;
-    let provider = substrate(&record.substrate)?;
+    let provider = substrate(&record.substrate, BTreeMap::new())?;
     let engine = Engine {
         store: &store,
         substrate: provider.as_ref(),

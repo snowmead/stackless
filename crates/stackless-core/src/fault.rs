@@ -56,6 +56,12 @@ pub mod codes {
     pub const LOCAL_ENV_RESOLVE: &str = "local.env_resolve";
     pub const LOCAL_KILL_FAILED: &str = "local.kill_failed";
     pub const CLI_BAD_ARGUMENT: &str = "cli.bad_argument";
+    pub const LOCAL_DOCKER_ENGINE: &str = "local.docker.engine";
+    pub const LOCAL_DATASTORE_FAILED: &str = "local.datastore.failed";
+    pub const LOCAL_DATASTORE_NOT_READY: &str = "local.datastore.not_ready";
+    pub const SECRETS_UNRESOLVED: &str = "secrets.unresolved";
+    pub const VERIFY_FAILED: &str = "verify.failed";
+    pub const VERIFY_NOT_DECLARED: &str = "verify.not_declared";
 
     /// Every code in the registry, for uniqueness tests.
     pub const ALL: &[&str] = &[
@@ -102,6 +108,12 @@ pub mod codes {
         LOCAL_ENV_RESOLVE,
         LOCAL_KILL_FAILED,
         CLI_BAD_ARGUMENT,
+        LOCAL_DOCKER_ENGINE,
+        LOCAL_DATASTORE_FAILED,
+        LOCAL_DATASTORE_NOT_READY,
+        SECRETS_UNRESOLVED,
+        VERIFY_FAILED,
+        VERIFY_NOT_DECLARED,
     ];
 }
 

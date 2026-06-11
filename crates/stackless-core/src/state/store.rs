@@ -13,7 +13,10 @@ use rusqlite::Connection;
 
 use super::error::StateError;
 
-const MIGRATIONS: &[&str] = &[include_str!("migrations/001_init.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("migrations/001_init.sql"),
+    include_str!("migrations/002_definition_dir.sql"),
+];
 
 pub struct Store {
     pub(super) conn: Connection,

@@ -1,0 +1,52 @@
+//! v0 secrets resolution (§0/§1): the stack's vault pull is the base
+//! (lands with the Stripe Projects driver, M8) and a gitignored env
+//! file next to stackless.toml overlays it — the override wins (the
+//! Clerk lesson's hand-managed keys). A `required` key resolving from
+//! neither fails before anything provisions, naming the sources
+//! consulted.
+
+use std::collections::BTreeMap;
+use std::path::Path;
+
+use stackless_core::def::StackDef;
+
+use crate::error::CliError;
+
+pub const ENV_FILE: &str = ".stackless.env";
+
+pub fn resolve(def: &StackDef, def_dir: &Path) -> Result<BTreeMap<String, String>, CliError> {
+    let mut resolved = BTreeMap::new();
+    let mut sources = Vec::new();
+    // Vault base: not configured until the render substrate records a
+    // Stripe project (M8). Local-only stacks legally run env-file-only.
+    let env_path = def_dir.join(ENV_FILE);
+    if let Ok(content) = std::fs::read_to_string(&env_path) {
+        sources.push(env_path.display().to_string());
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some((key, value)) = line.split_once('=') {
+                resolved.insert(
+                    key.trim().to_owned(),
+                    value.trim().trim_matches('"').to_owned(),
+                );
+            }
+        }
+    } else {
+        sources.push(format!("{} (absent)", env_path.display()));
+    }
+
+    let missing: Vec<String> = def
+        .secrets
+        .required
+        .iter()
+        .filter(|key| !resolved.contains_key(*key))
+        .cloned()
+        .collect();
+    if !missing.is_empty() {
+        return Err(CliError::SecretsUnresolved { missing, sources });
+    }
+    Ok(resolved)
+}

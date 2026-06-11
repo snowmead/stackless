@@ -6,6 +6,8 @@ mod commands;
 mod daemon_cmd;
 mod error;
 mod output;
+mod secrets;
+mod verify;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -55,6 +57,8 @@ enum Command {
     },
     /// Verified teardown; exits non-zero listing survivors.
     Down { name: String },
+    /// Run the stack's proof contract against a live instance (§7).
+    Verify { name: String },
     /// Staged truth per service (§7).
     Status { name: String },
     /// All instances with lease remaining.
@@ -101,6 +105,7 @@ fn main() -> ExitCode {
             &output,
         ),
         Command::Down { name } => commands::down(&name, &output),
+        Command::Verify { name } => verify::verify(&name, &output),
         Command::Status { name } => commands::status(&name, &output),
         Command::List => commands::list(&output),
         Command::Logs {

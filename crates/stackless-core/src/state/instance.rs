@@ -31,6 +31,9 @@ pub struct InstanceRecord {
     pub definition: String,
     /// Recorded per-invocation `--source` pins (service → path).
     pub source_overrides: BTreeMap<String, String>,
+    /// The directory the definition file came from at creation; the
+    /// sibling secrets env file resolves from here on resume.
+    pub definition_dir: String,
     pub created_at: i64,
     pub tombstoned_at: Option<i64>,
 }
@@ -44,13 +47,14 @@ impl Store {
         substrate: &str,
         definition: &str,
         source_overrides: &BTreeMap<String, String>,
+        definition_dir: &str,
     ) -> Result<InstanceRecord, StateError> {
         let overrides_json =
             serde_json::to_string(source_overrides).unwrap_or_else(|_| "{}".into());
         let result = self.conn.execute(
-            "INSERT INTO instances (name, substrate, status, definition, source_overrides, created_at)
-             VALUES (?1, ?2, 'active', ?3, ?4, ?5)",
-            rusqlite::params![name, substrate, definition, overrides_json, Self::now()],
+            "INSERT INTO instances (name, substrate, status, definition, source_overrides, created_at, definition_dir)
+             VALUES (?1, ?2, 'active', ?3, ?4, ?5, ?6)",
+            rusqlite::params![name, substrate, definition, overrides_json, Self::now(), definition_dir],
         );
         match result {
             Ok(_) => self
@@ -73,7 +77,7 @@ impl Store {
     pub fn instance(&self, name: &str) -> Result<Option<InstanceRecord>, StateError> {
         self.conn
             .query_row(
-                "SELECT name, substrate, status, definition, source_overrides, created_at, tombstoned_at
+                "SELECT name, substrate, status, definition, source_overrides, created_at, tombstoned_at, definition_dir
                  FROM instances WHERE name = ?1",
                 [name],
                 row_to_instance,
@@ -84,7 +88,7 @@ impl Store {
 
     pub fn instances(&self) -> Result<Vec<InstanceRecord>, StateError> {
         let mut stmt = self.conn.prepare(
-            "SELECT name, substrate, status, definition, source_overrides, created_at, tombstoned_at
+            "SELECT name, substrate, status, definition, source_overrides, created_at, tombstoned_at, definition_dir
              FROM instances ORDER BY name",
         )?;
         let rows = stmt.query_map([], row_to_instance)?;
@@ -154,6 +158,7 @@ fn row_to_instance(row: &rusqlite::Row<'_>) -> rusqlite::Result<InstanceRecord> 
         source_overrides: serde_json::from_str(&overrides_json).unwrap_or_default(),
         created_at: row.get(5)?,
         tombstoned_at: row.get(6)?,
+        definition_dir: row.get(7)?,
     })
 }
 

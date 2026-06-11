@@ -2,6 +2,7 @@
 //! services as host processes, datastores as containers (M5), wiring
 //! through the built-in proxy.
 
+pub mod container;
 pub mod error;
 pub mod health;
 pub mod spawn;
@@ -172,11 +173,30 @@ impl Substrate for LocalSubstrate {
     async fn execute(&self, ctx: StepContext<'_>) -> Result<StepResource, SubstrateFault> {
         let service = ctx.step.node.as_str();
         match ctx.step.kind {
-            StepKind::ProvisionDatastore => Err(SubstrateFault {
-                code: stackless_core::fault::codes::LOCAL_CONFIG_INVALID,
-                message: format!("datastore {service:?}: local containers are not implemented yet"),
-                remediation: "datastore support lands with the container runner (M5)".into(),
-            }),
+            StepKind::ProvisionDatastore => {
+                let datastore = service;
+                let Some(spec) = ctx.def.datastores.get(datastore) else {
+                    return Err(SubstrateFault {
+                        code: stackless_core::fault::codes::LOCAL_DATASTORE_FAILED,
+                        message: format!("datastore {datastore:?} is not in the definition"),
+                        remediation: "re-run `up`; if it persists this is a stackless bug".into(),
+                    });
+                };
+                let provisioned =
+                    container::provision_postgres(ctx.instance, datastore, &spec.version)
+                        .await
+                        .map_err(|err| SubstrateFault::from_fault(&err))?;
+                let payload = serde_json::json!({
+                    "container_id": provisioned.container_id,
+                    "port": provisioned.port,
+                    "url": provisioned.url,
+                });
+                Ok(StepResource {
+                    resource_kind: "container".into(),
+                    resource_id: container::container_name(ctx.instance, datastore),
+                    payload: payload.to_string(),
+                })
+            }
             StepKind::Materialize => {
                 let Some(path) = ctx.source_overrides.get(service) else {
                     return Err(fault(LocalError::MaterializeUnavailable {
@@ -311,10 +331,36 @@ impl Substrate for LocalSubstrate {
 
     async fn observe(
         &self,
-        _instance: &str,
+        instance: &str,
         checkpoint: &Checkpoint,
     ) -> Result<Observation, SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
+            "container" => {
+                let payload = serde_json::from_str::<serde_json::Value>(&checkpoint.payload).ok();
+                let container_id = payload
+                    .as_ref()
+                    .and_then(|p| p.get("container_id"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&checkpoint.resource_id)
+                    .to_owned();
+                let running = container::observe(&container_id)
+                    .await
+                    .map_err(|err| SubstrateFault::from_fault(&err))?;
+                // After destroy, a lingering volume is a survivor too:
+                // teardown verification covers state, not just runtime.
+                let datastore = checkpoint
+                    .step_id
+                    .strip_prefix("provision:")
+                    .unwrap_or_default();
+                let volume = container::volume_exists(instance, datastore)
+                    .await
+                    .map_err(|err| SubstrateFault::from_fault(&err))?;
+                Ok(if running || volume {
+                    Observation::Present
+                } else {
+                    Observation::Gone
+                })
+            }
             "process" => {
                 let payload = serde_json::from_str::<StartPayload>(&checkpoint.payload);
                 let alive = payload.is_ok_and(|p| {
@@ -337,12 +383,24 @@ impl Substrate for LocalSubstrate {
         }
     }
 
-    async fn destroy(
-        &self,
-        _instance: &str,
-        checkpoint: &Checkpoint,
-    ) -> Result<(), SubstrateFault> {
+    async fn destroy(&self, instance: &str, checkpoint: &Checkpoint) -> Result<(), SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
+            "container" => {
+                let payload = serde_json::from_str::<serde_json::Value>(&checkpoint.payload).ok();
+                let container_id = payload
+                    .as_ref()
+                    .and_then(|p| p.get("container_id"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&checkpoint.resource_id)
+                    .to_owned();
+                let datastore = checkpoint
+                    .step_id
+                    .strip_prefix("provision:")
+                    .unwrap_or_default();
+                container::destroy(instance, datastore, &container_id)
+                    .await
+                    .map_err(|err| SubstrateFault::from_fault(&err))
+            }
             "process" => {
                 let payload =
                     serde_json::from_str::<StartPayload>(&checkpoint.payload).map_err(|err| {

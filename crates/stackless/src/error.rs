@@ -35,6 +35,18 @@ pub enum CliError {
     #[error("bad argument {argument}: {detail}")]
     BadArgument { argument: String, detail: String },
 
+    #[error("required secrets unresolved: {missing:?} (consulted: {sources:?})")]
+    SecretsUnresolved {
+        missing: Vec<String>,
+        sources: Vec<String>,
+    },
+
+    #[error("the stack declares no [stack.verify] contract")]
+    VerifyNotDeclared,
+
+    #[error("verify command exited with {status}")]
+    VerifyFailed { status: String },
+
     #[error("runtime error: {0}")]
     Runtime(std::io::Error),
 }
@@ -49,6 +61,9 @@ impl Fault for CliError {
             Self::Engine(err) => err.code(),
             Self::State(err) => err.code(),
             Self::BadArgument { .. } => codes::CLI_BAD_ARGUMENT,
+            Self::SecretsUnresolved { .. } => codes::SECRETS_UNRESOLVED,
+            Self::VerifyNotDeclared => codes::VERIFY_NOT_DECLARED,
+            Self::VerifyFailed { .. } => codes::VERIFY_FAILED,
             Self::Runtime(_) => codes::CLI_RUNTIME,
         }
     }
@@ -67,6 +82,19 @@ impl Fault for CliError {
             Self::State(err) => err.remediation(),
             Self::BadArgument { argument, .. } => {
                 format!("fix the {argument} value; see `stackless --help`")
+            }
+            Self::SecretsUnresolved { missing, .. } => format!(
+                "add {missing:?} to the {} file next to stackless.toml (KEY=value lines), or \
+                 remove them from [secrets].required",
+                crate::secrets::ENV_FILE
+            ),
+            Self::VerifyNotDeclared => {
+                "add a [stack.verify] table with a `run` command to stackless.toml".into()
+            }
+            Self::VerifyFailed { .. } => {
+                "the verify command's output above shows what failed; fix and re-run \
+                 `stackless verify`"
+                    .into()
             }
             Self::Runtime(_) => "re-run the command; if it persists this is a stackless bug".into(),
         }

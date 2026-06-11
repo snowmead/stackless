@@ -1,0 +1,20 @@
+[stack]
+name = "pgdemo"
+
+[stack.verify]
+run = "curl -sf $WEB_ORIGIN/dburl.txt | grep -q 'postgres://' && echo 'verify: db url served'"
+env = { WEB_ORIGIN = "${services.web.origin}", DB_URL = "${datastores.db.url}" }
+
+[datastores.db]
+engine = "postgres"
+version = "17"
+
+[services.web]
+source = { repo = "https://example.invalid/pgdemo", ref = "main" }
+prepare = "echo \"$DATABASE_URL\" > dburl.txt"
+env = { DATABASE_URL = "${datastores.db.url}" }
+root_origin = true
+health = { path = "/dburl.txt", contains = "postgres://" }
+
+  [services.web.local]
+  run = "python3 -m http.server $PORT --bind 127.0.0.1"

@@ -32,6 +32,8 @@ pub struct UpRequest<'a> {
     pub definition_text: &'a str,
     pub def: &'a StackDef,
     pub source_overrides: BTreeMap<String, String>,
+    /// Where the definition file lives (sibling secrets resolve here).
+    pub definition_dir: String,
     /// `--lease`; defaults to the substrate's (§6).
     pub lease: Option<Duration>,
 }
@@ -109,6 +111,7 @@ impl Engine<'_> {
                     self.substrate.name(),
                     request.definition_text,
                     &request.source_overrides,
+                    &request.definition_dir,
                 ) {
                     Ok(_) => {}
                     // A concurrent up created it first; the lock claim
