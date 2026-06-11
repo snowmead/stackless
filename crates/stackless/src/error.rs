@@ -20,6 +20,12 @@ pub enum CliError {
 
     #[error(transparent)]
     Def(#[from] DefError),
+
+    #[error(transparent)]
+    Daemon(#[from] stackless_daemon::DaemonError),
+
+    #[error("runtime error: {0}")]
+    Runtime(std::io::Error),
 }
 
 impl Fault for CliError {
@@ -28,6 +34,8 @@ impl Fault for CliError {
             Self::FileRead { .. } => codes::CLI_FILE_READ,
             Self::SubstrateUnknown { .. } => codes::CLI_SUBSTRATE_UNKNOWN,
             Self::Def(err) => err.code(),
+            Self::Daemon(err) => err.code(),
+            Self::Runtime(_) => codes::CLI_RUNTIME,
         }
     }
 
@@ -40,6 +48,8 @@ impl Fault for CliError {
                 format!("pass one of the registered substrates: {known:?}")
             }
             Self::Def(err) => err.remediation(),
+            Self::Daemon(err) => err.remediation(),
+            Self::Runtime(_) => "re-run the command; if it persists this is a stackless bug".into(),
         }
     }
 

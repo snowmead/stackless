@@ -76,6 +76,16 @@ impl Output {
         }
     }
 
+    /// A line of human progress/debug output (stderr in --json mode so
+    /// stdout stays machine-parseable).
+    pub fn message(&self, text: &str) {
+        if self.json {
+            eprintln!("{text}");
+        } else {
+            println!("{text}");
+        }
+    }
+
     pub fn fault(&self, fault: &dyn Fault) {
         if self.json {
             self.emit(&ErrorEnvelope {

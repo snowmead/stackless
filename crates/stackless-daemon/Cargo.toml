@@ -1,5 +1,5 @@
 [package]
-name = "stackless"
+name = "stackless-daemon"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
@@ -9,10 +9,11 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-clap = { version = "4.6.1", features = ["derive"] }
+http-body-util = "0.1.3"
+hyper = { version = "1.10.1", features = ["server", "client", "http1"] }
+hyper-util = { version = "0.1.20", features = ["server", "client", "client-legacy", "http1", "tokio"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 stackless-core.workspace = true
-stackless-daemon = { version = "0.1.0", path = "../stackless-daemon" }
 thiserror = "2.0.18"
-tokio = { version = "1.52.3", features = ["rt-multi-thread"] }
+tokio = { version = "1.52.3", features = ["full"] }

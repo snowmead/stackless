@@ -2,6 +2,7 @@
 //! capable, exit codes an agent can branch on, every error carrying a
 //! stable code and a remediation.
 
+mod daemon_cmd;
 mod error;
 mod output;
 
@@ -40,6 +41,9 @@ enum Command {
         #[arg(long = "on", value_name = "SUBSTRATE")]
         substrate: Option<String>,
     },
+    /// Daemon internals (spawned on demand; rarely run by hand).
+    #[command(subcommand, hide = true)]
+    Daemon(daemon_cmd::DaemonCommand),
 }
 
 fn main() -> ExitCode {
@@ -47,6 +51,7 @@ fn main() -> ExitCode {
     let output = Output::new(cli.json);
     let result = match cli.command {
         Command::Check { file, substrate } => check(&file, substrate.as_deref(), &output),
+        Command::Daemon(command) => daemon_cmd::run(command, &output),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

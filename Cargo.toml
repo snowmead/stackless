@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/stackless-core", "crates/stackless"]
+members = ["crates/stackless-core", "crates/stackless-daemon", "crates/stackless"]
 
 [workspace.package]
 edition = "2024"
@@ -20,3 +20,4 @@ dbg_macro = "deny"
 
 [workspace.dependencies]
 stackless-core = { path = "crates/stackless-core" }
+stackless-daemon = { path = "crates/stackless-daemon" }

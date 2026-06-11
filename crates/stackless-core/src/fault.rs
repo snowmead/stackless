@@ -40,6 +40,10 @@ pub mod codes {
     pub const ENGINE_SOURCE_OVERRIDE_UNSUPPORTED: &str = "engine.source_override.unsupported";
     pub const ENGINE_STEP_FAILED: &str = "engine.step.failed";
     pub const ENGINE_TEARDOWN_SURVIVORS: &str = "engine.teardown.survivors";
+    pub const DAEMON_UNREACHABLE: &str = "daemon.unreachable";
+    pub const DAEMON_REQUEST_FAILED: &str = "daemon.request_failed";
+    pub const DAEMON_SPAWN_FAILED: &str = "daemon.spawn_failed";
+    pub const CLI_RUNTIME: &str = "cli.runtime";
 
     /// Every code in the registry, for uniqueness tests.
     pub const ALL: &[&str] = &[
@@ -70,6 +74,10 @@ pub mod codes {
         ENGINE_SOURCE_OVERRIDE_UNSUPPORTED,
         ENGINE_STEP_FAILED,
         ENGINE_TEARDOWN_SURVIVORS,
+        DAEMON_UNREACHABLE,
+        DAEMON_REQUEST_FAILED,
+        DAEMON_SPAWN_FAILED,
+        CLI_RUNTIME,
     ];
 }
 
