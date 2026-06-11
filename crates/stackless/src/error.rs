@@ -2,7 +2,9 @@
 //! other layer's.
 
 use stackless_core::def::DefError;
+use stackless_core::engine::EngineError;
 use stackless_core::fault::{Fault, codes};
+use stackless_core::state::StateError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CliError {
@@ -24,6 +26,15 @@ pub enum CliError {
     #[error(transparent)]
     Daemon(#[from] stackless_daemon::DaemonError),
 
+    #[error(transparent)]
+    Engine(#[from] EngineError),
+
+    #[error(transparent)]
+    State(#[from] StateError),
+
+    #[error("bad argument {argument}: {detail}")]
+    BadArgument { argument: String, detail: String },
+
     #[error("runtime error: {0}")]
     Runtime(std::io::Error),
 }
@@ -35,6 +46,9 @@ impl Fault for CliError {
             Self::SubstrateUnknown { .. } => codes::CLI_SUBSTRATE_UNKNOWN,
             Self::Def(err) => err.code(),
             Self::Daemon(err) => err.code(),
+            Self::Engine(err) => err.code(),
+            Self::State(err) => err.code(),
+            Self::BadArgument { .. } => codes::CLI_BAD_ARGUMENT,
             Self::Runtime(_) => codes::CLI_RUNTIME,
         }
     }
@@ -49,6 +63,11 @@ impl Fault for CliError {
             }
             Self::Def(err) => err.remediation(),
             Self::Daemon(err) => err.remediation(),
+            Self::Engine(err) => err.remediation(),
+            Self::State(err) => err.remediation(),
+            Self::BadArgument { argument, .. } => {
+                format!("fix the {argument} value; see `stackless --help`")
+            }
             Self::Runtime(_) => "re-run the command; if it persists this is a stackless bug".into(),
         }
     }
@@ -56,6 +75,7 @@ impl Fault for CliError {
     fn step(&self) -> Option<&str> {
         match self {
             Self::Def(err) => err.step(),
+            Self::Engine(err) => err.step(),
             _ => None,
         }
     }

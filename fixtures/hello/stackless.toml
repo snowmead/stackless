@@ -1,0 +1,10 @@
+[stack]
+name = "hello"
+
+[services.web]
+source = { repo = "https://example.invalid/hello", ref = "main" }
+root_origin = true
+health = { path = "/", contains = "hello-fixture" }
+
+  [services.web.local]
+  run = "python3 -m http.server $PORT --bind 127.0.0.1"

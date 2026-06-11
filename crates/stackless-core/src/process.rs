@@ -21,6 +21,11 @@ impl ProcessStamp {
         }
     }
 
+    /// The stamp of an arbitrary live process, if it exists.
+    pub fn of(pid: u32) -> Option<Self> {
+        start_time_of(pid).map(|start_time| Self { pid, start_time })
+    }
+
     /// True only if a process with this PID exists *and* started at the
     /// recorded time — a recycled PID does not count.
     pub fn is_alive(&self) -> bool {

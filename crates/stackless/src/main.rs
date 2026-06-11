@@ -2,6 +2,7 @@
 //! capable, exit codes an agent can branch on, every error carrying a
 //! stable code and a remediation.
 
+mod commands;
 mod daemon_cmd;
 mod error;
 mod output;
@@ -33,6 +34,39 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Create or resume a named instance; health-gated (invariant 2).
+    Up {
+        /// Instance name (DNS-safe; becomes hostnames).
+        name: String,
+        /// Definition file (default: ./stackless.toml at creation; the
+        /// instance's snapshot on resume).
+        #[arg(long)]
+        file: Option<PathBuf>,
+        /// Substrate, chosen at creation only (default: local).
+        #[arg(long = "on", value_name = "SUBSTRATE")]
+        on: Option<String>,
+        /// Pin a service to an existing checkout: service=path
+        /// (local-only, recorded, repeatable).
+        #[arg(long = "source", value_name = "SVC=PATH")]
+        sources: Vec<String>,
+        /// Lease duration, e.g. 8h, 45m (default: substrate's).
+        #[arg(long)]
+        lease: Option<String>,
+    },
+    /// Verified teardown; exits non-zero listing survivors.
+    Down { name: String },
+    /// Staged truth per service (§7).
+    Status { name: String },
+    /// All instances with lease remaining.
+    List,
+    /// Tail captured service output.
+    Logs {
+        name: String,
+        service: Option<String>,
+        /// Lines per service.
+        #[arg(long, default_value_t = 100)]
+        tail: usize,
+    },
     /// Parse and validate a stack definition; print the derived graph.
     Check {
         /// Path to a stackless.toml.
@@ -50,6 +84,30 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let output = Output::new(cli.json);
     let result = match cli.command {
+        Command::Up {
+            name,
+            file,
+            on,
+            sources,
+            lease,
+        } => commands::up(
+            commands::UpArgs {
+                name,
+                file,
+                on,
+                sources,
+                lease,
+            },
+            &output,
+        ),
+        Command::Down { name } => commands::down(&name, &output),
+        Command::Status { name } => commands::status(&name, &output),
+        Command::List => commands::list(&output),
+        Command::Logs {
+            name,
+            service,
+            tail,
+        } => commands::logs(&name, service.as_deref(), tail, &output),
         Command::Check { file, substrate } => check(&file, substrate.as_deref(), &output),
         Command::Daemon(command) => daemon_cmd::run(command, &output),
     };

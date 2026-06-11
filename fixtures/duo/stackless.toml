@@ -1,0 +1,19 @@
+[stack]
+name = "duo"
+
+[services.web]
+source = { repo = "https://example.invalid/duo", ref = "main" }
+root_origin = true
+env = { PEER = "${services.api.origin}" }
+health = { path = "/", contains = "duo-fixture" }
+
+  [services.web.local]
+  run = "python3 -m http.server $PORT --bind 127.0.0.1"
+
+[services.api]
+source = { repo = "https://example.invalid/duo-api", ref = "main" }
+env = { WEB_ORIGIN = "${services.web.origin}", INSTANCE = "${instance.name}" }
+health = { path = "/", contains = "duo-fixture" }
+
+  [services.api.local]
+  run = "./serve-wrapper.sh"

@@ -76,6 +76,93 @@ impl Output {
         }
     }
 
+    pub fn up_ok(
+        &self,
+        name: &str,
+        substrate: &str,
+        outcome: &stackless_core::engine::UpOutcome,
+        origins: &[(String, String)],
+    ) {
+        if self.json {
+            #[derive(Serialize)]
+            struct UpOk<'a> {
+                ok: bool,
+                instance: &'a str,
+                substrate: &'a str,
+                executed: &'a [String],
+                skipped: &'a [String],
+                origins: Vec<Origin<'a>>,
+            }
+            #[derive(Serialize)]
+            struct Origin<'a> {
+                service: &'a str,
+                origin: &'a str,
+            }
+            self.emit(&UpOk {
+                ok: true,
+                instance: name,
+                substrate,
+                executed: &outcome.executed,
+                skipped: &outcome.skipped,
+                origins: origins
+                    .iter()
+                    .map(|(service, origin)| Origin { service, origin })
+                    .collect(),
+            });
+            return;
+        }
+        println!("{name}: up on {substrate} (all health contracts passed)");
+        for (service, origin) in origins {
+            println!("  {service}: {origin}");
+        }
+        if !outcome.skipped.is_empty() {
+            println!(
+                "  resumed: {} steps already in place",
+                outcome.skipped.len()
+            );
+        }
+    }
+
+    pub fn status(&self, report: &crate::commands::InstanceStatusReport) {
+        if self.json {
+            self.emit(report);
+            return;
+        }
+        let lease = report
+            .lease_remaining_secs
+            .map(|secs| format!("{}m remaining", secs / 60))
+            .unwrap_or_else(|| "none".into());
+        println!(
+            "{} [{}] {} — lease: {}",
+            report.name, report.substrate, report.status, lease
+        );
+        for service in &report.services {
+            let alive = match service.alive {
+                Some(true) => " (process alive)",
+                Some(false) => " (process dead)",
+                None => "",
+            };
+            println!(
+                "  {}: {}{} {}",
+                service.service, service.stage, alive, service.origin
+            );
+        }
+    }
+
+    pub fn list(&self, reports: &[crate::commands::InstanceStatusReport]) {
+        if self.json {
+            self.emit(&reports);
+            return;
+        }
+        if reports.is_empty() {
+            println!("no instances");
+            return;
+        }
+        for report in reports {
+            self.status(report);
+        }
+    }
+
     /// A line of human progress/debug output (stderr in --json mode so
     /// stdout stays machine-parseable).
     pub fn message(&self, text: &str) {

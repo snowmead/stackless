@@ -76,6 +76,7 @@ impl Engine<'_> {
 
         // Resolve or create the record; the substrate is part of the
         // instance's identity and is never asked for again (§2).
+        let mut source_overrides = request.source_overrides.clone();
         match self.store.instance(request.instance)? {
             Some(existing) if existing.substrate != self.substrate.name() => {
                 return Err(EngineError::SubstrateMismatch {
@@ -88,6 +89,10 @@ impl Engine<'_> {
                 if !request.source_overrides.is_empty() {
                     self.store
                         .update_source_overrides(request.instance, &request.source_overrides)?;
+                } else if existing.status == InstanceStatus::Active {
+                    // The pin was recorded at creation (§1); resume
+                    // honors it rather than re-deriving anything.
+                    source_overrides = existing.source_overrides.clone();
                 }
                 // `up` on a tombstone is a fresh birth under the old name.
                 if existing.status == InstanceStatus::Tombstoned {
@@ -99,12 +104,20 @@ impl Engine<'_> {
                 }
             }
             None => {
-                self.store.create_instance(
+                match self.store.create_instance(
                     request.instance,
                     self.substrate.name(),
                     request.definition_text,
                     &request.source_overrides,
-                )?;
+                ) {
+                    Ok(_) => {}
+                    // A concurrent up created it first; the lock claim
+                    // below arbitrates.
+                    Err(crate::state::StateError::InstanceExists {
+                        existing_substrate, ..
+                    }) if existing_substrate == self.substrate.name() => {}
+                    Err(err) => return Err(err.into()),
+                }
             }
         }
 
@@ -114,7 +127,7 @@ impl Engine<'_> {
             .unwrap_or_else(|| self.substrate.default_lease());
         self.store.renew_lease(request.instance, lease)?;
 
-        let result = self.run_steps(&request).await;
+        let result = self.run_steps(&request, &source_overrides).await;
         self.store.release_lock(&claim)?;
         let outcome = result?;
         // A successful `up` renews again (§6).
@@ -123,7 +136,11 @@ impl Engine<'_> {
         Ok(outcome)
     }
 
-    async fn run_steps(&self, request: &UpRequest<'_>) -> Result<UpOutcome, EngineError> {
+    async fn run_steps(
+        &self,
+        request: &UpRequest<'_>,
+        source_overrides: &std::collections::BTreeMap<String, String>,
+    ) -> Result<UpOutcome, EngineError> {
         let steps = plan::plan(request.def)?;
         let mut outcome = UpOutcome::default();
         for step in &steps {
@@ -152,7 +169,7 @@ impl Engine<'_> {
                     instance: request.instance,
                     def: request.def,
                     step,
-                    source_overrides: &request.source_overrides,
+                    source_overrides,
                     prior: &prior,
                 })
                 .await
@@ -214,6 +231,12 @@ impl Engine<'_> {
         checkpoints.reverse();
         let mut survivors = Vec::new();
         for checkpoint in &checkpoints {
+            // Hooks and gates created nothing destructible.
+            if checkpoint.resource_kind == crate::substrate::ACTION_RESOURCE_KIND {
+                self.store
+                    .remove_checkpoint(instance, &checkpoint.step_id)?;
+                continue;
+            }
             if self.substrate.destroy(instance, checkpoint).await.is_err() {
                 survivors.push(checkpoint.resource_id.clone());
                 continue;

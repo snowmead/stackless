@@ -46,6 +46,11 @@ impl Fault for SubstrateFault {
     }
 }
 
+/// Steps that perform work but create no destructible resource (hooks,
+/// health gates) record this kind; teardown drops their checkpoints
+/// without a destroy/observe round-trip.
+pub const ACTION_RESOURCE_KIND: &str = "action";
+
 /// What a recorded resource looks like when re-checked against the
 /// substrate (invariant 4: the manifest says where to look, the
 /// substrate says what's true).

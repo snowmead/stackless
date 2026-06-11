@@ -44,6 +44,18 @@ pub mod codes {
     pub const DAEMON_REQUEST_FAILED: &str = "daemon.request_failed";
     pub const DAEMON_SPAWN_FAILED: &str = "daemon.spawn_failed";
     pub const CLI_RUNTIME: &str = "cli.runtime";
+    pub const LOCAL_MATERIALIZE_UNAVAILABLE: &str = "local.materialize.unavailable";
+    pub const LOCAL_SOURCE_PATH_INVALID: &str = "local.source_path.invalid";
+    pub const LOCAL_CONFIG_INVALID: &str = "local.config.invalid";
+    pub const LOCAL_PORT_ALLOC: &str = "local.port.alloc_failed";
+    pub const LOCAL_LOG_FILE: &str = "local.log_file";
+    pub const LOCAL_SPAWN_FAILED: &str = "local.spawn_failed";
+    pub const LOCAL_HOOK_FAILED: &str = "local.hook_failed";
+    pub const LOCAL_HEALTH_FAILED: &str = "local.health_failed";
+    pub const LOCAL_SERVICE_DIED: &str = "local.service_died";
+    pub const LOCAL_ENV_RESOLVE: &str = "local.env_resolve";
+    pub const LOCAL_KILL_FAILED: &str = "local.kill_failed";
+    pub const CLI_BAD_ARGUMENT: &str = "cli.bad_argument";
 
     /// Every code in the registry, for uniqueness tests.
     pub const ALL: &[&str] = &[
@@ -78,6 +90,18 @@ pub mod codes {
         DAEMON_REQUEST_FAILED,
         DAEMON_SPAWN_FAILED,
         CLI_RUNTIME,
+        LOCAL_MATERIALIZE_UNAVAILABLE,
+        LOCAL_SOURCE_PATH_INVALID,
+        LOCAL_CONFIG_INVALID,
+        LOCAL_PORT_ALLOC,
+        LOCAL_LOG_FILE,
+        LOCAL_SPAWN_FAILED,
+        LOCAL_HOOK_FAILED,
+        LOCAL_HEALTH_FAILED,
+        LOCAL_SERVICE_DIED,
+        LOCAL_ENV_RESOLVE,
+        LOCAL_KILL_FAILED,
+        CLI_BAD_ARGUMENT,
     ];
 }
 

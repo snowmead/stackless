@@ -20,11 +20,18 @@ impl Store {
     /// are an expected event.
     pub fn claim_lock(&self, instance: &str, operation: &str) -> Result<LockClaim, StateError> {
         let me = ProcessStamp::current();
-        let tx = self
-            .conn
-            .unchecked_transaction()
+        // IMMEDIATE: take the write lock up front so two claimants
+        // serialize here (busy_timeout absorbs the short wait) instead
+        // of failing on a deferred upgrade mid-transaction.
+        self.conn
+            .execute_batch("BEGIN IMMEDIATE")
             .map_err(StateError::from)?;
+        struct Tx<'a> {
+            conn: &'a rusqlite::Connection,
+        }
+        let tx = Tx { conn: &self.conn };
         let existing = tx
+            .conn
             .query_row(
                 "SELECT operation, holder_pid, holder_start_time, acquired_at
                  FROM op_locks WHERE instance = ?1",
@@ -50,6 +57,7 @@ impl Store {
             };
             // Same liveness check the daemon uses for service processes.
             if holder.is_alive() && holder != me {
+                let _ = self.conn.execute_batch("ROLLBACK");
                 return Err(StateError::LockHeld {
                     instance: instance.into(),
                     operation,
@@ -58,7 +66,7 @@ impl Store {
                 });
             }
         }
-        tx.execute(
+        tx.conn.execute(
             "INSERT INTO op_locks (instance, operation, holder_pid, holder_start_time, acquired_at)
              VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(instance) DO UPDATE SET
@@ -74,7 +82,9 @@ impl Store {
                 Self::now()
             ],
         )?;
-        tx.commit().map_err(StateError::from)?;
+        self.conn
+            .execute_batch("COMMIT")
+            .map_err(StateError::from)?;
         Ok(LockClaim {
             instance: instance.into(),
             operation: operation.into(),

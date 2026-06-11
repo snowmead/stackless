@@ -1,5 +1,5 @@
 [package]
-name = "stackless"
+name = "stackless-local"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
@@ -9,12 +9,12 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-clap = { version = "4.6.1", features = ["derive"] }
-humantime = "2.3.0"
+async-trait = "0.1.89"
+reqwest = { version = "0.13.4", default-features = false }
+rustix = { version = "1.1.4", features = ["process"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 stackless-core.workspace = true
-stackless-daemon = { version = "0.1.0", path = "../stackless-daemon" }
-stackless-local.workspace = true
+stackless-daemon.workspace = true
 thiserror = "2.0.18"
-tokio = { version = "1.52.3", features = ["rt-multi-thread"] }
+tokio = { version = "1.52.3", features = ["rt", "time", "macros"] }
