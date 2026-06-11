@@ -5,4 +5,8 @@
 //! `Substrate` trait and register by name in the binary.
 
 pub mod def;
+pub mod engine;
 pub mod fault;
+pub mod process;
+pub mod state;
+pub mod substrate;

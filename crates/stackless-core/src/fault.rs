@@ -30,6 +30,16 @@ pub mod codes {
     pub const DEF_ENV_NOT_STRINGS: &str = "def.validate.env_not_strings";
     pub const CLI_FILE_READ: &str = "cli.file.read";
     pub const CLI_SUBSTRATE_UNKNOWN: &str = "cli.substrate.unknown";
+    pub const STATE_OPEN: &str = "state.open_failed";
+    pub const STATE_MIGRATE: &str = "state.migrate_failed";
+    pub const STATE_QUERY: &str = "state.query_failed";
+    pub const STATE_INSTANCE_EXISTS: &str = "state.instance.exists";
+    pub const STATE_INSTANCE_NOT_FOUND: &str = "state.instance.not_found";
+    pub const STATE_LOCK_HELD: &str = "state.lock.held";
+    pub const ENGINE_SUBSTRATE_MISMATCH: &str = "engine.substrate.mismatch";
+    pub const ENGINE_SOURCE_OVERRIDE_UNSUPPORTED: &str = "engine.source_override.unsupported";
+    pub const ENGINE_STEP_FAILED: &str = "engine.step.failed";
+    pub const ENGINE_TEARDOWN_SURVIVORS: &str = "engine.teardown.survivors";
 
     /// Every code in the registry, for uniqueness tests.
     pub const ALL: &[&str] = &[
@@ -50,6 +60,16 @@ pub mod codes {
         DEF_ENV_NOT_STRINGS,
         CLI_FILE_READ,
         CLI_SUBSTRATE_UNKNOWN,
+        STATE_OPEN,
+        STATE_MIGRATE,
+        STATE_QUERY,
+        STATE_INSTANCE_EXISTS,
+        STATE_INSTANCE_NOT_FOUND,
+        STATE_LOCK_HELD,
+        ENGINE_SUBSTRATE_MISMATCH,
+        ENGINE_SOURCE_OVERRIDE_UNSUPPORTED,
+        ENGINE_STEP_FAILED,
+        ENGINE_TEARDOWN_SURVIVORS,
     ];
 }
 

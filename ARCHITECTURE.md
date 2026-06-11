@@ -252,7 +252,16 @@ vision's invariants; flag anything to veto):
   becomes a `UNIQUE` constraint, and lease/lock claims become
   single-statement compare-and-swap `UPDATE`s — the multi-agent
   conflict case most developers never hit. Crate choice, recorded to
-  veto: the `turso` crate is the local engine, but fleet mode needs
+  veto: the `turso` crate was the intended local engine, **revised
+  2026-06-11 during implementation** — a spike against turso 0.6.1
+  proved it takes an exclusive per-process file lock: a second process
+  cannot even open the database while one is connected, idle or not,
+  `experimental_multiprocess_wal` included. CLI invocations and the
+  daemon must share the state store concurrently by design, so the
+  local engine is `rusqlite` (bundled SQLite, WAL, busy timeout)
+  behind the same `store.rs` seam — same file format, same SQL, a
+  contained substitution; revisit when turso ships real multi-process
+  support. Fleet mode is unchanged: it needs
   synchronous CAS against the primary, which today only the `libsql`
   crate's remote mode provides — the `turso` crate's cloud story is
   asynchronous last-push-wins sync, which structurally cannot express
