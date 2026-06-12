@@ -334,7 +334,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
         instance: &str,
         datastore: &str,
     ) -> Result<StepResource, SubstrateFault> {
-        let plan = config::datastore_plan(def, datastore).map_err(fault)?;
+        let plan = Self::datastore_plan(def, datastore).map_err(fault)?;
         let render_name = Self::resource_name(def, instance, datastore);
         let resource = format!("{instance}-{datastore}");
         self.require_confirm_paid(&resource)?;
@@ -344,7 +344,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
                 detail: "datastore not in definition".into(),
             })
         })?;
-        let region = config::stack_region(def);
+        let region = Self::stack_region(def);
         // Live-observed (2026-06-11): the render/postgres `--config` schema
         // selects the paid tier via `instance_type` (values from the
         // catalog pricing block: "free", "basic-256mb", "basic-1gb", …),
@@ -406,10 +406,10 @@ impl<R: CommandRunner> RenderSubstrate<R> {
         service: &str,
         prior: &[Checkpoint],
     ) -> Result<StepResource, SubstrateFault> {
-        let render_cfg = config::service_render(def, service).map_err(fault)?;
+        let render_cfg = Self::service_render(def, service).map_err(fault)?;
         let render_name = Self::resource_name(def, instance, service);
         let resource = format!("{instance}-{service}");
-        let region = config::stack_region(def);
+        let region = Self::stack_region(def);
         let spec = def.services.get(service).ok_or_else(|| {
             fault(RenderError::ConfigInvalid {
                 location: format!("services.{service}"),
@@ -672,10 +672,10 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
         // every datastore a [datastores.X.render] plan (§4). Strict, to
         // trap agent typos before anything provisions.
         for datastore in def.datastores.keys() {
-            config::datastore_plan(def, datastore).map_err(fault)?;
+            Self::datastore_plan(def, datastore).map_err(fault)?;
         }
         for service in def.services.keys() {
-            config::service_render(def, service).map_err(fault)?;
+            Self::service_render(def, service).map_err(fault)?;
         }
         Ok(())
     }

@@ -6,8 +6,10 @@
 
 use stackless_core::def::StackDef;
 
+use crate::RenderSubstrate;
 use crate::SUBSTRATE_NAME;
 use crate::error::RenderError;
+use crate::stripe::CommandRunner;
 
 /// A service's `[services.X.render]` block: either a runtime web service
 /// or a static site.
@@ -39,8 +41,9 @@ impl ServiceRender {
     }
 }
 
-/// Read and shape-check `[services.<service>.render]`.
-pub fn service_render(def: &StackDef, service: &str) -> Result<ServiceRender, RenderError> {
+impl<R: CommandRunner> RenderSubstrate<R> {
+    /// Read and shape-check `[services.<service>.render]`.
+    pub fn service_render(def: &StackDef, service: &str) -> Result<ServiceRender, RenderError> {
     let location = format!("services.{service}.render");
     let block = def
         .services
@@ -103,68 +106,69 @@ pub fn service_render(def: &StackDef, service: &str) -> Result<ServiceRender, Re
             });
         }
     }
-    Ok(ServiceRender::Web {
-        runtime: required_str(block, "runtime", &location)?,
-        build: required_str(block, "build", &location)?,
-        start: required_str(block, "start", &location)?,
-    })
-}
-
-/// A datastore's `[datastores.X.render]` plan.
-pub fn datastore_plan(def: &StackDef, datastore: &str) -> Result<String, RenderError> {
-    let location = format!("datastores.{datastore}.render");
-    let block = def
-        .datastores
-        .get(datastore)
-        .and_then(|spec| spec.substrates.get(SUBSTRATE_NAME))
-        .and_then(|value| value.as_table())
-        .ok_or_else(|| RenderError::ConfigInvalid {
-            location: location.clone(),
-            detail: "missing [datastores.X.render] block".into(),
-        })?;
-    for key in block.keys() {
-        if key.as_str() != "plan" {
-            return Err(RenderError::ConfigInvalid {
-                location: location.clone(),
-                detail: format!("unknown key {key:?} (known: plan)"),
-            });
-        }
-    }
-    required_str(block, "plan", &location)
-}
-
-/// The recorded Stripe Projects anchor, when present.
-///
-/// New definitions use `[stack.projects.stripe].project` because
-/// integrations need the same project on local and Render. Older
-/// definitions with `[stack.render].project` remain valid.
-pub fn stack_project(def: &StackDef) -> Option<String> {
-    def.stack
-        .projects
-        .stripe
-        .as_ref()
-        .and_then(|stripe| stripe.project.clone())
-        .or_else(|| {
-            def.stack
-                .substrates
-                .get(SUBSTRATE_NAME)
-                .and_then(|value| value.as_table())
-                .and_then(|table| table.get("project"))
-                .and_then(|value| value.as_str())
-                .map(str::to_owned)
+        Ok(ServiceRender::Web {
+            runtime: required_str(block, "runtime", &location)?,
+            build: required_str(block, "build", &location)?,
+            start: required_str(block, "start", &location)?,
         })
-}
+    }
 
-/// The recorded `[stack.render].region`, defaulting to oregon (§1).
-pub fn stack_region(def: &StackDef) -> String {
-    def.stack
-        .substrates
-        .get(SUBSTRATE_NAME)
-        .and_then(|value| value.as_table())
-        .and_then(|table| table.get("region"))
-        .and_then(|value| value.as_str())
-        .unwrap_or("oregon")
-        .to_owned()
+    /// A datastore's `[datastores.X.render]` plan.
+    pub fn datastore_plan(def: &StackDef, datastore: &str) -> Result<String, RenderError> {
+        let location = format!("datastores.{datastore}.render");
+        let block = def
+            .datastores
+            .get(datastore)
+            .and_then(|spec| spec.substrates.get(SUBSTRATE_NAME))
+            .and_then(|value| value.as_table())
+            .ok_or_else(|| RenderError::ConfigInvalid {
+                location: location.clone(),
+                detail: "missing [datastores.X.render] block".into(),
+            })?;
+        for key in block.keys() {
+            if key.as_str() != "plan" {
+                return Err(RenderError::ConfigInvalid {
+                    location: location.clone(),
+                    detail: format!("unknown key {key:?} (known: plan)"),
+                });
+            }
+        }
+        required_str(block, "plan", &location)
+    }
+
+    /// The recorded Stripe Projects anchor, when present.
+    ///
+    /// New definitions use `[stack.projects.stripe].project` because
+    /// integrations need the same project on local and Render. Older
+    /// definitions with `[stack.render].project` remain valid.
+    pub fn stack_project(def: &StackDef) -> Option<String> {
+        def.stack
+            .projects
+            .stripe
+            .as_ref()
+            .and_then(|stripe| stripe.project.clone())
+            .or_else(|| {
+                def.stack
+                    .substrates
+                    .get(SUBSTRATE_NAME)
+                    .and_then(|value| value.as_table())
+                    .and_then(|table| table.get("project"))
+                    .and_then(|value| value.as_str())
+                    .map(str::to_owned)
+            })
+    }
+
+    /// The recorded `[stack.render].region`, defaulting to oregon (§1).
+    pub fn stack_region(def: &StackDef) -> String {
+        def.stack
+            .substrates
+            .get(SUBSTRATE_NAME)
+            .and_then(|value| value.as_table())
+            .and_then(|table| table.get("region"))
+            .and_then(|value| value.as_str())
+            .unwrap_or("oregon")
+            .to_owned()
+    }
 }
 
 fn required_str(table: &toml::Table, key: &str, location: &str) -> Result<String, RenderError> {
@@ -182,7 +186,7 @@ fn required_str(table: &toml::Table, key: &str, location: &str) -> Result<String
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    use crate::stripe::TokioRunner;
 
     fn parse(toml: &str) -> StackDef {
         StackDef::parse(toml).expect("valid base toml")
@@ -200,7 +204,10 @@ project = "project_neutral"
 project = "project_legacy"
 "#,
         );
-        assert_eq!(stack_project(&neutral).as_deref(), Some("project_neutral"));
+        assert_eq!(
+            RenderSubstrate::<TokioRunner>::stack_project(&neutral).as_deref(),
+            Some("project_neutral")
+        );
 
         let legacy = parse(
             r#"
@@ -210,7 +217,10 @@ name = "atto"
 project = "project_legacy"
 "#,
         );
-        assert_eq!(stack_project(&legacy).as_deref(), Some("project_legacy"));
+        assert_eq!(
+            RenderSubstrate::<TokioRunner>::stack_project(&legacy).as_deref(),
+            Some("project_legacy")
+        );
     }
 
     const BASE: &str = r#"
@@ -241,24 +251,31 @@ static = { build = "bun run build", publish = "./dist", spa_rewrite = true }
     fn parses_web_and_static_blocks() {
         let def = parse(BASE);
         assert!(matches!(
-            service_render(&def, "api").unwrap(),
+            RenderSubstrate::<TokioRunner>::service_render(&def, "api").unwrap(),
             ServiceRender::Web { .. }
         ));
-        let web = service_render(&def, "web").unwrap();
+        let web = RenderSubstrate::<TokioRunner>::service_render(&def, "web").unwrap();
         assert!(web.is_static());
-        assert_eq!(datastore_plan(&def, "db").unwrap(), "basic-256mb");
-        assert_eq!(stack_region(&def), "oregon");
+        assert_eq!(
+            RenderSubstrate::<TokioRunner>::datastore_plan(&def, "db").unwrap(),
+            "basic-256mb"
+        );
+        assert_eq!(RenderSubstrate::<TokioRunner>::stack_region(&def), "oregon");
     }
 
     #[test]
     fn web_reference_is_web_service_static_is_static_site() {
         let def = parse(BASE);
         assert_eq!(
-            service_render(&def, "api").unwrap().stripe_reference(),
+            RenderSubstrate::<TokioRunner>::service_render(&def, "api")
+                .unwrap()
+                .stripe_reference(),
             "render/web-service"
         );
         assert_eq!(
-            service_render(&def, "web").unwrap().stripe_reference(),
+            RenderSubstrate::<TokioRunner>::service_render(&def, "web")
+                .unwrap()
+                .stripe_reference(),
             "render/static-site"
         );
     }
@@ -269,7 +286,7 @@ static = { build = "bun run build", publish = "./dist", spa_rewrite = true }
             "[services.api.render]\nruntime = \"rust\"",
             "[services.api.render]\nbogus = \"x\"\nruntime = \"rust\"",
         );
-        let err = service_render(&parse(&toml), "api").unwrap_err();
+        let err = RenderSubstrate::<TokioRunner>::service_render(&parse(&toml), "api").unwrap_err();
         assert_eq!(
             stackless_core::fault::Fault::code(&err),
             stackless_core::fault::codes::RENDER_CONFIG_INVALID
@@ -282,7 +299,7 @@ static = { build = "bun run build", publish = "./dist", spa_rewrite = true }
             "static = { build = \"bun run build\", publish = \"./dist\", spa_rewrite = true }",
             "static = { build = \"b\", publish = \"./dist\", bogus = 1 }",
         );
-        let err = service_render(&parse(&toml), "web").unwrap_err();
+        let err = RenderSubstrate::<TokioRunner>::service_render(&parse(&toml), "web").unwrap_err();
         assert_eq!(
             stackless_core::fault::Fault::code(&err),
             stackless_core::fault::codes::RENDER_CONFIG_INVALID
@@ -295,7 +312,7 @@ static = { build = "bun run build", publish = "./dist", spa_rewrite = true }
             "[services.api.render]\nruntime = \"rust\"\nbuild = \"cargo build --release\"\nstart = \"./bin\"",
             "",
         );
-        let err = service_render(&parse(&toml), "api").unwrap_err();
+        let err = RenderSubstrate::<TokioRunner>::service_render(&parse(&toml), "api").unwrap_err();
         assert_eq!(
             stackless_core::fault::Fault::code(&err),
             stackless_core::fault::codes::RENDER_CONFIG_INVALID
@@ -305,7 +322,7 @@ static = { build = "bun run build", publish = "./dist", spa_rewrite = true }
     #[test]
     fn datastore_missing_plan_is_rejected() {
         let toml = BASE.replace("plan = \"basic-256mb\"", "");
-        let err = datastore_plan(&parse(&toml), "db").unwrap_err();
+        let err = RenderSubstrate::<TokioRunner>::datastore_plan(&parse(&toml), "db").unwrap_err();
         assert_eq!(
             stackless_core::fault::Fault::code(&err),
             stackless_core::fault::codes::RENDER_CONFIG_INVALID

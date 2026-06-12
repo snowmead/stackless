@@ -11,9 +11,9 @@ use serde_json::Value;
 use stackless_core::def::StackDef;
 
 
-use crate::config;
+use crate::RenderSubstrate;
 use crate::error::RenderError;
-use crate::stripe::{CommandRunner, StripeProjects};
+use crate::stripe::{CommandRunner, StripeProjects, TokioRunner};
 
 /// Anchor the stack's Stripe project (D16). If `[stack.projects.stripe].project`
 /// is recorded, ensure the definition dir is linked (pull when not);
@@ -25,7 +25,7 @@ pub async fn ensure_project<R: CommandRunner>(
     def: &StackDef,
     definition_dir: &Path,
 ) -> Result<(), RenderError> {
-    let recorded = config::stack_project(def);
+    let recorded = RenderSubstrate::<TokioRunner>::stack_project(def);
     let status = stripe.json(&["status"]).await?;
     let linked = status
         .data
