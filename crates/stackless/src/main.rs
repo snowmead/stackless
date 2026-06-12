@@ -38,8 +38,10 @@ struct Cli {
 enum Command {
     /// Create or resume a named instance; health-gated (invariant 2).
     Up {
-        /// Instance name (DNS-safe; becomes hostnames).
-        name: String,
+        /// Instance name (DNS-safe; becomes hostnames). Omitted at
+        /// creation: `{stack.name}-{uuid}` from the definition file.
+        #[arg(long)]
+        name: Option<String>,
         /// Definition file (default: ./stackless.toml at creation; the
         /// instance's snapshot on resume).
         #[arg(long)]

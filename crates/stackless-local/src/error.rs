@@ -112,7 +112,8 @@ impl Fault for LocalError {
     fn remediation(&self) -> String {
         match self {
             Self::MaterializeUnavailable { service } => format!(
-                "pin a checkout for this run: `stackless up <name> --source {service}=/path/to/checkout`"
+                "pin a checkout for this run: `stackless up --name <name> --source \
+                 {service}=/path/to/checkout`"
             ),
             Self::SourcePathInvalid { .. } => {
                 "pass an existing directory containing the service's source".into()

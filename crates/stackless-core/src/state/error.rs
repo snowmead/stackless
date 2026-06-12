@@ -134,12 +134,12 @@ impl Fault for StateError {
                 name,
                 existing_substrate,
             } => format!(
-                "names are unique across substrates: `stackless up {name}` resumes the existing \
-                 {existing_substrate} instance, or pick a different name"
+                "names are unique across substrates: `stackless up --name {name}` resumes the \
+                 existing {existing_substrate} instance, or pick a different name"
             ),
-            Self::InstanceNotFound { name } => {
-                format!("`stackless list` shows known instances; `stackless up {name}` creates it")
-            }
+            Self::InstanceNotFound { name } => format!(
+                "`stackless list` shows known instances; `stackless up --name {name}` creates it"
+            ),
             Self::LockHeld { instance, .. } => format!(
                 "wait for the running operation on {instance:?} to finish and retry; if the \
                  holder crashed it will be taken over automatically on the next attempt"

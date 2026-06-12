@@ -56,7 +56,7 @@ fn substrate(name: &str, ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliErr
 }
 
 pub struct UpArgs {
-    pub name: String,
+    pub name: Option<String>,
     pub file: Option<PathBuf>,
     pub on: Option<String>,
     pub sources: Vec<String>,
@@ -122,19 +122,65 @@ fn parse_lease(lease: Option<&str>) -> Result<Option<std::time::Duration>, CliEr
         })
 }
 
+fn allocate_instance_name(store: &Store, stack: &str) -> Result<String, CliError> {
+    for attempt in 0..2 {
+        let candidate = stackless_core::names::compose_instance_name(stack).map_err(|err| {
+            CliError::BadArgument {
+                argument: "--name".into(),
+                detail: format!(
+                    "cannot derive a default instance name from stack {stack:?}: {err}; pass --name"
+                ),
+            }
+        })?;
+        if store.instance(&candidate)?.is_none() {
+            return Ok(candidate);
+        }
+        if attempt == 1 {
+            return Err(CliError::BadArgument {
+                argument: "--name".into(),
+                detail: format!(
+                    "default instance name for stack {stack:?} collided twice; pass --name"
+                ),
+            });
+        }
+    }
+    Err(CliError::BadArgument {
+        argument: "--name".into(),
+        detail: "failed to allocate a default instance name; pass --name".into(),
+    })
+}
+
+fn resolve_up_context(
+    store: &Store,
+    args: &UpArgs,
+) -> Result<(String, String, StackDef, Option<InstanceRecord>), CliError> {
+    match &args.name {
+        Some(name) => {
+            let existing = store.instance(name)?;
+            let text = definition_text(args.file.as_ref(), existing.as_ref())?;
+            let def = parse_and_validate(&text)?;
+            Ok((name.clone(), text, def, existing))
+        }
+        None => {
+            let text = definition_text(args.file.as_ref(), None)?;
+            let def = parse_and_validate(&text)?;
+            let name = allocate_instance_name(store, def.stack.name.as_str())?;
+            Ok((name, text, def, None))
+        }
+    }
+}
+
 pub fn up(args: UpArgs, output: &Output) -> Result<(), CliError> {
     let store = open_store()?;
-    let existing = store.instance(&args.name)?;
+    let (name, text, def, existing) = resolve_up_context(&store, &args)?;
     let substrate_name = match existing.as_ref() {
         Some(record) if record.status == InstanceStatus::Active => {
             record.substrate.as_str().to_owned()
         }
         _ => args.on.clone().ok_or_else(|| CliError::SubstrateRequired {
-            name: args.name.clone(),
+            name: name.clone(),
         })?,
     };
-    let text = definition_text(args.file.as_ref(), existing.as_ref())?;
-    let def = parse_and_validate(&text)?;
     // Secrets resolve next to the definition file: --file's parent at
     // creation, the recorded dir on resume — never the ambient CWD of
     // a later invocation (invariant 1).
@@ -177,7 +223,7 @@ pub fn up(args: UpArgs, output: &Output) -> Result<(), CliError> {
     };
     let rt = runtime()?;
     let outcome = rt.block_on(engine.up(UpRequest {
-        instance: &args.name,
+        instance: &name,
         definition_text: &text,
         def: &def,
         source_overrides: overrides,
@@ -191,11 +237,11 @@ pub fn up(args: UpArgs, output: &Output) -> Result<(), CliError> {
         .map(|service| {
             (
                 service.clone(),
-                provider.service_origin(&def, &args.name, service),
+                provider.service_origin(&def, &name, service),
             )
         })
         .collect();
-    output.up_ok(&args.name, &substrate_name, &outcome, &origins);
+    output.up_ok(&name, &substrate_name, &outcome, &origins);
     // Spend is printed after every cloud `up` (§4 — never silently
     // nothing; bounded by the project's hard cap).
     if substrate_name == RENDER {
