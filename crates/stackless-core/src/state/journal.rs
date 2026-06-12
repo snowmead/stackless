@@ -53,7 +53,7 @@ impl Store {
             "SELECT instance, step_id, resource_kind, resource_id, payload, recorded_at
              FROM checkpoints WHERE instance = ?1 AND step_id = ?2",
             &[instance.into(), step_id.into()],
-            row_to_checkpoint,
+            Row::decode_checkpoint,
         )
     }
 
@@ -64,7 +64,7 @@ impl Store {
             "SELECT instance, step_id, resource_kind, resource_id, payload, recorded_at
              FROM checkpoints WHERE instance = ?1 ORDER BY rowid",
             &[instance.into()],
-            row_to_checkpoint,
+            Row::decode_checkpoint,
         )
     }
 
@@ -78,13 +78,4 @@ impl Store {
     }
 }
 
-fn row_to_checkpoint(row: &Row) -> Result<Checkpoint, StateError> {
-    Ok(Checkpoint {
-        instance: row.get_string(0)?,
-        step_id: row.get_string(1)?,
-        resource_kind: row.get_string(2)?,
-        resource_id: row.get_string(3)?,
-        payload: row.get_string(4)?,
-        recorded_at: row.get_i64(5)?,
-    })
-}
+

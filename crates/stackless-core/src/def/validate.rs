@@ -16,18 +16,38 @@ const KNOWN_ENGINES: &[&str] = &["postgres"];
 const KNOWN_INTEGRATIONS: &[&str] = &["clerk"];
 const CLERK_OUTPUTS: &[&str] = &["secret_key", "publishable_key"];
 
-/// DNS-safe: it becomes hostnames and cloud service names.
-pub fn dns_safe(name: &str) -> bool {
-    crate::types::dns_safe(name)
-}
-
 /// Validate the whole definition against the rules substrates share.
 ///
 /// Per-substrate shape validation (does `[services.X.render]` carry what
 /// Render needs?) belongs to the substrate implementations; core checks
 /// here are substrate-blind.
 pub fn validate(def: &StackDef, known_substrates: &[&str]) -> Result<(), DefError> {
-    if !dns_safe(def.stack.name.as_str()) {
+    def.validate(known_substrates)
+}
+
+impl StackDef {
+    /// Validate the whole definition against the rules substrates share.
+    pub fn validate(&self, known_substrates: &[&str]) -> Result<(), DefError> {
+        validate_definition(self, known_substrates)
+    }
+
+    /// `up --on <s>` fails at validation if any service lacks the config
+    /// that substrate requires (ARCHITECTURE.md §2).
+    pub fn validate_for_substrate(&self, substrate: &str) -> Result<(), DefError> {
+        for (name, service) in &self.services {
+            if !service.substrates.contains_key(substrate) {
+                return Err(DefError::SubstrateConfigMissing {
+                    service: name.clone(),
+                    substrate: substrate.to_owned(),
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
+fn validate_definition(def: &StackDef, known_substrates: &[&str]) -> Result<(), DefError> {
+    if !crate::types::dns_safe(def.stack.name.as_str()) {
         return Err(DefError::NameInvalid {
             kind: "stack",
             name: def.stack.name.as_str().to_owned(),
@@ -41,7 +61,7 @@ pub fn validate(def: &StackDef, known_substrates: &[&str]) -> Result<(), DefErro
     validate_integrations(def)?;
 
     for (name, datastore) in &def.datastores {
-        if !dns_safe(name) {
+        if !crate::types::dns_safe(name) {
             return Err(DefError::NameInvalid {
                 kind: "datastore",
                 name: name.clone(),
@@ -62,7 +82,7 @@ pub fn validate(def: &StackDef, known_substrates: &[&str]) -> Result<(), DefErro
 
     let mut root_origins = Vec::new();
     for (name, service) in &def.services {
-        if !dns_safe(name) {
+        if !crate::types::dns_safe(name) {
             return Err(DefError::NameInvalid {
                 kind: "service",
                 name: name.clone(),
@@ -99,15 +119,7 @@ pub fn validate(def: &StackDef, known_substrates: &[&str]) -> Result<(), DefErro
 /// that substrate requires (ARCHITECTURE.md §2). Core checks presence;
 /// the substrate's own validation checks shape.
 pub fn validate_for_substrate(def: &StackDef, substrate: &str) -> Result<(), DefError> {
-    for (name, service) in &def.services {
-        if !service.substrates.contains_key(substrate) {
-            return Err(DefError::SubstrateConfigMissing {
-                service: name.clone(),
-                substrate: substrate.to_owned(),
-            });
-        }
-    }
-    Ok(())
+    def.validate_for_substrate(substrate)
 }
 
 fn validate_substrate_keys(
@@ -273,7 +285,7 @@ fn validate_references(def: &StackDef, refs: &[Reference], location: &str) -> Re
 
 #[cfg(test)]
 mod tests {
-    use super::dns_safe;
+    use crate::types::dns_safe;
 
     #[test]
     fn dns_safety() {

@@ -43,29 +43,44 @@ const BACKOFF_CAP: Duration = Duration::from_secs(3600);
 /// until it expires, then the reaper deletes the row and the logs dir.
 pub const TOMBSTONE_GC_WINDOW: Duration = Duration::from_secs(7 * 24 * 3600);
 
+impl ReapAttempt {
+    /// Backoff delay after `attempts` consecutive failures: 60s, 120s,
+    /// 240s, … capped at 1h.
+    pub fn backoff_after(attempts: i64) -> Duration {
+        let shift = attempts.saturating_sub(1).clamp(0, 16) as u32;
+        let secs = BACKOFF_BASE
+            .as_secs()
+            .saturating_mul(1u64.checked_shl(shift).unwrap_or(u64::MAX));
+        Duration::from_secs(secs.min(BACKOFF_CAP.as_secs()))
+    }
+}
+
+impl ReapDecision {
+    /// The pure per-tick decision for one expired instance, given whether a
+    /// live operation holds its lock and its recorded prior failure (if
+    /// any). `now` is unix seconds — the caller's tick clock.
+    pub fn decide(now: i64, lock_held: bool, prior: Option<&ReapAttempt>) -> Self {
+        if lock_held {
+            return Self::SkipLocked;
+        }
+        match prior {
+            Some(attempt) if attempt.next_retry_at > now => Self::WaitBackoff {
+                until: attempt.next_retry_at,
+            },
+            _ => Self::Reap,
+        }
+    }
+}
+
 /// Backoff delay after `attempts` consecutive failures: 60s, 120s,
 /// 240s, … capped at 1h.
 pub fn backoff_after(attempts: i64) -> Duration {
-    let shift = attempts.saturating_sub(1).clamp(0, 16) as u32;
-    let secs = BACKOFF_BASE
-        .as_secs()
-        .saturating_mul(1u64.checked_shl(shift).unwrap_or(u64::MAX));
-    Duration::from_secs(secs.min(BACKOFF_CAP.as_secs()))
+    ReapAttempt::backoff_after(attempts)
 }
 
-/// The pure per-tick decision for one expired instance, given whether a
-/// live operation holds its lock and its recorded prior failure (if
-/// any). `now` is unix seconds — the caller's tick clock.
+/// The pure per-tick decision for one expired instance.
 pub fn decide(now: i64, lock_held: bool, prior: Option<&ReapAttempt>) -> ReapDecision {
-    if lock_held {
-        return ReapDecision::SkipLocked;
-    }
-    match prior {
-        Some(attempt) if attempt.next_retry_at > now => ReapDecision::WaitBackoff {
-            until: attempt.next_retry_at,
-        },
-        _ => ReapDecision::Reap,
-    }
+    ReapDecision::decide(now, lock_held, prior)
 }
 
 impl Store {
@@ -77,7 +92,7 @@ impl Store {
             .reap_attempt(instance)?
             .map(|a| a.attempts + 1)
             .unwrap_or(1);
-        let next_retry_at = now + backoff_after(attempts).as_secs() as i64;
+        let next_retry_at = now + ReapAttempt::backoff_after(attempts).as_secs() as i64;
         self.execute(
             "INSERT INTO reap_attempts (instance, attempts, last_error, next_retry_at)
              VALUES (?1, ?2, ?3, ?4)
@@ -110,7 +125,7 @@ impl Store {
             "SELECT instance, attempts, last_error, next_retry_at
              FROM reap_attempts WHERE instance = ?1",
             &[instance.into()],
-            row_to_reap_attempt,
+            Row::decode_reap_attempt,
         )
     }
 
@@ -136,22 +151,13 @@ impl Store {
     }
 }
 
-fn row_to_reap_attempt(row: &Row) -> Result<ReapAttempt, StateError> {
-    Ok(ReapAttempt {
-        instance: row.get_string(0)?,
-        attempts: row.get_i64(1)?,
-        last_error: row.get_string(2)?,
-        next_retry_at: row.get_i64(3)?,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn locked_instance_is_skipped() {
-        assert_eq!(decide(100, true, None), ReapDecision::SkipLocked);
+        assert_eq!(ReapDecision::decide(100, true, None), ReapDecision::SkipLocked);
     }
 
     #[test]

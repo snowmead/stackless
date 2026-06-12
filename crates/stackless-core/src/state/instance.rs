@@ -13,7 +13,7 @@ pub enum InstanceStatus {
 }
 
 impl InstanceStatus {
-    fn from_sql(s: &str) -> Self {
+    pub(super) fn from_sql(s: &str) -> Self {
         match s {
             "tombstoned" => Self::Tombstoned,
             _ => Self::Active,
@@ -91,7 +91,7 @@ impl Store {
         self.query_row(
             &format!("SELECT {SELECT_COLUMNS} FROM instances WHERE name = ?1"),
             &[name.into()],
-            row_to_instance,
+            Row::decode_instance,
         )
     }
 
@@ -99,7 +99,7 @@ impl Store {
         self.query_map(
             &format!("SELECT {SELECT_COLUMNS} FROM instances ORDER BY name"),
             &[],
-            row_to_instance,
+            Row::decode_instance,
         )
     }
 
@@ -162,25 +162,4 @@ impl Store {
     }
 }
 
-fn row_to_instance(row: &Row) -> Result<InstanceRecord, StateError> {
-    let status = row.get_string(2)?;
-    let overrides_json = row.get_string(4)?;
-    let name = row.get_string(0)?;
-    let substrate = row.get_string(1)?;
-    Ok(InstanceRecord {
-        name: DnsName::try_new(&name).map_err(|err| StateError::RowDecode {
-            column: 0,
-            detail: err.to_string(),
-        })?,
-        substrate: DnsName::try_new(&substrate).map_err(|err| StateError::RowDecode {
-            column: 1,
-            detail: err.to_string(),
-        })?,
-        status: InstanceStatus::from_sql(&status),
-        definition: row.get_string(3)?,
-        source_overrides: serde_json::from_str(&overrides_json).unwrap_or_default(),
-        created_at: row.get_i64(5)?,
-        tombstoned_at: row.get_opt_i64(6)?,
-        definition_dir: row.get_string(7)?,
-    })
-}
+

@@ -57,7 +57,7 @@ impl Engine<'_> {
     /// Bring an instance up, resuming if it exists (invariant 3 — there
     /// is no separate resume verb).
     pub async fn up(&self, request: UpRequest<'_>) -> Result<UpOutcome, EngineError> {
-        if !def::validate::dns_safe(request.instance) {
+        if !crate::types::dns_safe(request.instance) {
             return Err(DefError::NameInvalid {
                 kind: "instance",
                 name: request.instance.to_owned(),

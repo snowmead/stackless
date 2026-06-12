@@ -63,31 +63,38 @@ impl Step {
 /// the order, so per-node expansion preserves the §4 sequencing
 /// contract (a service's `prepare` runs after its datastores exist).
 pub fn plan(def: &StackDef) -> Result<Vec<Step>, DefError> {
-    let graph = DependencyGraph::derive(def)?;
-    let mut steps = Vec::new();
-    for integration in def.integrations.keys() {
-        steps.push(Step::new(StepKind::ProvisionIntegration, integration));
-    }
-    for node in graph.startup_order() {
-        match node {
-            Node::Datastore(name) => {
-                steps.push(Step::new(StepKind::ProvisionDatastore, name));
-            }
-            Node::Service(name) => {
-                let Some(service) = def.services.get(name) else {
-                    continue;
-                };
-                steps.push(Step::new(StepKind::Materialize, name));
-                if service.setup.is_some() {
-                    steps.push(Step::new(StepKind::Setup, name));
+    def.plan()
+}
+
+impl StackDef {
+    /// Expand the topological order into lifecycle steps.
+    pub fn plan(&self) -> Result<Vec<Step>, DefError> {
+        let graph = DependencyGraph::derive(self)?;
+        let mut steps = Vec::new();
+        for integration in self.integrations.keys() {
+            steps.push(Step::new(StepKind::ProvisionIntegration, integration));
+        }
+        for node in graph.startup_order() {
+            match node {
+                Node::Datastore(name) => {
+                    steps.push(Step::new(StepKind::ProvisionDatastore, name));
                 }
-                if service.prepare.is_some() {
-                    steps.push(Step::new(StepKind::Prepare, name));
+                Node::Service(name) => {
+                    let Some(service) = self.services.get(name) else {
+                        continue;
+                    };
+                    steps.push(Step::new(StepKind::Materialize, name));
+                    if service.setup.is_some() {
+                        steps.push(Step::new(StepKind::Setup, name));
+                    }
+                    if service.prepare.is_some() {
+                        steps.push(Step::new(StepKind::Prepare, name));
+                    }
+                    steps.push(Step::new(StepKind::Start, name));
+                    steps.push(Step::new(StepKind::HealthGate, name));
                 }
-                steps.push(Step::new(StepKind::Start, name));
-                steps.push(Step::new(StepKind::HealthGate, name));
             }
         }
+        Ok(steps)
     }
-    Ok(steps)
 }
