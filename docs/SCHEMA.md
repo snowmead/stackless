@@ -485,28 +485,49 @@ health = { path = "/", contains = 'id="root"' }
   env = { BUN_VERSION = "1.3.11", GITHUB_PACKAGES_TOKEN = "${secrets.GITHUB_PACKAGES_TOKEN}" }
 ```
 
-## Supported providers (checklist)
+## Providers
 
 Stripe Projects is internal plumbing — never declared in
-`stackless.toml`. This list tracks what the implementation supports
-today.
+`stackless.toml`. Checked = supported today.
 
 ### Stack hosts (`--on`)
 
-- [x] **local** — processes, Docker postgres, proxy
-- [x] **render** — web services, static sites, managed postgres
-- [x] **vercel** — git-backed projects (no datastores in v0)
+- [x] local
+- [x] render
+- [x] vercel
+- [ ] fly.io
+- [ ] railway
+- [ ] netlify
+- [ ] cloudflare workers
+- [ ] gitlab
+- [ ] laravel cloud
+- [ ] wordpress.com
 
-### Integrations (`[integrations.*]`)
+### Integrations (`provider`)
 
-- [x] **clerk** (`provider = "clerk"`) — Stripe `clerk/auth`; all hosts
+- [x] clerk
+- [ ] auth0
+- [ ] workos
+- [ ] privy
+- [ ] supabase
 
-### Not yet
+### Datastores
 
-- [ ] Other stack hosts (Fly.io, Railway, Netlify, …)
-- [ ] Host-bound integrations (beyond Clerk's managed model)
-- [ ] Integrations beyond Clerk
-- [ ] `stackless logs` on Vercel
+- [x] postgres (local)
+- [x] postgres (render)
+- [ ] postgres (vercel)
+- [ ] neon
+- [ ] supabase
+- [ ] planetscale
+- [ ] turso
+- [ ] upstash redis
+
+### Platform
+
+- [x] `stackless logs` (local)
+- [x] `stackless logs` (render)
+- [ ] `stackless logs` (vercel)
+- [ ] fleet state plane (Turso Cloud)
 
 ## Checklist for agents writing a definition
 

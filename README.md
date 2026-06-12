@@ -203,29 +203,50 @@ Substrates are plugins behind one trait: adding a provider crate
 requires no changes to the engine or state machinery — only a registry
 entry in the binary.
 
-## Supported providers
+## Providers
 
-Stripe Projects is the internal catalog driver for hosted resources —
-you never declare it in `stackless.toml`. This checklist tracks what
-stackless can provision and operate today.
+Stripe Projects is the internal catalog driver — never declared in
+`stackless.toml`. Checked items work today; unchecked items are not
+implemented yet.
 
-### Stack hosts (`stackless up --on <host>`)
+### Stack hosts (`stackless up --on`)
 
-- [x] **local** — host processes, Docker postgres, built-in reverse proxy
-- [x] **render** — web services, static sites, managed postgres
-- [x] **vercel** — git-backed projects and deployments (no datastores in v0)
+- [x] local
+- [x] render
+- [x] vercel
+- [ ] fly.io
+- [ ] railway
+- [ ] netlify
+- [ ] cloudflare workers
+- [ ] gitlab
+- [ ] laravel cloud
+- [ ] wordpress.com
 
-### Integrations (`[integrations.<name>]`)
+### Integrations (`[integrations.*]` / `provider`)
 
-- [x] **clerk** — `provider = "clerk"` → Stripe `clerk/auth`; managed (runs on Clerk's cloud); global config only; available on every host
+- [x] clerk
+- [ ] auth0
+- [ ] workos
+- [ ] privy
+- [ ] supabase
 
-### Not yet
+### Datastores (`[datastores.*]`)
 
-- [ ] Additional stack hosts (Fly.io, Railway, Netlify, …)
-- [ ] Host-bound integrations with per-host config tables (registry supports the model; no providers ship yet)
-- [ ] Integrations beyond Clerk (any future Stripe catalog adapter needs an entry in `stackless-integrations`)
-- [ ] `stackless logs` on Vercel (use the Vercel dashboard; Render and local are supported)
-- [ ] Fleet plane live verification on Turso Cloud (`STACKLESS_STATE_URL` + `STACKLESS_STATE_TOKEN` — implemented, not fully dogfooded)
+- [x] postgres (local — Docker)
+- [x] postgres (render — `render/postgres`)
+- [ ] postgres (vercel)
+- [ ] neon
+- [ ] supabase
+- [ ] planetscale
+- [ ] turso
+- [ ] upstash redis
+
+### Platform
+
+- [x] `stackless logs` (local)
+- [x] `stackless logs` (render)
+- [ ] `stackless logs` (vercel)
+- [ ] fleet state plane (Turso Cloud)
 
 ## Status
 
