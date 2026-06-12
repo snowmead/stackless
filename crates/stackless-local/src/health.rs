@@ -10,7 +10,7 @@ use stackless_core::process::ProcessStamp;
 use stackless_core::types::TcpPort;
 
 use crate::error::LocalError;
-use crate::spawn::log_tail;
+use crate::spawn::Spawner;
 
 /// Local retry budget (D10). Generous because `cargo run`-style
 /// commands compile before they serve; a dead service process
@@ -34,7 +34,7 @@ pub async fn wait_healthy(
         if !process.is_alive() {
             return Err(LocalError::ServiceDied {
                 service: service.to_owned(),
-                tail: log_tail(instance, service, 25),
+                tail: Spawner::new(instance).log_tail(service, 25),
             });
         }
         match probe(&client, &url, host, health).await {

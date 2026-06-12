@@ -232,7 +232,8 @@ fn run_setup(
         namespace,
         secrets,
     )?;
-    stackless_local::spawn::run_hook(instance, service, "setup", command, dir, &env)
+    stackless_local::spawn::Spawner::new(instance)
+        .run_hook(service, "setup", command, dir, &env)
         .map_err(local_fault)
 }
 

@@ -403,7 +403,7 @@ pub fn logs(
         return Ok(());
     }
     for service in &services {
-        let tail_text = stackless_local::spawn::log_tail(name, service, tail);
+        let tail_text = stackless_local::spawn::Spawner::new(name).log_tail(service, tail);
         output.message(&format!("── {service} ──"));
         if tail_text.is_empty() {
             output.message("(no output captured)");

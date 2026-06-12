@@ -7,7 +7,6 @@ pub mod error;
 pub mod health;
 pub mod materialize;
 pub mod spawn;
-pub mod wiring;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -27,7 +26,9 @@ use stackless_core::substrate::{
 use stackless_daemon::DaemonClient;
 use stackless_daemon::rpc::Request;
 
+use crate::container::ContainerRunner;
 use crate::error::LocalError;
+use crate::spawn::Spawner;
 
 pub const SUBSTRATE_NAME: &str = "local";
 
@@ -286,7 +287,7 @@ impl Substrate for LocalSubstrate {
     }
 
     fn service_origin(&self, def: &StackDef, instance: &str, service: &str) -> String {
-        wiring::service_origin(def, instance, service, self.proxy_port)
+        self.local_service_origin(def, instance, service)
     }
 
     fn build_namespace(
@@ -297,7 +298,7 @@ impl Substrate for LocalSubstrate {
         secrets: &BTreeMap<String, String>,
         _purpose: NamespacePurpose,
     ) -> stackless_core::def::Namespace {
-        wiring::namespace(def, instance, self.proxy_port, prior, secrets)
+        self.local_namespace(def, instance, prior, secrets)
     }
 
     async fn execute(&self, ctx: StepContext<'_>) -> Result<StepResource, SubstrateFault> {
@@ -327,10 +328,11 @@ impl Substrate for LocalSubstrate {
                         remediation: "re-run `up`; if it persists this is a stackless bug".into(),
                     });
                 };
-                let provisioned =
-                    container::provision_postgres(ctx.instance, datastore, &spec.version)
-                        .await
-                        .map_err(|err| SubstrateFault::from_fault(&err))?;
+                let provisioned = ContainerRunner::connect()
+                    .map_err(|err| SubstrateFault::from_fault(&err))?
+                    .provision_postgres(ctx.instance, datastore, &spec.version)
+                    .await
+                    .map_err(|err| SubstrateFault::from_fault(&err))?;
                 let payload = serde_json::json!({
                     "container_id": provisioned.container_id.as_str(),
                     "port": provisioned.port.get(),
@@ -338,7 +340,7 @@ impl Substrate for LocalSubstrate {
                 });
                 Ok(StepResource {
                     resource_kind: "container".into(),
-                    resource_id: container::container_name(ctx.instance, datastore),
+                    resource_id: ContainerRunner::container_name(ctx.instance, datastore),
                     payload: payload.to_string(),
                 })
             }
@@ -419,7 +421,7 @@ impl Substrate for LocalSubstrate {
                 let instance = ctx.instance.to_owned();
                 let service_owned = service.to_owned();
                 tokio::task::spawn_blocking(move || {
-                    spawn::run_hook(&instance, &service_owned, hook, &command, &dir, &env)
+                    Spawner::new(&instance).run_hook(&service_owned, hook, &command, &dir, &env)
                 })
                 .await
                 .map_err(|err| SubstrateFault {
@@ -435,9 +437,11 @@ impl Substrate for LocalSubstrate {
                 let command = self.run_command(ctx.def, service)?;
                 let env = self.resolved_env(&ctx, service)?;
                 let port = Self::allocate_port()?;
-                let stamp = spawn::spawn_service(ctx.instance, service, &command, &dir, &env, port)
+                let spawner = Spawner::new(ctx.instance);
+                let stamp = spawner
+                    .spawn_service(service, &command, &dir, &env, port)
                     .map_err(fault)?;
-                let hosts = wiring::service_hosts(ctx.def, ctx.instance, service);
+                let hosts = self.service_hosts(ctx.def, ctx.instance, service);
                 let mut daemon = self.daemon()?;
                 for host in &hosts {
                     daemon
@@ -470,13 +474,9 @@ impl Substrate for LocalSubstrate {
                     start_time: stamp.start_time,
                     port,
                     hosts,
-                    log: LogPath::try_new(
-                        spawn::log_path(ctx.instance, service).display().to_string(),
-                    )
+                    log: LogPath::try_new(spawner.log_path(service).display().to_string())
                     .map_err(|err| fault(LocalError::LogFile {
-                        path: spawn::log_path(ctx.instance, service)
-                            .display()
-                            .to_string(),
+                        path: spawner.log_path(service).display().to_string(),
                         source: std::io::Error::new(std::io::ErrorKind::InvalidInput, err),
                     }))?,
                 };
@@ -506,7 +506,9 @@ impl Substrate for LocalSubstrate {
                     .hosts
                     .first()
                     .map(|h| h.as_str().to_owned())
-                    .unwrap_or_else(|| wiring::service_host(ctx.instance, service).as_str().to_owned());
+                    .unwrap_or_else(|| {
+                        Self::service_host(ctx.instance, service).as_str().to_owned()
+                    });
                 health::wait_healthy(
                     ctx.instance,
                     service,
@@ -552,7 +554,9 @@ impl Substrate for LocalSubstrate {
                     .and_then(|v| v.as_str())
                     .unwrap_or(&checkpoint.resource_id)
                     .to_owned();
-                let running = container::observe(&container_id)
+                let docker = ContainerRunner::connect().map_err(|err| SubstrateFault::from_fault(&err))?;
+                let running = docker
+                    .observe(&container_id)
                     .await
                     .map_err(|err| SubstrateFault::from_fault(&err))?;
                 // After destroy, a lingering volume is a survivor too:
@@ -561,7 +565,8 @@ impl Substrate for LocalSubstrate {
                     .step_id
                     .strip_prefix("provision:")
                     .unwrap_or_default();
-                let volume = container::volume_exists(instance, datastore)
+                let volume = docker
+                    .volume_exists(instance, datastore)
                     .await
                     .map_err(|err| SubstrateFault::from_fault(&err))?;
                 Ok(if running || volume {
@@ -636,7 +641,9 @@ impl Substrate for LocalSubstrate {
                     .step_id
                     .strip_prefix("provision:")
                     .unwrap_or_default();
-                container::destroy(instance, datastore, &container_id)
+                ContainerRunner::connect()
+                    .map_err(|err| SubstrateFault::from_fault(&err))?
+                    .destroy(instance, datastore, &container_id)
                     .await
                     .map_err(|err| SubstrateFault::from_fault(&err))
             }

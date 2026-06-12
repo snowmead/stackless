@@ -157,40 +157,6 @@ impl<'a> Spawner<'a> {
     }
 }
 
-pub fn log_dir(instance: &str) -> PathBuf {
-    Spawner::new(instance).log_dir()
-}
-
-pub fn log_path(instance: &str, service: &str) -> PathBuf {
-    Spawner::new(instance).log_path(service)
-}
-
-pub fn spawn_service(
-    instance: &str,
-    service: &str,
-    command: &str,
-    dir: &Path,
-    env: &BTreeMap<String, String>,
-    port: TcpPort,
-) -> Result<ProcessStamp, LocalError> {
-    Spawner::new(instance).spawn_service(service, command, dir, env, port)
-}
-
-pub fn run_hook(
-    instance: &str,
-    service: &str,
-    hook: &'static str,
-    command: &str,
-    dir: &Path,
-    env: &BTreeMap<String, String>,
-) -> Result<(), LocalError> {
-    Spawner::new(instance).run_hook(service, hook, command, dir, env)
-}
-
-pub fn log_tail(instance: &str, service: &str, lines: usize) -> String {
-    Spawner::new(instance).log_tail(service, lines)
-}
-
 /// SIGTERM the group, give it five seconds, SIGKILL what remains, and
 /// confirm death by stamp — never by the absence of errors.
 pub async fn kill_group(stamp: ProcessStamp) -> Result<(), LocalError> {

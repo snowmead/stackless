@@ -368,46 +368,6 @@ pub struct ProvisionedDatastore {
     pub url: String,
 }
 
-pub fn connect() -> Result<Docker, ContainerError> {
-    ContainerRunner::connect().map(|runner| runner.docker)
-}
-
-pub fn container_name(instance: &str, datastore: &str) -> String {
-    ContainerRunner::container_name(instance, datastore)
-}
-
-pub async fn provision_postgres(
-    instance: &str,
-    datastore: &str,
-    version: &str,
-) -> Result<ProvisionedDatastore, ContainerError> {
-    ContainerRunner::connect()?
-        .provision_postgres(instance, datastore, version)
-        .await
-}
-
-pub async fn observe(container_id: &str) -> Result<bool, ContainerError> {
-    ContainerRunner::connect()?
-        .observe(container_id)
-        .await
-}
-
-pub async fn destroy(
-    instance: &str,
-    datastore: &str,
-    container_id: &str,
-) -> Result<(), ContainerError> {
-    ContainerRunner::connect()?
-        .destroy(instance, datastore, container_id)
-        .await
-}
-
-pub async fn volume_exists(instance: &str, datastore: &str) -> Result<bool, ContainerError> {
-    ContainerRunner::connect()?
-        .volume_exists(instance, datastore)
-        .await
-}
-
 async fn wait_pg_ready(
     docker: &Docker,
     container_id: &str,
