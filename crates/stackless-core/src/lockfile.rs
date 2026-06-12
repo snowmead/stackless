@@ -149,11 +149,15 @@ mod tests {
             let start = Arc::clone(&start);
             handles.push(thread::spawn(move || {
                 start.wait();
-                acquire_with_wait(&dir.path().join("queue.lock"), Duration::from_secs(5)).unwrap()
+                let _lock = acquire_with_wait(
+                    &dir.path().join("queue.lock"),
+                    Duration::from_secs(5),
+                )
+                .unwrap();
             }));
         }
         for handle in handles {
-            drop(handle.join().unwrap());
+            handle.join().unwrap();
         }
     }
 }
