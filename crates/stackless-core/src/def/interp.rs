@@ -98,8 +98,8 @@ pub struct Namespace {
 impl Default for Namespace {
     fn default() -> Self {
         Self {
-            stack_name: DnsName::try_new("stack").expect("placeholder stack name"),
-            instance_name: DnsName::try_new("instance").expect("placeholder instance name"),
+            stack_name: DnsName::from_stored("stack"),
+            instance_name: DnsName::from_stored("instance"),
             service_origins: BTreeMap::new(),
             datastore_urls: BTreeMap::new(),
             secrets: BTreeMap::new(),

@@ -31,7 +31,7 @@ pub fn proxy_port() -> TcpPort {
         .ok()
         .and_then(|value| value.parse().ok())
         .and_then(|raw| TcpPort::try_new(raw).ok())
-        .unwrap_or_else(|| TcpPort::try_new(DEFAULT_PROXY_PORT).expect("default proxy port"))
+        .unwrap_or_else(|| TcpPort::from_os(DEFAULT_PROXY_PORT))
 }
 
 type ProxyClient = Client<hyper_util::client::legacy::connect::HttpConnector, Incoming>;

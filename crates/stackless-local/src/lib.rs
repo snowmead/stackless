@@ -101,13 +101,11 @@ impl LocalSubstrate {
     }
 
     pub(crate) fn service_host(instance: &str, service: &str) -> ProxyHost {
-        ProxyHost::try_new(format!("{service}.{instance}.localhost"))
-            .expect("service host derived from DNS-safe names")
+        ProxyHost::from_stored(format!("{service}.{instance}.localhost"))
     }
 
     pub(crate) fn root_host(instance: &str) -> ProxyHost {
-        ProxyHost::try_new(format!("{instance}.localhost"))
-            .expect("root host derived from DNS-safe instance name")
+        ProxyHost::from_stored(format!("{instance}.localhost"))
     }
 
     pub(crate) fn service_hosts(
@@ -154,7 +152,7 @@ impl LocalSubstrate {
     ) -> Namespace {
         let mut namespace = Namespace {
             stack_name: def.stack.name.clone(),
-            instance_name: DnsName::try_new(instance).expect("instance name validated at creation"),
+            instance_name: DnsName::from_stored(instance),
             ..Namespace::default()
         };
         for service in def.services.keys() {

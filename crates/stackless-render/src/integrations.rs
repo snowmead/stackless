@@ -70,7 +70,7 @@ pub async fn provision<R: CommandRunner>(
         })?;
     let namespace = Namespace {
         stack_name: def.stack.name.clone(),
-        instance_name: DnsName::try_new(instance).expect("instance name validated at creation"),
+        instance_name: DnsName::from_stored(instance),
         ..Namespace::default()
     };
     let app_name = stackless_core::def::interp::resolve(

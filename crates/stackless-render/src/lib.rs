@@ -214,8 +214,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
     ) -> Namespace {
         let mut namespace = Namespace {
             stack_name: def.stack.name.clone(),
-            instance_name: stackless_core::types::DnsName::try_new(instance)
-                .expect("instance name validated at creation"),
+            instance_name: stackless_core::types::DnsName::from_stored(instance),
             ..Namespace::default()
         };
         for service in def.services.keys() {
