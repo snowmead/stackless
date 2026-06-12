@@ -27,7 +27,18 @@ fn atto_parses_to_the_documented_model() {
     assert_eq!(def.stack.name, "atto");
     let verify = def.stack.verify.as_ref().unwrap();
     assert_eq!(verify.run, "bun e2e/smoke.ts");
-    assert_eq!(verify.env["ATTO_WEB_ORIGIN"], "${services.web.origin}");
+    assert_eq!(verify.env["ATTO_STACKLESS"], "1");
+    assert_eq!(verify.env["ATTO_E2E_WEB_ORIGIN"], "${services.web.origin}");
+    assert_eq!(verify.env["ATTO_E2E_API_ORIGIN"], "${services.api.origin}");
+    assert_eq!(verify.env["ATTO_E2E_TENANT_SLUG"], "${instance.name}");
+    assert_eq!(
+        verify.env["CLERK_SECRET_KEY"],
+        "${secrets.CLERK_SECRET_KEY}"
+    );
+    assert_eq!(
+        verify.env["VITE_CLERK_PUBLISHABLE_KEY"],
+        "${secrets.VITE_CLERK_PUBLISHABLE_KEY}"
+    );
     let render = def.stack.substrates["render"].as_table().unwrap();
     assert_eq!(render["region"].as_str().unwrap(), "oregon");
 
@@ -54,7 +65,10 @@ fn atto_parses_to_the_documented_model() {
     assert_eq!(api.source.repo, "https://github.com/haaku-co/atto-server");
     assert_eq!(api.source.reference, "main");
     assert_eq!(api.setup.as_deref(), Some("mise install"));
-    assert_eq!(api.prepare.as_deref(), Some("just seed"));
+    assert_eq!(
+        api.prepare.as_deref(),
+        Some("just migrate-run && just seed")
+    );
     assert_eq!(api.secrets, vec!["CLERK_SECRET_KEY"]);
     assert_eq!(api.env["DATABASE_URL"], "${datastores.db.url}");
     assert_eq!(api.health.path, "/health");

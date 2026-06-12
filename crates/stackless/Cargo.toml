@@ -19,3 +19,6 @@ stackless-local.workspace = true
 stackless-render.workspace = true
 thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["rt-multi-thread"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"

@@ -82,13 +82,17 @@ struct DatastorePayload {
 }
 
 /// What a `materialize:<service>` checkpoint records: the pinned source.
-/// Nothing destructible — observe reports Gone so teardown drops it and
-/// resume cheaply re-records it (§4).
+/// Initially this owns nothing locally. `stackless verify` may later add
+/// a local checkout path/commit so cloud verifies have a stable cwd.
 #[derive(Debug, Serialize, Deserialize)]
 struct SourceRefPayload {
     repo: String,
     #[serde(rename = "ref")]
     reference: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    commit: Option<String>,
 }
 
 /// What a `start:<service>` checkpoint records: the live Render service.
@@ -707,6 +711,8 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
                 let payload = SourceRefPayload {
                     repo: spec.source.repo.clone(),
                     reference: spec.source.reference.clone(),
+                    path: None,
+                    commit: None,
                 };
                 Ok(StepResource {
                     resource_kind: "source-ref".into(),
@@ -769,10 +775,15 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
                     .is_some();
                 Ok(present_or_gone(present))
             }
-            // The pinned ref (source-ref), hooks, and gates own nothing
-            // destructible: Gone, so teardown drops their checkpoints and
-            // resume re-runs them. Re-materializing is a cheap no-op; the
-            // Start step re-checks the real Render service.
+            "source-ref" => {
+                let payload = serde_json::from_str::<SourceRefPayload>(&checkpoint.payload).ok();
+                let present = payload
+                    .and_then(|payload| Some((payload.path?, payload.commit?)))
+                    .is_some_and(|(path, commit)| source_ref_present(&path, &commit));
+                Ok(present_or_gone(present))
+            }
+            // Hooks and gates own nothing destructible: Gone, so teardown
+            // drops their checkpoints and resume re-runs them.
             _ => Ok(Observation::Gone),
         }
     }
@@ -811,7 +822,14 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
                 let _ = project::delete_environment(&self.stripe(), instance).await;
                 Ok(())
             }
-            // source-ref / action kinds: nothing to destroy.
+            "source-ref" => {
+                let payload = serde_json::from_str::<SourceRefPayload>(&checkpoint.payload).ok();
+                if let Some(path) = payload.and_then(|payload| payload.path) {
+                    destroy_source_ref(&path)?;
+                }
+                Ok(())
+            }
+            // action kinds: nothing to destroy.
             _ => Ok(()),
         }
     }
@@ -880,6 +898,28 @@ fn present_or_gone(present: bool) -> Observation {
         Observation::Present
     } else {
         Observation::Gone
+    }
+}
+
+fn source_ref_present(path: &str, commit: &str) -> bool {
+    let path = Path::new(path);
+    if !path.exists() {
+        return false;
+    }
+    std::fs::read_to_string(path.join(".git/HEAD"))
+        .map(|head| head.trim() == commit)
+        .unwrap_or(false)
+}
+
+fn destroy_source_ref(path: &str) -> Result<(), SubstrateFault> {
+    match std::fs::remove_dir_all(path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(SubstrateFault {
+            code: stackless_core::fault::codes::LOCAL_GIT_CHECKOUT_FAILED,
+            message: format!("cannot remove verify checkout {path}: {err}"),
+            remediation: format!("remove {path} by hand, then re-run `stackless down`"),
+        }),
     }
 }
 
@@ -996,6 +1036,26 @@ mod tests {
             "materialize:api",
             r#"{"repo":"r","ref":"main"}"#,
         );
+        assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Gone);
+    }
+
+    #[tokio::test]
+    async fn source_ref_with_verify_checkout_observes_present_and_destroy_removes_it() {
+        let (_dir, s) = subj("http://127.0.0.1:1");
+        let source_dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(source_dir.path().join(".git")).unwrap();
+        std::fs::write(source_dir.path().join(".git/HEAD"), "abc123\n").unwrap();
+        let payload = serde_json::json!({
+            "repo": "r",
+            "ref": "main",
+            "path": source_dir.path().display().to_string(),
+            "commit": "abc123"
+        })
+        .to_string();
+        let cp = checkpoint("source-ref", "materialize:api", &payload);
+
+        assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Present);
+        s.destroy("demo", &cp).await.unwrap();
         assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Gone);
     }
 

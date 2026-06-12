@@ -99,7 +99,7 @@ region = "oregon"
 [stack.verify]
 # The proof contract, run by `stackless verify` (§7).
 run = "bun e2e/smoke.ts"
-env = { ATTO_WEB_ORIGIN = "${services.web.origin}", ATTO_API_ORIGIN = "${services.api.origin}" }
+env = { ATTO_STACKLESS = "1", ATTO_E2E_WEB_ORIGIN = "${services.web.origin}", ATTO_E2E_API_ORIGIN = "${services.api.origin}", ATTO_E2E_TENANT_SLUG = "${instance.name}", CLERK_SECRET_KEY = "${secrets.CLERK_SECRET_KEY}", VITE_CLERK_PUBLISHABLE_KEY = "${secrets.VITE_CLERK_PUBLISHABLE_KEY}" }
 
 [secrets]
 # v0 posture (§0): operator-visible, test-scoped. Resolved from the stack's
@@ -121,7 +121,7 @@ plan = "basic-256mb"       # paid → requires --confirm-paid (§4)
 [services.api]
 source = { repo = "https://github.com/haaku-co/atto-server", ref = "main" }
 setup = "mise install"     # once, after materialization
-prepare = "just seed"      # every up, deps ready → before start; atto migrates on boot, so seed only
+prepare = "just migrate-run && just seed"      # every up, deps ready → before start; uses the Stackless DATABASE_URL
 secrets = ["CLERK_SECRET_KEY"]   # injected as same-named env vars
 env = { DATABASE_URL = "${datastores.db.url}", CORS_ALLOWED_ORIGINS = "${services.web.origin}", TENANT_SLUG = "${instance.name}", RUST_LOG = "info" }
 health = { path = "/health", contains = "ok" }   # status defaults to 200

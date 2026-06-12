@@ -47,6 +47,9 @@ pub enum CliError {
     #[error("verify command exited with {status}")]
     VerifyFailed { status: String },
 
+    #[error("verify source for service {service:?} is unavailable: {detail}")]
+    VerifySourceUnavailable { service: String, detail: String },
+
     #[error(transparent)]
     Substrate(#[from] stackless_core::substrate::SubstrateFault),
 
@@ -67,6 +70,7 @@ impl Fault for CliError {
             Self::SecretsUnresolved { .. } => codes::SECRETS_UNRESOLVED,
             Self::VerifyNotDeclared => codes::VERIFY_NOT_DECLARED,
             Self::VerifyFailed { .. } => codes::VERIFY_FAILED,
+            Self::VerifySourceUnavailable { .. } => codes::VERIFY_SOURCE_UNAVAILABLE,
             Self::Substrate(fault) => fault.code(),
             Self::Runtime(_) => codes::CLI_RUNTIME,
         }
@@ -100,6 +104,10 @@ impl Fault for CliError {
                  `stackless verify`"
                     .into()
             }
+            Self::VerifySourceUnavailable { service, .. } => format!(
+                "re-run `stackless up` for this instance so {service} has a recorded source, \
+                 or fix the recorded checkout and re-run `stackless verify`"
+            ),
             Self::Substrate(fault) => fault.remediation(),
             Self::Runtime(_) => "re-run the command; if it persists this is a stackless bug".into(),
         }

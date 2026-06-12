@@ -72,6 +72,7 @@ pub mod codes {
     pub const SECRETS_UNRESOLVED: &str = "secrets.unresolved";
     pub const VERIFY_FAILED: &str = "verify.failed";
     pub const VERIFY_NOT_DECLARED: &str = "verify.not_declared";
+    pub const VERIFY_SOURCE_UNAVAILABLE: &str = "verify.source_unavailable";
     pub const RENDER_CONFIG_INVALID: &str = "render.config.invalid";
     pub const RENDER_API_KEY_MISSING: &str = "render.api_key.missing";
     pub const RENDER_API_FAILED: &str = "render.api.failed";
@@ -148,6 +149,7 @@ pub mod codes {
         SECRETS_UNRESOLVED,
         VERIFY_FAILED,
         VERIFY_NOT_DECLARED,
+        VERIFY_SOURCE_UNAVAILABLE,
         RENDER_CONFIG_INVALID,
         RENDER_API_KEY_MISSING,
         RENDER_API_FAILED,

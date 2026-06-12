@@ -3649,6 +3649,7 @@ dependencies = [
  "stackless-daemon",
  "stackless-local",
  "stackless-render",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
 ]

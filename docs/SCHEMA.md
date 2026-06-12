@@ -60,7 +60,7 @@ name = "atto"            # required, DNS-safe
 
 [stack.verify]           # optional: the proof contract (see below)
 run = "bun e2e/smoke.ts"
-env = { ATTO_WEB_ORIGIN = "${services.web.origin}" }
+env = { ATTO_STACKLESS = "1", ATTO_E2E_WEB_ORIGIN = "${services.web.origin}" }
 
 [stack.render]           # optional: per-substrate stack config
 project = "project_..."  # written back by stackless after the first cloud up
@@ -286,6 +286,7 @@ most:
 | `secrets.unresolved` | a required secret resolved from no source |
 | `state.lock.held` | another operation is running on this instance — wait and retry |
 | `engine.source_override.unsupported` | `--source` on a cloud substrate |
+| `verify.source_unavailable` | `stackless verify` could not find or materialize the command cwd |
 | `render.payment.not_confirmed` | re-run with `--confirm-paid` |
 
 ## Full annotated example
@@ -302,7 +303,7 @@ region = "oregon"
 
 [stack.verify]
 run = "bun e2e/smoke.ts"              # runs in the root_origin service's source
-env = { ATTO_WEB_ORIGIN = "${services.web.origin}", ATTO_API_ORIGIN = "${services.api.origin}" }
+env = { ATTO_STACKLESS = "1", ATTO_E2E_WEB_ORIGIN = "${services.web.origin}", ATTO_E2E_API_ORIGIN = "${services.api.origin}", ATTO_E2E_TENANT_SLUG = "${instance.name}", CLERK_SECRET_KEY = "${secrets.CLERK_SECRET_KEY}", VITE_CLERK_PUBLISHABLE_KEY = "${secrets.VITE_CLERK_PUBLISHABLE_KEY}" }
 
 [secrets]
 required = ["CLERK_SECRET_KEY", "VITE_CLERK_PUBLISHABLE_KEY", "GITHUB_PACKAGES_TOKEN"]
@@ -317,7 +318,7 @@ version = "17"
 [services.api]
 source = { repo = "https://github.com/haaku-co/atto-server", ref = "main" }
 setup = "mise install"
-prepare = "just seed"                 # atto migrates on boot, so seed only
+prepare = "just migrate-run && just seed"  # uses the Stackless DATABASE_URL
 secrets = ["CLERK_SECRET_KEY"]
 env = { DATABASE_URL = "${datastores.db.url}", CORS_ALLOWED_ORIGINS = "${services.web.origin}", TENANT_SLUG = "${instance.name}", RUST_LOG = "info" }
 health = { path = "/health", contains = "ok" }
