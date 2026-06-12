@@ -971,12 +971,6 @@ fn destroy_source_ref(path: &str) -> Result<(), SubstrateFault> {
     }
 }
 
-/// The Render cloud origin for a service, for the CLI's origin display
-/// and the `logs` verb dispatch.
-pub fn service_origin(def: &StackDef, instance: &str, service: &str) -> String {
-    RenderSubstrate::<TokioRunner>::origin(def, instance, service)
-}
-
 /// Fetch recent logs for one service through the Render REST API (§2 —
 /// the `logs` verb on the render substrate reads recent cloud logs, not
 /// local files). Returns the rendered lines.
@@ -1068,8 +1062,9 @@ mod tests {
             RenderSubstrate::<TokioRunner>::resource_name(&def, "demo", "api"),
             "atto-demo-api"
         );
+        let (_dir, substrate) = subj("http://127.0.0.1:1");
         assert_eq!(
-            service_origin(&def, "demo", "api"),
+            substrate.service_origin(&def, "demo", "api"),
             "https://atto-demo-api.onrender.com"
         );
     }
