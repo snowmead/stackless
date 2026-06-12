@@ -27,6 +27,9 @@ pub struct RenderService {
     pub id: String,
     pub name: String,
     pub url: Option<String>,
+    /// The workspace owner id (`ownerId` on the service) — required to
+    /// scope the `/logs` endpoint (live-observed 2026-06-11).
+    pub owner_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -161,10 +164,15 @@ impl RenderApi {
                 .and_then(Value::as_str)
                 .or_else(|| service.get("url").and_then(Value::as_str))
                 .map(str::to_owned);
+            let owner_id = service
+                .get("ownerId")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
             return Ok(Some(RenderService {
                 id: id.to_owned(),
                 name: name.to_owned(),
                 url,
+                owner_id,
             }));
         }
         Ok(None)
@@ -269,21 +277,55 @@ impl RenderApi {
                 Some(serde_json::json!({})),
             )
             .await?;
-        let Some(id) = deploy.get("id").and_then(Value::as_str) else {
-            return Err(RenderError::ApiFailed {
-                method: "POST".into(),
-                path: format!("/services/{service_id}/deploys"),
-                detail: "deploy trigger returned no id".into(),
+        if let Some(id) = deploy.get("id").and_then(Value::as_str) {
+            return Ok(RenderDeploy {
+                id: id.to_owned(),
+                status: deploy
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .unwrap_or("created")
+                    .to_owned(),
             });
+        }
+        // Live-observed (2026-06-11): for static sites the deploy POST can
+        // answer `202 Queued` with an EMPTY body (per Render's OpenAPI the
+        // 202 response carries no content, unlike the 201 which returns the
+        // deploy object). The deploy is still enqueued — `request` just
+        // returns Null, so there is no id to read. Recover the just-created
+        // deploy from the deploys list (newest first) and poll that.
+        let latest = self.latest_deploy(service_id).await?;
+        latest.ok_or_else(|| RenderError::ApiFailed {
+            method: "POST".into(),
+            path: format!("/services/{service_id}/deploys"),
+            detail: "deploy trigger returned no id and no deploy is listed".into(),
+        })
+    }
+
+    /// The most recent deploy for a service (newest first), or None when
+    /// the service has never deployed. Used to recover the deploy id when
+    /// the trigger answers `202 Queued` with no body.
+    async fn latest_deploy(&self, service_id: &str) -> Result<Option<RenderDeploy>, RenderError> {
+        let list = self
+            .request(
+                reqwest::Method::GET,
+                &format!("/services/{service_id}/deploys?limit=1"),
+                None,
+            )
+            .await?;
+        let Some(deploy) = Self::unwrap_list(&list, "deploy").into_iter().next() else {
+            return Ok(None);
         };
-        Ok(RenderDeploy {
+        let Some(id) = deploy.get("id").and_then(Value::as_str) else {
+            return Ok(None);
+        };
+        Ok(Some(RenderDeploy {
             id: id.to_owned(),
             status: deploy
                 .get("status")
                 .and_then(Value::as_str)
                 .unwrap_or("created")
                 .to_owned(),
-        })
+        }))
     }
 
     async fn get_deploy(
@@ -392,4 +434,99 @@ fn urlencode(value: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    /// Live-observed (2026-06-11): a static-site deploy trigger answers
+    /// `202 Queued` with an EMPTY body. `trigger_deploy` must recover the
+    /// just-enqueued deploy from the deploys list instead of erroring.
+    #[tokio::test]
+    async fn trigger_deploy_recovers_from_202_empty_body() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/services/srv_1/deploys"))
+            .respond_with(ResponseTemplate::new(202))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/services/srv_1/deploys"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                { "deploy": { "id": "dep_new", "status": "build_in_progress" }, "cursor": "c" }
+            ])))
+            .mount(&server)
+            .await;
+        let api = RenderApi::with_base("k", server.uri());
+        let deploy = api.trigger_deploy("srv_1").await.unwrap();
+        assert_eq!(deploy.id, "dep_new");
+        assert_eq!(deploy.status, "build_in_progress");
+    }
+
+    /// Live-observed (2026-06-11): `find_service_by_name` captures the
+    /// service's `ownerId`, which the `/logs` endpoint requires; passing
+    /// the service id as `ownerId` would 400. The owner id and service id
+    /// are distinct.
+    #[tokio::test]
+    async fn find_service_captures_owner_id_distinct_from_service_id() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/services"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                { "service": { "id": "srv_1", "name": "atto-demo-api", "ownerId": "tea_owner" } }
+            ])))
+            .mount(&server)
+            .await;
+        let api = RenderApi::with_base("k", server.uri());
+        let svc = api
+            .find_service_by_name("atto-demo-api")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(svc.id, "srv_1");
+        assert_eq!(svc.owner_id.as_deref(), Some("tea_owner"));
+        assert_ne!(svc.owner_id.as_deref(), Some(svc.id.as_str()));
+    }
+
+    /// `recent_logs` scopes by ownerId and resource; the parsed lines join
+    /// timestamp + message.
+    #[tokio::test]
+    async fn recent_logs_scopes_by_owner_and_parses_lines() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/logs"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "logs": [
+                    { "timestamp": "2026-06-11T00:00:00Z", "message": "starting" },
+                    { "timestamp": "2026-06-11T00:00:01Z", "message": "ready" }
+                ]
+            })))
+            .mount(&server)
+            .await;
+        let api = RenderApi::with_base("k", server.uri());
+        let lines = api.recent_logs("tea_owner", "srv_1", 50).await.unwrap();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("starting"));
+        assert!(lines[1].contains("ready"));
+    }
+
+    /// A 201 with the deploy object inline is read directly (no list call).
+    #[tokio::test]
+    async fn trigger_deploy_reads_inline_201_body() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/services/srv_1/deploys"))
+            .respond_with(
+                ResponseTemplate::new(201)
+                    .set_body_json(serde_json::json!({ "id": "dep_inline", "status": "created" })),
+            )
+            .mount(&server)
+            .await;
+        let api = RenderApi::with_base("k", server.uri());
+        let deploy = api.trigger_deploy("srv_1").await.unwrap();
+        assert_eq!(deploy.id, "dep_inline");
+    }
 }

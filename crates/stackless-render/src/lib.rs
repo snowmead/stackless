@@ -336,11 +336,19 @@ impl<R: CommandRunner> RenderSubstrate<R> {
             })
         })?;
         let region = config::stack_region(def);
+        // Live-observed (2026-06-11): the render/postgres `--config` schema
+        // selects the paid tier via `instance_type` (values from the
+        // catalog pricing block: "free", "basic-256mb", "basic-1gb", …),
+        // NOT a field named `plan`. Sending `plan` is silently ignored and
+        // the resource defaults to the free tier (which then collides with
+        // "cannot have more than one active free tier database"). The
+        // `[datastores.X.render].plan` definition key maps straight onto
+        // the catalog's `instance_type` value.
         let config_json = serde_json::json!({
             "name": render_name,
             "region": region,
             "version": spec.version,
-            "plan": plan,
+            "instance_type": plan,
         });
         project::add_resource(
             &self.stripe(),
@@ -897,9 +905,15 @@ pub async fn fetch_logs(
     let Some(svc) = render.find_service_by_name(&name).await? else {
         return Ok(vec![format!("(service {name} not found on Render)")]);
     };
-    // Render's logs endpoint is owner-scoped; the owner id is discovered
-    // from the service. v0 best-effort: pass the service id as resource.
-    render.recent_logs(&svc.id, &svc.id, tail).await
+    // Render's `/logs` endpoint is owner-scoped: `ownerId` must be the
+    // workspace owner (the service's `ownerId`), NOT the service id, or it
+    // 400s (live-observed 2026-06-11). The service id is the `resource`.
+    let owner_id = svc.owner_id.clone().ok_or_else(|| RenderError::ApiFailed {
+        method: "GET".into(),
+        path: "/logs".into(),
+        detail: format!("service {name} has no ownerId to scope logs"),
+    })?;
+    render.recent_logs(&owner_id, &svc.id, tail).await
 }
 
 /// A spend line to print after `up`/`down` (§4 — never silently nothing).

@@ -106,7 +106,19 @@ pub struct StripeResult {
 /// Error codes whose confirmation/auth requirement cannot be satisfied
 /// in `--json` mode; plain mode with `--yes` accepts the session
 /// (cloud-env.ts's PLAIN_FALLBACK_CODES).
-const PLAIN_FALLBACK_CODES: &[&str] = &["JSON_REQUIRES_CONFIRMATION", "JSON_REQUIRES_AUTH"];
+///
+/// `DIRECTORY_SELECTION_REQUIRED` (live-observed 2026-06-11): `stripe
+/// projects init` refuses to initialize a non-empty directory in JSON
+/// mode, asking to "Re-run with `--yes` to initialize here". The flag
+/// rides in on the caller's `plain_extra`, so folding the code here makes
+/// the fallback append `--yes` exactly as the plugin instructs. (The
+/// definition dir is never empty — it holds stackless.toml — so init
+/// always lands here on a fresh anchor.)
+const PLAIN_FALLBACK_CODES: &[&str] = &[
+    "JSON_REQUIRES_CONFIRMATION",
+    "JSON_REQUIRES_AUTH",
+    "DIRECTORY_SELECTION_REQUIRED",
+];
 
 /// The Stripe Projects driver. Holds a runner and the definition dir
 /// (every invocation runs there, as cloud-env.ts ran in `.cloud-envs/`).
@@ -372,6 +384,33 @@ mod tests {
         let calls = d.runner().calls();
         assert_eq!(calls.len(), 2);
         // First call carries --json; the fallback drops it and appends --yes.
+        assert!(calls[0].contains(&"--json".to_owned()));
+        assert!(!calls[1].contains(&"--json".to_owned()));
+        assert!(calls[1].contains(&"--yes".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn directory_selection_required_falls_back_to_plain_mode() {
+        // Live-observed (2026-06-11): `init` in a non-empty dir returns
+        // DIRECTORY_SELECTION_REQUIRED in JSON mode; the driver retries in
+        // plain mode with the caller's --yes, which the plugin honors.
+        let d = driver(vec![
+            out(
+                0,
+                r#"{"ok":false,"error":{"code":"DIRECTORY_SELECTION_REQUIRED","message":"Current directory is not empty. Re-run with `--yes` to initialize here, or pass `--name <directory>` to create a subdirectory."}}"#,
+                "",
+            ),
+            out(0, "✓ created project", ""),
+        ]);
+        d.run_ok(
+            "init",
+            &["init", "atto", "--skip-skills", "--accept-tos"],
+            &["--accept-tos", "--yes"],
+        )
+        .await
+        .unwrap();
+        let calls = d.runner().calls();
+        assert_eq!(calls.len(), 2);
         assert!(calls[0].contains(&"--json".to_owned()));
         assert!(!calls[1].contains(&"--json".to_owned()));
         assert!(calls[1].contains(&"--yes".to_owned()));

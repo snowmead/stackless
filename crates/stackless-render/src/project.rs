@@ -149,9 +149,35 @@ fn environment_exists(data: &Value, instance: &str) -> bool {
     false
 }
 
-/// Add a service resource (find-or-create is the plugin's job; we pass
-/// `--name` + `--config`). cloud-env.ts's plain-mode fallback handles the
-/// live-mode quirk; `--confirm-paid-service` is appended for paid tiers.
+/// Whether a resource with this logical `--name` is already registered in
+/// the project (`services list` reports each as `{name, ...}` where `name`
+/// is the logical resource name passed to `add`). Live-observed
+/// (2026-06-11): `stripe projects add` is NOT find-or-create — when the
+/// resource already exists it re-provisions at the provider, which Render
+/// then rejects with `provider_failure: failed to provision resource`
+/// (duplicate name). So resume must skip `add` for an already-registered
+/// resource itself, rather than trusting the plugin to no-op.
+async fn resource_registered<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+    name: &str,
+) -> Result<bool, RenderError> {
+    let result = stripe.json(&["services", "list"]).await?;
+    if !result.ok {
+        return Ok(false);
+    }
+    let Some(services) = result.data.get("services").and_then(Value::as_array) else {
+        return Ok(false);
+    };
+    Ok(services
+        .iter()
+        .any(|s| s.get("name").and_then(Value::as_str) == Some(name)))
+}
+
+/// Add a service resource. We pass `--name` + `--config`; cloud-env.ts's
+/// plain-mode fallback handles the live-mode quirk and
+/// `--confirm-paid-service` is appended for paid tiers. The plugin's `add`
+/// is not idempotent, so resume first skips an already-registered resource
+/// (see [`resource_registered`]).
 pub async fn add_resource<R: CommandRunner>(
     stripe: &StripeProjects<R>,
     reference: &str,
@@ -159,6 +185,12 @@ pub async fn add_resource<R: CommandRunner>(
     config: &Value,
     paid: bool,
 ) -> Result<(), RenderError> {
+    if resource_registered(stripe, name).await? {
+        // Already provisioned on a prior run — the Start step re-resolves
+        // the live Render service and re-drives env/deploy. Skip `add` so
+        // the provider does not 400 on the duplicate name.
+        return Ok(());
+    }
     let config_str = config.to_string();
     let mut args: Vec<&str> = vec![
         "add",
@@ -395,5 +427,53 @@ mod tests {
             doc["stack"]["render"]["project"].as_str(),
             Some("project_xyz")
         );
+    }
+
+    // A scripted Stripe runner that returns one canned envelope per call
+    // and records how many calls it saw, for the resume-idempotency check.
+    struct ListRunner {
+        body: String,
+        calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    #[async_trait::async_trait]
+    impl CommandRunner for ListRunner {
+        async fn run(
+            &self,
+            _args: &[String],
+            _cwd: &std::path::Path,
+        ) -> Result<crate::stripe::CommandOutput, RenderError> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(crate::stripe::CommandOutput {
+                status: 0,
+                stdout: self.body.clone(),
+                stderr: String::new(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn add_resource_skips_when_already_registered() {
+        // Live-observed (2026-06-11): on resume the resource is already in
+        // `services list`; add_resource must no-op (a single `services
+        // list` call, then nothing) so the provider does not 400 on the
+        // duplicate name.
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let runner = ListRunner {
+            body: r#"{"ok":true,"data":{"services":[{"name":"atto-cloud-web"}]}}"#.to_owned(),
+            calls: calls.clone(),
+        };
+        let stripe = StripeProjects::new(runner, std::env::temp_dir());
+        add_resource(
+            &stripe,
+            "render/static-site",
+            "atto-cloud-web",
+            &serde_json::json!({}),
+            false,
+        )
+        .await
+        .unwrap();
+        // Only the `services list` probe ran — `add` was skipped.
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 }
