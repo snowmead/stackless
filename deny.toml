@@ -1,8 +1,14 @@
 # §8: errors are thiserror enums end-to-end — no untyped propagation.
-# The ban makes the rule mechanical instead of conventional.
+# The ban makes the rule mechanical instead of conventional. The ban is
+# about *our* code: `anyhow` is tolerated only where a third-party
+# proc-macro uses it internally and we cannot influence it — the M9
+# `libsql` remote backend pulls `prost-derive`, whose generated code
+# depends on `anyhow`. `wrappers` scopes the allowance to exactly that
+# transitive path; `anyhow` as a direct dependency of any stackless crate
+# is still rejected.
 [bans]
 deny = [
-    { crate = "anyhow", reason = "ARCHITECTURE.md §8: no untyped error propagation; every error carries its stable code and remediation" },
+    { crate = "anyhow", reason = "ARCHITECTURE.md §8: no untyped error propagation; every error carries its stable code and remediation", wrappers = ["prost-derive"] },
     { crate = "eyre", reason = "same rule as anyhow" },
 ]
 
@@ -10,4 +16,27 @@ deny = [
 allow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Unicode-3.0", "Zlib", "MPL-2.0", "CDLA-Permissive-2.0"]
 
 [advisories]
-ignore = []
+# The M9 fleet plane enables `libsql`'s `tls` feature for the Turso Cloud
+# HTTPS connector. libsql 0.9.30 pins an old TLS stack
+# (hyper 0.14 → hyper-rustls 0.25 → rustls 0.22 → rustls-webpki 0.102.8,
+# plus rustls-native-certs → rustls-pemfile 2.x), which carries the
+# advisories below. We cannot bump it without libsql relaxing its
+# hyper-rustls bound, and supplying a custom connector means matching
+# libsql's hyper-0.14/http-0.2 surface with a modern rustls — a fragile
+# integration not worth its weight for an opt-in cloud backend.
+#
+# These only affect the fleet-plane TLS path (operator → their own Turso
+# primary), never the default local SQLite store. Acknowledged and
+# tracked: remove each ignore once libsql ships a newer hyper-rustls.
+ignore = [
+    # rustls-webpki 0.102.8 — CRL / name-constraint validation flaws and a
+    # parsing panic. Fixed in >=0.103.13, unreachable through libsql's
+    # pinned rustls 0.22.
+    "RUSTSEC-2026-0049",
+    "RUSTSEC-2026-0098",
+    "RUSTSEC-2026-0099",
+    "RUSTSEC-2026-0104",
+    # rustls-pemfile 2.2.0 — unmaintained (pulled by rustls-native-certs
+    # 0.7 under hyper-rustls 0.25); no vulnerability, superseded upstream.
+    "RUSTSEC-2025-0134",
+]

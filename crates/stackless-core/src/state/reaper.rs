@@ -9,10 +9,8 @@
 
 use std::time::Duration;
 
-use rusqlite::OptionalExtension;
-
 use super::error::StateError;
-use super::store::Store;
+use super::store::{Row, Store};
 
 /// A recorded failed-reap attempt — surfaced in `status`/`list` until a
 /// successful teardown clears it (invariant 4).
@@ -80,14 +78,19 @@ impl Store {
             .map(|a| a.attempts + 1)
             .unwrap_or(1);
         let next_retry_at = now + backoff_after(attempts).as_secs() as i64;
-        self.conn.execute(
+        self.execute(
             "INSERT INTO reap_attempts (instance, attempts, last_error, next_retry_at)
              VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(instance) DO UPDATE SET
                attempts = excluded.attempts,
                last_error = excluded.last_error,
                next_retry_at = excluded.next_retry_at",
-            rusqlite::params![instance, attempts, error, next_retry_at],
+            &[
+                instance.into(),
+                attempts.into(),
+                error.into(),
+                next_retry_at.into(),
+            ],
         )?;
         Ok(())
     }
@@ -95,21 +98,20 @@ impl Store {
     /// Clear an instance's reap-failure record — a successful reap or a
     /// successful manual `down` calls this through the engine.
     pub fn clear_reap_failure(&self, instance: &str) -> Result<(), StateError> {
-        self.conn
-            .execute("DELETE FROM reap_attempts WHERE instance = ?1", [instance])?;
+        self.execute(
+            "DELETE FROM reap_attempts WHERE instance = ?1",
+            &[instance.into()],
+        )?;
         Ok(())
     }
 
     pub fn reap_attempt(&self, instance: &str) -> Result<Option<ReapAttempt>, StateError> {
-        self.conn
-            .query_row(
-                "SELECT instance, attempts, last_error, next_retry_at
-                 FROM reap_attempts WHERE instance = ?1",
-                [instance],
-                row_to_reap_attempt,
-            )
-            .optional()
-            .map_err(Into::into)
+        self.query_row(
+            "SELECT instance, attempts, last_error, next_retry_at
+             FROM reap_attempts WHERE instance = ?1",
+            &[instance.into()],
+            row_to_reap_attempt,
+        )
     }
 
     /// Tombstoned instances whose GC window has elapsed — the reaper
@@ -117,30 +119,29 @@ impl Store {
     /// removes the logs dir (D14).
     pub fn gc_due_tombstones(&self) -> Result<Vec<String>, StateError> {
         let cutoff = Self::now() - TOMBSTONE_GC_WINDOW.as_secs() as i64;
-        let mut stmt = self.conn.prepare(
+        self.query_map(
             "SELECT name FROM instances
              WHERE status = 'tombstoned' AND tombstoned_at IS NOT NULL
                AND tombstoned_at <= ?1 ORDER BY name",
-        )?;
-        let rows = stmt.query_map([cutoff], |row| row.get(0))?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+            &[cutoff.into()],
+            |row: &Row| row.get_string(0),
+        )
     }
 
     /// Delete an instance row outright (the GC step). FK cascade removes
     /// its leases, locks, checkpoints, and reap-attempt row.
     pub fn delete_instance(&self, instance: &str) -> Result<(), StateError> {
-        self.conn
-            .execute("DELETE FROM instances WHERE name = ?1", [instance])?;
+        self.execute("DELETE FROM instances WHERE name = ?1", &[instance.into()])?;
         Ok(())
     }
 }
 
-fn row_to_reap_attempt(row: &rusqlite::Row<'_>) -> rusqlite::Result<ReapAttempt> {
+fn row_to_reap_attempt(row: &Row) -> Result<ReapAttempt, StateError> {
     Ok(ReapAttempt {
-        instance: row.get(0)?,
-        attempts: row.get(1)?,
-        last_error: row.get(2)?,
-        next_retry_at: row.get(3)?,
+        instance: row.get_string(0)?,
+        attempts: row.get_i64(1)?,
+        last_error: row.get_string(2)?,
+        next_retry_at: row.get_i64(3)?,
     })
 }
 

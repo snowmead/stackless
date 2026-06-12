@@ -57,7 +57,7 @@ pub struct UpArgs {
 }
 
 pub fn open_store() -> Result<Store, CliError> {
-    Ok(Store::open(&Store::default_path())?)
+    Ok(Store::open_configured()?)
 }
 
 fn runtime() -> Result<tokio::runtime::Runtime, CliError> {

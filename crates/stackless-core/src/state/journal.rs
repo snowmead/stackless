@@ -1,10 +1,8 @@
 //! The per-step checkpoint journal (§2): every step that creates a
 //! resource records it before moving on.
 
-use rusqlite::OptionalExtension;
-
 use super::error::StateError;
-use super::store::Store;
+use super::store::{Row, Store};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Checkpoint {
@@ -26,7 +24,7 @@ impl Store {
         resource_id: &str,
         payload: &str,
     ) -> Result<(), StateError> {
-        self.conn.execute(
+        self.execute(
             "INSERT INTO checkpoints (instance, step_id, resource_kind, resource_id, payload, recorded_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(instance, step_id) DO UPDATE SET
@@ -34,7 +32,14 @@ impl Store {
                resource_id = excluded.resource_id,
                payload = excluded.payload,
                recorded_at = excluded.recorded_at",
-            rusqlite::params![instance, step_id, resource_kind, resource_id, payload, Self::now()],
+            &[
+                instance.into(),
+                step_id.into(),
+                resource_kind.into(),
+                resource_id.into(),
+                payload.into(),
+                Self::now().into(),
+            ],
         )?;
         Ok(())
     }
@@ -44,45 +49,42 @@ impl Store {
         instance: &str,
         step_id: &str,
     ) -> Result<Option<Checkpoint>, StateError> {
-        self.conn
-            .query_row(
-                "SELECT instance, step_id, resource_kind, resource_id, payload, recorded_at
-                 FROM checkpoints WHERE instance = ?1 AND step_id = ?2",
-                [instance, step_id],
-                row_to_checkpoint,
-            )
-            .optional()
-            .map_err(Into::into)
+        self.query_row(
+            "SELECT instance, step_id, resource_kind, resource_id, payload, recorded_at
+             FROM checkpoints WHERE instance = ?1 AND step_id = ?2",
+            &[instance.into(), step_id.into()],
+            row_to_checkpoint,
+        )
     }
 
     /// All checkpoints for an instance in recording order — what an
     /// interrupted `down` must hunt down.
     pub fn checkpoints(&self, instance: &str) -> Result<Vec<Checkpoint>, StateError> {
-        let mut stmt = self.conn.prepare(
+        self.query_map(
             "SELECT instance, step_id, resource_kind, resource_id, payload, recorded_at
              FROM checkpoints WHERE instance = ?1 ORDER BY rowid",
-        )?;
-        let rows = stmt.query_map([instance], row_to_checkpoint)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+            &[instance.into()],
+            row_to_checkpoint,
+        )
     }
 
     /// Remove one checkpoint after its resource is verifiably gone.
     pub fn remove_checkpoint(&self, instance: &str, step_id: &str) -> Result<(), StateError> {
-        self.conn.execute(
+        self.execute(
             "DELETE FROM checkpoints WHERE instance = ?1 AND step_id = ?2",
-            [instance, step_id],
+            &[instance.into(), step_id.into()],
         )?;
         Ok(())
     }
 }
 
-fn row_to_checkpoint(row: &rusqlite::Row<'_>) -> rusqlite::Result<Checkpoint> {
+fn row_to_checkpoint(row: &Row) -> Result<Checkpoint, StateError> {
     Ok(Checkpoint {
-        instance: row.get(0)?,
-        step_id: row.get(1)?,
-        resource_kind: row.get(2)?,
-        resource_id: row.get(3)?,
-        payload: row.get(4)?,
-        recorded_at: row.get(5)?,
+        instance: row.get_string(0)?,
+        step_id: row.get_string(1)?,
+        resource_kind: row.get_string(2)?,
+        resource_id: row.get_string(3)?,
+        payload: row.get_string(4)?,
+        recorded_at: row.get_i64(5)?,
     })
 }

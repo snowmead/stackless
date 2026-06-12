@@ -54,7 +54,7 @@ async fn tick() {
         let outcome = run_down(&instance).await;
         record_outcome(&instance, outcome);
     }
-    if let Ok(store) = Store::open(&Store::default_path()) {
+    if let Ok(store) = Store::open_configured() {
         gc_tombstones(&store);
     }
 }
@@ -63,7 +63,7 @@ async fn tick() {
 /// expired instance. The store is borrowed only here, never across an
 /// await.
 fn plan_reaps() -> Vec<String> {
-    let Ok(store) = Store::open(&Store::default_path()) else {
+    let Ok(store) = Store::open_configured() else {
         return Vec::new();
     };
     let expired = store.expired_instances().unwrap_or_default();
@@ -82,7 +82,7 @@ fn plan_reaps() -> Vec<String> {
 /// by the engine's `down`; this covers a row from an earlier tick), or
 /// advance the backoff and surface it on failure.
 fn record_outcome(instance: &str, outcome: Result<(), String>) {
-    let Ok(store) = Store::open(&Store::default_path()) else {
+    let Ok(store) = Store::open_configured() else {
         return;
     };
     match outcome {

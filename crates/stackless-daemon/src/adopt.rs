@@ -32,7 +32,7 @@ pub struct AdoptionSummary {
 /// and the daemon must come up regardless.
 pub fn readopt(state: &Arc<DaemonState>) -> AdoptionSummary {
     let mut summary = AdoptionSummary::default();
-    let store = match Store::open(&Store::default_path()) {
+    let store = match Store::open_configured() {
         Ok(store) => store,
         Err(_) => return summary,
     };

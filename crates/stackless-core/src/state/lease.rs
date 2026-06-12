@@ -3,10 +3,8 @@
 
 use std::time::Duration;
 
-use rusqlite::OptionalExtension;
-
 use super::error::StateError;
-use super::store::Store;
+use super::store::{Row, Store};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Lease {
@@ -25,12 +23,16 @@ impl Store {
     pub fn renew_lease(&self, instance: &str, duration: Duration) -> Result<Lease, StateError> {
         let now = Self::now();
         let expires_at = now + duration.as_secs() as i64;
-        self.conn.execute(
+        self.execute(
             "INSERT INTO leases (instance, duration_secs, expires_at) VALUES (?1, ?2, ?3)
              ON CONFLICT(instance) DO UPDATE SET
                duration_secs = excluded.duration_secs,
                expires_at = excluded.expires_at",
-            rusqlite::params![instance, duration.as_secs() as i64, expires_at],
+            &[
+                instance.into(),
+                (duration.as_secs() as i64).into(),
+                expires_at.into(),
+            ],
         )?;
         Ok(Lease {
             duration,
@@ -41,43 +43,39 @@ impl Store {
     /// Renew at the recorded duration (the start-of-verb renewal: the
     /// duration was consented to at creation).
     pub fn renew_lease_at_recorded_duration(&self, instance: &str) -> Result<(), StateError> {
-        self.conn.execute(
+        self.execute(
             "UPDATE leases SET expires_at = ?2 + duration_secs WHERE instance = ?1",
-            rusqlite::params![instance, Self::now()],
+            &[instance.into(), Self::now().into()],
         )?;
         Ok(())
     }
 
     pub fn lease(&self, instance: &str) -> Result<Option<Lease>, StateError> {
-        self.conn
-            .query_row(
-                "SELECT duration_secs, expires_at FROM leases WHERE instance = ?1",
-                [instance],
-                |row| {
-                    Ok(Lease {
-                        duration: Duration::from_secs(row.get::<_, i64>(0)?.max(0) as u64),
-                        expires_at: row.get(1)?,
-                    })
-                },
-            )
-            .optional()
-            .map_err(Into::into)
+        self.query_row(
+            "SELECT duration_secs, expires_at FROM leases WHERE instance = ?1",
+            &[instance.into()],
+            |row| {
+                Ok(Lease {
+                    duration: Duration::from_secs(row.get_i64(0)?.max(0) as u64),
+                    expires_at: row.get_i64(1)?,
+                })
+            },
+        )
     }
 
     /// A tombstoned instance has no lease left to enforce.
     pub fn delete_lease(&self, instance: &str) -> Result<(), StateError> {
-        self.conn
-            .execute("DELETE FROM leases WHERE instance = ?1", [instance])?;
+        self.execute("DELETE FROM leases WHERE instance = ?1", &[instance.into()])?;
         Ok(())
     }
 
     /// Active instances whose lease has expired — the reaper's worklist.
     pub fn expired_instances(&self) -> Result<Vec<String>, StateError> {
-        let mut stmt = self.conn.prepare(
+        self.query_map(
             "SELECT i.name FROM instances i JOIN leases l ON l.instance = i.name
              WHERE i.status = 'active' AND l.expires_at <= ?1 ORDER BY i.name",
-        )?;
-        let rows = stmt.query_map([Self::now()], |row| row.get(0))?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+            &[Self::now().into()],
+            |row: &Row| row.get_string(0),
+        )
     }
 }

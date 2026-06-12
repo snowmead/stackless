@@ -37,6 +37,11 @@ pub mod codes {
     pub const STATE_INSTANCE_NOT_FOUND: &str = "state.instance.not_found";
     pub const STATE_LOCK_HELD: &str = "state.lock.held";
     pub const STATE_GC_FAILED: &str = "state.gc_failed";
+    pub const STATE_REMOTE_OPEN: &str = "state.remote.open_failed";
+    pub const STATE_REMOTE_QUERY: &str = "state.remote.query_failed";
+    pub const STATE_REMOTE_RUNTIME: &str = "state.remote.runtime_failed";
+    pub const STATE_REMOTE_WORKER: &str = "state.remote.worker_gone";
+    pub const STATE_ROW_DECODE: &str = "state.row.decode_failed";
     pub const ENGINE_SUBSTRATE_MISMATCH: &str = "engine.substrate.mismatch";
     pub const ENGINE_SOURCE_OVERRIDE_UNSUPPORTED: &str = "engine.source_override.unsupported";
     pub const ENGINE_STEP_FAILED: &str = "engine.step.failed";
@@ -108,6 +113,11 @@ pub mod codes {
         STATE_INSTANCE_NOT_FOUND,
         STATE_LOCK_HELD,
         STATE_GC_FAILED,
+        STATE_REMOTE_OPEN,
+        STATE_REMOTE_QUERY,
+        STATE_REMOTE_RUNTIME,
+        STATE_REMOTE_WORKER,
+        STATE_ROW_DECODE,
         ENGINE_SUBSTRATE_MISMATCH,
         ENGINE_SOURCE_OVERRIDE_UNSUPPORTED,
         ENGINE_STEP_FAILED,

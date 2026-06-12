@@ -2,10 +2,8 @@
 
 use std::collections::BTreeMap;
 
-use rusqlite::OptionalExtension;
-
 use super::error::StateError;
-use super::store::Store;
+use super::store::{Row, Store};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstanceStatus {
@@ -38,9 +36,13 @@ pub struct InstanceRecord {
     pub tombstoned_at: Option<i64>,
 }
 
+const SELECT_COLUMNS: &str = "name, substrate, status, definition, source_overrides, created_at, tombstoned_at, definition_dir";
+
 impl Store {
     /// Create an instance record. Names are unique across substrates:
     /// a clash is an error naming the existing substrate, not a sibling.
+    /// The UNIQUE PRIMARY KEY enforces this on both backends — fleet-wide
+    /// when the remote plane is configured.
     pub fn create_instance(
         &self,
         name: &str,
@@ -51,55 +53,60 @@ impl Store {
     ) -> Result<InstanceRecord, StateError> {
         let overrides_json =
             serde_json::to_string(source_overrides).unwrap_or_else(|_| "{}".into());
-        let result = self.conn.execute(
+        let result = self.execute(
             "INSERT INTO instances (name, substrate, status, definition, source_overrides, created_at, definition_dir)
              VALUES (?1, ?2, 'active', ?3, ?4, ?5, ?6)",
-            rusqlite::params![name, substrate, definition, overrides_json, Self::now(), definition_dir],
+            &[
+                name.into(),
+                substrate.into(),
+                definition.into(),
+                overrides_json.into(),
+                Self::now().into(),
+                definition_dir.into(),
+            ],
         );
         match result {
             Ok(_) => self
                 .instance(name)?
                 .ok_or_else(|| StateError::InstanceNotFound { name: name.into() }),
-            Err(err) if is_unique_violation(&err) => {
-                let existing = self
-                    .instance(name)?
-                    .map(|r| r.substrate)
-                    .unwrap_or_default();
-                Err(StateError::InstanceExists {
-                    name: name.into(),
-                    existing_substrate: existing,
-                })
+            Err(err) => {
+                // A failed insert under an existing name is the
+                // uniqueness conflict (driver-agnostic: the PRIMARY KEY
+                // rejected it on either backend). Distinguish it from a
+                // real error by re-reading.
+                if let Some(existing) = self.instance(name)? {
+                    Err(StateError::InstanceExists {
+                        name: name.into(),
+                        existing_substrate: existing.substrate,
+                    })
+                } else {
+                    Err(err)
+                }
             }
-            Err(err) => Err(err.into()),
         }
     }
 
     pub fn instance(&self, name: &str) -> Result<Option<InstanceRecord>, StateError> {
-        self.conn
-            .query_row(
-                "SELECT name, substrate, status, definition, source_overrides, created_at, tombstoned_at, definition_dir
-                 FROM instances WHERE name = ?1",
-                [name],
-                row_to_instance,
-            )
-            .optional()
-            .map_err(Into::into)
+        self.query_row(
+            &format!("SELECT {SELECT_COLUMNS} FROM instances WHERE name = ?1"),
+            &[name.into()],
+            row_to_instance,
+        )
     }
 
     pub fn instances(&self) -> Result<Vec<InstanceRecord>, StateError> {
-        let mut stmt = self.conn.prepare(
-            "SELECT name, substrate, status, definition, source_overrides, created_at, tombstoned_at, definition_dir
-             FROM instances ORDER BY name",
-        )?;
-        let rows = stmt.query_map([], row_to_instance)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+        self.query_map(
+            &format!("SELECT {SELECT_COLUMNS} FROM instances ORDER BY name"),
+            &[],
+            row_to_instance,
+        )
     }
 
     /// Teardown leaves a tombstone, not amnesia (§2).
     pub fn tombstone_instance(&self, name: &str) -> Result<(), StateError> {
-        let changed = self.conn.execute(
+        let changed = self.execute(
             "UPDATE instances SET status = 'tombstoned', tombstoned_at = ?2 WHERE name = ?1",
-            rusqlite::params![name, Self::now()],
+            &[name.into(), Self::now().into()],
         )?;
         if changed == 0 {
             return Err(StateError::InstanceNotFound { name: name.into() });
@@ -117,16 +124,23 @@ impl Store {
     ) -> Result<(), StateError> {
         let overrides_json =
             serde_json::to_string(source_overrides).unwrap_or_else(|_| "{}".into());
-        let changed = self.conn.execute(
+        let changed = self.execute(
             "UPDATE instances SET status = 'active', definition = ?2, source_overrides = ?3,
              created_at = ?4, tombstoned_at = NULL WHERE name = ?1",
-            rusqlite::params![name, definition, overrides_json, Self::now()],
+            &[
+                name.into(),
+                definition.into(),
+                overrides_json.into(),
+                Self::now().into(),
+            ],
         )?;
         if changed == 0 {
             return Err(StateError::InstanceNotFound { name: name.into() });
         }
-        self.conn
-            .execute("DELETE FROM checkpoints WHERE instance = ?1", [name])?;
+        self.execute(
+            "DELETE FROM checkpoints WHERE instance = ?1",
+            &[name.into()],
+        )?;
         Ok(())
     }
 
@@ -139,33 +153,25 @@ impl Store {
     ) -> Result<(), StateError> {
         let overrides_json =
             serde_json::to_string(source_overrides).unwrap_or_else(|_| "{}".into());
-        self.conn.execute(
+        self.execute(
             "UPDATE instances SET source_overrides = ?2 WHERE name = ?1",
-            rusqlite::params![name, overrides_json],
+            &[name.into(), overrides_json.into()],
         )?;
         Ok(())
     }
 }
 
-fn row_to_instance(row: &rusqlite::Row<'_>) -> rusqlite::Result<InstanceRecord> {
-    let status: String = row.get(2)?;
-    let overrides_json: String = row.get(4)?;
+fn row_to_instance(row: &Row) -> Result<InstanceRecord, StateError> {
+    let status = row.get_string(2)?;
+    let overrides_json = row.get_string(4)?;
     Ok(InstanceRecord {
-        name: row.get(0)?,
-        substrate: row.get(1)?,
+        name: row.get_string(0)?,
+        substrate: row.get_string(1)?,
         status: InstanceStatus::from_sql(&status),
-        definition: row.get(3)?,
+        definition: row.get_string(3)?,
         source_overrides: serde_json::from_str(&overrides_json).unwrap_or_default(),
-        created_at: row.get(5)?,
-        tombstoned_at: row.get(6)?,
-        definition_dir: row.get(7)?,
+        created_at: row.get_i64(5)?,
+        tombstoned_at: row.get_opt_i64(6)?,
+        definition_dir: row.get_string(7)?,
     })
-}
-
-fn is_unique_violation(err: &rusqlite::Error) -> bool {
-    matches!(
-        err,
-        rusqlite::Error::SqliteFailure(e, _)
-            if e.code == rusqlite::ErrorCode::ConstraintViolation
-    )
 }

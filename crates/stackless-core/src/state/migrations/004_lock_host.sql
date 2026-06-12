@@ -1,0 +1,11 @@
+-- Fleet-mode lock ownership (ARCHITECTURE.md §2, M9). The operation
+-- lock gains the holder's hostname so claim_lock can tell a same-host
+-- holder (whose PID liveness it can probe) from a foreign-host holder
+-- (whose PID is meaningless here, respected until a staleness budget).
+--
+-- Legacy rows predate fleet mode and were all written by this machine;
+-- the empty-string default is normalized to the local hostname at
+-- claim time (an empty holder_host is treated as same-host), so a dead
+-- local holder recorded before this migration is still taken over
+-- immediately rather than waiting out the foreign staleness budget.
+ALTER TABLE op_locks ADD COLUMN holder_host TEXT NOT NULL DEFAULT '';
