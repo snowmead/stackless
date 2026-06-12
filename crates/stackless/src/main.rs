@@ -49,9 +49,9 @@ enum Command {
         /// Substrate, required at creation (`local` or `render`); ignored on resume.
         #[arg(long = "on", value_name = "SUBSTRATE")]
         on: Option<String>,
-        /// Pin a service to an existing checkout: service=path
-        /// (local-only, recorded, repeatable).
-        #[arg(long = "source", value_name = "SVC=PATH")]
+        /// Pin a service to a checkout: SERVICE or SERVICE=PATH (PATH
+        /// defaults to cwd; local-only, recorded, repeatable).
+        #[arg(long = "source", value_name = "SVC[=PATH]")]
         sources: Vec<String>,
         /// Lease duration, e.g. 8h, 45m (default: substrate's).
         #[arg(long)]

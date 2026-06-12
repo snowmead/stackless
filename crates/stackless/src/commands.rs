@@ -98,14 +98,42 @@ fn definition_text(
     })
 }
 
+fn resolve_source_default_dir() -> Result<PathBuf, CliError> {
+    let cwd = std::env::current_dir().map_err(|err| CliError::BadArgument {
+        argument: "--source".into(),
+        detail: format!("cannot resolve working directory: {err}"),
+    })?;
+    Ok(std::fs::canonicalize(&cwd).unwrap_or(cwd))
+}
+
 fn parse_sources(sources: &[String]) -> Result<BTreeMap<String, String>, CliError> {
+    let default_path = resolve_source_default_dir()?.display().to_string();
     let mut map = BTreeMap::new();
     for source in sources {
-        let Some((service, path)) = source.split_once('=') else {
-            return Err(CliError::BadArgument {
-                argument: "--source".into(),
-                detail: format!("{source:?} is not service=path"),
-            });
+        let (service, path) = match source.split_once('=') {
+            None => {
+                if source.is_empty() {
+                    return Err(CliError::BadArgument {
+                        argument: "--source".into(),
+                        detail: "missing service name".into(),
+                    });
+                }
+                (source.as_str(), default_path.as_str())
+            }
+            Some((service, path)) => {
+                if service.is_empty() {
+                    return Err(CliError::BadArgument {
+                        argument: "--source".into(),
+                        detail: format!("{source:?} is missing a service name"),
+                    });
+                }
+                let path = if path.is_empty() {
+                    default_path.as_str()
+                } else {
+                    path
+                };
+                (service, path)
+            }
         };
         map.insert(service.to_owned(), path.to_owned());
     }
@@ -464,6 +492,63 @@ pub fn parse_and_validate(text: &str) -> Result<StackDef, CliError> {
     let def = StackDef::parse(text)?;
     def.validate(KNOWN_SUBSTRATES)?;
     Ok(def)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+    use std::sync::Mutex;
+
+    use super::*;
+
+    // CWD is process-global; serialize tests that temporarily chdir.
+    static CWD_LOCK: Mutex<()> = Mutex::new(());
+
+    fn with_cwd<F: FnOnce()>(dir: &Path, f: F) {
+        let _guard = CWD_LOCK.lock().unwrap();
+        let previous = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir).unwrap();
+        f();
+        let _ = std::env::set_current_dir(previous);
+    }
+
+    #[test]
+    fn parse_sources_defaults_to_cwd() {
+        let dir = tempfile::tempdir().unwrap();
+        with_cwd(dir.path(), || {
+            let expected = resolve_source_default_dir().unwrap();
+            let map = parse_sources(&["api".into()]).unwrap();
+            assert_eq!(map.get("api").map(String::as_str), Some(expected.display().to_string().as_str()));
+        });
+    }
+
+    #[test]
+    fn parse_sources_empty_path_after_equals_defaults_to_cwd() {
+        let dir = tempfile::tempdir().unwrap();
+        with_cwd(dir.path(), || {
+            let expected = resolve_source_default_dir().unwrap();
+            let map = parse_sources(&["api=".into()]).unwrap();
+            assert_eq!(map.get("api").map(String::as_str), Some(expected.display().to_string().as_str()));
+        });
+    }
+
+    #[test]
+    fn parse_sources_accepts_explicit_path() {
+        let map = parse_sources(&["api=/tmp/checkout".into()]).unwrap();
+        assert_eq!(map.get("api").map(String::as_str), Some("/tmp/checkout"));
+    }
+
+    #[test]
+    fn parse_sources_rejects_missing_service_name() {
+        let err = parse_sources(&["=/path".into()]).unwrap_err();
+        assert!(matches!(err, CliError::BadArgument { argument, .. } if argument == "--source"));
+    }
+
+    #[test]
+    fn parse_sources_rejects_empty_service() {
+        let err = parse_sources(&["".into()]).unwrap_err();
+        assert!(matches!(err, CliError::BadArgument { argument, .. } if argument == "--source"));
+    }
 }
 
 
