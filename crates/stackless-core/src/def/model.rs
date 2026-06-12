@@ -22,6 +22,8 @@ pub struct StackDef {
     #[serde(default)]
     pub secrets: SecretsSpec,
     #[serde(default)]
+    pub integrations: BTreeMap<String, Integration>,
+    #[serde(default)]
     pub datastores: BTreeMap<String, Datastore>,
     #[serde(default)]
     pub services: BTreeMap<String, Service>,
@@ -30,11 +32,25 @@ pub struct StackDef {
 #[derive(Debug, Deserialize)]
 pub struct Stack {
     pub name: String,
+    #[serde(default)]
+    pub projects: ProjectsSpec,
     pub verify: Option<VerifySpec>,
     /// Per-substrate stack config (e.g. `[stack.render]` project/region),
     /// plus any unknown keys — validation tells them apart.
     #[serde(flatten)]
     pub substrates: BTreeMap<String, toml::Value>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectsSpec {
+    pub stripe: Option<StripeProjectSpec>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StripeProjectSpec {
+    pub project: Option<String>,
 }
 
 /// The proof contract, run by `stackless verify` (ARCHITECTURE.md §7).
@@ -51,6 +67,21 @@ pub struct VerifySpec {
 pub struct SecretsSpec {
     #[serde(default)]
     pub required: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Integration {
+    pub app_name: String,
+    #[serde(default = "default_credential_set")]
+    pub credential_set: String,
+    pub production_domain: Option<String>,
+    #[serde(default)]
+    pub organizations: bool,
+}
+
+fn default_credential_set() -> String {
+    "development".to_owned()
 }
 
 #[derive(Debug, Deserialize)]

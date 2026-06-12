@@ -61,6 +61,7 @@ pub fn namespace(
     secrets: &BTreeMap<String, String>,
 ) -> Namespace {
     let mut namespace = Namespace {
+        stack_name: def.stack.name.clone(),
         instance_name: instance.to_owned(),
         ..Namespace::default()
     };
@@ -81,6 +82,7 @@ pub fn namespace(
         }
     }
     namespace.secrets = secrets.clone();
+    namespace.add_integration_checkpoints(prior);
     namespace
 }
 

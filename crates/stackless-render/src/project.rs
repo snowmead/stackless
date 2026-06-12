@@ -1,6 +1,6 @@
 //! Stripe Projects orchestration (§4): the long-lived per-stack project
 //! anchor (D16), the per-instance named environment, resource add/remove
-//! with cloud-env.ts's plain-mode fallbacks, the hard spend cap, the
+//! with the atto Render plain-mode fallbacks, the hard spend cap, the
 //! operator-side prepare checkout, and spend reporting.
 
 use std::path::Path;
@@ -9,12 +9,11 @@ use std::process::Stdio;
 use serde_json::Value;
 use stackless_core::def::StackDef;
 
-use crate::SUBSTRATE_NAME;
 use crate::config;
 use crate::error::RenderError;
 use crate::stripe::{CommandRunner, StripeProjects};
 
-/// Anchor the stack's Stripe project (D16). If `[stack.render].project`
+/// Anchor the stack's Stripe project (D16). If `[stack.projects.stripe].project`
 /// is recorded, ensure the definition dir is linked (pull when not);
 /// otherwise create the project and write its id back into stackless.toml
 /// — the one place stackless writes the definition, done surgically with
@@ -77,7 +76,7 @@ pub async fn ensure_project<R: CommandRunner>(
     }
 }
 
-/// Surgically set `[stack.render].project` in stackless.toml, preserving
+/// Surgically set `[stack.projects.stripe].project` in stackless.toml, preserving
 /// comments and formatting (toml_edit). The definition file is found in
 /// `definition_dir/stackless.toml` (record.definition_dir).
 fn write_project_anchor(definition_dir: &Path, project_id: &str) -> Result<(), RenderError> {
@@ -90,24 +89,27 @@ fn write_project_anchor(definition_dir: &Path, project_id: &str) -> Result<(), R
             .map_err(|err| RenderError::ProjectAnchor {
                 detail: format!("cannot parse {}: {err}", path.display()),
             })?;
-    // Ensure [stack.render] exists, then set project.
+    // Ensure [stack.projects.stripe] exists, then set project.
     let stack = doc["stack"].or_insert(toml_edit::table());
     if let Some(stack_table) = stack.as_table_mut() {
         stack_table.set_implicit(false);
     }
-    let render = doc["stack"][SUBSTRATE_NAME].or_insert(toml_edit::table());
-    if let Some(render_table) = render.as_table_mut() {
-        render_table.set_implicit(false);
+    let projects = doc["stack"]["projects"].or_insert(toml_edit::table());
+    if let Some(projects_table) = projects.as_table_mut() {
+        projects_table.set_implicit(false);
     }
-    doc["stack"][SUBSTRATE_NAME]["project"] = toml_edit::value(project_id);
+    let stripe = doc["stack"]["projects"]["stripe"].or_insert(toml_edit::table());
+    if let Some(stripe_table) = stripe.as_table_mut() {
+        stripe_table.set_implicit(false);
+    }
+    doc["stack"]["projects"]["stripe"]["project"] = toml_edit::value(project_id);
     std::fs::write(&path, doc.to_string()).map_err(|err| RenderError::ProjectAnchor {
         detail: format!("cannot write {}: {err}", path.display()),
     })?;
     Ok(())
 }
 
-/// Create or activate the instance's named environment (cloud-env.ts's
-/// ensureEnvironmentActive — instance == named environment in the stack's
+/// Create or activate the instance's named environment (instance == named environment in the stack's
 /// long-lived project). `env create` auto-activates; otherwise `env use`.
 pub async fn ensure_environment<R: CommandRunner>(
     stripe: &StripeProjects<R>,
@@ -157,7 +159,7 @@ fn environment_exists(data: &Value, instance: &str) -> bool {
 /// then rejects with `provider_failure: failed to provision resource`
 /// (duplicate name). So resume must skip `add` for an already-registered
 /// resource itself, rather than trusting the plugin to no-op.
-async fn resource_registered<R: CommandRunner>(
+pub async fn resource_registered<R: CommandRunner>(
     stripe: &StripeProjects<R>,
     name: &str,
 ) -> Result<bool, RenderError> {
@@ -173,7 +175,7 @@ async fn resource_registered<R: CommandRunner>(
         .any(|s| s.get("name").and_then(Value::as_str) == Some(name)))
 }
 
-/// Add a service resource. We pass `--name` + `--config`; cloud-env.ts's
+/// Add a service resource. We pass `--name` + `--config`; the atto Render
 /// plain-mode fallback handles the live-mode quirk and
 /// `--confirm-paid-service` is appended for paid tiers. The plugin's `add`
 /// is not idempotent, so resume first skips an already-registered resource
@@ -184,12 +186,12 @@ pub async fn add_resource<R: CommandRunner>(
     name: &str,
     config: &Value,
     paid: bool,
-) -> Result<(), RenderError> {
+) -> Result<Value, RenderError> {
     if resource_registered(stripe, name).await? {
         // Already provisioned on a prior run — the Start step re-resolves
         // the live Render service and re-drives env/deploy. Skip `add` so
         // the provider does not 400 on the duplicate name.
-        return Ok(());
+        return Ok(Value::Null);
     }
     let config_str = config.to_string();
     let mut args: Vec<&str> = vec![
@@ -210,11 +212,11 @@ pub async fn add_resource<R: CommandRunner>(
     } else {
         vec!["--accept-tos", "--yes"]
     };
-    stripe
+    let data = stripe
         .run_ok(&format!("add {reference}"), &args, &plain_extra)
         .await?;
     // Membership should be automatic; make it explicit, tolerate
-    // "already a member" (cloud-env.ts addResource).
+    // "already a member".
     let membership = stripe.json(&["env", "add", name]).await;
     if let Ok(result) = membership
         && !result.ok
@@ -226,7 +228,111 @@ pub async fn add_resource<R: CommandRunner>(
     {
         // A non-fatal note; the resource itself is provisioned.
     }
-    Ok(())
+    Ok(data)
+}
+
+/// Refresh provider environment variables and return one value when the
+/// JSON response includes it unredacted.
+pub async fn refreshed_env_value<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+    service_reference: &str,
+    key: &str,
+) -> Result<Option<String>, RenderError> {
+    let data = stripe
+        .run_ok(
+            "env",
+            &["env", "--service", service_reference, "--refresh"],
+            &["--yes"],
+        )
+        .await?;
+    Ok(find_env_value(&data, key))
+}
+
+/// Pull the active environment into its configured env files and read one
+/// real value from disk. Stripe Projects JSON/env display can redact
+/// secrets, but `env --pull` is the provider-sanctioned way to materialize
+/// credentials for local tooling.
+pub async fn pull_env_value<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+    instance: &str,
+    key: &str,
+) -> Result<Option<String>, RenderError> {
+    stripe
+        .run_ok("env --pull", &["env", "--pull", "--refresh"], &["--yes"])
+        .await?;
+    for path in [
+        stripe.dir().join(format!(".env.{instance}")),
+        stripe.dir().join(".env"),
+    ] {
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        if let Some(value) = parse_env_value(&text, key) {
+            return Ok(Some(value));
+        }
+    }
+    Ok(None)
+}
+
+pub fn find_env_value(value: &Value, key: &str) -> Option<String> {
+    match value {
+        Value::Object(map) => {
+            if let Some(found) = map.get(key).and_then(Value::as_str)
+                && !is_redacted(found)
+            {
+                return Some(found.to_owned());
+            }
+            let named_key = map
+                .get("key")
+                .or_else(|| map.get("name"))
+                .and_then(Value::as_str);
+            if named_key == Some(key)
+                && let Some(found) = map.get("value").and_then(Value::as_str)
+                && !is_redacted(found)
+            {
+                return Some(found.to_owned());
+            }
+            map.values().find_map(|child| find_env_value(child, key))
+        }
+        Value::Array(values) => values.iter().find_map(|child| find_env_value(child, key)),
+        _ => None,
+    }
+}
+
+fn is_redacted(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    value.contains('•')
+        || value.contains('*')
+        || lower.contains("redacted")
+        || lower.contains("hidden")
+}
+
+fn parse_env_value(text: &str, key: &str) -> Option<String> {
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((name, value)) = line.split_once('=') else {
+            continue;
+        };
+        if name.trim() == key {
+            return Some(unquote_env_value(value.trim()));
+        }
+    }
+    None
+}
+
+fn unquote_env_value(value: &str) -> String {
+    let bytes = value.as_bytes();
+    if bytes.len() >= 2
+        && ((bytes[0] == b'\'' && bytes[bytes.len() - 1] == b'\'')
+            || (bytes[0] == b'"' && bytes[bytes.len() - 1] == b'"'))
+    {
+        value[1..value.len() - 1].to_owned()
+    } else {
+        value.to_owned()
+    }
 }
 
 /// Remove a service resource, dependents-tolerant (`--force`).
@@ -382,12 +488,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn anchor_writeback_preserves_comments_and_adds_project() {
+    fn anchor_writeback_preserves_comments_and_adds_neutral_project() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("stackless.toml");
         std::fs::write(
             &path,
-            "# atto dogfood\n[stack]\nname = \"atto\"\n\n[stack.render]\n# anchor written on first up\nregion = \"oregon\"\n",
+            "# atto dogfood\n[stack]\nname = \"atto\"\n\n[stack.render]\nregion = \"oregon\"\n",
         )
         .unwrap();
 
@@ -395,10 +501,6 @@ mod tests {
 
         let after = std::fs::read_to_string(&path).unwrap();
         assert!(after.contains("# atto dogfood"), "top comment survives");
-        assert!(
-            after.contains("# anchor written on first up"),
-            "block comment survives"
-        );
         assert!(
             after.contains("region = \"oregon\""),
             "existing key survives"
@@ -408,10 +510,10 @@ mod tests {
             "project id written: {after}"
         );
 
-        // Re-parses as valid TOML with the project under [stack.render].
+        // Re-parses as valid TOML with the project under [stack.projects.stripe].
         let doc: toml::Value = toml::from_str(&after).unwrap();
         assert_eq!(
-            doc["stack"]["render"]["project"].as_str(),
+            doc["stack"]["projects"]["stripe"]["project"].as_str(),
             Some("project_abc123")
         );
     }
@@ -424,7 +526,7 @@ mod tests {
         write_project_anchor(dir.path(), "project_xyz").unwrap();
         let doc: toml::Value = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(
-            doc["stack"]["render"]["project"].as_str(),
+            doc["stack"]["projects"]["stripe"]["project"].as_str(),
             Some("project_xyz")
         );
     }
@@ -475,5 +577,51 @@ mod tests {
         .unwrap();
         // Only the `services list` probe ran — `add` was skipped.
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn env_value_parser_handles_maps_and_arrays() {
+        let object = serde_json::json!({
+            "variables": {
+                "CLERK_AUTH_ENVIRONMENTS": "{\"development\":{}}"
+            }
+        });
+        assert_eq!(
+            find_env_value(&object, "CLERK_AUTH_ENVIRONMENTS").as_deref(),
+            Some("{\"development\":{}}")
+        );
+
+        let array = serde_json::json!({
+            "env": [
+                { "key": "OTHER", "value": "x" },
+                { "name": "CLERK_AUTH_ENVIRONMENTS", "value": "secret-json" }
+            ]
+        });
+        assert_eq!(
+            find_env_value(&array, "CLERK_AUTH_ENVIRONMENTS").as_deref(),
+            Some("secret-json")
+        );
+    }
+
+    #[test]
+    fn env_value_parser_rejects_redacted_values() {
+        let redacted = serde_json::json!({
+            "key": "CLERK_AUTH_ENVIRONMENTS",
+            "value": "••••••"
+        });
+        assert!(find_env_value(&redacted, "CLERK_AUTH_ENVIRONMENTS").is_none());
+    }
+
+    #[test]
+    fn env_file_parser_reads_quoted_values() {
+        let text = r#"
+# comment
+OTHER=x
+CLERK_AUTH_ENVIRONMENTS='{"development":{"secret_key":"sk"}}'
+"#;
+        assert_eq!(
+            parse_env_value(text, "CLERK_AUTH_ENVIRONMENTS").as_deref(),
+            Some(r#"{"development":{"secret_key":"sk"}}"#)
+        );
     }
 }

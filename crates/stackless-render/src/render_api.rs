@@ -2,8 +2,7 @@
 //! steps Stripe Projects can't express — env vars, the SPA rewrite
 //! route, deploy triggers, deploy polling with per-kind budgets,
 //! postgres connection info, recent logs, and the teardown
-//! survivors check. Ported from render-api.ts; endpoints verified there
-//! against Render's OpenAPI spec.
+//! survivors check. Endpoints were verified against Render's OpenAPI spec.
 
 use std::time::Duration;
 
@@ -13,11 +12,11 @@ use crate::error::RenderError;
 
 const DEFAULT_BASE: &str = "https://api.render.com/v1";
 
-/// Deploy budgets (cloud-env.ts's proven numbers, D17): a Rust release
+/// Deploy budgets from the proven atto Render dogfood: a Rust release
 /// build can take 30+ minutes on small tiers.
 pub const WEB_DEPLOY_BUDGET: Duration = Duration::from_secs(35 * 60);
 pub const STATIC_DEPLOY_BUDGET: Duration = Duration::from_secs(20 * 60);
-/// The public-origin health wait (cloud-env.ts's 5-minute budget, §7).
+/// The public-origin health wait budget (§7).
 pub const HEALTH_BUDGET: Duration = Duration::from_secs(5 * 60);
 
 const POLL_INTERVAL: Duration = Duration::from_secs(10);
@@ -351,7 +350,7 @@ impl RenderApi {
     }
 
     /// Poll a deploy to `live` within `budget`, failing fast on a
-    /// terminal status (cloud-env.ts's waitForDeploy).
+    /// terminal status.
     pub async fn wait_for_deploy(
         &self,
         service: &str,

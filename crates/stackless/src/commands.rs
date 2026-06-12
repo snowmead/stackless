@@ -34,6 +34,7 @@ fn substrate(name: &str, ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliErr
         LOCAL => Ok(Box::new(LocalSubstrate {
             proxy_port: stackless_daemon::proxy::proxy_port(),
             secrets: ctx.secrets,
+            definition_dir: ctx.definition_dir,
         })),
         RENDER => Ok(Box::new(RenderSubstrate::new(
             ctx.definition_dir,

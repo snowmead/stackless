@@ -41,10 +41,16 @@ verifiably. No wiki page, no teammate, no manual cleanup.
 ## How it works
 
 - **A stack definition** (`stackless.toml`) declares services,
-  datastores, secrets, wiring, and health contracts once. Wiring is
-  interpolation — `DATABASE_URL = "${datastores.db.url}"` — and the
+  datastores, hosted integrations, secrets, wiring, and health
+  contracts once. Wiring is interpolation —
+  `DATABASE_URL = "${datastores.db.url}"`,
+  `CLERK_SECRET_KEY = "${integrations.clerk.secret_key}"` — and the
   startup order is *derived* from it; there is no `depends_on` to
   drift.
+- **Hosted integrations** are provisioned as stack resources too. For
+  Clerk, Stackless creates the app through Stripe Projects, can enable
+  slugged Organizations, and exposes the selected publishable/secret
+  keys for services and verify.
 - **An instance** is a named, short-lived incarnation of the stack.
   The name is assigned at birth, validated DNS-safe, and everything
   the instance owns derives from it. Any number of instances coexist
@@ -57,10 +63,10 @@ verifiably. No wiki page, no teammate, no manual cleanup.
     are derivable from the name alone:
     `http://{service}.{instance}.localhost:4444`.
   - **render** — the same definition deploys to
-    [Render](https://render.com) through Stripe Projects (one
-    long-lived project per stack, one named environment per instance),
-    with hard spend caps and per-invocation paid consent
-    (`--confirm-paid`).
+    [Render](https://render.com) through the same Stripe Project used
+    for hosted integrations (one long-lived project per stack, one
+    named environment per instance), with hard spend caps and
+    per-invocation paid consent (`--confirm-paid`).
 - **Sources are git references** (`repo` + `ref`), materialized per
   instance from a shared object cache. For the edit loop,
   `--source service=/path/to/checkout` pins a service to your dirty
@@ -126,7 +132,7 @@ it is written to be sufficient on its own, for humans and agents.
 |---|---|
 | `stackless-core` | Definition model + validation + interpolation + derived graph, the SQL state store (instances, leases, locks, checkpoint journal), the lifecycle engine, the `Substrate` trait |
 | `stackless-local` | Local substrate: process spawn/teardown, container datastores, gix source materialization, wiring |
-| `stackless-render` | Render substrate: Stripe Projects CLI driver + Render REST client |
+| `stackless-render` | Render substrate, hosted integration provisioning through Stripe Projects, and Render REST client |
 | `stackless-daemon` | The one resident component: reverse proxy, supervision, lease reaper, launchd/systemd persistence |
 | `stackless` | The clap CLI binary (also hosts the daemon via `daemon run`) |
 

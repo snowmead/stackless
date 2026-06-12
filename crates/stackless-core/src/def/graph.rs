@@ -93,7 +93,10 @@ impl DependencyGraph {
                     let target = match reference {
                         Reference::DatastoreUrl(name) => Node::Datastore(name),
                         Reference::ServiceOrigin(name) => Node::Service(name),
-                        Reference::InstanceName | Reference::Secret(_) => continue,
+                        Reference::StackName
+                        | Reference::InstanceName
+                        | Reference::Secret(_)
+                        | Reference::IntegrationOutput { .. } => continue,
                     };
                     let Some(target_idx) = index_of(&target) else {
                         continue;

@@ -9,6 +9,8 @@ use crate::def::{DefError, DependencyGraph, Node, StackDef};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StepKind {
+    /// Provision a hosted third-party integration (Clerk in v0).
+    ProvisionIntegration,
     /// Provision a datastore (container locally, managed service on a
     /// cloud substrate).
     ProvisionDatastore,
@@ -27,6 +29,7 @@ pub enum StepKind {
 impl StepKind {
     fn id_prefix(self) -> &'static str {
         match self {
+            Self::ProvisionIntegration => "integration",
             Self::ProvisionDatastore => "provision",
             Self::Materialize => "materialize",
             Self::Setup => "setup",
@@ -62,6 +65,9 @@ impl Step {
 pub fn plan(def: &StackDef) -> Result<Vec<Step>, DefError> {
     let graph = DependencyGraph::derive(def)?;
     let mut steps = Vec::new();
+    for integration in def.integrations.keys() {
+        steps.push(Step::new(StepKind::ProvisionIntegration, integration));
+    }
     for node in graph.startup_order() {
         match node {
             Node::Datastore(name) => {

@@ -33,6 +33,9 @@ pub struct LocalSubstrate {
     pub proxy_port: u16,
     /// Resolved secrets (M5: vault pull + env-file overlay). Empty in M4.
     pub secrets: BTreeMap<String, String>,
+    /// Where the definition lives; hosted integrations run Stripe
+    /// Projects from here.
+    pub definition_dir: PathBuf,
 }
 
 impl Default for LocalSubstrate {
@@ -40,6 +43,7 @@ impl Default for LocalSubstrate {
         Self {
             proxy_port: stackless_daemon::proxy::proxy_port(),
             secrets: BTreeMap::new(),
+            definition_dir: std::env::current_dir().unwrap_or_default(),
         }
     }
 }
@@ -178,6 +182,21 @@ impl Substrate for LocalSubstrate {
     async fn execute(&self, ctx: StepContext<'_>) -> Result<StepResource, SubstrateFault> {
         let service = ctx.step.node.as_str();
         match ctx.step.kind {
+            StepKind::ProvisionIntegration => {
+                let stripe = stackless_render::stripe::StripeProjects::new(
+                    stackless_render::stripe::TokioRunner,
+                    self.definition_dir.clone(),
+                );
+                stackless_render::integrations::provision(
+                    &stripe,
+                    ctx.def,
+                    &self.definition_dir,
+                    ctx.instance,
+                    service,
+                )
+                .await
+                .map_err(|err| SubstrateFault::from_fault(&err))
+            }
             StepKind::ProvisionDatastore => {
                 let datastore = service;
                 let Some(spec) = ctx.def.datastores.get(datastore) else {
@@ -372,6 +391,19 @@ impl Substrate for LocalSubstrate {
         checkpoint: &Checkpoint,
     ) -> Result<Observation, SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
+            kind if stackless_render::integrations::is_clerk_resource(kind) => {
+                let stripe = stackless_render::stripe::StripeProjects::new(
+                    stackless_render::stripe::TokioRunner,
+                    self.definition_dir.clone(),
+                );
+                stackless_render::integrations::observe(
+                    &stripe,
+                    &checkpoint.payload,
+                    &checkpoint.resource_id,
+                )
+                .await
+                .map_err(|err| SubstrateFault::from_fault(&err))
+            }
             "container" => {
                 let payload = serde_json::from_str::<serde_json::Value>(&checkpoint.payload).ok();
                 let container_id = payload
@@ -438,6 +470,20 @@ impl Substrate for LocalSubstrate {
 
     async fn destroy(&self, instance: &str, checkpoint: &Checkpoint) -> Result<(), SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
+            kind if stackless_render::integrations::is_clerk_resource(kind) => {
+                let stripe = stackless_render::stripe::StripeProjects::new(
+                    stackless_render::stripe::TokioRunner,
+                    self.definition_dir.clone(),
+                );
+                stackless_render::integrations::destroy(
+                    &stripe,
+                    instance,
+                    &checkpoint.payload,
+                    &checkpoint.resource_id,
+                )
+                .await
+                .map_err(|err| SubstrateFault::from_fault(&err))
+            }
             "container" => {
                 let payload = serde_json::from_str::<serde_json::Value>(&checkpoint.payload).ok();
                 let container_id = payload

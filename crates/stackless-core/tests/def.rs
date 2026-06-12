@@ -33,23 +33,30 @@ fn atto_parses_to_the_documented_model() {
     assert_eq!(verify.env["ATTO_E2E_TENANT_SLUG"], "${instance.name}");
     assert_eq!(
         verify.env["CLERK_SECRET_KEY"],
-        "${secrets.CLERK_SECRET_KEY}"
+        "${integrations.clerk.secret_key}"
     );
     assert_eq!(
         verify.env["VITE_CLERK_PUBLISHABLE_KEY"],
-        "${secrets.VITE_CLERK_PUBLISHABLE_KEY}"
+        "${integrations.clerk.publishable_key}"
     );
     let render = def.stack.substrates["render"].as_table().unwrap();
     assert_eq!(render["region"].as_str().unwrap(), "oregon");
-
     assert_eq!(
-        def.secrets.required,
-        vec![
-            "CLERK_SECRET_KEY",
-            "VITE_CLERK_PUBLISHABLE_KEY",
-            "GITHUB_PACKAGES_TOKEN"
-        ]
+        def.stack
+            .projects
+            .stripe
+            .as_ref()
+            .and_then(|stripe| stripe.project.as_deref()),
+        Some("project_61UqVKJia4fs...")
     );
+
+    assert_eq!(def.secrets.required, vec!["GITHUB_PACKAGES_TOKEN"]);
+    assert_eq!(
+        def.integrations["clerk"].app_name,
+        "${stack.name}-${instance.name}"
+    );
+    assert_eq!(def.integrations["clerk"].credential_set, "development");
+    assert!(def.integrations["clerk"].organizations);
 
     let db = &def.datastores["db"];
     assert_eq!(db.engine, "postgres");
@@ -69,8 +76,12 @@ fn atto_parses_to_the_documented_model() {
         api.prepare.as_deref(),
         Some("just migrate-run && just seed")
     );
-    assert_eq!(api.secrets, vec!["CLERK_SECRET_KEY"]);
+    assert!(api.secrets.is_empty());
     assert_eq!(api.env["DATABASE_URL"], "${datastores.db.url}");
+    assert_eq!(
+        api.env["CLERK_SECRET_KEY"],
+        "${integrations.clerk.secret_key}"
+    );
     assert_eq!(api.health.path, "/health");
     assert_eq!(api.health.status, 200);
     assert_eq!(api.health.contains.as_deref(), Some("ok"));

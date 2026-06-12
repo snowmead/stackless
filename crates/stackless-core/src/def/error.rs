@@ -56,6 +56,9 @@ pub enum DefError {
     #[error("{location} uses secret {key:?} which is not in [secrets].required")]
     SecretNotRequired { location: String, key: String },
 
+    #[error("[integrations.{integration}] is invalid: {detail}")]
+    IntegrationInvalid { integration: String, detail: String },
+
     #[error("the wiring graph has a dependency cycle through: {nodes}")]
     WiringCycle { nodes: String },
 
@@ -79,6 +82,7 @@ impl Fault for DefError {
             Self::ReferenceSyntax { .. } => codes::DEF_REFERENCE_SYNTAX,
             Self::UndeclaredReference { .. } => codes::DEF_UNDECLARED_REFERENCE,
             Self::SecretNotRequired { .. } => codes::DEF_SECRET_NOT_REQUIRED,
+            Self::IntegrationInvalid { .. } => codes::DEF_INTEGRATION_INVALID,
             Self::WiringCycle { .. } => codes::DEF_WIRING_CYCLE,
             Self::EnvNotStrings { .. } => codes::DEF_ENV_NOT_STRINGS,
         }
@@ -129,8 +133,9 @@ impl Fault for DefError {
                  others"
             ),
             Self::ReferenceSyntax { .. } => {
-                "valid references are ${instance.name}, ${services.<name>.origin}, \
-                 ${datastores.<name>.url}, and ${secrets.<KEY>}"
+                "valid references are ${stack.name}, ${instance.name}, \
+                 ${services.<name>.origin}, ${datastores.<name>.url}, \
+                 ${secrets.<KEY>}, and ${integrations.<name>.<output>}"
                     .into()
             }
             Self::UndeclaredReference { kind, name, .. } => format!(
@@ -140,6 +145,10 @@ impl Fault for DefError {
             Self::SecretNotRequired { key, .. } => format!(
                 "add {key:?} to [secrets].required so it is resolved and validated before \
                  anything provisions"
+            ),
+            Self::IntegrationInvalid { integration, .. } => format!(
+                "fix [integrations.{integration}]; v0 supports [integrations.clerk] with \
+                 app_name and credential_set = \"development\" or \"production\""
             ),
             Self::WiringCycle { .. } => {
                 "break the cycle: at least one of these references must be removed or replaced \

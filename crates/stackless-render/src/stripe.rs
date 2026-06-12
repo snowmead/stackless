@@ -2,9 +2,9 @@
 //!
 //! Drives the `stripe projects` plugin (v0.19.0) non-interactively.
 //! Every JSON-mode invocation parses the `{ok, command, version, data}`
-//! envelope (stripe-cli.ts's contract); when JSON mode fails with
+//! envelope (the Stripe Projects JSON contract); when JSON mode fails with
 //! confirmation/auth/live-mode errors the driver falls back to plain
-//! mode with `--yes`/`--accept-tos`, exactly as cloud-env.ts learned to.
+//! mode with `--yes`/`--accept-tos`, matching the proven atto Render flow.
 //!
 //! The driver is generic over a [`CommandRunner`] so tests inject canned
 //! CLI envelopes without spawning a subprocess.
@@ -105,7 +105,7 @@ pub struct StripeResult {
 
 /// Error codes whose confirmation/auth requirement cannot be satisfied
 /// in `--json` mode; plain mode with `--yes` accepts the session
-/// (cloud-env.ts's PLAIN_FALLBACK_CODES).
+/// (the proven atto Render fallback set).
 ///
 /// `DIRECTORY_SELECTION_REQUIRED` (live-observed 2026-06-11): `stripe
 /// projects init` refuses to initialize a non-empty directory in JSON
@@ -121,7 +121,7 @@ const PLAIN_FALLBACK_CODES: &[&str] = &[
 ];
 
 /// The Stripe Projects driver. Holds a runner and the definition dir
-/// (every invocation runs there, as cloud-env.ts ran in `.cloud-envs/`).
+/// (every invocation runs from the definition dir).
 pub struct StripeProjects<R: CommandRunner> {
     runner: R,
     dir: std::path::PathBuf,
@@ -143,6 +143,10 @@ impl<R: CommandRunner> StripeProjects<R> {
         }
     }
 
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
     /// The underlying runner — tests reach through it to assert calls.
     #[cfg(test)]
     fn runner(&self) -> &R {
@@ -152,7 +156,7 @@ impl<R: CommandRunner> StripeProjects<R> {
     /// Run in `--json` mode and parse the envelope. The plugin prints a
     /// plain-text welcome screen (no JSON) for unknown commands and
     /// errors without JSON when the plugin is missing — both surface as
-    /// `StripeUnavailable` (stripe-cli.ts's StripeCliUnavailableError).
+    /// `StripeUnavailable`.
     pub async fn json(&self, args: &[&str]) -> Result<StripeResult, RenderError> {
         let mut argv: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
         argv.push("--json".into());
@@ -229,7 +233,7 @@ impl<R: CommandRunner> StripeProjects<R> {
         }
     }
 
-    /// Run a command that must succeed, with the cloud-env.ts fallback:
+    /// Run a command that must succeed, with the atto Render fallback:
     /// when `--json` fails with a confirmation/auth code OR a live-mode
     /// complaint, retry in plain mode with the same args (still
     /// non-interactive thanks to `--yes`/`--accept-tos` the caller

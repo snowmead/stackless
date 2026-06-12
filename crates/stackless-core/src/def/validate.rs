@@ -13,6 +13,8 @@ use super::model::{Service, StackDef};
 
 /// Engines with built-in readiness in v0 (ARCHITECTURE.md §7).
 const KNOWN_ENGINES: &[&str] = &["postgres"];
+const KNOWN_INTEGRATIONS: &[&str] = &["clerk"];
+const CLERK_OUTPUTS: &[&str] = &["secret_key", "publishable_key"];
 
 /// DNS-safe: it becomes hostnames and cloud service names.
 pub fn dns_safe(name: &str) -> bool {
@@ -42,6 +44,7 @@ pub fn validate(def: &StackDef, known_substrates: &[&str]) -> Result<(), DefErro
     }
 
     validate_substrate_keys(&def.stack.substrates, "stack", known_substrates)?;
+    validate_integrations(def)?;
 
     for (name, datastore) in &def.datastores {
         if !dns_safe(name) {
@@ -177,10 +180,53 @@ fn validate_service_references(
     Ok(())
 }
 
+fn validate_integrations(def: &StackDef) -> Result<(), DefError> {
+    for (name, integration) in &def.integrations {
+        if !KNOWN_INTEGRATIONS.contains(&name.as_str()) {
+            return Err(DefError::IntegrationInvalid {
+                integration: name.clone(),
+                detail: format!("unknown integration {name:?} (known: {KNOWN_INTEGRATIONS:?})"),
+            });
+        }
+        match integration.credential_set.as_str() {
+            "development" => {}
+            "production" => {
+                if integration.production_domain.is_none() {
+                    return Err(DefError::IntegrationInvalid {
+                        integration: name.clone(),
+                        detail: "credential_set = \"production\" requires production_domain".into(),
+                    });
+                }
+            }
+            other => {
+                return Err(DefError::IntegrationInvalid {
+                    integration: name.clone(),
+                    detail: format!(
+                        "credential_set must be \"development\" or \"production\", got {other:?}"
+                    ),
+                });
+            }
+        }
+        for (field, value) in [
+            ("app_name", Some(integration.app_name.as_str())),
+            (
+                "production_domain",
+                integration.production_domain.as_deref(),
+            ),
+        ] {
+            let Some(value) = value else { continue };
+            let location = format!("integrations.{name}.{field}");
+            let refs = interp::references(value, &location)?;
+            validate_references(def, &refs, &location)?;
+        }
+    }
+    Ok(())
+}
+
 fn validate_references(def: &StackDef, refs: &[Reference], location: &str) -> Result<(), DefError> {
     for reference in refs {
         match reference {
-            Reference::InstanceName => {}
+            Reference::StackName | Reference::InstanceName => {}
             Reference::ServiceOrigin(target) => {
                 if !def.services.contains_key(target) {
                     return Err(DefError::UndeclaredReference {
@@ -204,6 +250,25 @@ fn validate_references(def: &StackDef, refs: &[Reference], location: &str) -> Re
                     return Err(DefError::SecretNotRequired {
                         location: location.to_owned(),
                         key: key.clone(),
+                    });
+                }
+            }
+            Reference::IntegrationOutput {
+                integration,
+                output,
+            } => {
+                if !def.integrations.contains_key(integration) {
+                    return Err(DefError::UndeclaredReference {
+                        location: location.to_owned(),
+                        kind: "integration",
+                        name: integration.clone(),
+                    });
+                }
+                if integration == "clerk" && !CLERK_OUTPUTS.contains(&output.as_str()) {
+                    return Err(DefError::UndeclaredReference {
+                        location: location.to_owned(),
+                        kind: "integration output",
+                        name: format!("{integration}.{output}"),
                     });
                 }
             }

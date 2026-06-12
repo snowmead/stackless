@@ -12,6 +12,8 @@ use super::error::DefError;
 /// A parsed `${...}` reference.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Reference {
+    /// `${stack.name}`
+    StackName,
     /// `${instance.name}`
     InstanceName,
     /// `${services.X.origin}`
@@ -20,6 +22,8 @@ pub enum Reference {
     DatastoreUrl(String),
     /// `${secrets.KEY}`
     Secret(String),
+    /// `${integrations.X.output}`
+    IntegrationOutput { integration: String, output: String },
 }
 
 /// Extract every `${...}` reference from a value.
@@ -48,9 +52,14 @@ fn parse_reference(inner: &str, location: &str) -> Result<Reference, DefError> {
     let parts: Vec<&str> = inner.split('.').collect();
     let reference = match parts.as_slice() {
         ["instance", "name"] => Reference::InstanceName,
+        ["stack", "name"] => Reference::StackName,
         ["services", name, "origin"] => Reference::ServiceOrigin((*name).to_owned()),
         ["datastores", name, "url"] => Reference::DatastoreUrl((*name).to_owned()),
         ["secrets", key] => Reference::Secret((*key).to_owned()),
+        ["integrations", name, output] => Reference::IntegrationOutput {
+            integration: (*name).to_owned(),
+            output: (*output).to_owned(),
+        },
         _ => {
             return Err(DefError::ReferenceSyntax {
                 location: location.to_owned(),
@@ -66,15 +75,18 @@ fn parse_reference(inner: &str, location: &str) -> Result<Reference, DefError> {
 /// per substrate; resolution itself is substrate-blind.
 #[derive(Debug, Default)]
 pub struct Namespace {
+    pub stack_name: String,
     pub instance_name: String,
     pub service_origins: BTreeMap<String, String>,
     pub datastore_urls: BTreeMap<String, String>,
     pub secrets: BTreeMap<String, String>,
+    pub integrations: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 impl Namespace {
     fn lookup(&self, reference: &Reference, location: &str) -> Result<String, DefError> {
         match reference {
+            Reference::StackName => Ok(self.stack_name.clone()),
             Reference::InstanceName => Ok(self.instance_name.clone()),
             Reference::ServiceOrigin(name) => {
                 self.service_origins.get(name).cloned().ok_or_else(|| {
@@ -103,6 +115,43 @@ impl Namespace {
                         kind: "secret",
                         name: key.clone(),
                     })
+            }
+            Reference::IntegrationOutput {
+                integration,
+                output,
+            } => self
+                .integrations
+                .get(integration)
+                .and_then(|outputs| outputs.get(output))
+                .cloned()
+                .ok_or_else(|| DefError::UndeclaredReference {
+                    location: location.to_owned(),
+                    kind: "integration output",
+                    name: format!("{integration}.{output}"),
+                }),
+        }
+    }
+
+    /// Load integration output checkpoints into the interpolation namespace.
+    ///
+    /// Payload shape is provider-agnostic:
+    /// `{ "outputs": { "secret_key": "...", "publishable_key": "..." } }`.
+    pub fn add_integration_checkpoints(&mut self, checkpoints: &[crate::state::Checkpoint]) {
+        for checkpoint in checkpoints {
+            let Some(name) = checkpoint.step_id.strip_prefix("integration:") else {
+                continue;
+            };
+            let Ok(payload) = serde_json::from_str::<serde_json::Value>(&checkpoint.payload) else {
+                continue;
+            };
+            let Some(outputs) = payload.get("outputs").and_then(|value| value.as_object()) else {
+                continue;
+            };
+            let entry = self.integrations.entry(name.to_owned()).or_default();
+            for (key, value) in outputs {
+                if let Some(value) = value.as_str() {
+                    entry.insert(key.clone(), value.to_owned());
+                }
             }
         }
     }
@@ -137,17 +186,22 @@ mod tests {
     #[test]
     fn tokenizes_all_namespace_forms() {
         let refs = references(
-            "${instance.name} ${services.web.origin} ${datastores.db.url} ${secrets.KEY}",
+            "${stack.name} ${instance.name} ${services.web.origin} ${datastores.db.url} ${secrets.KEY} ${integrations.clerk.secret_key}",
             "test",
         )
         .unwrap();
         assert_eq!(
             refs,
             vec![
+                Reference::StackName,
                 Reference::InstanceName,
                 Reference::ServiceOrigin("web".into()),
                 Reference::DatastoreUrl("db".into()),
                 Reference::Secret("KEY".into()),
+                Reference::IntegrationOutput {
+                    integration: "clerk".into(),
+                    output: "secret_key".into(),
+                },
             ]
         );
     }
@@ -170,6 +224,7 @@ mod tests {
     #[test]
     fn resolves_mixed_text() {
         let mut namespace = Namespace {
+            stack_name: "atto".into(),
             instance_name: "demo".into(),
             ..Namespace::default()
         };

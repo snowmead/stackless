@@ -91,21 +91,27 @@ Decided:
 name = "atto"
 
 [stack.render]
-# Recorded after the first cloud `up` creates the stack's long-lived
-# Stripe project — the reproducibility anchor (atto config.ts pattern).
-project = "project_61UqVKJia4fs..."
 region = "oregon"
+
+[stack.projects.stripe]
+# Recorded after the first `up` provisions hosted integrations/cloud resources.
+project = "project_61UqVKJia4fs..."
 
 [stack.verify]
 # The proof contract, run by `stackless verify` (§7).
 run = "bun e2e/smoke.ts"
-env = { ATTO_STACKLESS = "1", ATTO_E2E_WEB_ORIGIN = "${services.web.origin}", ATTO_E2E_API_ORIGIN = "${services.api.origin}", ATTO_E2E_TENANT_SLUG = "${instance.name}", CLERK_SECRET_KEY = "${secrets.CLERK_SECRET_KEY}", VITE_CLERK_PUBLISHABLE_KEY = "${secrets.VITE_CLERK_PUBLISHABLE_KEY}" }
+env = { ATTO_STACKLESS = "1", ATTO_E2E_WEB_ORIGIN = "${services.web.origin}", ATTO_E2E_API_ORIGIN = "${services.api.origin}", ATTO_E2E_TENANT_SLUG = "${instance.name}", CLERK_SECRET_KEY = "${integrations.clerk.secret_key}", VITE_CLERK_PUBLISHABLE_KEY = "${integrations.clerk.publishable_key}" }
 
 [secrets]
 # v0 posture (§0): operator-visible, test-scoped. Resolved from the stack's
 # Stripe Projects vault pull, with a local env-file override for
-# hand-managed keys (the Clerk lesson).
-required = ["CLERK_SECRET_KEY", "VITE_CLERK_PUBLISHABLE_KEY", "GITHUB_PACKAGES_TOKEN"]
+# hand-managed keys.
+required = ["GITHUB_PACKAGES_TOKEN"]
+
+[integrations.clerk]
+app_name = "${stack.name}-${instance.name}"
+credential_set = "development"
+organizations = true
 
 # ── datastores: containers locally, managed services on Render ──
 
@@ -122,8 +128,7 @@ plan = "basic-256mb"       # paid → requires --confirm-paid (§4)
 source = { repo = "https://github.com/haaku-co/atto-server", ref = "main" }
 setup = "mise install"     # once, after materialization
 prepare = "just migrate-run && just seed"      # every up, deps ready → before start; uses the Stackless DATABASE_URL
-secrets = ["CLERK_SECRET_KEY"]   # injected as same-named env vars
-env = { DATABASE_URL = "${datastores.db.url}", CORS_ALLOWED_ORIGINS = "${services.web.origin}", TENANT_SLUG = "${instance.name}", RUST_LOG = "info" }
+env = { DATABASE_URL = "${datastores.db.url}", CORS_ALLOWED_ORIGINS = "${services.web.origin}", TENANT_SLUG = "${instance.name}", CLERK_SECRET_KEY = "${integrations.clerk.secret_key}", RUST_LOG = "info" }
 health = { path = "/health", contains = "ok" }   # status defaults to 200
 
   [services.api.local]
@@ -139,8 +144,7 @@ health = { path = "/health", contains = "ok" }   # status defaults to 200
 source = { repo = "https://github.com/haaku-co/atto-web", ref = "main" }
 setup = "mise install && bun install"
 root_origin = true         # also claims http://{instance}.localhost (§3)
-secrets = ["VITE_CLERK_PUBLISHABLE_KEY"]
-env = { VITE_API_ORIGIN = "${services.api.origin}" }
+env = { VITE_API_ORIGIN = "${services.api.origin}", VITE_CLERK_PUBLISHABLE_KEY = "${integrations.clerk.publishable_key}" }
 health = { path = "/", contains = 'id="root"' }   # the SPA shell check, productized
 
   [services.web.local]
@@ -155,10 +159,13 @@ health = { path = "/", contains = 'id="root"' }   # the SPA shell check, product
 
 | Reference | Resolves to | Notes |
 |---|---|---|
+| `${stack.name}` | the stack's declared name | useful for hosted integration names |
 | `${instance.name}` | the instance's name | the one identity everything derives from |
 | `${services.X.origin}` | substrate-appropriate origin | local: `http://x.{instance}.localhost:<port>`; Render: `https://{stack}-{instance}-x.onrender.com`. Derived from the name alone, so mutual references (api ↔ web) are not cycles |
 | `${datastores.X.url}` | connection string | local: mapped loopback port; Render: internal URL for services, external for `prepare` |
 | `${secrets.KEY}` | resolved secret value | for renaming; the `secrets = [...]` list injects same-named vars |
+| `${integrations.clerk.secret_key}` | Clerk secret key | selected from Stripe Projects' Clerk environments JSON (`CLERK_AUTH_ENVIRONMENTS` or `CLERK_ENVIRONMENTS`) |
+| `${integrations.clerk.publishable_key}` | Clerk publishable key | selected from Stripe Projects' Clerk environments JSON (`CLERK_AUTH_ENVIRONMENTS` or `CLERK_ENVIRONMENTS`) |
 | `$PORT` | OS-allocated port | injected into local `run` commands only |
 
 Resolution rules: substrate `env` blocks overlay the common `env`; any
@@ -389,16 +396,19 @@ same reaper from the operator's machine.
 Generalizes `cloud-env.ts` wholesale — every mechanism here is already
 proven there.
 
-- **One long-lived Stripe project per stack** holds all of that stack's
-  cloud instances as named environments (plugin v0.19+). The project id
-  is recorded in `stackless.toml` after first creation — the
-  reproducibility anchor that lets any fresh checkout re-link with a
-  `pull` (the `config.ts` pattern).
+- **One long-lived Stripe project per stack** holds hosted integrations
+  and cloud instances as named environments (plugin v0.19+). The project
+  id is recorded at `[stack.projects.stripe].project` after first
+  creation — the reproducibility anchor that lets any fresh checkout
+  re-link with a `pull`. Older `[stack.render].project` anchors remain
+  readable.
 - **Per-instance resources derive from the definition:** datastores →
   `render/postgres`, services → `render/web-service` or
-  `render/static-site` per their `[services.X.render]` config. Cloud
-  resource names are `{stack}-{instance}-{service}`, DNS-safe by
-  construction (§2 name rules).
+  `render/static-site` per their `[services.X.render]` config, and
+  `[integrations.clerk]` → `clerk/auth` (optionally enabling Clerk
+  Organizations and slugs for app/test fixtures). Cloud resource names are
+  `{stack}-{instance}-{service}`, DNS-safe by construction (§2 name
+  rules).
 - **Stripe Projects provisions and tracks spend; the Render REST API
   fills its gaps:** interpolated env vars, SPA rewrite routes, deploy
   triggers, deploy polling with per-kind timeouts (a Rust release build
@@ -406,9 +416,10 @@ proven there.
   CLI calls with the plain-mode fallbacks `cloud-env.ts` had to learn
   are part of the backend, not rediscovered per stack. The Render API
   key resolves from env or a scoped key file.
-- **Sequencing per instance:** provision datastores → run `prepare`
-  hooks from the operator's machine against external connection
-  strings → push env vars → deploy services → health gate → `up`.
+- **Sequencing per instance:** provision hosted integrations →
+  provision datastores → run `prepare` hooks from the operator's
+  machine against external connection strings → push env vars → deploy
+  services → health gate → `up`.
 - **Every step checkpoints into the manifest before proceeding** (§2);
   interrupted runs resume rather than duplicate.
 - **Teardown is verified, dependents-first:** remove services, then

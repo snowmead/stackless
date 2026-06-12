@@ -4,21 +4,27 @@
 name = "atto"
 
 [stack.render]
-# Recorded after the first cloud `up` creates the stack's long-lived
-# Stripe project — the reproducibility anchor (atto config.ts pattern).
-project = "project_61UqVKJia4fs..."
 region = "oregon"
+
+[stack.projects.stripe]
+# Recorded after the first `up` provisions hosted integrations/cloud resources.
+project = "project_61UqVKJia4fs..."
 
 [stack.verify]
 # The proof contract, run by `stackless verify` (§7).
 run = "bun e2e/smoke.ts"
-env = { ATTO_STACKLESS = "1", ATTO_E2E_WEB_ORIGIN = "${services.web.origin}", ATTO_E2E_API_ORIGIN = "${services.api.origin}", ATTO_E2E_TENANT_SLUG = "${instance.name}", CLERK_SECRET_KEY = "${secrets.CLERK_SECRET_KEY}", VITE_CLERK_PUBLISHABLE_KEY = "${secrets.VITE_CLERK_PUBLISHABLE_KEY}" }
+env = { ATTO_STACKLESS = "1", ATTO_E2E_WEB_ORIGIN = "${services.web.origin}", ATTO_E2E_API_ORIGIN = "${services.api.origin}", ATTO_E2E_TENANT_SLUG = "${instance.name}", CLERK_SECRET_KEY = "${integrations.clerk.secret_key}", VITE_CLERK_PUBLISHABLE_KEY = "${integrations.clerk.publishable_key}" }
 
 [secrets]
 # v0 posture (§0): operator-visible, test-scoped. Resolved from the stack's
 # Stripe Projects vault pull, with a local env-file override for
-# hand-managed keys (the Clerk lesson).
-required = ["CLERK_SECRET_KEY", "VITE_CLERK_PUBLISHABLE_KEY", "GITHUB_PACKAGES_TOKEN"]
+# hand-managed keys.
+required = ["GITHUB_PACKAGES_TOKEN"]
+
+[integrations.clerk]
+app_name = "${stack.name}-${instance.name}"
+credential_set = "development"
+organizations = true
 
 # ── datastores: containers locally, managed services on Render ──
 
@@ -35,8 +41,7 @@ plan = "basic-256mb"       # paid → requires --confirm-paid (§4)
 source = { repo = "https://github.com/haaku-co/atto-server", ref = "main" }
 setup = "mise install"     # once, after materialization
 prepare = "just migrate-run && just seed"      # every up, deps ready → before start; uses the Stackless DATABASE_URL
-secrets = ["CLERK_SECRET_KEY"]   # injected as same-named env vars
-env = { DATABASE_URL = "${datastores.db.url}", CORS_ALLOWED_ORIGINS = "${services.web.origin}", TENANT_SLUG = "${instance.name}", RUST_LOG = "info" }
+env = { DATABASE_URL = "${datastores.db.url}", CORS_ALLOWED_ORIGINS = "${services.web.origin}", TENANT_SLUG = "${instance.name}", CLERK_SECRET_KEY = "${integrations.clerk.secret_key}", RUST_LOG = "info" }
 health = { path = "/health", contains = "ok" }   # status defaults to 200
 
   [services.api.local]
@@ -52,8 +57,7 @@ health = { path = "/health", contains = "ok" }   # status defaults to 200
 source = { repo = "https://github.com/haaku-co/atto-web", ref = "main" }
 setup = "mise install && bun install"
 root_origin = true         # also claims http://{instance}.localhost (§3)
-secrets = ["VITE_CLERK_PUBLISHABLE_KEY"]
-env = { VITE_API_ORIGIN = "${services.api.origin}" }
+env = { VITE_API_ORIGIN = "${services.api.origin}", VITE_CLERK_PUBLISHABLE_KEY = "${integrations.clerk.publishable_key}" }
 health = { path = "/", contains = 'id="root"' }   # the SPA shell check, productized
 
   [services.web.local]

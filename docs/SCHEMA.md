@@ -29,13 +29,14 @@ health = { path = "/", contains = "hello" }
 
 ## Top level
 
-Exactly four sections are recognized; any other top-level key is
+Exactly five sections are recognized; any other top-level key is
 rejected (`def.parse.schema`):
 
 | Section | Required | Purpose |
 |---|---|---|
 | `[stack]` | yes | Stack identity, verify contract, per-substrate stack config |
 | `[secrets]` | no | The required-secrets list |
+| `[integrations.<name>]` | no | Hosted third-party services provisioned through Stripe Projects |
 | `[datastores.<name>]` | no | Managed stateful services (postgres) |
 | `[services.<name>]` | no* | The application services |
 
@@ -62,8 +63,10 @@ name = "atto"            # required, DNS-safe
 run = "bun e2e/smoke.ts"
 env = { ATTO_STACKLESS = "1", ATTO_E2E_WEB_ORIGIN = "${services.web.origin}" }
 
+[stack.projects.stripe]  # optional: shared Stripe Projects anchor
+project = "project_..."  # written back by stackless after first project creation
+
 [stack.render]           # optional: per-substrate stack config
-project = "project_..."  # written back by stackless after the first cloud up
 region = "oregon"
 ```
 
@@ -75,6 +78,10 @@ region = "oregon"
   service if none). One command in v0; nonzero exit fails the verb
   (`verify.failed`). Declaring no `[stack.verify]` makes
   `stackless verify` fail with `verify.not_declared`.
+- `projects.stripe.project` — optional. Stackless writes this after it
+  creates or adopts the stack's Stripe Project. Local integrations and
+  Render resources use the same project. Older `[stack.render].project`
+  anchors remain readable for compatibility.
 - Any other key under `[stack]` must be the name of a registered
   substrate (`local`, `render`) and must be a table
   (`def.validate.unknown_key`, `def.validate.substrate_block_invalid`).
@@ -83,7 +90,7 @@ region = "oregon"
 
 ```toml
 [secrets]
-required = ["CLERK_SECRET_KEY", "GITHUB_PACKAGES_TOKEN"]
+required = ["GITHUB_PACKAGES_TOKEN"]
 ```
 
 - `required` — list of secret names the stack needs. Every key
@@ -98,6 +105,30 @@ required = ["CLERK_SECRET_KEY", "GITHUB_PACKAGES_TOKEN"]
 - The directory the definition came from is recorded at instance
   creation, so resume and `verify` find the same `.stackless.env`
   regardless of the invoking shell's working directory.
+
+## `[integrations.<name>]`
+
+```toml
+[integrations.clerk]
+app_name = "${stack.name}-${instance.name}"
+credential_set = "development"
+organizations = true
+```
+
+- `clerk` is the only v0 integration. Stackless provisions a Clerk app
+  through Stripe Projects (`clerk/auth`) and exposes the selected keys
+  through interpolation.
+- `app_name` — required string, interpolation allowed.
+- `credential_set` — optional, `"development"` by default. `"production"`
+  requires `production_domain`.
+- `production_domain` — optional domain passed to Clerk provisioning so
+  Stripe Projects can return production credentials.
+- `organizations` — optional boolean, `false` by default. When `true`,
+  Stackless enables Clerk Organizations and organization slugs on the
+  provisioned app so the application/test layer can create tenant org
+  fixtures named by `${instance.name}`.
+- Stackless does not create app-specific Clerk orgs/users. Tests or
+  application setup own that fixture layer.
 
 ## `[datastores.<name>]`
 
@@ -127,8 +158,8 @@ version = "17"           # image / managed-service version, as a string
 source = { repo = "https://github.com/you/api", ref = "main" }   # required
 setup = "mise install"            # optional: once, after materialization
 prepare = "just seed"             # optional: every up, after deps are ready
-secrets = ["CLERK_SECRET_KEY"]    # optional: injected as same-named env vars
-env = { DATABASE_URL = "${datastores.db.url}", RUST_LOG = "info" }
+secrets = ["API_TOKEN"]            # optional: injected as same-named env vars
+env = { DATABASE_URL = "${datastores.db.url}", CLERK_SECRET_KEY = "${integrations.clerk.secret_key}", RUST_LOG = "info" }
 health = { path = "/health", contains = "ok" }                   # required
 root_origin = false               # optional, at most one service true
 ```
@@ -224,10 +255,13 @@ Env values (common `env`, substrate `env` overlays, and
 
 | Reference | Resolves to |
 |---|---|
+| `${stack.name}` | the stack's declared name |
 | `${instance.name}` | the instance's name — the one identity everything derives from |
 | `${services.X.origin}` | service X's substrate-appropriate origin. Local: `http://x.{instance}.localhost:4444` (the root-origin service resolves to `http://{instance}.localhost:4444` — what browsers actually use). Render: `https://{stack}-{instance}-x.onrender.com` |
 | `${datastores.X.url}` | X's connection string. Local: `postgres://...@127.0.0.1:{mapped-port}/postgres`. Render: the internal URL for services, the external one for `prepare` hooks |
 | `${secrets.KEY}` | the resolved secret value (KEY must be in `[secrets].required`) — for renaming; the `secrets = [...]` list already injects same-named vars |
+| `${integrations.clerk.secret_key}` | the Clerk secret key selected from Stripe Projects' Clerk environments JSON (`CLERK_AUTH_ENVIRONMENTS` or `CLERK_ENVIRONMENTS`) |
+| `${integrations.clerk.publishable_key}` | the Clerk publishable key selected from Stripe Projects' Clerk environments JSON (`CLERK_AUTH_ENVIRONMENTS` or `CLERK_ENVIRONMENTS`) |
 
 `$PORT` is **not** an interpolation reference — it is injected by the
 local substrate into `run` commands only, and passes through env
@@ -252,13 +286,13 @@ mutual references (api ↔ web CORS) are legal and are not cycles.
 
 ## What happens on `up` (so you can write definitions that fit it)
 
-Per instance, in dependency order: provision datastores → materialize
-each service's source (shared git cache; or your `--source` pin) →
-`setup` (once) → `prepare` (every up, deps ready) → start →
-health-gate. Every step checkpoints before proceeding, so interrupted
-runs **resume** — re-running `up` re-checks recorded resources
-against reality and re-executes only what is missing; `prepare` and
-health gates rerun on every `up` by contract.
+Per instance: provision hosted integrations → provision datastores in
+dependency order → materialize each service's source (shared git cache;
+or your `--source` pin) → `setup` (once) → `prepare` (every up, deps
+ready) → start → health-gate. Every step checkpoints before proceeding,
+so interrupted runs **resume** — re-running `up` re-checks recorded
+resources against reality and re-executes only what is missing;
+`prepare` and health gates rerun on every `up` by contract.
 
 `up` on an existing name resumes it; the substrate was fixed at
 creation and is never asked again. Names are unique across substrates:
@@ -281,6 +315,7 @@ most:
 | `def.validate.depends_on_rejected` | use wiring, not `depends_on` |
 | `def.validate.undeclared_reference` | `${...}` names something not declared |
 | `def.validate.secret_not_required` | a secret used but not in `[secrets].required` |
+| `def.validate.integration_invalid` | an `[integrations.*]` block is unsupported or internally inconsistent |
 | `def.validate.substrate_config_missing` | `up --on X` but a service has no `[services.*.X]` block |
 | `def.validate.root_origin_conflict` | more than one `root_origin = true` |
 | `secrets.unresolved` | a required secret resolved from no source |
@@ -298,15 +333,22 @@ The canonical dogfood — SPA + Rust API + Postgres + third-party auth:
 name = "atto"
 
 [stack.render]
-project = "project_61UqVKJia4fs..."   # recorded by stackless after the first cloud up
 region = "oregon"
+
+[stack.projects.stripe]
+project = "project_61UqVKJia4fs..."   # recorded by stackless after first project creation
 
 [stack.verify]
 run = "bun e2e/smoke.ts"              # runs in the root_origin service's source
-env = { ATTO_STACKLESS = "1", ATTO_E2E_WEB_ORIGIN = "${services.web.origin}", ATTO_E2E_API_ORIGIN = "${services.api.origin}", ATTO_E2E_TENANT_SLUG = "${instance.name}", CLERK_SECRET_KEY = "${secrets.CLERK_SECRET_KEY}", VITE_CLERK_PUBLISHABLE_KEY = "${secrets.VITE_CLERK_PUBLISHABLE_KEY}" }
+env = { ATTO_STACKLESS = "1", ATTO_E2E_WEB_ORIGIN = "${services.web.origin}", ATTO_E2E_API_ORIGIN = "${services.api.origin}", ATTO_E2E_TENANT_SLUG = "${instance.name}", CLERK_SECRET_KEY = "${integrations.clerk.secret_key}", VITE_CLERK_PUBLISHABLE_KEY = "${integrations.clerk.publishable_key}" }
 
 [secrets]
-required = ["CLERK_SECRET_KEY", "VITE_CLERK_PUBLISHABLE_KEY", "GITHUB_PACKAGES_TOKEN"]
+required = ["GITHUB_PACKAGES_TOKEN"]
+
+[integrations.clerk]
+app_name = "${stack.name}-${instance.name}"
+credential_set = "development"
+organizations = true
 
 [datastores.db]
 engine = "postgres"
@@ -319,8 +361,7 @@ version = "17"
 source = { repo = "https://github.com/haaku-co/atto-server", ref = "main" }
 setup = "mise install"
 prepare = "just migrate-run && just seed"  # uses the Stackless DATABASE_URL
-secrets = ["CLERK_SECRET_KEY"]
-env = { DATABASE_URL = "${datastores.db.url}", CORS_ALLOWED_ORIGINS = "${services.web.origin}", TENANT_SLUG = "${instance.name}", RUST_LOG = "info" }
+env = { DATABASE_URL = "${datastores.db.url}", CORS_ALLOWED_ORIGINS = "${services.web.origin}", TENANT_SLUG = "${instance.name}", CLERK_SECRET_KEY = "${integrations.clerk.secret_key}", RUST_LOG = "info" }
 health = { path = "/health", contains = "ok" }
 
   [services.api.local]
@@ -336,8 +377,7 @@ health = { path = "/health", contains = "ok" }
 source = { repo = "https://github.com/haaku-co/atto-web", ref = "main" }
 setup = "mise install && bun install"
 root_origin = true                    # claims http://{instance}.localhost too
-secrets = ["VITE_CLERK_PUBLISHABLE_KEY"]
-env = { VITE_API_ORIGIN = "${services.api.origin}" }
+env = { VITE_API_ORIGIN = "${services.api.origin}", VITE_CLERK_PUBLISHABLE_KEY = "${integrations.clerk.publishable_key}" }
 health = { path = "/", contains = 'id="root"' }
 
   [services.web.local]
@@ -355,8 +395,9 @@ health = { path = "/", contains = 'id="root"' }
 2. Express every dependency as an env reference; never invent ordering
    keys.
 3. The service must bind `$PORT` on `127.0.0.1` when run locally.
-4. Put every secret you reference into `[secrets].required`, and the
-   values into `.stackless.env` next to the definition (gitignore it).
+4. Put every hand-managed secret you reference into `[secrets].required`;
+   use `[integrations.clerk]` for Clerk app credentials, and set
+   `organizations = true` when tests need Clerk org fixtures.
 5. Exactly one user-facing service gets `root_origin = true`.
 6. Declare a `[stack.verify]` command that proves the stack works
    end-to-end — health checks prove liveness; verify proves behavior.

@@ -1,6 +1,6 @@
 //! stackless-render (ARCHITECTURE.md §4): the Render cloud substrate.
 //!
-//! Generalizes atto-web's `cloud-env.ts` wholesale — Stripe Projects
+//! Generalizes the proven atto Render dogfood flow: Stripe Projects
 //! provisions resources and tracks spend; the Render REST API fills its
 //! gaps (env vars, the SPA rewrite route, deploy triggers, deploy
 //! polling with per-kind budgets, the health wait, teardown
@@ -30,6 +30,7 @@
 pub mod api_key;
 pub mod config;
 pub mod error;
+pub mod integrations;
 pub mod project;
 pub mod render_api;
 pub mod stripe;
@@ -211,6 +212,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
         external_db: bool,
     ) -> Namespace {
         let mut namespace = Namespace {
+            stack_name: def.stack.name.clone(),
             instance_name: instance.to_owned(),
             ..Namespace::default()
         };
@@ -232,6 +234,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
             }
         }
         namespace.secrets = self.secrets.clone();
+        namespace.add_integration_checkpoints(prior);
         namespace
     }
 
@@ -694,6 +697,15 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
 
         let node = ctx.step.node.as_str();
         match ctx.step.kind {
+            StepKind::ProvisionIntegration => integrations::provision(
+                &self.stripe(),
+                ctx.def,
+                &self.definition_dir,
+                ctx.instance,
+                node,
+            )
+            .await
+            .map_err(fault),
             StepKind::ProvisionDatastore => {
                 self.provision_datastore(ctx.def, ctx.instance, node).await
             }
@@ -782,6 +794,11 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
                     .is_some_and(|(path, commit)| source_ref_present(&path, &commit));
                 Ok(present_or_gone(present))
             }
+            kind if integrations::is_clerk_resource(kind) => {
+                integrations::observe(&self.stripe(), &checkpoint.payload, &checkpoint.resource_id)
+                    .await
+                    .map_err(fault)
+            }
             // Hooks and gates own nothing destructible: Gone, so teardown
             // drops their checkpoints and resume re-runs them.
             _ => Ok(Observation::Gone),
@@ -829,6 +846,14 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
                 }
                 Ok(())
             }
+            kind if integrations::is_clerk_resource(kind) => integrations::destroy(
+                &self.stripe(),
+                instance,
+                &checkpoint.payload,
+                &checkpoint.resource_id,
+            )
+            .await
+            .map_err(fault),
             // action kinds: nothing to destroy.
             _ => Ok(()),
         }

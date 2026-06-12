@@ -1,6 +1,5 @@
 //! The CLI side: connect to the daemon, spawning it on demand under a
-//! lock file so concurrent commands race safely (§3 — the portless
-//! `ensure-proxy` pattern, internalized). Carries the version
+//! lock file so concurrent commands race safely (§3). Carries the version
 //! handshake: a newer CLI tells an older daemon to drain and exit.
 
 use std::io::{BufRead, BufReader, Write};

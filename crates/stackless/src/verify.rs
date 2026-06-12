@@ -119,6 +119,7 @@ fn verify_namespace(
     secrets: &BTreeMap<String, String>,
 ) -> Namespace {
     let mut namespace = Namespace {
+        stack_name: def.stack.name.clone(),
         instance_name: instance.to_owned(),
         ..Namespace::default()
     };
@@ -145,6 +146,7 @@ fn verify_namespace(
         }
     }
     namespace.secrets = secrets.clone();
+    namespace.add_integration_checkpoints(checkpoints);
     namespace
 }
 
@@ -330,7 +332,10 @@ mod tests {
 name = "atto"
 [stack.verify]
 run = "true"
-env = { WEB = "${services.web.origin}", API = "${services.api.origin}", DB = "${datastores.db.url}", SLUG = "${instance.name}" }
+env = { WEB = "${services.web.origin}", API = "${services.api.origin}", DB = "${datastores.db.url}", SLUG = "${instance.name}", CLERK = "${integrations.clerk.secret_key}" }
+
+[integrations.clerk]
+app_name = "${stack.name}-${instance.name}"
 
 [datastores.db]
 engine = "postgres"
@@ -364,11 +369,14 @@ health = { path = "/" }
     #[test]
     fn verify_namespace_uses_local_origins_and_datastore_url() {
         let def = parse_def();
-        let checkpoints = vec![checkpoint(
-            "provision:db",
-            "container",
-            r#"{"url":"postgres://local"}"#,
-        )];
+        let checkpoints = vec![
+            checkpoint("provision:db", "container", r#"{"url":"postgres://local"}"#),
+            checkpoint(
+                "integration:clerk",
+                "integration-clerk",
+                r#"{"outputs":{"secret_key":"sk_test_local","publishable_key":"pk_test_local"}}"#,
+            ),
+        ];
         let ns = verify_namespace(
             &def,
             "demo",
@@ -391,6 +399,7 @@ health = { path = "/" }
             )
         );
         assert_eq!(ns.datastore_urls["db"], "postgres://local");
+        assert_eq!(ns.integrations["clerk"]["secret_key"], "sk_test_local");
     }
 
     #[test]

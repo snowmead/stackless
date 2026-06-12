@@ -1,7 +1,7 @@
-//! Render API key resolution (§4, render-api.ts's resolveRenderApiKey).
+//! Render API key resolution (§4).
 //!
 //! Order: the `RENDER_API_KEY` env var, then a 0600 key file at
-//! `<definition_dir>/.render-api-key` (the prior-art path). A missing
+//! `<definition_dir>/.render-api-key`. A missing
 //! key is a clean fault naming both sources.
 
 use std::path::Path;

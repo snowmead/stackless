@@ -133,15 +133,26 @@ pub fn datastore_plan(def: &StackDef, datastore: &str) -> Result<String, RenderE
     required_str(block, "plan", &location)
 }
 
-/// The recorded `[stack.render].project` anchor (D16), when present.
+/// The recorded Stripe Projects anchor, when present.
+///
+/// New definitions use `[stack.projects.stripe].project` because
+/// integrations need the same project on local and Render. Older
+/// definitions with `[stack.render].project` remain valid.
 pub fn stack_project(def: &StackDef) -> Option<String> {
     def.stack
-        .substrates
-        .get(SUBSTRATE_NAME)
-        .and_then(|value| value.as_table())
-        .and_then(|table| table.get("project"))
-        .and_then(|value| value.as_str())
-        .map(str::to_owned)
+        .projects
+        .stripe
+        .as_ref()
+        .and_then(|stripe| stripe.project.clone())
+        .or_else(|| {
+            def.stack
+                .substrates
+                .get(SUBSTRATE_NAME)
+                .and_then(|value| value.as_table())
+                .and_then(|table| table.get("project"))
+                .and_then(|value| value.as_str())
+                .map(str::to_owned)
+        })
 }
 
 /// The recorded `[stack.render].region`, defaulting to oregon (§1).
@@ -175,6 +186,31 @@ mod tests {
 
     fn parse(toml: &str) -> StackDef {
         def::parse(toml).expect("valid base toml")
+    }
+
+    #[test]
+    fn stack_project_prefers_neutral_anchor_and_reads_legacy_render_anchor() {
+        let neutral = parse(
+            r#"
+[stack]
+name = "atto"
+[stack.projects.stripe]
+project = "project_neutral"
+[stack.render]
+project = "project_legacy"
+"#,
+        );
+        assert_eq!(stack_project(&neutral).as_deref(), Some("project_neutral"));
+
+        let legacy = parse(
+            r#"
+[stack]
+name = "atto"
+[stack.render]
+project = "project_legacy"
+"#,
+        );
+        assert_eq!(stack_project(&legacy).as_deref(), Some("project_legacy"));
     }
 
     const BASE: &str = r#"

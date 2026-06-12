@@ -26,6 +26,7 @@ pub mod codes {
     pub const DEF_REFERENCE_SYNTAX: &str = "def.validate.reference_syntax";
     pub const DEF_UNDECLARED_REFERENCE: &str = "def.validate.undeclared_reference";
     pub const DEF_SECRET_NOT_REQUIRED: &str = "def.validate.secret_not_required";
+    pub const DEF_INTEGRATION_INVALID: &str = "def.validate.integration_invalid";
     pub const DEF_WIRING_CYCLE: &str = "def.validate.wiring_cycle";
     pub const DEF_ENV_NOT_STRINGS: &str = "def.validate.env_not_strings";
     pub const CLI_FILE_READ: &str = "cli.file.read";
@@ -103,6 +104,7 @@ pub mod codes {
         DEF_REFERENCE_SYNTAX,
         DEF_UNDECLARED_REFERENCE,
         DEF_SECRET_NOT_REQUIRED,
+        DEF_INTEGRATION_INVALID,
         DEF_WIRING_CYCLE,
         DEF_ENV_NOT_STRINGS,
         CLI_FILE_READ,
