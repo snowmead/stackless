@@ -39,6 +39,33 @@ pub struct InstanceRecord {
 
 const SELECT_COLUMNS: &str = "name, substrate, status, definition, source_overrides, created_at, tombstoned_at, definition_dir";
 
+impl TryFrom<&Row> for InstanceRecord {
+    type Error = StateError;
+
+    fn try_from(row: &Row) -> Result<Self, Self::Error> {
+        let status = row.get_string(2)?;
+        let overrides_json = row.get_string(4)?;
+        let name = row.get_string(0)?;
+        let substrate = row.get_string(1)?;
+        Ok(Self {
+            name: DnsName::try_new(&name).map_err(|err| StateError::RowDecode {
+                column: 0,
+                detail: err.to_string(),
+            })?,
+            substrate: DnsName::try_new(&substrate).map_err(|err| StateError::RowDecode {
+                column: 1,
+                detail: err.to_string(),
+            })?,
+            status: InstanceStatus::from_sql(&status),
+            definition: row.get_string(3)?,
+            source_overrides: serde_json::from_str(&overrides_json).unwrap_or_default(),
+            created_at: row.get_i64(5)?,
+            tombstoned_at: row.get_opt_i64(6)?,
+            definition_dir: row.get_string(7)?,
+        })
+    }
+}
+
 impl Store {
     /// Create an instance record. Names are unique across substrates:
     /// a clash is an error naming the existing substrate, not a sibling.
@@ -91,7 +118,7 @@ impl Store {
         self.query_row(
             &format!("SELECT {SELECT_COLUMNS} FROM instances WHERE name = ?1"),
             &[name.into()],
-            Row::decode_instance,
+            |row| InstanceRecord::try_from(row),
         )
     }
 
@@ -99,7 +126,7 @@ impl Store {
         self.query_map(
             &format!("SELECT {SELECT_COLUMNS} FROM instances ORDER BY name"),
             &[],
-            Row::decode_instance,
+            |row| InstanceRecord::try_from(row),
         )
     }
 

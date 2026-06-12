@@ -43,6 +43,19 @@ const BACKOFF_CAP: Duration = Duration::from_secs(3600);
 /// until it expires, then the reaper deletes the row and the logs dir.
 pub const TOMBSTONE_GC_WINDOW: Duration = Duration::from_secs(7 * 24 * 3600);
 
+impl TryFrom<&Row> for ReapAttempt {
+    type Error = StateError;
+
+    fn try_from(row: &Row) -> Result<Self, Self::Error> {
+        Ok(Self {
+            instance: row.get_string(0)?,
+            attempts: row.get_i64(1)?,
+            last_error: row.get_string(2)?,
+            next_retry_at: row.get_i64(3)?,
+        })
+    }
+}
+
 impl ReapAttempt {
     /// Backoff delay after `attempts` consecutive failures: 60s, 120s,
     /// 240s, … capped at 1h.
@@ -114,7 +127,7 @@ impl Store {
             "SELECT instance, attempts, last_error, next_retry_at
              FROM reap_attempts WHERE instance = ?1",
             &[instance.into()],
-            Row::decode_reap_attempt,
+            |row| ReapAttempt::try_from(row),
         )
     }
 

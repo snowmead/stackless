@@ -132,51 +132,6 @@ impl Row {
         }
     }
 
-    pub(super) fn decode_instance(&self) -> Result<super::instance::InstanceRecord, StateError> {
-        use super::instance::{InstanceRecord, InstanceStatus};
-        use crate::types::DnsName;
-
-        let status = self.get_string(2)?;
-        let overrides_json = self.get_string(4)?;
-        let name = self.get_string(0)?;
-        let substrate = self.get_string(1)?;
-        Ok(InstanceRecord {
-            name: DnsName::try_new(&name).map_err(|err| StateError::RowDecode {
-                column: 0,
-                detail: err.to_string(),
-            })?,
-            substrate: DnsName::try_new(&substrate).map_err(|err| StateError::RowDecode {
-                column: 1,
-                detail: err.to_string(),
-            })?,
-            status: InstanceStatus::from_sql(&status),
-            definition: self.get_string(3)?,
-            source_overrides: serde_json::from_str(&overrides_json).unwrap_or_default(),
-            created_at: self.get_i64(5)?,
-            tombstoned_at: self.get_opt_i64(6)?,
-            definition_dir: self.get_string(7)?,
-        })
-    }
-
-    pub(super) fn decode_checkpoint(&self) -> Result<super::journal::Checkpoint, StateError> {
-        Ok(super::journal::Checkpoint {
-            instance: self.get_string(0)?,
-            step_id: self.get_string(1)?,
-            resource_kind: self.get_string(2)?,
-            resource_id: self.get_string(3)?,
-            payload: self.get_string(4)?,
-            recorded_at: self.get_i64(5)?,
-        })
-    }
-
-    pub(super) fn decode_reap_attempt(&self) -> Result<super::reaper::ReapAttempt, StateError> {
-        Ok(super::reaper::ReapAttempt {
-            instance: self.get_string(0)?,
-            attempts: self.get_i64(1)?,
-            last_error: self.get_string(2)?,
-            next_retry_at: self.get_i64(3)?,
-        })
-    }
 }
 
 /// The remote (libsql) backend: a libsql connection living on a

@@ -18,6 +18,17 @@ impl Lease {
     }
 }
 
+impl TryFrom<&Row> for Lease {
+    type Error = StateError;
+
+    fn try_from(row: &Row) -> Result<Self, Self::Error> {
+        Ok(Self {
+            duration: Duration::from_secs(row.get_i64(0)?.max(0) as u64),
+            expires_at: row.get_i64(1)?,
+        })
+    }
+}
+
 impl Store {
     /// Set (or reset) the lease to its full duration from now.
     pub fn renew_lease(&self, instance: &str, duration: Duration) -> Result<Lease, StateError> {
@@ -54,12 +65,7 @@ impl Store {
         self.query_row(
             "SELECT duration_secs, expires_at FROM leases WHERE instance = ?1",
             &[instance.into()],
-            |row| {
-                Ok(Lease {
-                    duration: Duration::from_secs(row.get_i64(0)?.max(0) as u64),
-                    expires_at: row.get_i64(1)?,
-                })
-            },
+            |row| Lease::try_from(row),
         )
     }
 

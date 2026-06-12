@@ -15,6 +15,21 @@ pub struct Checkpoint {
     pub recorded_at: i64,
 }
 
+impl TryFrom<&Row> for Checkpoint {
+    type Error = StateError;
+
+    fn try_from(row: &Row) -> Result<Self, Self::Error> {
+        Ok(Self {
+            instance: row.get_string(0)?,
+            step_id: row.get_string(1)?,
+            resource_kind: row.get_string(2)?,
+            resource_id: row.get_string(3)?,
+            payload: row.get_string(4)?,
+            recorded_at: row.get_i64(5)?,
+        })
+    }
+}
+
 impl Store {
     pub fn record_checkpoint(
         &self,
@@ -53,7 +68,7 @@ impl Store {
             "SELECT instance, step_id, resource_kind, resource_id, payload, recorded_at
              FROM checkpoints WHERE instance = ?1 AND step_id = ?2",
             &[instance.into(), step_id.into()],
-            Row::decode_checkpoint,
+            |row| Checkpoint::try_from(row),
         )
     }
 
@@ -64,7 +79,7 @@ impl Store {
             "SELECT instance, step_id, resource_kind, resource_id, payload, recorded_at
              FROM checkpoints WHERE instance = ?1 ORDER BY rowid",
             &[instance.into()],
-            Row::decode_checkpoint,
+            |row| Checkpoint::try_from(row),
         )
     }
 
