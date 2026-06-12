@@ -5,9 +5,11 @@
 
 use std::path::Path;
 use std::process::Stdio;
+use std::time::Duration;
 
 use serde_json::Value;
 use stackless_core::def::StackDef;
+use stackless_core::lockfile;
 
 use crate::config;
 use crate::error::RenderError;
@@ -80,6 +82,14 @@ pub async fn ensure_project<R: CommandRunner>(
 /// comments and formatting (toml_edit). The definition file is found in
 /// `definition_dir/stackless.toml` (record.definition_dir).
 fn write_project_anchor(definition_dir: &Path, project_id: &str) -> Result<(), RenderError> {
+    let lock_path = lockfile::stripe_lock_path(definition_dir);
+    let _guard =
+        lockfile::acquire_with_wait(&lock_path, Duration::from_secs(30 * 60)).map_err(|err| {
+            RenderError::StripeLockHeld {
+                definition_dir: definition_dir.display().to_string(),
+                detail: err.to_string(),
+            }
+        })?;
     let path = definition_dir.join("stackless.toml");
     let text = std::fs::read_to_string(&path).map_err(|err| RenderError::ProjectAnchor {
         detail: format!("cannot read {}: {err}", path.display()),

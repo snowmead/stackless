@@ -9,10 +9,10 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use stackless_core::fault::{Fault, codes};
-use stackless_core::process::ProcessStamp;
+use stackless_core::lockfile;
 use stackless_core::state::state_dir;
 
-use stackless_core::types::{Pid, ProcessStartTime, ProtocolVersion};
+use stackless_core::types::ProtocolVersion;
 
 use crate::rpc::{Envelope, Request, Response, ResponseBody, build_version};
 use crate::server::socket_path;
@@ -173,10 +173,10 @@ fn spawn_daemon() -> Result<(), DaemonError> {
             detail: err.to_string(),
         })?;
     }
-    let _lock = match acquire_spawn_lock(&lock_path) {
-        Some(lock) => lock,
+    let _lock = match lockfile::try_acquire(&lock_path) {
+        Ok(lock) => lock,
         // Someone else is spawning; wait for their daemon instead.
-        None => return Ok(()),
+        Err(_) => return Ok(()),
     };
     // Supervised start: hand the daemon to launchd when the agent is ready.
     if crate::launchd::kickstart_if_supervised() {
@@ -210,50 +210,4 @@ fn spawn_daemon() -> Result<(), DaemonError> {
 
 fn spawn_lock_path() -> PathBuf {
     state_dir().join("daemon.spawn.lock")
-}
-
-struct SpawnLock(PathBuf);
-
-impl Drop for SpawnLock {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
-    }
-}
-
-/// `create_new` with stale-holder detection by PID + start time — the
-/// same liveness identity locks use everywhere else.
-fn acquire_spawn_lock(path: &PathBuf) -> Option<SpawnLock> {
-    for _ in 0..2 {
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)
-        {
-            Ok(mut file) => {
-                let me = ProcessStamp::current();
-                let _ = writeln!(file, "{} {}", me.pid.get(), me.start_time.get());
-                return Some(SpawnLock(path.clone()));
-            }
-            Err(_) => {
-                let stale = std::fs::read_to_string(path)
-                    .ok()
-                    .and_then(|content| {
-                        let mut parts = content.split_whitespace();
-                        let pid = parts.next()?.parse().ok()?;
-                        let start_time = parts.next()?.parse().ok()?;
-                        Some(ProcessStamp {
-                            pid: Pid::from_os(pid),
-                            start_time: ProcessStartTime::from_os(start_time),
-                        })
-                    })
-                    .is_none_or(|stamp| !stamp.is_alive());
-                if stale {
-                    let _ = std::fs::remove_file(path);
-                    continue;
-                }
-                return None;
-            }
-        }
-    }
-    None
 }

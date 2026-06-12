@@ -44,7 +44,7 @@ enum Command {
         /// instance's snapshot on resume).
         #[arg(long)]
         file: Option<PathBuf>,
-        /// Substrate, chosen at creation only (default: local).
+        /// Substrate, required at creation (`local` or `render`); ignored on resume.
         #[arg(long = "on", value_name = "SUBSTRATE")]
         on: Option<String>,
         /// Pin a service to an existing checkout: service=path

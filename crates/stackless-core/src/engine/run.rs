@@ -4,6 +4,7 @@
 //! machinery.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use super::error::EngineError;
@@ -74,6 +75,13 @@ impl Engine<'_> {
             return Err(EngineError::SourceOverrideUnsupported {
                 substrate: self.substrate.name().to_owned(),
             });
+        }
+        if !request.source_overrides.is_empty() {
+            check_source_override_collisions(
+                self.store,
+                request.instance,
+                &request.source_overrides,
+            )?;
         }
 
         // Resolve or create the record; the substrate is part of the
@@ -259,4 +267,41 @@ impl Engine<'_> {
         }
         Ok(survivors)
     }
+}
+
+fn check_source_override_collisions(
+    store: &Store,
+    instance: &str,
+    source_overrides: &BTreeMap<String, String>,
+) -> Result<(), EngineError> {
+    let canonical_new: BTreeMap<String, PathBuf> = source_overrides
+        .iter()
+        .filter_map(|(service, path)| {
+            std::fs::canonicalize(path)
+                .ok()
+                .map(|canonical| (service.clone(), canonical))
+        })
+        .collect();
+    for record in store.instances()? {
+        if record.status != InstanceStatus::Active || record.name.as_str() == instance {
+            continue;
+        }
+        for (service, path) in &record.source_overrides {
+            let Some(want) = canonical_new.get(service) else {
+                continue;
+            };
+            let Ok(have) = std::fs::canonicalize(path) else {
+                continue;
+            };
+            if have == *want {
+                return Err(EngineError::SourceOverrideShared {
+                    instance: instance.to_owned(),
+                    service: service.clone(),
+                    path: path.clone(),
+                    other: record.name.as_str().to_owned(),
+                });
+            }
+        }
+    }
+    Ok(())
 }

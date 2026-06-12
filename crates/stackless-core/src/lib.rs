@@ -8,6 +8,7 @@ pub mod checkpoint;
 pub mod def;
 pub mod engine;
 pub mod fault;
+pub mod lockfile;
 pub mod process;
 pub mod state;
 pub mod substrate;

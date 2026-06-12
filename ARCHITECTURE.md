@@ -208,8 +208,8 @@ vision's invariants; flag anything to veto):
   streaming in v0; agents need it to debug a failed health gate, which
   bites hardest on slow cloud deploys). `up` on an existing instance
   resumes it (invariant 3) — there is no separate resume verb. **The
-  substrate is chosen at creation only** (`--on local|render`,
-  defaulting to local per invariant 9), becomes part of the instance's
+  substrate is chosen at creation only** (`--on local|render`, required
+  on first `up` for a name), becomes part of the instance's
   identity in the state store, and is never asked for again —
   `verify`/`down`/`status` resolve it by name. Names are unique across
   substrates: creating `demo` on Render while a local `demo` exists is
@@ -229,6 +229,16 @@ vision's invariants; flag anything to veto):
   detected with the same liveness check the daemon uses for service
   processes. The reaper respects the lock (§6): an instance
   mid-operation is never reaped, even past lease expiry.
+- **Parallel `up` across different instance names** is supported. Two
+  cross-process file locks serialize the shared writers that are not
+  per-instance: Stripe Projects CLI invocations keyed by canonical
+  `definition_dir` (`.projects/state.json`, `env use`, `env --pull`),
+  and bare git cache clone/fetch keyed by source URL. Per-instance
+  checkouts (`sources/<instance>/`), processes, proxy routes, and
+  containers remain parallel. **Parallel agents should use one git
+  worktree per agent** so each has a distinct `definition_dir` and
+  Stripe lock; reusing the same checkout with `--source` on multiple
+  active instances is refused (`engine.source_override.shared`).
 - **Errors are an agent-facing contract, not diagnostics.** The vision
   requires "every error stating what to do next"; agents are the
   primary users, so every error stackless emits carries three parts:

@@ -25,6 +25,16 @@ pub enum EngineError {
     #[error("substrate {substrate:?} does not run pinned checkouts (--source)")]
     SourceOverrideUnsupported { substrate: String },
 
+    #[error(
+        "service {service:?} --source path {path:?} is already pinned by active instance {other:?}"
+    )]
+    SourceOverrideShared {
+        instance: String,
+        service: String,
+        path: String,
+        other: String,
+    },
+
     #[error("step {step} on instance {instance:?} failed: {fault}")]
     Step {
         instance: String,
@@ -52,6 +62,7 @@ impl Fault for EngineError {
             Self::State(err) => err.code(),
             Self::SubstrateMismatch { .. } => codes::ENGINE_SUBSTRATE_MISMATCH,
             Self::SourceOverrideUnsupported { .. } => codes::ENGINE_SOURCE_OVERRIDE_UNSUPPORTED,
+            Self::SourceOverrideShared { .. } => codes::ENGINE_SOURCE_OVERRIDE_SHARED,
             // The substrate's own code is the meaningful one; the
             // engine only adds context.
             Self::Step { fault, .. } | Self::SubstrateValidation { fault, .. } => fault.code,
@@ -75,6 +86,11 @@ impl Fault for EngineError {
                  committed refs only"
                     .into()
             }
+            Self::SourceOverrideShared { other, .. } => format!(
+                "use a separate git worktree per parallel agent, omit --source so stackless \
+                 materializes per-instance checkouts, or `stackless down {other}` before reusing \
+                 this checkout"
+            ),
             Self::Step { fault, .. } | Self::SubstrateValidation { fault, .. } => {
                 fault.remediation.clone()
             }
@@ -96,6 +112,7 @@ impl Fault for EngineError {
         match self {
             Self::State(err) => err.instance(),
             Self::SubstrateMismatch { instance, .. }
+            | Self::SourceOverrideShared { instance, .. }
             | Self::Step { instance, .. }
             | Self::TeardownSurvivors { instance, .. } => Some(instance),
             _ => None,

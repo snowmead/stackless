@@ -373,6 +373,38 @@ async fn substrate_mismatch_is_refused() {
     assert_eq!(err.code(), codes::ENGINE_SUBSTRATE_MISMATCH);
 }
 
+#[tokio::test]
+async fn source_override_shared_by_active_instance_is_refused() {
+    let (_dir, store) = temp_store();
+    let checkout = tempfile::tempdir().unwrap();
+    let path = checkout.path().display().to_string();
+    let mut first = BTreeMap::new();
+    first.insert("api".to_owned(), path.clone());
+    store
+        .create_instance("first", "mock", DEF_TEXT, &first, "")
+        .unwrap();
+    let mock = MockSubstrate::default();
+    let engine = Engine {
+        store: &store,
+        substrate: &mock,
+    };
+    let def = parse_def();
+    let mut second = BTreeMap::new();
+    second.insert("api".to_owned(), path);
+    let err = engine
+        .up(UpRequest {
+            instance: "second",
+            definition_text: DEF_TEXT,
+            def: &def,
+            source_overrides: second,
+            definition_dir: String::new(),
+            lease: None,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), codes::ENGINE_SOURCE_OVERRIDE_SHARED);
+}
+
 #[test]
 fn expired_instances_lists_only_overdue_active() {
     let (_dir, store) = temp_store();

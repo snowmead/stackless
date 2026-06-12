@@ -118,11 +118,13 @@ fn parse_lease(lease: Option<&str>) -> Result<Option<std::time::Duration>, CliEr
 pub fn up(args: UpArgs, output: &Output) -> Result<(), CliError> {
     let store = open_store()?;
     let existing = store.instance(&args.name)?;
-    let substrate_name = match &existing {
+    let substrate_name = match existing.as_ref() {
         Some(record) if record.status == InstanceStatus::Active => {
             record.substrate.as_str().to_owned()
         }
-        _ => args.on.clone().unwrap_or_else(|| LOCAL.to_owned()),
+        _ => args.on.clone().ok_or_else(|| CliError::SubstrateRequired {
+            name: args.name.clone(),
+        })?,
     };
     let text = definition_text(args.file.as_ref(), existing.as_ref())?;
     let def = parse_and_validate(&text)?;

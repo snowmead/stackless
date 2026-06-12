@@ -9,12 +9,18 @@
 //! The driver is generic over a [`CommandRunner`] so tests inject canned
 //! CLI envelopes without spawning a subprocess.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use serde::Deserialize;
+use stackless_core::lockfile;
 
 use crate::error::RenderError;
+
+/// How long parallel `up` commands wait for the per-definition_dir
+/// Stripe Projects lock before failing.
+const STRIPE_LOCK_BUDGET: Duration = Duration::from_secs(30 * 60);
 
 /// One process invocation's result. `status` is the exit code; stdout
 /// and stderr are captured separately so JSON parsing reads only stdout.
@@ -50,21 +56,37 @@ pub struct TokioRunner;
 #[async_trait]
 impl CommandRunner for TokioRunner {
     async fn run(&self, args: &[String], cwd: &Path) -> Result<CommandOutput, RenderError> {
-        let output = tokio::process::Command::new("stripe")
-            .arg("projects")
-            .args(args)
-            .current_dir(cwd)
-            .output()
+        let args = args.to_vec();
+        let cwd: PathBuf = cwd.to_path_buf();
+        tokio::task::spawn_blocking(move || run_stripe_locked(&args, &cwd))
             .await
             .map_err(|err| RenderError::StripeUnavailable {
-                detail: format!("could not run `stripe`: {err}"),
-            })?;
-        Ok(CommandOutput {
-            status: output.status.code().unwrap_or(-1),
-            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-        })
+                detail: format!("stripe task panicked: {err}"),
+            })?
     }
+}
+
+fn run_stripe_locked(args: &[String], cwd: &Path) -> Result<CommandOutput, RenderError> {
+    let lock_path = lockfile::stripe_lock_path(cwd);
+    let _guard = lockfile::acquire_with_wait(&lock_path, STRIPE_LOCK_BUDGET).map_err(|err| {
+        RenderError::StripeLockHeld {
+            definition_dir: cwd.display().to_string(),
+            detail: err.to_string(),
+        }
+    })?;
+    let output = std::process::Command::new("stripe")
+        .arg("projects")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .map_err(|err| RenderError::StripeUnavailable {
+            detail: format!("could not run `stripe`: {err}"),
+        })?;
+    Ok(CommandOutput {
+        status: output.status.code().unwrap_or(-1),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
 }
 
 /// The plugin's JSON envelope, narrowed to what the driver reads.

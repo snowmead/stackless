@@ -44,7 +44,9 @@ pub mod codes {
     pub const STATE_REMOTE_WORKER: &str = "state.remote.worker_gone";
     pub const STATE_ROW_DECODE: &str = "state.row.decode_failed";
     pub const ENGINE_SUBSTRATE_MISMATCH: &str = "engine.substrate.mismatch";
+    pub const ENGINE_SUBSTRATE_REQUIRED: &str = "engine.substrate.required";
     pub const ENGINE_SOURCE_OVERRIDE_UNSUPPORTED: &str = "engine.source_override.unsupported";
+    pub const ENGINE_SOURCE_OVERRIDE_SHARED: &str = "engine.source_override.shared";
     pub const ENGINE_STEP_FAILED: &str = "engine.step.failed";
     pub const ENGINE_TEARDOWN_SURVIVORS: &str = "engine.teardown.survivors";
     pub const DAEMON_UNREACHABLE: &str = "daemon.unreachable";
@@ -80,6 +82,7 @@ pub mod codes {
     pub const RENDER_STRIPE_UNAVAILABLE: &str = "render.stripe.unavailable";
     pub const RENDER_STRIPE_AUTH: &str = "render.stripe.auth";
     pub const RENDER_STRIPE_FAILED: &str = "render.stripe.failed";
+    pub const RENDER_STRIPE_LOCK_HELD: &str = "render.stripe.lock_held";
     pub const RENDER_PROJECT_ANCHOR: &str = "render.project.anchor";
     pub const RENDER_PAYMENT_NOT_CONFIRMED: &str = "render.payment.not_confirmed";
     pub const RENDER_PROVISION_FAILED: &str = "render.provision.failed";
@@ -122,7 +125,9 @@ pub mod codes {
         STATE_REMOTE_WORKER,
         STATE_ROW_DECODE,
         ENGINE_SUBSTRATE_MISMATCH,
+        ENGINE_SUBSTRATE_REQUIRED,
         ENGINE_SOURCE_OVERRIDE_UNSUPPORTED,
+        ENGINE_SOURCE_OVERRIDE_SHARED,
         ENGINE_STEP_FAILED,
         ENGINE_TEARDOWN_SURVIVORS,
         DAEMON_UNREACHABLE,
@@ -158,6 +163,7 @@ pub mod codes {
         RENDER_STRIPE_UNAVAILABLE,
         RENDER_STRIPE_AUTH,
         RENDER_STRIPE_FAILED,
+        RENDER_STRIPE_LOCK_HELD,
         RENDER_PROJECT_ANCHOR,
         RENDER_PAYMENT_NOT_CONFIRMED,
         RENDER_PROVISION_FAILED,

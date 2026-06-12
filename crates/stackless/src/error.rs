@@ -35,6 +35,9 @@ pub enum CliError {
     #[error("bad argument {argument}: {detail}")]
     BadArgument { argument: String, detail: String },
 
+    #[error("--on is required when creating instance {name:?}")]
+    SubstrateRequired { name: String },
+
     #[error("required secrets unresolved: {missing:?} (consulted: {sources:?})")]
     SecretsUnresolved {
         missing: Vec<String>,
@@ -67,6 +70,7 @@ impl Fault for CliError {
             Self::Engine(err) => err.code(),
             Self::State(err) => err.code(),
             Self::BadArgument { .. } => codes::CLI_BAD_ARGUMENT,
+            Self::SubstrateRequired { .. } => codes::ENGINE_SUBSTRATE_REQUIRED,
             Self::SecretsUnresolved { .. } => codes::SECRETS_UNRESOLVED,
             Self::VerifyNotDeclared => codes::VERIFY_NOT_DECLARED,
             Self::VerifyFailed { .. } => codes::VERIFY_FAILED,
@@ -91,6 +95,9 @@ impl Fault for CliError {
             Self::BadArgument { argument, .. } => {
                 format!("fix the {argument} value; see `stackless --help`")
             }
+            Self::SubstrateRequired { name } => format!(
+                "pass a substrate at creation: `stackless up {name} --on local` or `--on render`"
+            ),
             Self::SecretsUnresolved { missing, .. } => format!(
                 "add {missing:?} to the {} file next to stackless.toml (KEY=value lines), or \
                  remove them from [secrets].required",
@@ -124,6 +131,7 @@ impl Fault for CliError {
     fn instance(&self) -> Option<&str> {
         match self {
             Self::Def(err) => err.instance(),
+            Self::SubstrateRequired { name } => Some(name),
             _ => None,
         }
     }

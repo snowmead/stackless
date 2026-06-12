@@ -12,7 +12,7 @@ laptop or on a cloud provider, for a human, a CI job, or — first and
 foremost — an AI agent.
 
 ```console
-$ stackless up demo
+$ stackless up demo --on local
 demo: up on local (all health contracts passed)
   api: http://api.demo.localhost:4444
   web: http://demo.localhost:4444
@@ -55,8 +55,9 @@ verifiably. No wiki page, no teammate, no manual cleanup.
   The name is assigned at birth, validated DNS-safe, and everything
   the instance owns derives from it. Any number of instances coexist
   without colliding on ports, names, data, or credentials.
-- **Substrates** decide where instances live, chosen at creation
-  (`--on local|render`, default local) and never asked again:
+- **Substrates** decide where instances live. Pass `--on local` or
+  `--on render` at creation (required); resume uses the recorded
+  substrate and never asks again:
   - **local** — services run as host processes from your declared
     commands; datastores run as labeled containers with per-instance
     volumes; everything meets at a built-in reverse proxy, so origins
@@ -87,7 +88,7 @@ verifiably. No wiki page, no teammate, no manual cleanup.
 
 | Verb | Does |
 |---|---|
-| `up <name>` | Create **or resume** an instance (no separate resume verb). `--on <substrate>` at creation, `--file <path>`, `--source svc=path`, `--lease 8h`, `--confirm-paid` |
+| `up <name>` | Create **or resume** an instance (no separate resume verb). `--on <substrate>` **required at creation**, `--file <path>`, `--source svc=path`, `--lease 8h`, `--confirm-paid` |
 | `down <name>` | Verified teardown; exits non-zero listing survivors if anything remains |
 | `verify <name>` | Run the stack's proof contract; renews the lease |
 | `status <name>` | Staged truth per service: provisioned → prepared → started → healthy, downgraded by observation |
@@ -119,7 +120,7 @@ never on prose.
 $ cargo build --release            # one binary: target/release/stackless
 $ cd your-repo                     # containing a stackless.toml
 $ stackless check stackless.toml   # validate + see the derived graph
-$ stackless up demo                # clone, build, wire, health-gate
+$ stackless up demo --on local                # clone, build, wire, health-gate
 $ stackless down demo              # verified teardown
 ```
 

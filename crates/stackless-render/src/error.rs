@@ -31,6 +31,14 @@ pub enum RenderError {
     #[error("`stripe projects {command}` failed: {detail}")]
     StripeFailed { command: String, detail: String },
 
+    #[error(
+        "another stackless process holds the Stripe Projects lock for {definition_dir}: {detail}"
+    )]
+    StripeLockHeld {
+        definition_dir: String,
+        detail: String,
+    },
+
     #[error("cannot anchor the stack's Stripe project: {detail}")]
     ProjectAnchor { detail: String },
 
@@ -70,6 +78,7 @@ impl Fault for RenderError {
             Self::StripeUnavailable { .. } => codes::RENDER_STRIPE_UNAVAILABLE,
             Self::StripeAuth { .. } => codes::RENDER_STRIPE_AUTH,
             Self::StripeFailed { .. } => codes::RENDER_STRIPE_FAILED,
+            Self::StripeLockHeld { .. } => codes::RENDER_STRIPE_LOCK_HELD,
             Self::ProjectAnchor { .. } => codes::RENDER_PROJECT_ANCHOR,
             Self::PaymentNotConfirmed { .. } => codes::RENDER_PAYMENT_NOT_CONFIRMED,
             Self::ProvisionFailed { .. } => codes::RENDER_PROVISION_FAILED,
@@ -106,6 +115,11 @@ impl Fault for RenderError {
                 format!(
                     "run `stripe projects {command}` by hand to see the full error, then re-run"
                 )
+            }
+            Self::StripeLockHeld { .. } => {
+                "another `stackless up` is provisioning Stripe Projects in this definition dir; \
+                 wait for it to finish, then re-run `up`"
+                    .into()
             }
             Self::ProjectAnchor { .. } => {
                 "ensure the definition dir is writable and `stripe projects status` reports a \

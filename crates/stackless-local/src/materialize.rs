@@ -11,9 +11,13 @@
 
 use std::path::{Path, PathBuf};
 
+use stackless_core::lockfile;
 use stackless_core::state::state_dir;
 
 use crate::error::LocalError;
+
+/// How long parallel materialize calls wait for the shared bare cache.
+const GIT_CACHE_LOCK_BUDGET: std::time::Duration = std::time::Duration::from_secs(30 * 60);
 
 /// Disables the interactive credential prompt on any repo we open or
 /// clone. gix's credential cascade otherwise falls through to a terminal
@@ -32,7 +36,7 @@ fn cache_path(state_root: &Path, repo: &str) -> PathBuf {
 /// A filesystem-safe, collision-resistant slug for a source URL: a
 /// readable tail of the URL plus a hash of the whole, so two URLs that
 /// share a tail still map to distinct caches.
-fn cache_key(repo: &str) -> String {
+pub fn cache_key(repo: &str) -> String {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     repo.hash(&mut hasher);
@@ -110,6 +114,20 @@ pub fn materialize_in(
 /// refresh it. A fetch failure (network, auth) surfaces as
 /// `GitFetchFailed`; a clone failure as `GitCloneFailed`.
 fn ensure_cache(repo: &str, cache: &Path) -> Result<gix::Repository, LocalError> {
+    let lock_path = lockfile::git_cache_lock_path(&cache_key(repo));
+    let _guard = lockfile::acquire_with_wait(&lock_path, GIT_CACHE_LOCK_BUDGET).map_err(|err| {
+        if cache.join("objects").is_dir() {
+            LocalError::GitFetchFailed {
+                repo: repo.to_owned(),
+                detail: format!("git cache lock: {err}"),
+            }
+        } else {
+            LocalError::GitCloneFailed {
+                repo: repo.to_owned(),
+                detail: format!("git cache lock: {err}"),
+            }
+        }
+    })?;
     if cache.join("objects").is_dir() {
         let cache_repo =
             gix::open_opts(cache, open_opts()).map_err(|err| LocalError::GitFetchFailed {
