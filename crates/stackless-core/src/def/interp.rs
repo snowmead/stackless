@@ -8,6 +8,7 @@
 use std::collections::BTreeMap;
 
 use super::error::DefError;
+use crate::types::DnsName;
 
 /// A parsed `${...}` reference.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -73,21 +74,34 @@ fn parse_reference(inner: &str, location: &str) -> Result<Reference, DefError> {
 
 /// The values a substrate supplies for one instance. Built per instance
 /// per substrate; resolution itself is substrate-blind.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Namespace {
-    pub stack_name: String,
-    pub instance_name: String,
+    pub stack_name: DnsName,
+    pub instance_name: DnsName,
     pub service_origins: BTreeMap<String, String>,
     pub datastore_urls: BTreeMap<String, String>,
     pub secrets: BTreeMap<String, String>,
     pub integrations: BTreeMap<String, BTreeMap<String, String>>,
 }
 
+impl Default for Namespace {
+    fn default() -> Self {
+        Self {
+            stack_name: DnsName::try_new("stack").expect("placeholder stack name"),
+            instance_name: DnsName::try_new("instance").expect("placeholder instance name"),
+            service_origins: BTreeMap::new(),
+            datastore_urls: BTreeMap::new(),
+            secrets: BTreeMap::new(),
+            integrations: BTreeMap::new(),
+        }
+    }
+}
+
 impl Namespace {
     fn lookup(&self, reference: &Reference, location: &str) -> Result<String, DefError> {
         match reference {
-            Reference::StackName => Ok(self.stack_name.clone()),
-            Reference::InstanceName => Ok(self.instance_name.clone()),
+            Reference::StackName => Ok(self.stack_name.as_str().to_owned()),
+            Reference::InstanceName => Ok(self.instance_name.as_str().to_owned()),
             Reference::ServiceOrigin(name) => {
                 self.service_origins.get(name).cloned().ok_or_else(|| {
                     DefError::UndeclaredReference {
@@ -224,8 +238,8 @@ mod tests {
     #[test]
     fn resolves_mixed_text() {
         let mut namespace = Namespace {
-            stack_name: "atto".into(),
-            instance_name: "demo".into(),
+            stack_name: DnsName::try_new("atto").unwrap(),
+            instance_name: DnsName::try_new("demo").unwrap(),
             ..Namespace::default()
         };
         namespace

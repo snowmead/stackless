@@ -24,7 +24,7 @@ fn parse_valid(name: &str) -> def::StackDef {
 fn atto_parses_to_the_documented_model() {
     let def = parse_valid("atto.toml");
 
-    assert_eq!(def.stack.name, "atto");
+    assert_eq!(def.stack.name.as_str(), "atto");
     let verify = def.stack.verify.as_ref().unwrap();
     assert_eq!(verify.run, "bun e2e/smoke.ts");
     assert_eq!(verify.env["ATTO_STACKLESS"], "1");
@@ -83,7 +83,7 @@ fn atto_parses_to_the_documented_model() {
         "${integrations.clerk.secret_key}"
     );
     assert_eq!(api.health.path, "/health");
-    assert_eq!(api.health.status, 200);
+    assert_eq!(api.health.status.get(), 200);
     assert_eq!(api.health.contains.as_deref(), Some("ok"));
     assert!(!api.root_origin);
 
@@ -148,7 +148,7 @@ fn api_env_resolves_against_a_namespace() {
     let def = parse_valid("atto.toml");
     let api = &def.services["api"];
     let mut namespace = Namespace {
-        instance_name: "demo".into(),
+        instance_name: stackless_core::types::DnsName::try_new("demo").unwrap(),
         ..Namespace::default()
     };
     namespace

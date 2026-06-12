@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use stackless_core::def::{Namespace, StackDef};
+use stackless_core::types::DnsName;
 use stackless_core::substrate::{Observation, StepResource};
 
 use crate::error::RenderError;
@@ -69,7 +70,7 @@ pub async fn provision<R: CommandRunner>(
         })?;
     let namespace = Namespace {
         stack_name: def.stack.name.clone(),
-        instance_name: instance.to_owned(),
+        instance_name: DnsName::try_new(instance).expect("instance name validated at creation"),
         ..Namespace::default()
     };
     let app_name = stackless_core::def::interp::resolve(

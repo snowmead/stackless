@@ -61,15 +61,15 @@ fn instance_records_round_trip() {
     let rec = store
         .create_instance("demo", "local", "deftext", &BTreeMap::new(), "/defs")
         .unwrap();
-    assert_eq!(rec.name, "demo");
-    assert_eq!(rec.substrate, "local");
+    assert_eq!(rec.name.as_str(), "demo");
+    assert_eq!(rec.substrate.as_str(), "local");
     assert_eq!(rec.status, InstanceStatus::Active);
     assert_eq!(rec.definition, "deftext");
     assert_eq!(rec.definition_dir, "/defs");
     assert!(rec.tombstoned_at.is_none());
 
     let fetched = store.instance("demo").unwrap().unwrap();
-    assert_eq!(fetched.name, "demo");
+    assert_eq!(fetched.name.as_str(), "demo");
     assert_eq!(store.instances().unwrap().len(), 1);
 }
 
@@ -194,8 +194,8 @@ fn libsql_dead_same_host_holder_is_taken_over() {
         Store::now_secs(),
     );
     let dead = ProcessStamp {
-        pid: std::process::id(),
-        start_time: 1,
+        pid: stackless_core::types::Pid::from_os(std::process::id()),
+        start_time: stackless_core::types::ProcessStartTime::from_os(1),
     };
     assert!(!dead.is_alive());
     store.claim_lock("demo", "down").unwrap();

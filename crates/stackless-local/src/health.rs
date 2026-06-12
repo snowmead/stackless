@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use stackless_core::def::Health;
 use stackless_core::process::ProcessStamp;
+use stackless_core::types::TcpPort;
 
 use crate::error::LocalError;
 use crate::spawn::log_tail;
@@ -21,11 +22,11 @@ pub async fn wait_healthy(
     instance: &str,
     service: &str,
     host: &str,
-    proxy_port: u16,
+    proxy_port: TcpPort,
     health: &Health,
     process: ProcessStamp,
 ) -> Result<(), LocalError> {
-    let url = format!("http://127.0.0.1:{proxy_port}{}", health.path);
+    let url = format!("http://127.0.0.1:{}{}", proxy_port.get(), health.path);
     let client = reqwest::Client::new();
     let deadline = Instant::now() + HEALTH_BUDGET;
     let mut last_detail = String::from("no response yet");
@@ -44,7 +45,7 @@ pub async fn wait_healthy(
     }
     Err(LocalError::HealthFailed {
         service: service.to_owned(),
-        url: format!("http://{host}:{proxy_port}{}", health.path),
+        url: format!("http://{host}:{}{}", proxy_port.get(), health.path),
         detail: last_detail,
         budget_secs: HEALTH_BUDGET.as_secs(),
     })
@@ -64,8 +65,8 @@ async fn probe(
         .await
         .map_err(|err| format!("request failed: {err}"))?;
     let status = response.status().as_u16();
-    if status != health.status {
-        return Err(format!("expected status {}, got {status}", health.status));
+    if status != health.status.get() {
+        return Err(format!("expected status {}, got {status}", health.status.get()));
     }
     if let Some(needle) = &health.contains {
         let body = response

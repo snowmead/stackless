@@ -14,10 +14,12 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use stackless_core::checkpoint::StartCheckpoint;
 use stackless_core::def::StackDef;
 use stackless_core::engine::StepKind;
 use stackless_core::process::ProcessStamp;
 use stackless_core::state::Checkpoint;
+use stackless_core::types::{DnsName, LogPath, TcpPort};
 use stackless_core::substrate::{
     ACTION_RESOURCE_KIND, Observation, StepContext, StepResource, Substrate, SubstrateFault,
 };
@@ -30,7 +32,7 @@ pub const SUBSTRATE_NAME: &str = "local";
 
 #[derive(Debug)]
 pub struct LocalSubstrate {
-    pub proxy_port: u16,
+    pub proxy_port: TcpPort,
     /// Resolved secrets (M5: vault pull + env-file overlay). Empty in M4.
     pub secrets: BTreeMap<String, String>,
     /// Where the definition lives; hosted integrations run Stripe
@@ -46,16 +48,6 @@ impl Default for LocalSubstrate {
             definition_dir: std::env::current_dir().unwrap_or_default(),
         }
     }
-}
-
-/// What a `start:` checkpoint records.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct StartPayload {
-    pub pid: u32,
-    pub start_time: u64,
-    pub port: u16,
-    pub hosts: Vec<String>,
-    pub log: String,
 }
 
 /// What a `materialize:` checkpoint records.
@@ -121,7 +113,7 @@ impl LocalSubstrate {
         wiring::resolve_env(ctx.def, service, &namespace).map_err(fault)
     }
 
-    fn allocate_port() -> Result<u16, SubstrateFault> {
+    fn allocate_port() -> Result<TcpPort, SubstrateFault> {
         let listener = std::net::TcpListener::bind("127.0.0.1:0")
             .map_err(|source| fault(LocalError::PortAlloc { source }))?;
         let port = listener
@@ -129,7 +121,7 @@ impl LocalSubstrate {
             .map_err(|source| fault(LocalError::PortAlloc { source }))?
             .port();
         drop(listener);
-        Ok(port)
+        Ok(TcpPort::from_os(port))
     }
 
     fn daemon(&self) -> Result<DaemonClient, SubstrateFault> {
@@ -211,8 +203,8 @@ impl Substrate for LocalSubstrate {
                         .await
                         .map_err(|err| SubstrateFault::from_fault(&err))?;
                 let payload = serde_json::json!({
-                    "container_id": provisioned.container_id,
-                    "port": provisioned.port,
+                    "container_id": provisioned.container_id.as_str(),
+                    "port": provisioned.port.get(),
                     "url": provisioned.url,
                 });
                 Ok(StepResource {
@@ -325,24 +317,42 @@ impl Substrate for LocalSubstrate {
                         })
                         .map_err(|err| SubstrateFault::from_fault(&err))?;
                 }
+                let instance_name =
+                    DnsName::try_new(ctx.instance).map_err(|err| fault(LocalError::LocalConfigInvalid {
+                        service: service.to_owned(),
+                        detail: err.to_string(),
+                    }))?;
+                let service_name =
+                    DnsName::try_new(service).map_err(|err| fault(LocalError::LocalConfigInvalid {
+                        service: service.to_owned(),
+                        detail: err.to_string(),
+                    }))?;
                 daemon
                     .call(Request::Supervise {
-                        instance: ctx.instance.to_owned(),
-                        service: service.to_owned(),
+                        instance: instance_name,
+                        service: service_name,
                         pid: stamp.pid,
                         start_time: stamp.start_time,
                     })
                     .map_err(|err| SubstrateFault::from_fault(&err))?;
-                let payload = StartPayload {
+                let payload = StartCheckpoint {
                     pid: stamp.pid,
                     start_time: stamp.start_time,
                     port,
                     hosts,
-                    log: spawn::log_path(ctx.instance, service).display().to_string(),
+                    log: LogPath::try_new(
+                        spawn::log_path(ctx.instance, service).display().to_string(),
+                    )
+                    .map_err(|err| fault(LocalError::LogFile {
+                        path: spawn::log_path(ctx.instance, service)
+                            .display()
+                            .to_string(),
+                        source: std::io::Error::new(std::io::ErrorKind::InvalidInput, err),
+                    }))?,
                 };
                 Ok(StepResource {
                     resource_kind: "process".into(),
-                    resource_id: stamp.pid.to_string(),
+                    resource_id: stamp.pid.get().to_string(),
                     payload: serde_json::to_string(&payload).unwrap_or_default(),
                 })
             }
@@ -354,7 +364,7 @@ impl Substrate for LocalSubstrate {
                     .prior
                     .iter()
                     .find(|c| c.step_id == format!("start:{service}"))
-                    .and_then(|c| serde_json::from_str::<StartPayload>(&c.payload).ok());
+                    .and_then(|c| serde_json::from_str::<StartCheckpoint>(&c.payload).ok());
                 let Some(start) = start else {
                     return Err(SubstrateFault {
                         code: stackless_core::fault::codes::LOCAL_HEALTH_FAILED,
@@ -365,8 +375,8 @@ impl Substrate for LocalSubstrate {
                 let host = start
                     .hosts
                     .first()
-                    .cloned()
-                    .unwrap_or_else(|| wiring::service_host(ctx.instance, service));
+                    .map(|h| h.as_str().to_owned())
+                    .unwrap_or_else(|| wiring::service_host(ctx.instance, service).as_str().to_owned());
                 health::wait_healthy(
                     ctx.instance,
                     service,
@@ -431,7 +441,7 @@ impl Substrate for LocalSubstrate {
                 })
             }
             "process" => {
-                let payload = serde_json::from_str::<StartPayload>(&checkpoint.payload);
+                let payload = serde_json::from_str::<StartCheckpoint>(&checkpoint.payload);
                 let alive = payload.is_ok_and(|p| {
                     ProcessStamp {
                         pid: p.pid,
@@ -502,7 +512,7 @@ impl Substrate for LocalSubstrate {
             }
             "process" => {
                 let payload =
-                    serde_json::from_str::<StartPayload>(&checkpoint.payload).map_err(|err| {
+                    serde_json::from_str::<StartCheckpoint>(&checkpoint.payload).map_err(|err| {
                         SubstrateFault {
                             code: stackless_core::fault::codes::LOCAL_KILL_FAILED,
                             message: format!("unreadable start payload: {err}"),

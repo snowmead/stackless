@@ -54,7 +54,7 @@ impl Output {
         if self.json {
             self.emit(&CheckOk {
                 ok: true,
-                stack: &def.stack.name,
+                stack: def.stack.name.as_str(),
                 substrate,
                 services: def.services.keys().map(String::as_str).collect(),
                 datastores: def.datastores.keys().map(String::as_str).collect(),
@@ -62,7 +62,7 @@ impl Output {
             });
             return;
         }
-        println!("stack {:?}: valid", def.stack.name);
+        println!("stack {:?}: valid", def.stack.name.as_str());
         if let Some(substrate) = substrate {
             println!("  substrate {substrate}: all services configured");
         }

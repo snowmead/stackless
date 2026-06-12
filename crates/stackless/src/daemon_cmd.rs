@@ -4,6 +4,7 @@
 
 use clap::Subcommand;
 
+use stackless_core::types::{ProxyHost, TcpPort};
 use stackless_daemon::rpc::{Request, ResponseBody};
 use stackless_daemon::{DaemonClient, server};
 
@@ -51,13 +52,27 @@ pub fn run(command: DaemonCommand, output: &Output) -> Result<(), CliError> {
         }
         DaemonCommand::RouteSet { host, port } => {
             let mut client = DaemonClient::ensure()?;
-            client.call(Request::RouteSet { host, port })?;
+            client.call(Request::RouteSet {
+                host: ProxyHost::try_new(host).map_err(|err| CliError::BadArgument {
+                    argument: "host".into(),
+                    detail: err.to_string(),
+                })?,
+                port: TcpPort::try_new(port).map_err(|err| CliError::BadArgument {
+                    argument: "port".into(),
+                    detail: err.to_string(),
+                })?,
+            })?;
             output.message("route set");
             Ok(())
         }
         DaemonCommand::RouteDel { host } => {
             let mut client = DaemonClient::ensure()?;
-            client.call(Request::RouteDelete { host })?;
+            client.call(Request::RouteDelete {
+                host: ProxyHost::try_new(host).map_err(|err| CliError::BadArgument {
+                    argument: "host".into(),
+                    detail: err.to_string(),
+                })?,
+            })?;
             output.message("route withdrawn");
             Ok(())
         }
@@ -65,7 +80,10 @@ pub fn run(command: DaemonCommand, output: &Output) -> Result<(), CliError> {
             let mut client = DaemonClient::ensure()?;
             if let ResponseBody::Routes { routes } = client.call(Request::Routes)? {
                 for route in &routes {
-                    output.message(&format!("{} -> 127.0.0.1:{}", route.host, route.port));
+                    output.message(&format!(
+                        "{} -> 127.0.0.1:{}",
+                        route.host, route.port.get()
+                    ));
                 }
                 if routes.is_empty() {
                     output.message("no routes");

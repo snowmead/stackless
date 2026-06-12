@@ -17,6 +17,8 @@ use hyper_util::rt::{TokioExecutor, TokioIo};
 use tokio::io::copy_bidirectional;
 use tokio::net::TcpListener;
 
+use stackless_core::types::TcpPort;
+
 use crate::state::DaemonState;
 
 /// The proxy's default port (D9) — configurable globally via
@@ -24,16 +26,18 @@ use crate::state::DaemonState;
 /// derivable from the instance name alone.
 pub const DEFAULT_PROXY_PORT: u16 = 4444;
 
-pub fn proxy_port() -> u16 {
+pub fn proxy_port() -> TcpPort {
     std::env::var("STACKLESS_PROXY_PORT")
         .ok()
         .and_then(|value| value.parse().ok())
-        .unwrap_or(DEFAULT_PROXY_PORT)
+        .and_then(|raw| TcpPort::try_new(raw).ok())
+        .unwrap_or_else(|| TcpPort::try_new(DEFAULT_PROXY_PORT).expect("default proxy port"))
 }
 
 type ProxyClient = Client<hyper_util::client::legacy::connect::HttpConnector, Incoming>;
 
-pub async fn serve(state: Arc<DaemonState>, port: u16) -> std::io::Result<()> {
+pub async fn serve(state: Arc<DaemonState>, port: TcpPort) -> std::io::Result<()> {
+    let port = port.get();
     let v4 = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, port))).await?;
     let v6 = TcpListener::bind(SocketAddr::from((Ipv6Addr::LOCALHOST, port))).await?;
     let client: ProxyClient = Client::builder(TokioExecutor::new())
@@ -95,7 +99,7 @@ async fn handle(
         .path_and_query()
         .map(|pq| pq.as_str())
         .unwrap_or("/");
-    let upstream_uri = format!("http://127.0.0.1:{port}{path_and_query}");
+    let upstream_uri = format!("http://127.0.0.1:{}{path_and_query}", port.get());
     match upstream_uri.parse() {
         Ok(uri) => parts.uri = uri,
         Err(_) => {
@@ -112,7 +116,8 @@ async fn handle(
                     return Ok(text_response(
                         StatusCode::BAD_GATEWAY,
                         &format!(
-                            "stackless proxy: upstream on port {port} rejected websocket upgrade with {}",
+                            "stackless proxy: upstream on port {} rejected websocket upgrade with {}",
+                            port.get(),
                             response.status()
                         ),
                     ));
@@ -140,7 +145,10 @@ async fn handle(
         }
         Err(err) => Ok(text_response(
             StatusCode::BAD_GATEWAY,
-            &format!("stackless proxy: upstream on port {port} refused: {err}"),
+            &format!(
+                "stackless proxy: upstream on port {} refused: {err}",
+                port.get()
+            ),
         )),
     }
 }
@@ -207,6 +215,8 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpStream;
 
+    use stackless_core::types::{ProxyHost, TcpPort};
+
     use super::*;
 
     async fn start_raw_upstream<F, Fut>(handler: F) -> (u16, tokio::task::JoinHandle<()>)
@@ -231,7 +241,7 @@ mod tests {
         let port = std_listener.local_addr().unwrap().port();
         drop(std_listener);
         let handle = tokio::spawn(async move {
-            let _ = serve(state, port).await;
+            let _ = serve(state, TcpPort::from_os(port)).await;
         });
         for _ in 0..50 {
             if TcpStream::connect(SocketAddr::from((Ipv4Addr::LOCALHOST, port)))
@@ -273,7 +283,10 @@ mod tests {
         })
         .await;
         let state = Arc::new(DaemonState::default());
-        state.route_set("demo.localhost".into(), upstream_port);
+        state.route_set(
+            ProxyHost::try_new("demo.localhost").unwrap(),
+            TcpPort::from_os(upstream_port),
+        );
         let (proxy_port, proxy) = start_proxy(state).await;
 
         let mut client = TcpStream::connect(SocketAddr::from((Ipv4Addr::LOCALHOST, proxy_port)))
@@ -345,7 +358,10 @@ mod tests {
         })
         .await;
         let state = Arc::new(DaemonState::default());
-        state.route_set("demo.localhost".into(), upstream_port);
+        state.route_set(
+            ProxyHost::try_new("demo.localhost").unwrap(),
+            TcpPort::from_os(upstream_port),
+        );
         let (proxy_port, proxy) = start_proxy(state).await;
 
         let mut client = TcpStream::connect(SocketAddr::from((Ipv4Addr::LOCALHOST, proxy_port)))

@@ -187,7 +187,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
 
     /// `{stack}-{instance}-{service}` (DNS-safe by construction).
     fn resource_name(def: &StackDef, instance: &str, node: &str) -> String {
-        format!("{}-{instance}-{node}", def.stack.name)
+        format!("{}-{instance}-{node}", def.stack.name.as_str())
     }
 
     /// `https://{stack}-{instance}-{service}.onrender.com` — derivable
@@ -213,7 +213,8 @@ impl<R: CommandRunner> RenderSubstrate<R> {
     ) -> Namespace {
         let mut namespace = Namespace {
             stack_name: def.stack.name.clone(),
-            instance_name: instance.to_owned(),
+            instance_name: stackless_core::types::DnsName::try_new(instance)
+                .expect("instance name validated at creation"),
             ..Namespace::default()
         };
         for service in def.services.keys() {
@@ -583,7 +584,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
                 Ok(response) => {
                     let status = response.status().as_u16();
                     let body = response.text().await.unwrap_or_default();
-                    let status_ok = status == spec.health.status;
+                    let status_ok = status == spec.health.status.get();
                     let contains_ok = spec
                         .health
                         .contains
@@ -966,7 +967,7 @@ pub async fn fetch_logs(
 ) -> Result<Vec<String>, RenderError> {
     let key = api_key::resolve(definition_dir)?;
     let render = RenderApi::new(key);
-    let name = format!("{}-{instance}-{service}", def.stack.name);
+    let name = format!("{}-{instance}-{service}", def.stack.name.as_str());
     let Some(svc) = render.find_service_by_name(&name).await? else {
         return Ok(vec![format!("(service {name} not found on Render)")]);
     };

@@ -72,6 +72,24 @@ impl From<u32> for Value {
     }
 }
 
+impl From<crate::types::Pid> for Value {
+    fn from(v: crate::types::Pid) -> Self {
+        Value::Int(v.get() as i64)
+    }
+}
+
+impl From<crate::types::ProcessStartTime> for Value {
+    fn from(v: crate::types::ProcessStartTime) -> Self {
+        Value::Int(v.get() as i64)
+    }
+}
+
+impl From<crate::types::DnsName> for Value {
+    fn from(v: crate::types::DnsName) -> Self {
+        Value::Text(v.into_inner())
+    }
+}
+
 /// One row of a result set, read positionally by the mapping closures.
 /// A bounds-checked, panic-free view over either driver's row.
 pub(super) struct Row {

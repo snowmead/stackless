@@ -80,10 +80,10 @@ impl Engine<'_> {
         // instance's identity and is never asked for again (§2).
         let mut source_overrides = request.source_overrides.clone();
         match self.store.instance(request.instance)? {
-            Some(existing) if existing.substrate != self.substrate.name() => {
+            Some(existing) if existing.substrate.as_str() != self.substrate.name() => {
                 return Err(EngineError::SubstrateMismatch {
                     instance: request.instance.to_owned(),
-                    existing: existing.substrate,
+                    existing: existing.substrate.as_str().to_owned(),
                     requested: self.substrate.name().to_owned(),
                 });
             }
@@ -206,10 +206,10 @@ impl Engine<'_> {
         if record.status == InstanceStatus::Tombstoned {
             return Ok(DownOutcome::AlreadyDown);
         }
-        if record.substrate != self.substrate.name() {
+        if record.substrate.as_str() != self.substrate.name() {
             return Err(EngineError::SubstrateMismatch {
                 instance: instance.to_owned(),
-                existing: record.substrate,
+                existing: record.substrate.as_str().to_owned(),
                 requested: self.substrate.name().to_owned(),
             });
         }

@@ -10,6 +10,7 @@ use std::time::Duration;
 use rustix::process::Signal;
 use stackless_core::process::ProcessStamp;
 use stackless_core::state::state_dir;
+use stackless_core::types::{Pid, TcpPort};
 
 use crate::error::LocalError;
 
@@ -62,7 +63,7 @@ pub fn spawn_service(
     command: &str,
     dir: &Path,
     env: &BTreeMap<String, String>,
-    port: u16,
+    port: TcpPort,
 ) -> Result<ProcessStamp, LocalError> {
     let log = open_log(instance, service)?;
     let log_err = log.try_clone().map_err(|source| LocalError::LogFile {
@@ -73,7 +74,7 @@ pub fn spawn_service(
         .args(["-c", &format!("exec {command}")])
         .current_dir(dir)
         .envs(env)
-        .env("PORT", port.to_string())
+        .env("PORT", port.get().to_string())
         .stdin(std::process::Stdio::null())
         .stdout(log)
         .stderr(log_err)
@@ -172,8 +173,8 @@ pub async fn kill_group(stamp: ProcessStamp) -> Result<(), LocalError> {
     Ok(())
 }
 
-fn signal_group(pgid: u32, signal: Signal) {
-    if let Ok(pid) = i32::try_from(pgid)
+fn signal_group(pgid: Pid, signal: Signal) {
+    if let Ok(pid) = i32::try_from(pgid.get())
         && let Some(pid) = rustix::process::Pid::from_raw(pid)
     {
         let _ = rustix::process::kill_process_group(pid, signal);

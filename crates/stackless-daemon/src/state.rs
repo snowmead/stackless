@@ -8,32 +8,34 @@ use std::collections::BTreeMap;
 use std::sync::RwLock;
 
 use stackless_core::process::ProcessStamp;
+use stackless_core::types::{DnsName, ProxyHost, TcpPort};
 
 use crate::rpc::{Route, SupervisedProcess};
 
 #[derive(Debug, Default)]
 pub struct DaemonState {
     /// host (no port) → local TCP port.
-    routes: RwLock<BTreeMap<String, u16>>,
+    routes: RwLock<BTreeMap<ProxyHost, TcpPort>>,
     /// (instance, service) → process stamp.
-    supervised: RwLock<BTreeMap<(String, String), ProcessStamp>>,
+    supervised: RwLock<BTreeMap<(DnsName, DnsName), ProcessStamp>>,
 }
 
 impl DaemonState {
-    pub fn route_set(&self, host: String, port: u16) {
+    pub fn route_set(&self, host: ProxyHost, port: TcpPort) {
         if let Ok(mut routes) = self.routes.write() {
             routes.insert(host, port);
         }
     }
 
-    pub fn route_delete(&self, host: &str) {
+    pub fn route_delete(&self, host: &ProxyHost) {
         if let Ok(mut routes) = self.routes.write() {
             routes.remove(host);
         }
     }
 
-    pub fn route_lookup(&self, host: &str) -> Option<u16> {
-        self.routes.read().ok()?.get(host).copied()
+    pub fn route_lookup(&self, host: &str) -> Option<TcpPort> {
+        let key = ProxyHost::try_new(host).ok()?;
+        self.routes.read().ok()?.get(&key).copied()
     }
 
     pub fn routes(&self) -> Vec<Route> {
@@ -51,22 +53,23 @@ impl DaemonState {
             .unwrap_or_default()
     }
 
-    pub fn supervise(&self, instance: String, service: String, stamp: ProcessStamp) {
+    pub fn supervise(&self, instance: DnsName, service: DnsName, stamp: ProcessStamp) {
         if let Ok(mut map) = self.supervised.write() {
             map.insert((instance, service), stamp);
         }
     }
 
     pub fn forget(&self, instance: &str) {
+        let Ok(instance_name) = DnsName::try_new(instance) else {
+            return;
+        };
         if let Ok(mut map) = self.supervised.write() {
-            map.retain(|(i, _), _| i != instance);
+            map.retain(|(i, _), _| i != &instance_name);
         }
         if let Ok(mut routes) = self.routes.write() {
-            // Instance hosts are `{service}.{instance}.localhost` and
-            // `{instance}.localhost` — both end with the instance label.
             routes.retain(|host, _| {
-                host != &format!("{instance}.localhost")
-                    && !host.ends_with(&format!(".{instance}.localhost"))
+                host.as_str() != format!("{instance}.localhost")
+                    && !host.as_str().ends_with(&format!(".{instance}.localhost"))
             });
         }
     }
@@ -74,11 +77,14 @@ impl DaemonState {
     /// Observed now — supervision is by PID + start time, so a
     /// recycled PID reads as dead (§3).
     pub fn instance_processes(&self, instance: &str) -> Vec<SupervisedProcess> {
+        let Ok(instance_name) = DnsName::try_new(instance) else {
+            return Vec::new();
+        };
         self.supervised
             .read()
             .map(|map| {
                 map.iter()
-                    .filter(|((i, _), _)| i == instance)
+                    .filter(|((i, _), _)| i == &instance_name)
                     .map(|((i, s), stamp)| SupervisedProcess {
                         instance: i.clone(),
                         service: s.clone(),

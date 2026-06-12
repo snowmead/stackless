@@ -66,7 +66,13 @@ pub fn verify(name: &str, output: &Output) -> Result<(), CliError> {
     };
     let secrets = crate::secrets::resolve(&def, &def_dir)?;
     let checkpoints = store.checkpoints(name)?;
-    let namespace = verify_namespace(&def, name, &record.substrate, &checkpoints, &secrets);
+    let namespace = verify_namespace(
+        &def,
+        name,
+        record.substrate.as_str(),
+        &checkpoints,
+        &secrets,
+    );
     let mut env = Vec::new();
     for (key, value) in &spec.env {
         let location = format!("stack.verify.env.{key}");
@@ -81,7 +87,7 @@ pub fn verify(name: &str, output: &Output) -> Result<(), CliError> {
     let source = VerifySourceContext {
         store: &store,
         instance: name,
-        substrate: &record.substrate,
+        substrate: record.substrate.as_str(),
         def: &def,
         checkpoints: &checkpoints,
         namespace: &namespace,
@@ -120,7 +126,8 @@ fn verify_namespace(
 ) -> Namespace {
     let mut namespace = Namespace {
         stack_name: def.stack.name.clone(),
-        instance_name: instance.to_owned(),
+        instance_name: stackless_core::types::DnsName::try_new(instance)
+            .expect("instance name validated at creation"),
         ..Namespace::default()
     };
     for service in def.services.keys() {

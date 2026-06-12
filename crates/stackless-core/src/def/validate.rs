@@ -18,13 +18,7 @@ const CLERK_OUTPUTS: &[&str] = &["secret_key", "publishable_key"];
 
 /// DNS-safe: it becomes hostnames and cloud service names.
 pub fn dns_safe(name: &str) -> bool {
-    !name.is_empty()
-        && name.len() <= 63
-        && name.starts_with(|c: char| c.is_ascii_lowercase())
-        && !name.ends_with('-')
-        && name
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    crate::types::dns_safe(name)
 }
 
 /// Validate the whole definition against the rules substrates share.
@@ -33,10 +27,10 @@ pub fn dns_safe(name: &str) -> bool {
 /// Render needs?) belongs to the substrate implementations; core checks
 /// here are substrate-blind.
 pub fn validate(def: &StackDef, known_substrates: &[&str]) -> Result<(), DefError> {
-    if !dns_safe(&def.stack.name) {
+    if !dns_safe(def.stack.name.as_str()) {
         return Err(DefError::NameInvalid {
             kind: "stack",
-            name: def.stack.name.clone(),
+            name: def.stack.name.as_str().to_owned(),
         });
     }
     if def.services.is_empty() {

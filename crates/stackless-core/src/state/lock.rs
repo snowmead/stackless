@@ -34,6 +34,7 @@ use std::time::Duration;
 use super::error::StateError;
 use super::store::{Row, Store};
 use crate::process::ProcessStamp;
+use crate::types::{Pid, ProcessStartTime};
 
 /// Fleet-mode staleness rule (§2): a lock held by a *foreign* host —
 /// whose PID this machine cannot probe for liveness — is respected until
@@ -75,7 +76,7 @@ impl Store {
                 instance.into(),
                 operation.into(),
                 me.pid.into(),
-                (me.start_time as i64).into(),
+                me.start_time.into(),
                 host.as_str().into(),
                 Self::now().into(),
             ],
@@ -112,8 +113,8 @@ impl Store {
 
         let (held_op, holder_pid, holder_start, holder_host, acquired_at) = existing;
         let holder = ProcessStamp {
-            pid: holder_pid,
-            start_time: holder_start as u64,
+            pid: Pid::from_os(holder_pid),
+            start_time: ProcessStartTime::from_os(holder_start as u64),
         };
         // An empty holder_host is a legacy (pre-fleet) row written by
         // this machine — treat it as same-host so a dead local holder is
@@ -168,7 +169,7 @@ impl Store {
                     instance.into(),
                     operation.into(),
                     me.pid.into(),
-                    (me.start_time as i64).into(),
+                    me.start_time.into(),
                     host.into(),
                     Self::now().into(),
                     dead_pid.into(),
@@ -185,7 +186,7 @@ impl Store {
                     instance.into(),
                     operation.into(),
                     me.pid.into(),
-                    (me.start_time as i64).into(),
+                    me.start_time.into(),
                     host.into(),
                     Self::now().into(),
                 ],
@@ -202,7 +203,7 @@ impl Store {
             Err(StateError::LockHeld {
                 instance: instance.into(),
                 operation: operation.into(),
-                holder_pid: me.pid,
+                holder_pid: me.pid.get(),
                 acquired_at: Self::now(),
             })
         }
@@ -218,7 +219,7 @@ impl Store {
             &[
                 claim.instance.as_str().into(),
                 claim.holder.pid.into(),
-                (claim.holder.start_time as i64).into(),
+                claim.holder.start_time.into(),
                 claim.host.as_str().into(),
             ],
         )?;
@@ -240,8 +241,8 @@ impl Store {
             let same_host = holder_host.is_empty() || holder_host == host;
             if same_host {
                 ProcessStamp {
-                    pid,
-                    start_time: start_time as u64,
+                    pid: Pid::from_os(pid),
+                    start_time: ProcessStartTime::from_os(start_time as u64),
                 }
                 .is_alive()
             } else {

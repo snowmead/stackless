@@ -6,16 +6,13 @@
 //! alive has its proxy routes and supervision record re-registered; a
 //! dead process is noted, not restarted (v0 supervision policy: observe,
 //! don't restart).
-//!
-//! The daemon must not depend on stackless-local (that would be a
-//! dependency cycle), so the `start:` payload is parsed as raw JSON here
-//! rather than via `StartPayload` — the `pid`/`start_time`/`port`/`hosts`
-//! shape is the contract both sides honor.
 
 use std::sync::Arc;
 
+use stackless_core::checkpoint::StartCheckpoint;
 use stackless_core::process::ProcessStamp;
 use stackless_core::state::{InstanceStatus, Store};
+use stackless_core::types::DnsName;
 
 use crate::state::DaemonState;
 
@@ -44,7 +41,7 @@ pub fn readopt(state: &Arc<DaemonState>) -> AdoptionSummary {
         if record.status != InstanceStatus::Active {
             continue;
         }
-        let checkpoints = match store.checkpoints(&record.name) {
+        let checkpoints = match store.checkpoints(record.name.as_str()) {
             Ok(checkpoints) => checkpoints,
             Err(_) => continue,
         };
@@ -52,14 +49,17 @@ pub fn readopt(state: &Arc<DaemonState>) -> AdoptionSummary {
             let Some(service) = checkpoint.step_id.strip_prefix("start:") else {
                 continue;
             };
-            let Some(start) = StartFields::parse(&checkpoint.payload) else {
+            let Ok(start) = serde_json::from_str::<StartCheckpoint>(&checkpoint.payload) else {
+                continue;
+            };
+            let Ok(service_name) = DnsName::try_new(service) else {
                 continue;
             };
             let stamp = ProcessStamp {
                 pid: start.pid,
                 start_time: start.start_time,
             };
-            let label = format!("{}/{service}", record.name);
+            let label = format!("{}/{service}", record.name.as_str());
             if !stamp.is_alive() {
                 summary.dead.push(label);
                 continue;
@@ -67,39 +67,9 @@ pub fn readopt(state: &Arc<DaemonState>) -> AdoptionSummary {
             for host in &start.hosts {
                 state.route_set(host.clone(), start.port);
             }
-            state.supervise(record.name.clone(), service.to_owned(), stamp);
+            state.supervise(record.name.clone(), service_name, stamp);
             summary.adopted.push(label);
         }
     }
     summary
-}
-
-/// The `start:` payload fields re-adoption needs, parsed as raw JSON so
-/// the daemon stays independent of stackless-local's `StartPayload`.
-struct StartFields {
-    pid: u32,
-    start_time: u64,
-    port: u16,
-    hosts: Vec<String>,
-}
-
-impl StartFields {
-    fn parse(payload: &str) -> Option<Self> {
-        let value: serde_json::Value = serde_json::from_str(payload).ok()?;
-        let pid = u32::try_from(value.get("pid")?.as_u64()?).ok()?;
-        let start_time = value.get("start_time")?.as_u64()?;
-        let port = u16::try_from(value.get("port")?.as_u64()?).ok()?;
-        let hosts = value
-            .get("hosts")?
-            .as_array()?
-            .iter()
-            .filter_map(|h| h.as_str().map(str::to_owned))
-            .collect();
-        Some(Self {
-            pid,
-            start_time,
-            port,
-            hosts,
-        })
-    }
 }

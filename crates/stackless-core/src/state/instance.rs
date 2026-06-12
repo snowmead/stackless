@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use super::error::StateError;
 use super::store::{Row, Store};
+use crate::types::DnsName;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstanceStatus {
@@ -22,8 +23,8 @@ impl InstanceStatus {
 
 #[derive(Debug, Clone)]
 pub struct InstanceRecord {
-    pub name: String,
-    pub substrate: String,
+    pub name: DnsName,
+    pub substrate: DnsName,
     pub status: InstanceStatus,
     /// The definition snapshot taken at creation (raw stackless.toml).
     pub definition: String,
@@ -77,7 +78,7 @@ impl Store {
                 if let Some(existing) = self.instance(name)? {
                     Err(StateError::InstanceExists {
                         name: name.into(),
-                        existing_substrate: existing.substrate,
+                        existing_substrate: existing.substrate.as_str().to_owned(),
                     })
                 } else {
                     Err(err)
@@ -164,9 +165,17 @@ impl Store {
 fn row_to_instance(row: &Row) -> Result<InstanceRecord, StateError> {
     let status = row.get_string(2)?;
     let overrides_json = row.get_string(4)?;
+    let name = row.get_string(0)?;
+    let substrate = row.get_string(1)?;
     Ok(InstanceRecord {
-        name: row.get_string(0)?,
-        substrate: row.get_string(1)?,
+        name: DnsName::try_new(&name).map_err(|err| StateError::RowDecode {
+            column: 0,
+            detail: err.to_string(),
+        })?,
+        substrate: DnsName::try_new(&substrate).map_err(|err| StateError::RowDecode {
+            column: 1,
+            detail: err.to_string(),
+        })?,
         status: InstanceStatus::from_sql(&status),
         definition: row.get_string(3)?,
         source_overrides: serde_json::from_str(&overrides_json).unwrap_or_default(),

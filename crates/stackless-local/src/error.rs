@@ -1,6 +1,7 @@
 //! Local-substrate errors (codes in core's registry).
 
 use stackless_core::fault::{Fault, codes};
+use stackless_core::types::Pid;
 
 #[derive(Debug, thiserror::Error)]
 pub enum LocalError {
@@ -61,8 +62,8 @@ pub enum LocalError {
         detail: String,
     },
 
-    #[error("could not stop process group {pgid}: {detail}")]
-    KillFailed { pgid: u32, detail: String },
+    #[error("could not stop process group {}: {detail}", pgid.get())]
+    KillFailed { pgid: Pid, detail: String },
 
     #[error("cannot clone {repo} into the source cache: {detail}")]
     GitCloneFailed { repo: String, detail: String },

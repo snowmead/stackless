@@ -4,6 +4,9 @@
 //! compare — a newer CLI tells an older daemon to drain and exit.
 
 use serde::{Deserialize, Serialize};
+use stackless_core::types::{
+    DnsName, Pid, ProcessStartTime, ProtocolVersion, ProxyHost, TcpPort,
+};
 
 pub const PROTOCOL_VERSION: u32 = 1;
 
@@ -17,36 +20,27 @@ pub fn build_version() -> &'static str {
 pub enum Request {
     Ping,
     /// Route `host` (no port) to a local TCP port.
-    RouteSet {
-        host: String,
-        port: u16,
-    },
-    RouteDelete {
-        host: String,
-    },
+    RouteSet { host: ProxyHost, port: TcpPort },
+    RouteDelete { host: ProxyHost },
     Routes,
     /// Record a service process for supervision (PID-reuse-safe).
     Supervise {
-        instance: String,
-        service: String,
-        pid: u32,
-        start_time: u64,
+        instance: DnsName,
+        service: DnsName,
+        pid: Pid,
+        start_time: ProcessStartTime,
     },
     /// Forget one instance's supervision records and routes.
-    Forget {
-        instance: String,
-    },
+    Forget { instance: DnsName },
     /// The instance's supervised processes, observed live/dead now.
-    InstanceProcesses {
-        instance: String,
-    },
+    InstanceProcesses { instance: DnsName },
     /// Drain and exit (the upgrade handshake).
     Shutdown,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Envelope<T> {
-    pub protocol: u32,
+    pub protocol: ProtocolVersion,
     pub version: String,
     #[serde(flatten)]
     pub body: T,
@@ -68,17 +62,33 @@ pub enum ResponseBody {
     Processes { processes: Vec<SupervisedProcess> },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Route {
-    pub host: String,
-    pub port: u16,
+    pub host: ProxyHost,
+    pub port: TcpPort,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SupervisedProcess {
-    pub instance: String,
-    pub service: String,
-    pub pid: u32,
-    pub start_time: u64,
+    pub instance: DnsName,
+    pub service: DnsName,
+    pub pid: Pid,
+    pub start_time: ProcessStartTime,
     pub alive: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn route_roundtrip() {
+        let original = Route {
+            host: ProxyHost::try_new("api.dev.localhost").unwrap(),
+            port: TcpPort::try_new(8080).unwrap(),
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: Route = serde_json::from_str(&json).unwrap();
+        assert_eq!(original, restored);
+    }
 }

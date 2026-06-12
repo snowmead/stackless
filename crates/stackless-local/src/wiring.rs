@@ -9,19 +9,22 @@ use std::collections::BTreeMap;
 
 use stackless_core::def::{Namespace, StackDef};
 use stackless_core::state::Checkpoint;
+use stackless_core::types::{DnsName, ProxyHost, TcpPort};
 
 use crate::error::LocalError;
 
-pub fn service_host(instance: &str, service: &str) -> String {
-    format!("{service}.{instance}.localhost")
+pub fn service_host(instance: &str, service: &str) -> ProxyHost {
+    ProxyHost::try_new(format!("{service}.{instance}.localhost"))
+        .expect("service host derived from DNS-safe names")
 }
 
-pub fn root_host(instance: &str) -> String {
-    format!("{instance}.localhost")
+pub fn root_host(instance: &str) -> ProxyHost {
+    ProxyHost::try_new(format!("{instance}.localhost"))
+        .expect("root host derived from DNS-safe instance name")
 }
 
 /// The hosts a service claims on the proxy.
-pub fn service_hosts(def: &StackDef, instance: &str, service: &str) -> Vec<String> {
+pub fn service_hosts(def: &StackDef, instance: &str, service: &str) -> Vec<ProxyHost> {
     let mut hosts = vec![service_host(instance, service)];
     if def
         .services
@@ -36,7 +39,7 @@ pub fn service_hosts(def: &StackDef, instance: &str, service: &str) -> Vec<Strin
 /// The origin `${services.X.origin}` resolves to — for a root-origin
 /// service that is the root form: it is what browsers use, so it is
 /// what CORS allowlists and links must carry.
-pub fn service_origin(def: &StackDef, instance: &str, service: &str, proxy_port: u16) -> String {
+pub fn service_origin(def: &StackDef, instance: &str, service: &str, proxy_port: TcpPort) -> String {
     let host = if def
         .services
         .get(service)
@@ -46,7 +49,7 @@ pub fn service_origin(def: &StackDef, instance: &str, service: &str, proxy_port:
     } else {
         service_host(instance, service)
     };
-    format!("http://{host}:{proxy_port}")
+    format!("http://{}:{}", host, proxy_port.get())
 }
 
 /// Build the interpolation namespace for one instance from the
@@ -56,13 +59,13 @@ pub fn service_origin(def: &StackDef, instance: &str, service: &str, proxy_port:
 pub fn namespace(
     def: &StackDef,
     instance: &str,
-    proxy_port: u16,
+    proxy_port: TcpPort,
     prior: &[Checkpoint],
     secrets: &BTreeMap<String, String>,
 ) -> Namespace {
     let mut namespace = Namespace {
         stack_name: def.stack.name.clone(),
-        instance_name: instance.to_owned(),
+        instance_name: DnsName::try_new(instance).expect("instance name validated at creation"),
         ..Namespace::default()
     };
     for service in def.services.keys() {

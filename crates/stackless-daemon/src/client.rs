@@ -12,7 +12,9 @@ use stackless_core::fault::{Fault, codes};
 use stackless_core::process::ProcessStamp;
 use stackless_core::state::state_dir;
 
-use crate::rpc::{Envelope, PROTOCOL_VERSION, Request, Response, ResponseBody, build_version};
+use stackless_core::types::{Pid, ProcessStartTime, ProtocolVersion};
+
+use crate::rpc::{Envelope, Request, Response, ResponseBody, build_version};
 use crate::server::socket_path;
 
 #[derive(Debug, thiserror::Error)]
@@ -114,7 +116,7 @@ impl DaemonClient {
 
     fn call_versioned(&mut self, request: Request) -> Result<(String, ResponseBody), DaemonError> {
         let envelope = Envelope {
-            protocol: PROTOCOL_VERSION,
+            protocol: ProtocolVersion::V1,
             version: build_version().to_owned(),
             body: request,
         };
@@ -229,7 +231,7 @@ fn acquire_spawn_lock(path: &PathBuf) -> Option<SpawnLock> {
         {
             Ok(mut file) => {
                 let me = ProcessStamp::current();
-                let _ = writeln!(file, "{} {}", me.pid, me.start_time);
+                let _ = writeln!(file, "{} {}", me.pid.get(), me.start_time.get());
                 return Some(SpawnLock(path.clone()));
             }
             Err(_) => {
@@ -239,7 +241,10 @@ fn acquire_spawn_lock(path: &PathBuf) -> Option<SpawnLock> {
                         let mut parts = content.split_whitespace();
                         let pid = parts.next()?.parse().ok()?;
                         let start_time = parts.next()?.parse().ok()?;
-                        Some(ProcessStamp { pid, start_time })
+                        Some(ProcessStamp {
+                            pid: Pid::from_os(pid),
+                            start_time: ProcessStartTime::from_os(start_time),
+                        })
                     })
                     .is_none_or(|stamp| !stamp.is_alive());
                 if stale {

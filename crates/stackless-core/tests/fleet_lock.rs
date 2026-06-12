@@ -73,8 +73,8 @@ fn dead_same_host_holder_is_taken_over() {
         Store::now_secs(),
     );
     let dead = ProcessStamp {
-        pid: std::process::id(),
-        start_time: 1,
+        pid: stackless_core::types::Pid::from_os(std::process::id()),
+        start_time: stackless_core::types::ProcessStartTime::from_os(1),
     };
     assert!(!dead.is_alive(), "sanity: injected holder must be dead");
     store.claim_lock("demo", "down").unwrap();
@@ -92,8 +92,8 @@ fn live_same_host_holder_reads_as_alive() {
     inject_holder(
         &store,
         &this_host(),
-        me.pid,
-        me.start_time as i64,
+        me.pid.get(),
+        me.start_time.get() as i64,
         Store::now_secs(),
     );
     assert!(store.lock_holder_alive("demo").unwrap());

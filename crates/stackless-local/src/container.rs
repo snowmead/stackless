@@ -20,6 +20,7 @@ use bollard::query_parameters::{
 use rand::RngExt;
 use rand::distr::Alphanumeric;
 use stackless_core::fault::{Fault, codes};
+use stackless_core::types::{ContainerId, TcpPort};
 
 pub const INSTANCE_LABEL: &str = "stackless.instance";
 pub const DATASTORE_LABEL: &str = "stackless.datastore";
@@ -103,8 +104,8 @@ pub fn container_name(instance: &str, datastore: &str) -> String {
 
 #[derive(Debug)]
 pub struct ProvisionedDatastore {
-    pub container_id: String,
-    pub port: u16,
+    pub container_id: ContainerId,
+    pub port: TcpPort,
     pub url: String,
 }
 
@@ -237,8 +238,10 @@ pub async fn provision_postgres(
         .ok_or_else(|| op("read mapped port", "no 5432/tcp binding".into()))?;
     let url = format!("postgres://postgres:{password}@127.0.0.1:{port}/postgres");
     Ok(ProvisionedDatastore {
-        container_id: created.id,
-        port,
+        container_id: ContainerId::try_new(created.id).map_err(|err| {
+            op("read container id", err.to_string())
+        })?,
+        port: TcpPort::from_os(port),
         url,
     })
 }

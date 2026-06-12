@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 
 use super::error::DefError;
+use crate::types::{DnsName, HttpStatus};
 
 /// Top level of `stackless.toml`. Unknown top-level sections are
 /// rejected (an old binary cannot honor a section it does not know).
@@ -31,7 +32,7 @@ pub struct StackDef {
 
 #[derive(Debug, Deserialize)]
 pub struct Stack {
-    pub name: String,
+    pub name: DnsName,
     #[serde(default)]
     pub projects: ProjectsSpec,
     pub verify: Option<VerifySpec>,
@@ -130,12 +131,12 @@ pub struct Source {
 pub struct Health {
     pub path: String,
     #[serde(default = "default_health_status")]
-    pub status: u16,
+    pub status: HttpStatus,
     pub contains: Option<String>,
 }
 
-fn default_health_status() -> u16 {
-    200
+fn default_health_status() -> HttpStatus {
+    HttpStatus::OK
 }
 
 impl Service {

@@ -313,8 +313,8 @@ fn lock_contention_fails_fast_and_dead_holder_is_taken_over() {
     store.release_lock(&claim).unwrap();
     // (b) a dead holder (current pid, wrong start time) is taken over.
     let dead = ProcessStamp {
-        pid: std::process::id(),
-        start_time: 1,
+        pid: stackless_core::types::Pid::from_os(std::process::id()),
+        start_time: stackless_core::types::ProcessStartTime::from_os(1),
     };
     store
         .conn_for_tests()

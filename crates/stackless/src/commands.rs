@@ -119,7 +119,9 @@ pub fn up(args: UpArgs, output: &Output) -> Result<(), CliError> {
     let store = open_store()?;
     let existing = store.instance(&args.name)?;
     let substrate_name = match &existing {
-        Some(record) if record.status == InstanceStatus::Active => record.substrate.clone(),
+        Some(record) if record.status == InstanceStatus::Active => {
+            record.substrate.as_str().to_owned()
+        }
         _ => args.on.clone().unwrap_or_else(|| LOCAL.to_owned()),
     };
     let text = definition_text(args.file.as_ref(), existing.as_ref())?;
@@ -192,7 +194,7 @@ pub fn down(name: &str, output: &Output) -> Result<(), CliError> {
     // Teardown re-runs the same provider; render needs the recorded
     // definition dir (its project anchor + API key live there).
     let provider = substrate(
-        &record.substrate,
+        record.substrate.as_str(),
         SubstrateCtx {
             secrets: BTreeMap::new(),
             definition_dir: PathBuf::from(&record.definition_dir),
@@ -212,7 +214,7 @@ pub fn down(name: &str, output: &Output) -> Result<(), CliError> {
         DownOutcome::AlreadyDown => output.message(&format!("{name}: already down")),
     }
     // Spend is printed after every cloud `down` too (§4).
-    if record.substrate == RENDER {
+    if record.substrate.as_str() == RENDER {
         let dir = PathBuf::from(&record.definition_dir);
         output.message(&rt.block_on(stackless_render::spend_line(&dir)));
     }
@@ -245,14 +247,14 @@ pub fn status_report(
     record: &InstanceRecord,
 ) -> Result<InstanceStatusReport, CliError> {
     let def = def::parse(&record.definition)?;
-    let checkpoints = store.checkpoints(&record.name)?;
+    let checkpoints = store.checkpoints(record.name.as_str())?;
     let has = |id: &str| checkpoints.iter().any(|c| c.step_id == id);
     let mut services = Vec::new();
     for name in def.services.keys() {
         let start_payload = checkpoints
             .iter()
             .find(|c| c.step_id == format!("start:{name}"))
-            .and_then(|c| serde_json::from_str::<stackless_local::StartPayload>(&c.payload).ok());
+            .and_then(|c| serde_json::from_str::<stackless_core::checkpoint::StartCheckpoint>(&c.payload).ok());
         let alive = start_payload.as_ref().map(|p| {
             stackless_core::process::ProcessStamp {
                 pid: p.pid,
@@ -277,19 +279,24 @@ pub fn status_report(
             service: name.clone(),
             stage,
             alive,
-            origin: origin_for(&def, &record.name, name, &record.substrate),
+            origin: origin_for(
+                &def,
+                record.name.as_str(),
+                name,
+                record.substrate.as_str(),
+            ),
         });
     }
-    let lease = store.lease(&record.name)?;
-    let reap_failure = store.reap_attempt(&record.name)?.map(|attempt| {
+    let lease = store.lease(record.name.as_str())?;
+    let reap_failure = store.reap_attempt(record.name.as_str())?.map(|attempt| {
         format!(
             "reap failed {} time(s): {} (retrying)",
             attempt.attempts, attempt.last_error
         )
     });
     Ok(InstanceStatusReport {
-        name: record.name.clone(),
-        substrate: record.substrate.clone(),
+        name: record.name.as_str().to_owned(),
+        substrate: record.substrate.as_str().to_owned(),
         status: match record.status {
             InstanceStatus::Active => "active",
             InstanceStatus::Tombstoned => "tombstoned",
@@ -351,7 +358,7 @@ pub fn logs(
     };
     // On render the daemon never saw these processes — fetch recent logs
     // through the Render REST API (§2: recent window, no streaming).
-    if record.substrate == RENDER {
+    if record.substrate.as_str() == RENDER {
         let dir = PathBuf::from(&record.definition_dir);
         let rt = runtime()?;
         for service in &services {

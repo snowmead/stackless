@@ -10,7 +10,9 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 
 use crate::proxy;
-use crate::rpc::{Envelope, PROTOCOL_VERSION, Request, Response, ResponseBody, build_version};
+use stackless_core::types::ProtocolVersion;
+
+use crate::rpc::{Envelope, Request, Response, ResponseBody, build_version};
 use crate::state::DaemonState;
 
 pub fn socket_path() -> PathBuf {
@@ -57,7 +59,7 @@ pub async fn run() -> std::io::Result<()> {
     let proxy_state = state.clone();
     tokio::spawn(async move {
         if let Err(err) = proxy::serve(proxy_state, port).await {
-            eprintln!("stackless daemon: proxy failed to bind port {port}: {err}");
+            eprintln!("stackless daemon: proxy failed to bind port {}: {err}", port.get());
         }
     });
 
@@ -104,7 +106,7 @@ async fn handle_connection(
             },
         };
         let envelope = Envelope {
-            protocol: PROTOCOL_VERSION,
+            protocol: ProtocolVersion::V1,
             version: build_version().to_owned(),
             body: response,
         };
@@ -144,11 +146,11 @@ async fn dispatch(
             Response::Ok(ResponseBody::Done)
         }
         Request::Forget { instance } => {
-            state.forget(&instance);
+            state.forget(instance.as_str());
             Response::Ok(ResponseBody::Done)
         }
         Request::InstanceProcesses { instance } => Response::Ok(ResponseBody::Processes {
-            processes: state.instance_processes(&instance),
+            processes: state.instance_processes(instance.as_str()),
         }),
         Request::Shutdown => {
             let _ = shutdown.send(()).await;
