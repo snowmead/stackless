@@ -25,63 +25,100 @@ const GIT_CACHE_LOCK_BUDGET: std::time::Duration = std::time::Duration::from_sec
 /// credential fails fast and we map it to a `local.git.*` fault.
 const NO_PROMPT: &str = "credential.terminalPrompt=false";
 
-/// Where the shared bare cache for a source URL lives under a state
-/// root: `<root>/cache/git/<slug>`. The slug is a filesystem-safe digest
-/// of the URL, so distinct sources never collide and the same source is
-/// reused across instances (§8: one bare cache repo per source URL).
-fn cache_path(state_root: &Path, repo: &str) -> PathBuf {
-    state_root.join("cache/git").join(cache_key(repo))
+/// Source materialization scoped to a state root (§8).
+pub struct Materializer<'a> {
+    state_root: &'a Path,
 }
 
-/// A filesystem-safe, collision-resistant slug for a source URL: a
-/// readable tail of the URL plus a hash of the whole, so two URLs that
-/// share a tail still map to distinct caches.
+impl<'a> Materializer<'a> {
+    pub fn new(state_root: &'a Path) -> Self {
+        Self { state_root }
+    }
+
+    /// A filesystem-safe, collision-resistant slug for a source URL.
+    pub fn cache_key(repo: &str) -> String {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        repo.hash(&mut hasher);
+        let digest = hasher.finish();
+        let tail: String = repo
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect();
+        let tail = tail.trim_matches('-');
+        let tail = &tail[tail.len().saturating_sub(48)..];
+        format!("{tail}-{digest:016x}")
+    }
+
+    /// `<state_root>/sources/<instance>/<service>` (§8).
+    pub fn source_dir(&self, instance: &str, service: &str) -> PathBuf {
+        self.state_root
+            .join("sources")
+            .join(instance)
+            .join(service)
+    }
+
+    fn cache_path(&self, repo: &str) -> PathBuf {
+        self.state_root
+            .join("cache/git")
+            .join(Self::cache_key(repo))
+    }
+
+    /// Materialize `service`'s source at the pinned `reference` into
+    /// instance-owned space, returning the checkout path and commit hex.
+    ///
+    /// Blocking by construction (gix's `blocking-network-client`); callers
+    /// run it inside `spawn_blocking`.
+    pub fn materialize(
+        &self,
+        instance: &str,
+        service: &str,
+        repo: &str,
+        reference: &str,
+    ) -> Result<(PathBuf, String), LocalError> {
+        let cache = self.cache_path(repo);
+        let cache_repo = ensure_cache(repo, &cache)?;
+        let commit_id = resolve_ref(&cache_repo, service, repo, reference)?;
+        let commit = cache_repo
+            .find_commit(commit_id)
+            .map_err(|err| LocalError::GitRefNotFound {
+                service: service.to_owned(),
+                repo: repo.to_owned(),
+                reference: reference.to_owned(),
+                detail: err.to_string(),
+            })?;
+        let tree_id = commit
+            .tree_id()
+            .map_err(|err| checkout_err(service, &commit_id.to_string(), Path::new(""), &err))?
+            .detach();
+
+        let dest = self.source_dir(instance, service);
+        checkout(&cache, &dest, service, &commit_id, &tree_id)?;
+        Ok((dest, commit_id.to_string()))
+    }
+}
+
+/// A filesystem-safe slug for a source URL.
 pub fn cache_key(repo: &str) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    repo.hash(&mut hasher);
-    let digest = hasher.finish();
-    let tail: String = repo
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect();
-    let tail = tail.trim_matches('-');
-    let tail = &tail[tail.len().saturating_sub(48)..];
-    format!("{tail}-{digest:016x}")
+    Materializer::cache_key(repo)
 }
 
-/// The instance-owned checkout for a service under a state root:
-/// `<root>/sources/<instance>/<service>` (§8).
-fn source_dir_in(state_root: &Path, instance: &str, service: &str) -> PathBuf {
-    state_root.join("sources").join(instance).join(service)
-}
-
-/// The instance-owned checkout for a service:
 /// `state_dir()/sources/<instance>/<service>` (§8).
 pub fn source_dir(instance: &str, service: &str) -> PathBuf {
-    source_dir_in(&state_dir(), instance, service)
+    Materializer::new(&state_dir()).source_dir(instance, service)
 }
 
-/// Materialize `service`'s source at the pinned `reference` into
-/// instance-owned space under `state_dir()`. See [`materialize_in`].
+/// Materialize under `state_dir()`.
 pub fn materialize(
     instance: &str,
     service: &str,
     repo: &str,
     reference: &str,
 ) -> Result<(PathBuf, String), LocalError> {
-    materialize_in(&state_dir(), instance, service, repo, reference)
+    Materializer::new(&state_dir()).materialize(instance, service, repo, reference)
 }
 
-/// Materialize `service`'s source at the pinned `reference` into
-/// instance-owned space under an explicit `state_root`, returning the
-/// checkout path and the resolved commit hex. Resume-safe: an existing
-/// cache is fetched rather than re-cloned, and an existing checkout is
-/// refreshed to the pinned commit. The `state_root` seam keeps the cache
-/// and checkout roots injectable (tests pass a tempdir).
-///
-/// Blocking by construction (gix's `blocking-network-client`); callers
-/// run it inside `spawn_blocking`.
+/// Materialize under an explicit `state_root` (tests pass a tempdir).
 pub fn materialize_in(
     state_root: &Path,
     instance: &str,
@@ -89,25 +126,7 @@ pub fn materialize_in(
     repo: &str,
     reference: &str,
 ) -> Result<(PathBuf, String), LocalError> {
-    let cache = cache_path(state_root, repo);
-    let cache_repo = ensure_cache(repo, &cache)?;
-    let commit_id = resolve_ref(&cache_repo, service, repo, reference)?;
-    let commit = cache_repo
-        .find_commit(commit_id)
-        .map_err(|err| LocalError::GitRefNotFound {
-            service: service.to_owned(),
-            repo: repo.to_owned(),
-            reference: reference.to_owned(),
-            detail: err.to_string(),
-        })?;
-    let tree_id = commit
-        .tree_id()
-        .map_err(|err| checkout_err(service, &commit_id.to_string(), Path::new(""), &err))?
-        .detach();
-
-    let dest = source_dir_in(state_root, instance, service);
-    checkout(&cache, &dest, service, &commit_id, &tree_id)?;
-    Ok((dest, commit_id.to_string()))
+    Materializer::new(state_root).materialize(instance, service, repo, reference)
 }
 
 /// Clone the bare cache if absent, else fetch the default remote to

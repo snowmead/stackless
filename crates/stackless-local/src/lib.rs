@@ -104,12 +104,12 @@ impl LocalSubstrate {
         ctx: &StepContext<'_>,
         service: &str,
     ) -> Result<BTreeMap<String, String>, SubstrateFault> {
-        let namespace = wiring::namespace(
+        let namespace = self.build_namespace(
             ctx.def,
             ctx.instance,
-            self.proxy_port,
             ctx.prior,
             &self.secrets,
+            NamespacePurpose::ServiceEnv,
         );
         wiring::resolve_env(ctx.def, service, &namespace).map_err(fault)
     }
