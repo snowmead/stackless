@@ -25,6 +25,7 @@ thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["rt", "time", "macros", "process"] }
 toml = "1.1.2"
 toml_edit = "0.25.12"
+tempfile  = "3.27.0"
 
 [dev-dependencies]
 stackless-core = { path = "../stackless-core" }

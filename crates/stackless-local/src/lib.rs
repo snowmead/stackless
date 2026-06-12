@@ -22,7 +22,7 @@ use stackless_core::engine::StepKind;
 use stackless_core::process::ProcessStamp;
 use stackless_core::state::Checkpoint;
 use stackless_core::substrate::{
-    ACTION_RESOURCE_KIND, NamespacePurpose, Observation, StepContext, StepResource, Substrate,
+    NamespacePurpose, Observation, StepContext, StepResource, Substrate,
     SubstrateFault,
 };
 use stackless_core::types::{DnsName, LogPath, ProxyHost, TcpPort};
@@ -425,7 +425,7 @@ impl Substrate for LocalSubstrate {
                     _ => ("prepare", spec.and_then(|s| s.prepare.clone())),
                 };
                 let Some(command) = command else {
-                    return Ok(action_resource(&ctx.step.id));
+                    return Ok(stackless_core::substrate::action_resource(&ctx.step.id));
                 };
                 let env = self.resolved_env(&ctx, service)?;
                 let instance = ctx.instance.to_owned();
@@ -441,7 +441,7 @@ impl Substrate for LocalSubstrate {
                     context: Box::default(),
                 })?
                 .map_err(fault)?;
-                Ok(action_resource(&ctx.step.id))
+                Ok(stackless_core::substrate::action_resource(&ctx.step.id))
             }
             StepKind::Start => {
                 let dir = self.source_dir(&ctx, service)?;
@@ -503,7 +503,7 @@ impl Substrate for LocalSubstrate {
             }
             StepKind::HealthGate => {
                 let Some(spec) = ctx.def.services.get(service) else {
-                    return Ok(action_resource(&ctx.step.id));
+                    return Ok(stackless_core::substrate::action_resource(&ctx.step.id));
                 };
                 let start = ctx
                     .prior
@@ -540,7 +540,7 @@ impl Substrate for LocalSubstrate {
                 )
                 .await
                 .map_err(fault)?;
-                Ok(action_resource(&ctx.step.id))
+                Ok(stackless_core::substrate::action_resource(&ctx.step.id))
             }
         }
     }
@@ -723,10 +723,4 @@ impl Substrate for LocalSubstrate {
     }
 }
 
-fn action_resource(step_id: &str) -> StepResource {
-    StepResource {
-        resource_kind: ACTION_RESOURCE_KIND.into(),
-        resource_id: step_id.to_owned(),
-        payload: "{}".into(),
-    }
-}
+

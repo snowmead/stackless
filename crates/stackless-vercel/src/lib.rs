@@ -21,7 +21,7 @@ use stackless_core::def::{Namespace, StackDef};
 use stackless_core::engine::StepKind;
 use stackless_core::state::Checkpoint;
 use stackless_core::substrate::{
-    ACTION_RESOURCE_KIND, Observation, StepContext, StepResource, Substrate, SubstrateFault,
+    Observation, StepContext, StepResource, Substrate, SubstrateFault,
 };
 use stackless_stripe_projects::ProjectsError;
 use stackless_stripe_projects::project;
@@ -507,22 +507,6 @@ fn deployment_origin(url: &str) -> String {
     }
 }
 
-fn action_resource(step_id: &str) -> StepResource {
-    StepResource {
-        resource_kind: ACTION_RESOURCE_KIND.into(),
-        resource_id: step_id.to_owned(),
-        payload: "{}".into(),
-    }
-}
-
-fn present_or_gone(present: bool) -> Observation {
-    if present {
-        Observation::Present
-    } else {
-        Observation::Gone
-    }
-}
-
 fn source_ref_present(path: &str, commit: &str) -> bool {
     let path = Path::new(path);
     if !path.exists() {
@@ -642,11 +626,11 @@ impl<R: CommandRunner> Substrate for VercelSubstrate<R> {
                     payload: serde_json::to_string(&payload).unwrap_or_default(),
                 })
             }
-            StepKind::Setup => Ok(action_resource(&ctx.step.id)),
+            StepKind::Setup => Ok(stackless_core::substrate::action_resource(&ctx.step.id)),
             StepKind::Prepare => {
                 self.run_prepare(ctx.def, ctx.instance, node, ctx.prior)
                     .await?;
-                Ok(action_resource(&ctx.step.id))
+                Ok(stackless_core::substrate::action_resource(&ctx.step.id))
             }
             StepKind::Start => {
                 self.start_service(ctx.def, ctx.instance, node, ctx.prior)
@@ -655,7 +639,7 @@ impl<R: CommandRunner> Substrate for VercelSubstrate<R> {
             StepKind::HealthGate => {
                 self.health_gate(ctx.def, ctx.instance, node, ctx.prior)
                     .await?;
-                Ok(action_resource(&ctx.step.id))
+                Ok(stackless_core::substrate::action_resource(&ctx.step.id))
             }
         }
     }
@@ -678,14 +662,14 @@ impl<R: CommandRunner> Substrate for VercelSubstrate<R> {
                     .await
                     .map_err(fault)?
                     .is_some();
-                Ok(present_or_gone(present))
+                Ok(stackless_core::substrate::present_or_gone(present))
             }
             "source-ref" => {
                 let payload = serde_json::from_str::<SourceRefPayload>(&checkpoint.payload).ok();
                 let present = payload
                     .and_then(|payload| Some((payload.path?, payload.commit?)))
                     .is_some_and(|(path, commit)| source_ref_present(&path, &commit));
-                Ok(present_or_gone(present))
+                Ok(stackless_core::substrate::present_or_gone(present))
             }
             kind if stackless_integrations::is_integration_resource(kind) => {
                 stackless_integrations::observe(

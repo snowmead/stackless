@@ -57,6 +57,22 @@ impl Fault for SubstrateFault {
 /// without a destroy/observe round-trip.
 pub const ACTION_RESOURCE_KIND: &str = "action";
 
+pub fn action_resource(step_id: &str) -> StepResource {
+    StepResource {
+        resource_kind: ACTION_RESOURCE_KIND.into(),
+        resource_id: step_id.to_owned(),
+        payload: "{}".into(),
+    }
+}
+
+pub fn present_or_gone(present: bool) -> Observation {
+    if present {
+        Observation::Present
+    } else {
+        Observation::Gone
+    }
+}
+
 /// Which env resolution path is building a namespace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NamespacePurpose {

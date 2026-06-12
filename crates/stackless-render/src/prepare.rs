@@ -82,13 +82,7 @@ fn tail_bytes(bytes: &[u8]) -> String {
 }
 
 fn tempdir() -> Result<std::path::PathBuf, String> {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let dir =
-        std::env::temp_dir().join(format!("stackless-prepare-{nanos}-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).map_err(|err| format!("cannot create tmpdir: {err}"))?;
-    Ok(dir)
+    tempfile::tempdir()
+        .map(|dir| dir.keep())
+        .map_err(|err| err.to_string())
 }
