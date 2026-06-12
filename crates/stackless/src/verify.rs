@@ -9,21 +9,11 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use stackless_core::def::{self, Namespace, StackDef};
 use stackless_core::state::{Checkpoint, Store};
-use stackless_core::substrate::SubstrateFault;
+use stackless_core::substrate::{NamespacePurpose, SubstrateFault};
 
-use crate::commands::open_store;
+use crate::commands::{SubstrateCtx, build_substrate, open_store};
 use crate::error::CliError;
 use crate::output::Output;
-
-#[derive(Debug, Deserialize)]
-struct LocalDatastorePayload {
-    url: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct RenderDatastorePayload {
-    external_url: String,
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct SourceRefPayload {
@@ -66,12 +56,20 @@ pub fn verify(name: &str, output: &Output) -> Result<(), CliError> {
     };
     let secrets = crate::secrets::resolve(&def, &def_dir)?;
     let checkpoints = store.checkpoints(name)?;
-    let namespace = verify_namespace(
+    let provider = build_substrate(
+        record.substrate.as_str(),
+        SubstrateCtx {
+            secrets: secrets.clone(),
+            definition_dir: def_dir.clone(),
+            confirm_paid: false,
+        },
+    )?;
+    let namespace = provider.build_namespace(
         &def,
         name,
-        record.substrate.as_str(),
         &checkpoints,
         &secrets,
+        NamespacePurpose::Verify,
     );
     let mut env = Vec::new();
     for (key, value) in &spec.env {
@@ -115,59 +113,6 @@ pub fn verify(name: &str, output: &Output) -> Result<(), CliError> {
     store.renew_lease_at_recorded_duration(name)?;
     output.message(&format!("{name}: verify passed (lease renewed)"));
     Ok(())
-}
-
-fn verify_namespace(
-    def: &StackDef,
-    instance: &str,
-    substrate: &str,
-    checkpoints: &[Checkpoint],
-    secrets: &BTreeMap<String, String>,
-) -> Namespace {
-    let mut namespace = Namespace {
-        stack_name: def.stack.name.clone(),
-        instance_name: stackless_core::types::DnsName::try_new(instance)
-            .expect("instance name validated at creation"),
-        ..Namespace::default()
-    };
-    for service in def.services.keys() {
-        namespace.service_origins.insert(
-            service.clone(),
-            service_origin(def, instance, service, substrate),
-        );
-    }
-    for checkpoint in checkpoints {
-        if let Some(name) = checkpoint.step_id.strip_prefix("provision:") {
-            let url = if substrate == stackless_render::SUBSTRATE_NAME {
-                serde_json::from_str::<RenderDatastorePayload>(&checkpoint.payload)
-                    .map(|payload| payload.external_url)
-                    .ok()
-            } else {
-                serde_json::from_str::<LocalDatastorePayload>(&checkpoint.payload)
-                    .map(|payload| payload.url)
-                    .ok()
-            };
-            if let Some(url) = url {
-                namespace.datastore_urls.insert(name.to_owned(), url);
-            }
-        }
-    }
-    namespace.secrets = secrets.clone();
-    namespace.add_integration_checkpoints(checkpoints);
-    namespace
-}
-
-fn service_origin(def: &StackDef, instance: &str, service: &str, substrate: &str) -> String {
-    if substrate == stackless_render::SUBSTRATE_NAME {
-        stackless_render::service_origin(def, instance, service)
-    } else {
-        stackless_local::wiring::service_origin(
-            def,
-            instance,
-            service,
-            stackless_daemon::proxy::proxy_port(),
-        )
-    }
 }
 
 fn anchor_service(def: &StackDef) -> Option<String> {
@@ -384,12 +329,21 @@ health = { path = "/" }
                 r#"{"outputs":{"secret_key":"sk_test_local","publishable_key":"pk_test_local"}}"#,
             ),
         ];
-        let ns = verify_namespace(
+        let provider = build_substrate(
+            stackless_local::SUBSTRATE_NAME,
+            SubstrateCtx {
+                secrets: BTreeMap::new(),
+                definition_dir: PathBuf::from("."),
+                confirm_paid: false,
+            },
+        )
+        .unwrap();
+        let ns = provider.build_namespace(
             &def,
             "demo",
-            stackless_local::SUBSTRATE_NAME,
             &checkpoints,
             &BTreeMap::new(),
+            NamespacePurpose::Verify,
         );
         assert_eq!(
             ns.service_origins["web"],
@@ -415,14 +369,23 @@ health = { path = "/" }
         let checkpoints = vec![checkpoint(
             "provision:db",
             "render-postgres",
-            r#"{"external_url":"postgres://external","internal_url":"postgres://internal"}"#,
+            r#"{"stripe_resource":"res","render_name":"atto-demo-db","postgres_id":"pg","external_url":"postgres://external","internal_url":"postgres://internal"}"#,
         )];
-        let ns = verify_namespace(
+        let provider = build_substrate(
+            stackless_render::SUBSTRATE_NAME,
+            SubstrateCtx {
+                secrets: BTreeMap::new(),
+                definition_dir: PathBuf::from("."),
+                confirm_paid: false,
+            },
+        )
+        .unwrap();
+        let ns = provider.build_namespace(
             &def,
             "demo",
-            stackless_render::SUBSTRATE_NAME,
             &checkpoints,
             &BTreeMap::new(),
+            NamespacePurpose::Verify,
         );
         assert_eq!(
             ns.service_origins["web"],

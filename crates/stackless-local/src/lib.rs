@@ -21,7 +21,8 @@ use stackless_core::process::ProcessStamp;
 use stackless_core::state::Checkpoint;
 use stackless_core::types::{DnsName, LogPath, TcpPort};
 use stackless_core::substrate::{
-    ACTION_RESOURCE_KIND, Observation, StepContext, StepResource, Substrate, SubstrateFault,
+    ACTION_RESOURCE_KIND, NamespacePurpose, Observation, StepContext, StepResource, Substrate,
+    SubstrateFault,
 };
 use stackless_daemon::DaemonClient;
 use stackless_daemon::rpc::Request;
@@ -169,6 +170,21 @@ impl Substrate for LocalSubstrate {
 
     fn default_lease(&self) -> Duration {
         Duration::from_secs(24 * 3600)
+    }
+
+    fn service_origin(&self, def: &StackDef, instance: &str, service: &str) -> String {
+        wiring::service_origin(def, instance, service, self.proxy_port)
+    }
+
+    fn build_namespace(
+        &self,
+        def: &StackDef,
+        instance: &str,
+        prior: &[Checkpoint],
+        secrets: &BTreeMap<String, String>,
+        _purpose: NamespacePurpose,
+    ) -> stackless_core::def::Namespace {
+        wiring::namespace(def, instance, self.proxy_port, prior, secrets)
     }
 
     async fn execute(&self, ctx: StepContext<'_>) -> Result<StepResource, SubstrateFault> {

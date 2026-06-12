@@ -10,7 +10,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use crate::def::StackDef;
+use crate::def::{Namespace, StackDef};
 use crate::engine::Step;
 use crate::fault::Fault;
 use crate::state::Checkpoint;
@@ -50,6 +50,17 @@ impl Fault for SubstrateFault {
 /// health gates) record this kind; teardown drops their checkpoints
 /// without a destroy/observe round-trip.
 pub const ACTION_RESOURCE_KIND: &str = "action";
+
+/// Which env resolution path is building a namespace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NamespacePurpose {
+    /// Service runtime env (Render: internal DB URLs).
+    ServiceEnv,
+    /// Operator-side prepare hooks (Render: external DB URLs).
+    OperatorPrepare,
+    /// `stackless verify` env resolution.
+    Verify,
+}
 
 /// What a recorded resource looks like when re-checked against the
 /// substrate (invariant 4: the manifest says where to look, the
@@ -98,6 +109,19 @@ pub trait Substrate: Send + Sync {
 
     /// Per-substrate lease default (§6).
     fn default_lease(&self) -> Duration;
+
+    /// The origin `${services.X.origin}` resolves to for this substrate.
+    fn service_origin(&self, def: &StackDef, instance: &str, service: &str) -> String;
+
+    /// Build the interpolation namespace for one instance.
+    fn build_namespace(
+        &self,
+        def: &StackDef,
+        instance: &str,
+        prior: &[Checkpoint],
+        secrets: &BTreeMap<String, String>,
+        purpose: NamespacePurpose,
+    ) -> Namespace;
 
     /// Execute one step, returning the resource for the journal.
     async fn execute(&self, ctx: StepContext<'_>) -> Result<StepResource, SubstrateFault>;

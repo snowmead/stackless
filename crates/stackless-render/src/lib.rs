@@ -35,6 +35,7 @@ pub mod project;
 pub mod render_api;
 pub mod stripe;
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -688,6 +689,27 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
         // Cloud instances bill, so abandonment must be expensive to
         // nobody (§6).
         Duration::from_secs(8 * 3600)
+    }
+
+    fn service_origin(&self, def: &StackDef, instance: &str, service: &str) -> String {
+        Self::origin(def, instance, service)
+    }
+
+    fn build_namespace(
+        &self,
+        def: &StackDef,
+        instance: &str,
+        prior: &[Checkpoint],
+        secrets: &BTreeMap<String, String>,
+        purpose: stackless_core::substrate::NamespacePurpose,
+    ) -> Namespace {
+        let external_db = !matches!(
+            purpose,
+            stackless_core::substrate::NamespacePurpose::ServiceEnv
+        );
+        let mut namespace = self.namespace(def, instance, prior, external_db);
+        namespace.secrets = secrets.clone();
+        namespace
     }
 
     async fn execute(&self, ctx: StepContext<'_>) -> Result<StepResource, SubstrateFault> {

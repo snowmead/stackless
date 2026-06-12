@@ -18,17 +18,24 @@ use crate::output::Output;
 
 /// What a substrate needs to be constructed — the same context whether
 /// it is built for `up`, `down`, or `logs`.
-struct SubstrateCtx {
-    secrets: BTreeMap<String, String>,
+pub(crate) struct SubstrateCtx {
+    pub secrets: BTreeMap<String, String>,
     /// Where the definition lives (render anchors its project here and
     /// reads the API key from here).
-    definition_dir: PathBuf,
+    pub definition_dir: PathBuf,
     /// `--confirm-paid` (render only; ignored by local).
-    confirm_paid: bool,
+    pub confirm_paid: bool,
 }
 
 /// The substrate registry (ground rule: providers register here and
 /// only here; core never names one).
+pub(crate) fn build_substrate(
+    name: &str,
+    ctx: SubstrateCtx,
+) -> Result<Box<dyn Substrate>, CliError> {
+    substrate(name, ctx)
+}
+
 fn substrate(name: &str, ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliError> {
     match name {
         LOCAL => Ok(Box::new(LocalSubstrate {
@@ -178,7 +185,16 @@ pub fn up(args: UpArgs, output: &Output) -> Result<(), CliError> {
         lease,
     }))?;
 
-    let origins = service_origins(&def, &args.name, &substrate_name);
+    let origins: Vec<(String, String)> = def
+        .services
+        .keys()
+        .map(|service| {
+            (
+                service.clone(),
+                provider.service_origin(&def, &args.name, service),
+            )
+        })
+        .collect();
     output.up_ok(&args.name, &substrate_name, &outcome, &origins);
     // Spend is printed after every cloud `up` (§4 — never silently
     // nothing; bounded by the project's hard cap).
@@ -249,6 +265,19 @@ pub fn status_report(
     record: &InstanceRecord,
 ) -> Result<InstanceStatusReport, CliError> {
     let def = def::parse(&record.definition)?;
+    let def_dir = if record.definition_dir.is_empty() {
+        std::env::current_dir().unwrap_or_default()
+    } else {
+        PathBuf::from(&record.definition_dir)
+    };
+    let provider = build_substrate(
+        record.substrate.as_str(),
+        SubstrateCtx {
+            secrets: BTreeMap::new(),
+            definition_dir: def_dir,
+            confirm_paid: false,
+        },
+    )?;
     let checkpoints = store.checkpoints(record.name.as_str())?;
     let has = |id: &str| checkpoints.iter().any(|c| c.step_id == id);
     let mut services = Vec::new();
@@ -281,12 +310,7 @@ pub fn status_report(
             service: name.clone(),
             stage,
             alive,
-            origin: origin_for(
-                &def,
-                record.name.as_str(),
-                name,
-                record.substrate.as_str(),
-            ),
+            origin: provider.service_origin(&def, record.name.as_str(), name),
         });
     }
     let lease = store.lease(record.name.as_str())?;
@@ -396,27 +420,4 @@ pub fn parse_and_validate(text: &str) -> Result<StackDef, CliError> {
     Ok(def)
 }
 
-fn origin_for(def: &StackDef, instance: &str, service: &str, substrate_name: &str) -> String {
-    if substrate_name == RENDER {
-        stackless_render::service_origin(def, instance, service)
-    } else {
-        stackless_local::wiring::service_origin(
-            def,
-            instance,
-            service,
-            stackless_daemon::proxy::proxy_port(),
-        )
-    }
-}
 
-fn service_origins(def: &StackDef, instance: &str, substrate_name: &str) -> Vec<(String, String)> {
-    def.services
-        .keys()
-        .map(|service| {
-            (
-                service.clone(),
-                origin_for(def, instance, service, substrate_name),
-            )
-        })
-        .collect()
-}

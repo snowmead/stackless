@@ -13,9 +13,11 @@ use stackless_core::engine::{DownOutcome, Engine, UpRequest};
 use stackless_core::fault::{Fault, codes};
 use stackless_core::process::ProcessStamp;
 use stackless_core::state::{Checkpoint, InstanceStatus, Store};
+use stackless_core::def::Namespace;
 use stackless_core::substrate::{
-    Observation, StepContext, StepResource, Substrate, SubstrateFault,
+    NamespacePurpose, Observation, StepContext, StepResource, Substrate, SubstrateFault,
 };
+use stackless_core::types::DnsName;
 
 const DEF_TEXT: &str = r#"
 [stack]
@@ -79,6 +81,37 @@ impl Substrate for MockSubstrate {
 
     fn default_lease(&self) -> Duration {
         Duration::from_secs(24 * 3600)
+    }
+
+    fn service_origin(&self, def: &StackDef, instance: &str, service: &str) -> String {
+        format!(
+            "http://{service}.{instance}.{}.mock",
+            def.stack.name.as_str()
+        )
+    }
+
+    fn build_namespace(
+        &self,
+        def: &StackDef,
+        instance: &str,
+        prior: &[Checkpoint],
+        secrets: &BTreeMap<String, String>,
+        _purpose: NamespacePurpose,
+    ) -> Namespace {
+        let mut namespace = Namespace {
+            stack_name: def.stack.name.clone(),
+            instance_name: DnsName::try_new(instance).expect("instance name"),
+            ..Namespace::default()
+        };
+        for service in def.services.keys() {
+            namespace.service_origins.insert(
+                service.clone(),
+                self.service_origin(def, instance, service),
+            );
+        }
+        namespace.secrets = secrets.clone();
+        namespace.add_integration_checkpoints(prior);
+        namespace
     }
 
     async fn execute(&self, ctx: StepContext<'_>) -> Result<StepResource, SubstrateFault> {
