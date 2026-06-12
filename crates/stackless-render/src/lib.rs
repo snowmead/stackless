@@ -50,9 +50,9 @@ use tokio::sync::Mutex;
 use crate::config::ServiceRender;
 use crate::error::RenderError;
 use crate::render_api::{HEALTH_BUDGET, RenderApi, STATIC_DEPLOY_BUDGET, WEB_DEPLOY_BUDGET};
+use stackless_stripe_projects::ProjectsError;
 use stackless_stripe_projects::project;
 use stackless_stripe_projects::stripe::{CommandRunner, StripeProjects, TokioRunner};
-use stackless_stripe_projects::ProjectsError;
 
 pub const SUBSTRATE_NAME: &str = "render";
 
@@ -558,13 +558,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
         let service_owned = service.to_owned();
         let command_for_task = command.clone();
         tokio::task::spawn_blocking(move || {
-            prepare::run_prepare_command(
-                &service_owned,
-                &repo,
-                &reference,
-                &command_for_task,
-                &env,
-            )
+            prepare::run_prepare_command(&service_owned, &repo, &reference, &command_for_task, &env)
         })
         .await
         .map_err(|err| {
@@ -856,7 +850,11 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
         }
     }
 
-    async fn destroy(&self, _instance: &str, checkpoint: &Checkpoint) -> Result<(), SubstrateFault> {
+    async fn destroy(
+        &self,
+        _instance: &str,
+        checkpoint: &Checkpoint,
+    ) -> Result<(), SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
             "render-service" => {
                 let payload = serde_json::from_str::<ServicePayload>(&checkpoint.payload).ok();
@@ -1046,9 +1044,9 @@ pub async fn spend_line(definition_dir: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use stackless_stripe_projects::stripe::{CommandOutput, CommandRunner};
-    use stackless_stripe_projects::ProjectsError;
     use stackless_core::state::Checkpoint;
+    use stackless_stripe_projects::ProjectsError;
+    use stackless_stripe_projects::stripe::{CommandOutput, CommandRunner};
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 

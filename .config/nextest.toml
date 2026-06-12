@@ -1,0 +1,10 @@
+[profile.default]
+# Make failures easier to read in CI/logs (final summary + immediate for the failing test)
+failure-output = "immediate-final"
+# Status message for slow tests (nextest default is already good; this is illustrative)
+slow-timeout = { period = "60s", terminate-after = 3 }
+
+[profile.ci]
+# Example of a stricter profile one can invoke with `cargo nextest run --profile ci`
+# (the default profile is used by the mise `test` task and by cargo-dist if it runs tests)
+failure-output = "immediate-final"

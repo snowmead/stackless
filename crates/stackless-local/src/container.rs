@@ -246,9 +246,8 @@ impl ContainerRunner {
             .ok_or_else(|| op("read mapped port", "no 5432/tcp binding".into()))?;
         let url = format!("postgres://postgres:{password}@127.0.0.1:{port}/postgres");
         Ok(ProvisionedDatastore {
-            container_id: ContainerId::try_new(created.id).map_err(|err| {
-                op("read container id", err.to_string())
-            })?,
+            container_id: ContainerId::try_new(created.id)
+                .map_err(|err| op("read container id", err.to_string()))?,
             port: TcpPort::from_os(port),
             url,
         })

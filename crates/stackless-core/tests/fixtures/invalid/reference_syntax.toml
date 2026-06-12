@@ -3,8 +3,8 @@ name = "bad"
 
 [services.web]
 source = { repo = "https://example.invalid/web", ref = "main" }
-env = { PEER = "${services.web.port}" }
+env    = { PEER = "${services.web.port}" }
 health = { path = "/" }
 
-  [services.web.local]
-  run = "true"
+[services.web.local]
+run = "true"

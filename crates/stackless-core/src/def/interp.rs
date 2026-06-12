@@ -60,25 +60,25 @@ impl Reference {
     }
 
     fn parse_reference(inner: &str, location: &str) -> Result<Self, DefError> {
-    let parts: Vec<&str> = inner.split('.').collect();
-    let reference = match parts.as_slice() {
-        ["instance", "name"] => Reference::InstanceName,
-        ["stack", "name"] => Reference::StackName,
-        ["services", name, "origin"] => Reference::ServiceOrigin((*name).to_owned()),
-        ["datastores", name, "url"] => Reference::DatastoreUrl((*name).to_owned()),
-        ["secrets", key] => Reference::Secret((*key).to_owned()),
-        ["integrations", name, output] => Reference::IntegrationOutput {
-            integration: (*name).to_owned(),
-            output: (*output).to_owned(),
-        },
-        _ => {
-            return Err(DefError::ReferenceSyntax {
-                location: location.to_owned(),
-                reference: format!("${{{inner}}}"),
-                detail: "not a recognized namespace form".into(),
-            });
-        }
-    };
+        let parts: Vec<&str> = inner.split('.').collect();
+        let reference = match parts.as_slice() {
+            ["instance", "name"] => Reference::InstanceName,
+            ["stack", "name"] => Reference::StackName,
+            ["services", name, "origin"] => Reference::ServiceOrigin((*name).to_owned()),
+            ["datastores", name, "url"] => Reference::DatastoreUrl((*name).to_owned()),
+            ["secrets", key] => Reference::Secret((*key).to_owned()),
+            ["integrations", name, output] => Reference::IntegrationOutput {
+                integration: (*name).to_owned(),
+                output: (*output).to_owned(),
+            },
+            _ => {
+                return Err(DefError::ReferenceSyntax {
+                    location: location.to_owned(),
+                    reference: format!("${{{inner}}}"),
+                    detail: "not a recognized namespace form".into(),
+                });
+            }
+        };
         Ok(reference)
     }
 }

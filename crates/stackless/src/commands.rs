@@ -12,7 +12,7 @@ use stackless_core::state::{InstanceRecord, InstanceStatus, Store};
 use stackless_core::substrate::Substrate;
 use stackless_local::LocalSubstrate;
 use stackless_render::{RenderSubstrate, SUBSTRATE_NAME as RENDER};
-use stackless_vercel::{VercelSubstrate, SUBSTRATE_NAME as VERCEL};
+use stackless_vercel::{SUBSTRATE_NAME as VERCEL, VercelSubstrate};
 
 use crate::error::CliError;
 use crate::output::Output;
@@ -40,7 +40,10 @@ pub(crate) fn build_substrate(
 pub(crate) fn parse_host(substrate: &str) -> Result<Host, CliError> {
     Host::parse(substrate).ok_or_else(|| CliError::SubstrateUnknown {
         substrate: substrate.to_owned(),
-        known: Host::ALL.iter().map(|host| host.as_str().to_owned()).collect(),
+        known: Host::ALL
+            .iter()
+            .map(|host| host.as_str().to_owned())
+            .collect(),
     })
 }
 
@@ -214,9 +217,10 @@ pub fn up(args: UpArgs, output: &mut Output) -> Result<(), CliError> {
         Some(record) if record.status == InstanceStatus::Active => {
             record.substrate.as_str().to_owned()
         }
-        _ => args.on.clone().ok_or_else(|| CliError::SubstrateRequired {
-            name: name.clone(),
-        })?,
+        _ => args
+            .on
+            .clone()
+            .ok_or_else(|| CliError::SubstrateRequired { name: name.clone() })?,
     };
     // Secrets resolve next to the definition file: --file's parent at
     // creation, the recorded dir on resume — never the ambient CWD of
@@ -379,7 +383,9 @@ pub fn status_report(
         let start_payload = checkpoints
             .iter()
             .find(|c| c.step_id == format!("start:{name}"))
-            .and_then(|c| serde_json::from_str::<stackless_core::checkpoint::StartCheckpoint>(&c.payload).ok());
+            .and_then(|c| {
+                serde_json::from_str::<stackless_core::checkpoint::StartCheckpoint>(&c.payload).ok()
+            });
         let alive = start_payload.as_ref().map(|p| {
             stackless_core::process::ProcessStamp {
                 pid: p.pid,
@@ -500,11 +506,7 @@ pub fn logs(
                     service,
                     source: "render_api",
                     log_path: None,
-                    lines: if lines.is_empty() {
-                        vec![]
-                    } else {
-                        lines
-                    },
+                    lines: if lines.is_empty() { vec![] } else { lines },
                 });
             } else {
                 output.message(&format!("── {service} ──"));
@@ -579,7 +581,10 @@ mod tests {
         with_cwd(dir.path(), || {
             let expected = resolve_source_default_dir().unwrap();
             let map = parse_sources(&["api".into()]).unwrap();
-            assert_eq!(map.get("api").map(String::as_str), Some(expected.display().to_string().as_str()));
+            assert_eq!(
+                map.get("api").map(String::as_str),
+                Some(expected.display().to_string().as_str())
+            );
         });
     }
 
@@ -589,7 +594,10 @@ mod tests {
         with_cwd(dir.path(), || {
             let expected = resolve_source_default_dir().unwrap();
             let map = parse_sources(&["api=".into()]).unwrap();
-            assert_eq!(map.get("api").map(String::as_str), Some(expected.display().to_string().as_str()));
+            assert_eq!(
+                map.get("api").map(String::as_str),
+                Some(expected.display().to_string().as_str())
+            );
         });
     }
 
@@ -611,5 +619,3 @@ mod tests {
         assert!(matches!(err, CliError::BadArgument { argument, .. } if argument == "--source"));
     }
 }
-
-

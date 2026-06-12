@@ -165,10 +165,7 @@ impl Engine<'_> {
         let steps = request.def.plan()?;
         let total = steps.len();
         let mut null = NullProgress;
-        let progress = request
-            .progress
-            .as_deref_mut()
-            .unwrap_or(&mut null);
+        let progress = request.progress.as_deref_mut().unwrap_or(&mut null);
         let mut outcome = UpOutcome::default();
         for (offset, step) in steps.iter().enumerate() {
             let index = offset + 1;

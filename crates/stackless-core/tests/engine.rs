@@ -8,14 +8,12 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::time::Duration;
 
+use stackless_core::def::Namespace;
 use stackless_core::def::StackDef;
-use stackless_core::engine::{
-    DownOutcome, Engine, ProgressSink, StepProgressEvent, UpRequest,
-};
+use stackless_core::engine::{DownOutcome, Engine, ProgressSink, StepProgressEvent, UpRequest};
 use stackless_core::fault::{Fault, codes};
 use stackless_core::process::ProcessStamp;
 use stackless_core::state::{Checkpoint, InstanceStatus, Store};
-use stackless_core::def::Namespace;
 use stackless_core::substrate::{
     NamespacePurpose, Observation, StepContext, StepResource, Substrate, SubstrateFault,
 };
@@ -106,10 +104,9 @@ impl Substrate for MockSubstrate {
             ..Namespace::default()
         };
         for service in def.services.keys() {
-            namespace.service_origins.insert(
-                service.clone(),
-                self.service_origin(def, instance, service),
-            );
+            namespace
+                .service_origins
+                .insert(service.clone(), self.service_origin(def, instance, service));
         }
         namespace.secrets = secrets.clone();
         namespace.add_integration_checkpoints(prior);

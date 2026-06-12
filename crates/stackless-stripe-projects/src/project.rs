@@ -53,7 +53,12 @@ pub async fn ensure_project<R: CommandRunner>(
             stripe
                 .run_ok(
                     "init",
-                    &["init", def.stack.name.as_str(), "--skip-skills", "--accept-tos"],
+                    &[
+                        "init",
+                        def.stack.name.as_str(),
+                        "--skip-skills",
+                        "--accept-tos",
+                    ],
                     &["--accept-tos", "--yes"],
                 )
                 .await?;

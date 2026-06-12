@@ -4,9 +4,7 @@
 //! compare — a newer CLI tells an older daemon to drain and exit.
 
 use serde::{Deserialize, Serialize};
-use stackless_core::types::{
-    DnsName, Pid, ProcessStartTime, ProtocolVersion, ProxyHost, TcpPort,
-};
+use stackless_core::types::{DnsName, Pid, ProcessStartTime, ProtocolVersion, ProxyHost, TcpPort};
 
 pub const PROTOCOL_VERSION: u32 = 1;
 
@@ -20,8 +18,13 @@ pub fn build_version() -> &'static str {
 pub enum Request {
     Ping,
     /// Route `host` (no port) to a local TCP port.
-    RouteSet { host: ProxyHost, port: TcpPort },
-    RouteDelete { host: ProxyHost },
+    RouteSet {
+        host: ProxyHost,
+        port: TcpPort,
+    },
+    RouteDelete {
+        host: ProxyHost,
+    },
     Routes,
     /// Record a service process for supervision (PID-reuse-safe).
     Supervise {
@@ -31,9 +34,13 @@ pub enum Request {
         start_time: ProcessStartTime,
     },
     /// Forget one instance's supervision records and routes.
-    Forget { instance: DnsName },
+    Forget {
+        instance: DnsName,
+    },
     /// The instance's supervised processes, observed live/dead now.
-    InstanceProcesses { instance: DnsName },
+    InstanceProcesses {
+        instance: DnsName,
+    },
     /// Drain and exit (the upgrade handshake).
     Shutdown,
 }

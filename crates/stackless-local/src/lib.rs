@@ -21,11 +21,11 @@ use stackless_core::def::{Namespace, StackDef};
 use stackless_core::engine::StepKind;
 use stackless_core::process::ProcessStamp;
 use stackless_core::state::Checkpoint;
-use stackless_core::types::{DnsName, LogPath, ProxyHost, TcpPort};
 use stackless_core::substrate::{
     ACTION_RESOURCE_KIND, NamespacePurpose, Observation, StepContext, StepResource, Substrate,
     SubstrateFault,
 };
+use stackless_core::types::{DnsName, LogPath, ProxyHost, TcpPort};
 use stackless_daemon::DaemonClient;
 use stackless_daemon::rpc::Request;
 
@@ -188,22 +188,23 @@ impl LocalSubstrate {
         let Some(spec) = def.services.get(service) else {
             return Ok(BTreeMap::new());
         };
-        let raw = spec
-            .effective_env(service, SUBSTRATE_NAME)
-            .map_err(|err| LocalError::EnvResolve {
-                service: service.to_owned(),
-                reference: "env".into(),
-                detail: err.to_string(),
-            })?;
+        let raw =
+            spec.effective_env(service, SUBSTRATE_NAME)
+                .map_err(|err| LocalError::EnvResolve {
+                    service: service.to_owned(),
+                    reference: "env".into(),
+                    detail: err.to_string(),
+                })?;
         let mut resolved = BTreeMap::new();
         for (key, value) in &raw {
             let location = format!("services.{service}.env.{key}");
-            let value = stackless_core::def::interp::resolve(value, namespace, &location)
-                .map_err(|err| LocalError::EnvResolve {
+            let value = stackless_core::def::interp::resolve(value, namespace, &location).map_err(
+                |err| LocalError::EnvResolve {
                     service: service.to_owned(),
                     reference: format!("${{{key}}}"),
                     detail: err.to_string(),
-                })?;
+                },
+            )?;
             resolved.insert(key.clone(), value);
         }
         for key in &spec.secrets {
@@ -226,7 +227,8 @@ impl LocalSubstrate {
             &self.secrets,
             NamespacePurpose::ServiceEnv,
         );
-        self.resolve_env(ctx.def, service, &namespace).map_err(fault)
+        self.resolve_env(ctx.def, service, &namespace)
+            .map_err(fault)
     }
 
     fn allocate_port() -> Result<TcpPort, SubstrateFault> {
@@ -460,16 +462,18 @@ impl Substrate for LocalSubstrate {
                         })
                         .map_err(|err| SubstrateFault::from_fault(&err))?;
                 }
-                let instance_name =
-                    DnsName::try_new(ctx.instance).map_err(|err| fault(LocalError::LocalConfigInvalid {
+                let instance_name = DnsName::try_new(ctx.instance).map_err(|err| {
+                    fault(LocalError::LocalConfigInvalid {
                         service: service.to_owned(),
                         detail: err.to_string(),
-                    }))?;
-                let service_name =
-                    DnsName::try_new(service).map_err(|err| fault(LocalError::LocalConfigInvalid {
+                    })
+                })?;
+                let service_name = DnsName::try_new(service).map_err(|err| {
+                    fault(LocalError::LocalConfigInvalid {
                         service: service.to_owned(),
                         detail: err.to_string(),
-                    }))?;
+                    })
+                })?;
                 daemon
                     .call(Request::Supervise {
                         instance: instance_name,
@@ -484,10 +488,12 @@ impl Substrate for LocalSubstrate {
                     port,
                     hosts,
                     log: LogPath::try_new(spawner.log_path(service).display().to_string())
-                    .map_err(|err| fault(LocalError::LogFile {
-                        path: spawner.log_path(service).display().to_string(),
-                        source: std::io::Error::new(std::io::ErrorKind::InvalidInput, err),
-                    }))?,
+                        .map_err(|err| {
+                            fault(LocalError::LogFile {
+                                path: spawner.log_path(service).display().to_string(),
+                                source: std::io::Error::new(std::io::ErrorKind::InvalidInput, err),
+                            })
+                        })?,
                 };
                 Ok(StepResource {
                     resource_kind: "process".into(),
@@ -517,7 +523,9 @@ impl Substrate for LocalSubstrate {
                     .first()
                     .map(|h| h.as_str().to_owned())
                     .unwrap_or_else(|| {
-                        Self::service_host(ctx.instance, service).as_str().to_owned()
+                        Self::service_host(ctx.instance, service)
+                            .as_str()
+                            .to_owned()
                     });
                 health::wait_healthy(
                     ctx.instance,
@@ -566,7 +574,8 @@ impl Substrate for LocalSubstrate {
                     .and_then(|v| v.as_str())
                     .unwrap_or(&checkpoint.resource_id)
                     .to_owned();
-                let docker = ContainerRunner::connect().map_err(|err| SubstrateFault::from_fault(&err))?;
+                let docker =
+                    ContainerRunner::connect().map_err(|err| SubstrateFault::from_fault(&err))?;
                 let running = docker
                     .observe(&container_id)
                     .await
@@ -661,14 +670,12 @@ impl Substrate for LocalSubstrate {
                     .map_err(|err| SubstrateFault::from_fault(&err))
             }
             "process" => {
-                let payload =
-                    serde_json::from_str::<StartCheckpoint>(&checkpoint.payload).map_err(|err| {
-                        SubstrateFault {
-                            code: stackless_core::fault::codes::LOCAL_KILL_FAILED,
-                            message: format!("unreadable start payload: {err}"),
-                            remediation: "kill the process by hand and re-run `down`".into(),
-                            context: Box::default(),
-                        }
+                let payload = serde_json::from_str::<StartCheckpoint>(&checkpoint.payload)
+                    .map_err(|err| SubstrateFault {
+                        code: stackless_core::fault::codes::LOCAL_KILL_FAILED,
+                        message: format!("unreadable start payload: {err}"),
+                        remediation: "kill the process by hand and re-run `down`".into(),
+                        context: Box::default(),
                     })?;
                 spawn::kill_group(ProcessStamp {
                     pid: payload.pid,

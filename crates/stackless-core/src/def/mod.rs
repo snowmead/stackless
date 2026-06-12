@@ -14,4 +14,3 @@ pub use interp::{Namespace, Reference};
 pub use model::{
     Datastore, Health, Integration, SecretsSpec, Service, Source, Stack, StackDef, VerifySpec,
 };
-

@@ -135,7 +135,10 @@ mod tests {
         let path = dir.path().join("test.lock");
 
         let lock = FileLock::try_acquire(&path).unwrap();
-        assert!(matches!(FileLock::try_acquire(&path), Err(LockError::Held { .. })));
+        assert!(matches!(
+            FileLock::try_acquire(&path),
+            Err(LockError::Held { .. })
+        ));
         drop(lock);
         assert!(FileLock::try_acquire(&path).is_ok());
     }

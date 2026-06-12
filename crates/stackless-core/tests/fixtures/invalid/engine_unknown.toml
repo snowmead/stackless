@@ -2,12 +2,12 @@
 name = "bad"
 
 [datastores.cache]
-engine = "redis"
+engine  = "redis"
 version = "7"
 
 [services.web]
 source = { repo = "https://example.invalid/web", ref = "main" }
 health = { path = "/" }
 
-  [services.web.local]
-  run = "true"
+[services.web.local]
+run = "true"

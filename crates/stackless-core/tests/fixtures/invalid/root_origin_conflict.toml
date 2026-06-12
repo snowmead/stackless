@@ -2,17 +2,17 @@
 name = "bad"
 
 [services.api]
-source = { repo = "https://example.invalid/api", ref = "main" }
+source      = { repo = "https://example.invalid/api", ref = "main" }
 root_origin = true
-health = { path = "/health" }
+health      = { path = "/health" }
 
-  [services.api.local]
-  run = "true"
+[services.api.local]
+run = "true"
 
 [services.web]
-source = { repo = "https://example.invalid/web", ref = "main" }
+source      = { repo = "https://example.invalid/web", ref = "main" }
 root_origin = true
-health = { path = "/" }
+health      = { path = "/" }
 
-  [services.web.local]
-  run = "true"
+[services.web.local]
+run = "true"

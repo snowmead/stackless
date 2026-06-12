@@ -70,18 +70,18 @@ impl Fault for VercelError {
             Self::ConfigInvalid { location, .. } => {
                 format!("fix [{location}] in stackless.toml and re-run `stackless check`")
             }
-            Self::ApiKeyMissing { key_file } => format!(
-                "set VERCEL_TOKEN in the environment or write the token to {key_file}"
-            ),
+            Self::ApiKeyMissing { key_file } => {
+                format!("set VERCEL_TOKEN in the environment or write the token to {key_file}")
+            }
             Self::ApiFailed { .. } => {
                 "verify the Vercel token and team scope, then re-run `stackless up`".into()
             }
             Self::PaymentNotConfirmed { .. } => {
                 "re-run with `--confirm-paid` to consent to paid Vercel resources".into()
             }
-            Self::ProvisionFailed { resource, .. } => format!(
-                "inspect Stripe Projects status for {resource:?} and re-run `stackless up`"
-            ),
+            Self::ProvisionFailed { resource, .. } => {
+                format!("inspect Stripe Projects status for {resource:?} and re-run `stackless up`")
+            }
             Self::DeployFailed { service, .. } => format!(
                 "inspect the Vercel deployment logs for {service:?} and re-run `stackless up`"
             ),
@@ -89,19 +89,21 @@ impl Fault for VercelError {
                 "wait for the Vercel build to finish or fix the build, then re-run `stackless up` \
                  for {service:?}"
             ),
-            Self::HealthFailed { service, .. } => format!(
-                "fix the health contract for {service:?} and re-run `stackless up`"
-            ),
-            Self::PrepareFailed { service, command, .. } => format!(
+            Self::HealthFailed { service, .. } => {
+                format!("fix the health contract for {service:?} and re-run `stackless up`")
+            }
+            Self::PrepareFailed {
+                service, command, ..
+            } => format!(
                 "fix the prepare hook for {service:?}{}",
                 command
                     .as_ref()
                     .map(|cmd| format!(" (`{cmd}`)"))
                     .unwrap_or_default()
             ),
-            Self::TeardownSurvivor { resource } => format!(
-                "remove {resource:?} from the Vercel dashboard or re-run `stackless down`"
-            ),
+            Self::TeardownSurvivor { resource } => {
+                format!("remove {resource:?} from the Vercel dashboard or re-run `stackless down`")
+            }
         }
     }
 

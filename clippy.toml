@@ -1,3 +1,5 @@
+# Allows for the workspace-level clippy lints (unwrap_used, expect_used, panic, dbg_macro = deny).
+# Tests are allowed to use these for simplicity (see also the test fixtures and engine tests).
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
-allow-panic-in-tests = true
+allow-panic-in-tests  = true

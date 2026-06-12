@@ -15,7 +15,8 @@ fn fixture(name: &str) -> String {
 
 fn parse_valid(name: &str) -> def::StackDef {
     let def = StackDef::parse(&fixture(name)).unwrap_or_else(|err| panic!("parse {name}: {err}"));
-    def.validate().unwrap_or_else(|err| panic!("validate {name}: {err}"));
+    def.validate()
+        .unwrap_or_else(|err| panic!("validate {name}: {err}"));
     def
 }
 
@@ -130,8 +131,14 @@ fn atto_graph_orders_db_before_api_without_origin_cycles() {
     assert!(wiring.contains(&(Node::Service("api".into()), Node::Service("web".into()))));
     assert!(wiring.contains(&(Node::Service("web".into()), Node::Service("api".into()))));
     assert!(wiring.contains(&(Node::Service("api".into()), Node::Datastore("db".into()))));
-    assert!(wiring.contains(&(Node::Service("api".into()), Node::Integration("clerk".into()))));
-    assert!(wiring.contains(&(Node::Service("web".into()), Node::Integration("clerk".into()))));
+    assert!(wiring.contains(&(
+        Node::Service("api".into()),
+        Node::Integration("clerk".into())
+    )));
+    assert!(wiring.contains(&(
+        Node::Service("web".into()),
+        Node::Integration("clerk".into())
+    )));
 }
 
 #[test]

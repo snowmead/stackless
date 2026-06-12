@@ -1,8 +1,8 @@
 [package]
-name = "stackless-core"
-edition.workspace = true
-version.workspace = true
-license.workspace = true
+name                 = "stackless-core"
+edition.workspace    = true
+version.workspace    = true
+license.workspace    = true
 repository.workspace = true
 
 [lints]
@@ -15,7 +15,11 @@ async-trait = "0.1.89"
 # `core` for the local-libsql test path that proves the helper layer.
 # No `replication`/`sync` — fleet mode is single-statement CAS against
 # the primary, never embedded replicas.
-libsql = { version = "0.9.30", default-features = false, features = ["core", "remote", "tls"] }
+libsql = { version = "0.9.30", default-features = false, features = [
+    "core",
+    "remote",
+    "tls",
+] }
 oxgraph = { version = "0.4.2", features = ["csr"] }
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 serde = { version = "1.0.228", features = ["derive"] }
@@ -28,4 +32,4 @@ uuid = { version = "1.18.0", features = ["v4"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"
-tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
+tokio    = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }

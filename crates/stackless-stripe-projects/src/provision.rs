@@ -85,8 +85,7 @@ where
         S::requires_paid_confirmation(ctx),
     )
     .await?;
-    let raw =
-        resolve_env_blob::<S, R>(stripe, &add_data, ctx.instance, &stripe_resource).await?;
+    let raw = resolve_env_blob::<S, R>(stripe, &add_data, ctx.instance, &stripe_resource).await?;
     let outputs = S::parse_credentials(&raw, ctx)?;
     Ok(StripeCredentialResult {
         stripe_resource,
@@ -111,14 +110,7 @@ where
 
     let stripe_resource = S::resource_name(ctx);
     let config_json = S::config_json(&config);
-    project::add_resource(
-        stripe,
-        S::REFERENCE,
-        &stripe_resource,
-        &config_json,
-        paid,
-    )
-    .await?;
+    project::add_resource(stripe, S::REFERENCE, &stripe_resource, &config_json, paid).await?;
     Ok(())
 }
 

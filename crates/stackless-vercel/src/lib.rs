@@ -23,9 +23,9 @@ use stackless_core::state::Checkpoint;
 use stackless_core::substrate::{
     ACTION_RESOURCE_KIND, Observation, StepContext, StepResource, Substrate, SubstrateFault,
 };
+use stackless_stripe_projects::ProjectsError;
 use stackless_stripe_projects::project;
 use stackless_stripe_projects::stripe::{CommandRunner, StripeProjects, TokioRunner};
-use stackless_stripe_projects::ProjectsError;
 use tokio::sync::Mutex;
 
 use crate::config::{ServiceVercel, StackVercel, VercelPlan};
@@ -396,13 +396,7 @@ impl<R: CommandRunner> VercelSubstrate<R> {
         let service_owned = service.to_owned();
         let command_for_task = command.clone();
         tokio::task::spawn_blocking(move || {
-            prepare::run_prepare_command(
-                &service_owned,
-                &repo,
-                &reference,
-                &command_for_task,
-                &env,
-            )
+            prepare::run_prepare_command(&service_owned, &repo, &reference, &command_for_task, &env)
         })
         .await
         .map_err(|err| {
@@ -721,8 +715,13 @@ impl<R: CommandRunner> Substrate for VercelSubstrate<R> {
                             checkpoint.resource_id.clone(),
                         )
                     });
-                self.remove_and_verify_project(&stripe_resource, &project_id, &vercel_name, instance)
-                    .await
+                self.remove_and_verify_project(
+                    &stripe_resource,
+                    &project_id,
+                    &vercel_name,
+                    instance,
+                )
+                .await
             }
             "source-ref" => {
                 let payload = serde_json::from_str::<SourceRefPayload>(&checkpoint.payload).ok();
@@ -789,8 +788,8 @@ impl<R: CommandRunner> VercelSubstrate<R> {
 mod tests {
     use super::*;
     use stackless_core::state::Checkpoint;
-    use stackless_stripe_projects::stripe::{CommandOutput, CommandRunner};
     use stackless_stripe_projects::ProjectsError;
+    use stackless_stripe_projects::stripe::{CommandOutput, CommandRunner};
     use wiremock::matchers::{method, path_regex};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 

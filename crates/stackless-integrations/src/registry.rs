@@ -67,10 +67,7 @@ pub fn validate_integration(
 ) -> Result<(), IntegrationError> {
     let entry = lookup(&integration.provider).ok_or_else(|| IntegrationError::ConfigInvalid {
         location: format!("integrations.{name}"),
-        detail: format!(
-            "unsupported provider {:?}",
-            integration.provider
-        ),
+        detail: format!("unsupported provider {:?}", integration.provider),
     })?;
 
     validate_host_blocks(name, integration, entry.hosting, entry.config_scope)?;
@@ -92,10 +89,7 @@ pub fn validate_integration(
     (entry.validate_config)(name, &config)
 }
 
-pub fn validate_all(
-    def: &StackDef,
-    active_host: Option<Host>,
-) -> Result<(), IntegrationError> {
+pub fn validate_all(def: &StackDef, active_host: Option<Host>) -> Result<(), IntegrationError> {
     for (name, integration) in &def.integrations {
         validate_integration(name, integration, active_host)?;
     }
@@ -155,12 +149,14 @@ fn validate_integration_outputs(def: &StackDef) -> Result<(), IntegrationError> 
             locations.push((format!("services.{service_name}.env.{key}"), value.clone()));
         }
         for host in Host::ALL {
-            for (key, value) in service.substrate_env(service_name, host.as_str()).map_err(
-                |err| IntegrationError::ConfigInvalid {
-                    location: format!("services.{service_name}.{}.env", host.as_str()),
-                    detail: err.to_string(),
-                },
-            )? {
+            for (key, value) in
+                service
+                    .substrate_env(service_name, host.as_str())
+                    .map_err(|err| IntegrationError::ConfigInvalid {
+                        location: format!("services.{service_name}.{}.env", host.as_str()),
+                        detail: err.to_string(),
+                    })?
+            {
                 locations.push((
                     format!("services.{service_name}.{}.env.{key}", host.as_str()),
                     value,
@@ -184,18 +180,21 @@ fn validate_integration_outputs(def: &StackDef) -> Result<(), IntegrationError> 
             }
         })?;
         for reference in refs {
-            let Reference::IntegrationOutput { integration, output } = reference else {
+            let Reference::IntegrationOutput {
+                integration,
+                output,
+            } = reference
+            else {
                 continue;
             };
             let Some(spec) = def.integrations.get(&integration) else {
                 continue;
             };
-            let outputs = known_outputs(&spec.provider).ok_or_else(|| {
-                IntegrationError::ConfigInvalid {
+            let outputs =
+                known_outputs(&spec.provider).ok_or_else(|| IntegrationError::ConfigInvalid {
                     location: location.clone(),
                     detail: format!("integration {integration:?} has unsupported provider"),
-                }
-            })?;
+                })?;
             if !outputs.contains(&output.as_str()) {
                 return Err(IntegrationError::ConfigInvalid {
                     location,
@@ -235,10 +234,7 @@ pub fn config_bool(config: &BTreeMap<String, toml::Value>, key: &str) -> bool {
         .unwrap_or(false)
 }
 
-pub fn config_optional_string(
-    config: &BTreeMap<String, toml::Value>,
-    key: &str,
-) -> Option<String> {
+pub fn config_optional_string(config: &BTreeMap<String, toml::Value>, key: &str) -> Option<String> {
     config
         .get(key)
         .and_then(toml::Value::as_str)

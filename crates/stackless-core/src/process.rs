@@ -32,8 +32,7 @@ impl ProcessStamp {
     /// True only if a process with this PID exists *and* started at the
     /// recorded time — a recycled PID does not count.
     pub fn is_alive(&self) -> bool {
-        start_time_of(self.pid)
-            .is_some_and(|start| start == self.start_time)
+        start_time_of(self.pid).is_some_and(|start| start == self.start_time)
     }
 }
 

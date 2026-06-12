@@ -230,11 +230,7 @@ impl Output {
         }
     }
 
-    pub fn logs_json(
-        &self,
-        instance: &str,
-        services: &[LogService<'_>],
-    ) {
+    pub fn logs_json(&self, instance: &str, services: &[LogService<'_>]) {
         #[derive(Serialize)]
         struct LogsOk<'a> {
             ok: bool,

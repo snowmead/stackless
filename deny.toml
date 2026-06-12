@@ -8,12 +8,25 @@
 # is still rejected.
 [bans]
 deny = [
-    { crate = "anyhow", reason = "ARCHITECTURE.md §8: no untyped error propagation; every error carries its stable code and remediation", wrappers = ["prost-derive"] },
+    { crate = "anyhow", reason = "ARCHITECTURE.md §8: no untyped error propagation; every error carries its stable code and remediation", wrappers = [
+        "prost-derive",
+    ] },
     { crate = "eyre", reason = "same rule as anyhow" },
 ]
 
 [licenses]
-allow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Unicode-3.0", "Zlib", "MPL-2.0", "CDLA-Permissive-2.0"]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "MPL-2.0",
+    "CDLA-Permissive-2.0",
+]
 
 [advisories]
 # The M9 fleet plane enables `libsql`'s `tls` feature for the Turso Cloud

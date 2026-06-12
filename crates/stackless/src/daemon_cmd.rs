@@ -80,10 +80,7 @@ pub fn run(command: DaemonCommand, output: &Output) -> Result<(), CliError> {
             let mut client = DaemonClient::ensure()?;
             if let ResponseBody::Routes { routes } = client.call(Request::Routes)? {
                 for route in &routes {
-                    output.message(&format!(
-                        "{} -> 127.0.0.1:{}",
-                        route.host, route.port.get()
-                    ));
+                    output.message(&format!("{} -> 127.0.0.1:{}", route.host, route.port.get()));
                 }
                 if routes.is_empty() {
                     output.message("no routes");

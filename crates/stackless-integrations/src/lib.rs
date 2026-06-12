@@ -28,10 +28,13 @@ pub async fn provision<R: CommandRunner>(
     name: &str,
     skip_stripe_instance_context: bool,
 ) -> Result<StepResource, IntegrationError> {
-    let spec = def.integrations.get(name).ok_or_else(|| IntegrationError::ConfigInvalid {
-        location: format!("integrations.{name}"),
-        detail: "integration not in definition".into(),
-    })?;
+    let spec = def
+        .integrations
+        .get(name)
+        .ok_or_else(|| IntegrationError::ConfigInvalid {
+            location: format!("integrations.{name}"),
+            detail: "integration not in definition".into(),
+        })?;
     let host = Host::parse(substrate).ok_or_else(|| IntegrationError::ConfigInvalid {
         location: format!("integrations.{name}"),
         detail: format!("unknown substrate {substrate:?}"),

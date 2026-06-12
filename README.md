@@ -186,6 +186,27 @@ services run as host processes.
 Writing a definition: start from [docs/SCHEMA.md](docs/SCHEMA.md) —
 it is written to be sufficient on its own, for humans and agents.
 
+## Development
+
+The repository pins its toolchain and auxiliary tools via [mise](https://mise.jdx.dev/):
+
+```console
+# one-time: install mise (https://mise.jdx.dev/getting-started.html), then:
+mise install
+```
+
+This provides the exact Rust 1.96.0 (via `rust-toolchain.toml` + mise) plus `cargo-nextest`, `cargo-audit`, `cargo-deny`, `cargo-vet`, `cargo-dist`, and `taplo`.
+
+Common commands (also wired as `mise run <task>`):
+
+- Tests: `cargo nextest run --workspace` (or `mise run test`)
+- Hygiene ("cargo crap"): `mise run ci` (fmt + clippy + taplo + nextest + audit + deny + vet)
+- Individual: `cargo audit`, `cargo deny check`, `cargo vet`, `taplo fmt --check`
+
+Releases use `cargo-dist` (see generated `.github/workflows/release.yml`).
+
+The original `cargo build` / `cargo test` paths remain valid.
+
 ## Workspace layout
 
 | Crate | Owns |

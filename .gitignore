@@ -8,3 +8,11 @@
 .env
 .env.*
 !.env.example
+
+# mise local overrides (per-developer tools/env)
+.mise.local.toml
+*.local.toml
+
+# cargo-dist may write temporary plan/build state outside target/ in some modes
+# (normally everything lands under target/dist or the dist dir configured by metadata)
+.dist/

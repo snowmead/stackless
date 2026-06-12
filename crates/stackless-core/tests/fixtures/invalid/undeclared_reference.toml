@@ -3,8 +3,8 @@ name = "bad"
 
 [services.api]
 source = { repo = "https://example.invalid/api", ref = "main" }
-env = { DATABASE_URL = "${datastores.db.url}" }
+env    = { DATABASE_URL = "${datastores.db.url}" }
 health = { path = "/health" }
 
-  [services.api.local]
-  run = "true"
+[services.api.local]
+run = "true"

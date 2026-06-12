@@ -131,7 +131,6 @@ impl Row {
             None => Err(StateError::row_range(idx)),
         }
     }
-
 }
 
 /// The remote (libsql) backend: a libsql connection living on a
@@ -638,5 +637,3 @@ fn rusqlite_shim(e: libsql::Error) -> rusqlite::Error {
         Some(e.to_string()),
     )
 }
-
-

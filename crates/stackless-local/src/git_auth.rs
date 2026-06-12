@@ -29,7 +29,10 @@ impl GitAuth {
     }
 
     /// Install a credential handler on an open remote connection.
-    pub fn install_on_connection<T>(&self, conn: &mut gix::remote::Connection<'_, '_, T>) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+    pub fn install_on_connection<T>(
+        &self,
+        conn: &mut gix::remote::Connection<'_, '_, T>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
     where
         T: gix_transport::client::blocking_io::Transport,
     {
@@ -97,7 +100,7 @@ mod tests {
 
     use secrecy::ExposeSecret;
 
-    use super::{GitAuth, GITHUB_TOKEN_ENV};
+    use super::{GITHUB_TOKEN_ENV, GitAuth};
 
     #[test]
     fn wraps_token_from_secrets_map() {

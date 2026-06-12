@@ -12,26 +12,31 @@ members = [
 ]
 
 [workspace.package]
-edition = "2024"
-version = "0.1.0"
-license = "MIT"
+edition    = "2024"
+version    = "0.1.0"
+license    = "MIT"
 repository = "https://github.com/snowmead/stackless"
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+unsafe_code                   = "forbid"
 missing_debug_implementations = "warn"
 
 [workspace.lints.clippy]
 unwrap_used = "deny"
 expect_used = "deny"
-panic = "deny"
-dbg_macro = "deny"
+panic       = "deny"
+dbg_macro   = "deny"
 
 [workspace.dependencies]
-stackless-core = { path = "crates/stackless-core" }
-stackless-daemon = { path = "crates/stackless-daemon" }
-stackless-local = { path = "crates/stackless-local" }
-stackless-render = { path = "crates/stackless-render" }
-stackless-vercel = { path = "crates/stackless-vercel" }
-stackless-integrations = { path = "crates/stackless-integrations" }
+stackless-core            = { path = "crates/stackless-core" }
+stackless-daemon          = { path = "crates/stackless-daemon" }
+stackless-local           = { path = "crates/stackless-local" }
+stackless-render          = { path = "crates/stackless-render" }
+stackless-vercel          = { path = "crates/stackless-vercel" }
+stackless-integrations    = { path = "crates/stackless-integrations" }
 stackless-stripe-projects = { path = "crates/stackless-stripe-projects" }
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto      = "thin"

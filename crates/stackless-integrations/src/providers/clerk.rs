@@ -9,14 +9,14 @@ use stackless_core::def::{Namespace, StackDef};
 use stackless_core::host::Host;
 use stackless_core::substrate::{Observation, StepResource};
 use stackless_core::types::DnsName;
+use stackless_stripe_projects::ProjectsError;
+use stackless_stripe_projects::project;
 use stackless_stripe_projects::provision::sealed::Sealed;
 use stackless_stripe_projects::provision::{
     StripeCatalogService, StripeCredentialResult, StripeEnvCredentials, StripeProvisionContext,
     provision_with_credentials,
 };
-use stackless_stripe_projects::project;
 use stackless_stripe_projects::stripe::{CommandRunner, StripeProjects};
-use stackless_stripe_projects::ProjectsError;
 
 use crate::error::IntegrationError;
 use crate::hostable::{ConfigScope, Hostable, IntegrationHosting};
@@ -93,28 +93,25 @@ impl StripeCatalogService for ClerkAuth {
             ..Namespace::default()
         };
         let location = format!("integrations.{}.app_name", ctx.logical_name);
-        let app_name =
-            stackless_core::def::interp::resolve(&app_name_raw, &namespace, &location).map_err(
-                |err| ProjectsError::ProvisionFailed {
-                    resource: format!("{}-{}", ctx.instance, ctx.logical_name),
-                    detail: err.to_string(),
-                },
-            )?;
-        let production_domain = match registry::config_optional_string(&config, "production_domain") {
-            None => None,
-            Some(domain) => {
-                let location =
-                    format!("integrations.{}.production_domain", ctx.logical_name);
-                Some(
-                    stackless_core::def::interp::resolve(&domain, &namespace, &location).map_err(
-                        |err| ProjectsError::ProvisionFailed {
-                            resource: format!("{}-{}", ctx.instance, ctx.logical_name),
-                            detail: err.to_string(),
-                        },
-                    )?,
-                )
-            }
-        };
+        let app_name = stackless_core::def::interp::resolve(&app_name_raw, &namespace, &location)
+            .map_err(|err| ProjectsError::ProvisionFailed {
+            resource: format!("{}-{}", ctx.instance, ctx.logical_name),
+            detail: err.to_string(),
+        })?;
+        let production_domain =
+            match registry::config_optional_string(&config, "production_domain") {
+                None => None,
+                Some(domain) => {
+                    let location = format!("integrations.{}.production_domain", ctx.logical_name);
+                    Some(
+                        stackless_core::def::interp::resolve(&domain, &namespace, &location)
+                            .map_err(|err| ProjectsError::ProvisionFailed {
+                                resource: format!("{}-{}", ctx.instance, ctx.logical_name),
+                                detail: err.to_string(),
+                            })?,
+                    )
+                }
+            };
         Ok(ClerkStripeConfig {
             app_name,
             production_domain,
@@ -137,8 +134,7 @@ impl StripeCatalogService for ClerkAuth {
 impl StripeEnvCredentials for ClerkAuth {
     type Outputs = ClerkCredentialOutputs;
 
-    const ENV_KEYS: &'static [&'static str] =
-        &["CLERK_AUTH_ENVIRONMENTS", "CLERK_ENVIRONMENTS"];
+    const ENV_KEYS: &'static [&'static str] = &["CLERK_AUTH_ENVIRONMENTS", "CLERK_ENVIRONMENTS"];
 
     fn parse_credentials(
         raw: &str,
@@ -175,9 +171,7 @@ impl StripeEnvCredentials for ClerkAuth {
         };
         let credentials = credentials.ok_or_else(|| ProjectsError::ProvisionFailed {
             resource,
-            detail: format!(
-                "Clerk environments JSON has no {credential_set} credentials"
-            ),
+            detail: format!("Clerk environments JSON has no {credential_set} credentials"),
         })?;
         Ok(ClerkCredentialOutputs {
             publishable_key: credentials.publishable_key,
@@ -326,7 +320,10 @@ fn stripe_resource(payload: &str) -> Option<String> {
         .map(|payload| payload.stripe_resource)
 }
 
-async fn enable_clerk_organizations(secret_key: &str, resource: &str) -> Result<(), IntegrationError> {
+async fn enable_clerk_organizations(
+    secret_key: &str,
+    resource: &str,
+) -> Result<(), IntegrationError> {
     update_clerk_organization_settings(CLERK_API_BASE, secret_key, true, resource).await
 }
 
@@ -380,9 +377,9 @@ async fn update_clerk_organization_settings(
 mod tests {
     use super::*;
     use async_trait::async_trait;
+    use stackless_stripe_projects::stripe::{CommandOutput, CommandRunner, StripeProjects};
     use std::path::Path;
     use std::sync::Mutex;
-    use stackless_stripe_projects::stripe::{CommandOutput, CommandRunner, StripeProjects};
     use wiremock::matchers::{body_json, header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 

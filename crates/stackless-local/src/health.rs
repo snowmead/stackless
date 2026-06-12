@@ -76,7 +76,10 @@ async fn probe(
         .map_err(|err| format!("request failed: {err}"))?;
     let status = response.status().as_u16();
     if status != health.status.get() {
-        return Err(format!("expected status {}, got {status}", health.status.get()));
+        return Err(format!(
+            "expected status {}, got {status}",
+            health.status.get()
+        ));
     }
     if let Some(needle) = &health.contains {
         let body = response

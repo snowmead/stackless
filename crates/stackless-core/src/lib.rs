@@ -7,10 +7,10 @@
 pub mod checkpoint;
 pub mod def;
 pub mod engine;
-pub mod host;
-pub mod names;
 pub mod fault;
+pub mod host;
 pub mod lockfile;
+pub mod names;
 pub mod process;
 pub mod state;
 pub mod substrate;

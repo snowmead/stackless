@@ -184,7 +184,10 @@ health = { path = "/" }
 "#,
         );
         let err = ServiceVercel::parse(&def, "web").unwrap_err();
-        assert_eq!(err.code(), stackless_core::fault::codes::VERCEL_CONFIG_INVALID);
+        assert_eq!(
+            err.code(),
+            stackless_core::fault::codes::VERCEL_CONFIG_INVALID
+        );
     }
 
     #[test]

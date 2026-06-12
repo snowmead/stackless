@@ -125,5 +125,3 @@ fn stale_foreign_host_holder_is_taken_over() {
     );
     store.claim_lock("demo", "down").unwrap();
 }
-
-

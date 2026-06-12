@@ -44,68 +44,70 @@ impl ServiceRender {
 impl<R: CommandRunner> RenderSubstrate<R> {
     /// Read and shape-check `[services.<service>.render]`.
     pub fn service_render(def: &StackDef, service: &str) -> Result<ServiceRender, RenderError> {
-    let location = format!("services.{service}.render");
-    let block = def
-        .services
-        .get(service)
-        .and_then(|spec| spec.substrates.get(SUBSTRATE_NAME))
-        .and_then(|value| value.as_table())
-        .ok_or_else(|| RenderError::ConfigInvalid {
-            location: location.clone(),
-            detail: "missing [services.X.render] block".into(),
-        })?;
-
-    // `static` and the web triple are mutually exclusive.
-    if let Some(static_value) = block.get("static") {
-        for key in block.keys() {
-            if !matches!(key.as_str(), "static" | "env") {
-                return Err(RenderError::ConfigInvalid {
-                    location: location.clone(),
-                    detail: format!("unknown key {key:?} alongside `static` (known: static, env)"),
-                });
-            }
-        }
-        let table = static_value
-            .as_table()
+        let location = format!("services.{service}.render");
+        let block = def
+            .services
+            .get(service)
+            .and_then(|spec| spec.substrates.get(SUBSTRATE_NAME))
+            .and_then(|value| value.as_table())
             .ok_or_else(|| RenderError::ConfigInvalid {
-                location: format!("{location}.static"),
-                detail: "must be a table { build, publish, spa_rewrite? }".into(),
-            })?;
-        for key in table.keys() {
-            if !matches!(key.as_str(), "build" | "publish" | "spa_rewrite") {
-                return Err(RenderError::ConfigInvalid {
-                    location: format!("{location}.static"),
-                    detail: format!("unknown key {key:?} (known: build, publish, spa_rewrite)"),
-                });
-            }
-        }
-        let build = required_str(table, "build", &format!("{location}.static"))?;
-        let publish = required_str(table, "publish", &format!("{location}.static"))?;
-        let spa_rewrite = match table.get("spa_rewrite") {
-            None => false,
-            Some(v) => v.as_bool().ok_or_else(|| RenderError::ConfigInvalid {
-                location: format!("{location}.static.spa_rewrite"),
-                detail: "must be a boolean".into(),
-            })?,
-        };
-        return Ok(ServiceRender::Static {
-            build,
-            publish,
-            spa_rewrite,
-        });
-    }
-
-    // Web service: runtime + build + start (+ optional env).
-    for key in block.keys() {
-        if !matches!(key.as_str(), "runtime" | "build" | "start" | "env") {
-            return Err(RenderError::ConfigInvalid {
                 location: location.clone(),
-                detail: format!(
-                    "unknown key {key:?} (known: runtime, build, start, env — or use `static`)"
-                ),
+                detail: "missing [services.X.render] block".into(),
+            })?;
+
+        // `static` and the web triple are mutually exclusive.
+        if let Some(static_value) = block.get("static") {
+            for key in block.keys() {
+                if !matches!(key.as_str(), "static" | "env") {
+                    return Err(RenderError::ConfigInvalid {
+                        location: location.clone(),
+                        detail: format!(
+                            "unknown key {key:?} alongside `static` (known: static, env)"
+                        ),
+                    });
+                }
+            }
+            let table = static_value
+                .as_table()
+                .ok_or_else(|| RenderError::ConfigInvalid {
+                    location: format!("{location}.static"),
+                    detail: "must be a table { build, publish, spa_rewrite? }".into(),
+                })?;
+            for key in table.keys() {
+                if !matches!(key.as_str(), "build" | "publish" | "spa_rewrite") {
+                    return Err(RenderError::ConfigInvalid {
+                        location: format!("{location}.static"),
+                        detail: format!("unknown key {key:?} (known: build, publish, spa_rewrite)"),
+                    });
+                }
+            }
+            let build = required_str(table, "build", &format!("{location}.static"))?;
+            let publish = required_str(table, "publish", &format!("{location}.static"))?;
+            let spa_rewrite = match table.get("spa_rewrite") {
+                None => false,
+                Some(v) => v.as_bool().ok_or_else(|| RenderError::ConfigInvalid {
+                    location: format!("{location}.static.spa_rewrite"),
+                    detail: "must be a boolean".into(),
+                })?,
+            };
+            return Ok(ServiceRender::Static {
+                build,
+                publish,
+                spa_rewrite,
             });
         }
-    }
+
+        // Web service: runtime + build + start (+ optional env).
+        for key in block.keys() {
+            if !matches!(key.as_str(), "runtime" | "build" | "start" | "env") {
+                return Err(RenderError::ConfigInvalid {
+                    location: location.clone(),
+                    detail: format!(
+                        "unknown key {key:?} (known: runtime, build, start, env — or use `static`)"
+                    ),
+                });
+            }
+        }
         Ok(ServiceRender::Web {
             runtime: required_str(block, "runtime", &location)?,
             build: required_str(block, "build", &location)?,

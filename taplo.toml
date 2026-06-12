@@ -1,0 +1,11 @@
+include = ["**/*.toml"]
+exclude = ["target/**", "**/target/**"]
+
+[formatting]
+# 4 spaces to match existing manifests in the tree
+indent_string       = "    "
+reorder_keys        = false  # do not fight deliberate grouping in Cargo.toml / deny.toml
+align_entries       = true
+allowed_blank_lines = 1
+array_auto_collapse = false
+# keep other defaults reasonable; can be tightened later

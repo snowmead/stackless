@@ -4,7 +4,7 @@
 
 use std::time::Duration;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::config::ServiceVercel;
 use crate::error::VercelError;
@@ -54,7 +54,11 @@ impl VercelApi {
         Self::with_base(token, team_id, DEFAULT_BASE)
     }
 
-    pub fn with_base(token: impl Into<String>, team_id: Option<String>, base: impl Into<String>) -> Self {
+    pub fn with_base(
+        token: impl Into<String>,
+        team_id: Option<String>,
+        base: impl Into<String>,
+    ) -> Self {
         Self {
             client: reqwest::Client::new(),
             base: base.into(),
@@ -97,11 +101,14 @@ impl VercelApi {
             detail: err.to_string(),
         })?;
         let status = response.status();
-        let text = response.text().await.map_err(|err| VercelError::ApiFailed {
-            method: method.to_string(),
-            path: path.to_owned(),
-            detail: err.to_string(),
-        })?;
+        let text = response
+            .text()
+            .await
+            .map_err(|err| VercelError::ApiFailed {
+                method: method.to_string(),
+                path: path.to_owned(),
+                detail: err.to_string(),
+            })?;
         if status.as_u16() == 404 {
             return Err(VercelError::ApiFailed {
                 method: method.to_string(),
@@ -130,7 +137,10 @@ impl VercelApi {
         })
     }
 
-    pub async fn find_project_by_name(&self, name: &str) -> Result<Option<VercelProject>, VercelError> {
+    pub async fn find_project_by_name(
+        &self,
+        name: &str,
+    ) -> Result<Option<VercelProject>, VercelError> {
         let path = match &self.team_id {
             Some(id) => format!(
                 "/v9/projects?teamId={}&search={}",
@@ -160,7 +170,10 @@ impl VercelApi {
         Ok(None)
     }
 
-    pub async fn get_project(&self, project_id: &str) -> Result<Option<VercelProject>, VercelError> {
+    pub async fn get_project(
+        &self,
+        project_id: &str,
+    ) -> Result<Option<VercelProject>, VercelError> {
         let path = format!("/v9/projects/{project_id}{}", self.team_query());
         match self.request(reqwest::Method::GET, &path, None).await {
             Ok(value) => {
@@ -245,15 +258,18 @@ impl VercelApi {
             body["projectSettings"] = Value::Object(project_settings);
         }
         let path = format!("/v13/deployments{}", self.team_query());
-        let deploy = self.request(reqwest::Method::POST, &path, Some(body)).await?;
-        let id = deploy
-            .get("id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| VercelError::ApiFailed {
-                method: "POST".into(),
-                path: path.clone(),
-                detail: "deployment response missing id".into(),
-            })?;
+        let deploy = self
+            .request(reqwest::Method::POST, &path, Some(body))
+            .await?;
+        let id =
+            deploy
+                .get("id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| VercelError::ApiFailed {
+                    method: "POST".into(),
+                    path: path.clone(),
+                    detail: "deployment response missing id".into(),
+                })?;
         let url = deploy
             .get("url")
             .and_then(Value::as_str)
@@ -272,7 +288,10 @@ impl VercelApi {
         })
     }
 
-    pub async fn get_deployment(&self, deployment_id: &str) -> Result<VercelDeployment, VercelError> {
+    pub async fn get_deployment(
+        &self,
+        deployment_id: &str,
+    ) -> Result<VercelDeployment, VercelError> {
         let path = format!("/v13/deployments/{deployment_id}{}", self.team_query());
         let deploy = self.request(reqwest::Method::GET, &path, None).await?;
         let id = deploy
@@ -322,7 +341,6 @@ impl VercelApi {
             tokio::time::sleep(self.poll_interval).await;
         }
     }
-
 }
 
 fn urlencode(value: &str) -> String {
@@ -371,7 +389,8 @@ mod tests {
             })))
             .mount(&server)
             .await;
-        let api = VercelApi::with_base("tok_test", None, &server.uri()).with_poll_interval(Duration::from_millis(1));
+        let api = VercelApi::with_base("tok_test", None, &server.uri())
+            .with_poll_interval(Duration::from_millis(1));
         let deploy = api
             .wait_for_deployment("api", "dpl_1", Duration::from_secs(1))
             .await

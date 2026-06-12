@@ -10,4 +10,4 @@ pub mod stripe;
 
 pub use error::ProjectsError;
 pub use project::recorded_project_id;
-pub use stripe::{CommandRunner, CommandOutput, StripeProjects, StripeResult, TokioRunner};
+pub use stripe::{CommandOutput, CommandRunner, StripeProjects, StripeResult, TokioRunner};

@@ -64,13 +64,8 @@ pub fn verify(name: &str, output: &Output) -> Result<(), CliError> {
             confirm_paid: false,
         },
     )?;
-    let namespace = provider.build_namespace(
-        &def,
-        name,
-        &checkpoints,
-        &secrets,
-        NamespacePurpose::Verify,
-    );
+    let namespace =
+        provider.build_namespace(&def, name, &checkpoints, &secrets, NamespacePurpose::Verify);
     let mut env = Vec::new();
     for (key, value) in &spec.env {
         let location = format!("stack.verify.env.{key}");
@@ -177,17 +172,11 @@ fn cloud_verify_source_dir(
     }
 
     let auth = stackless_local::git_auth::GitAuth::from_secrets(ctx.secrets);
-    let (path, commit) = stackless_local::materialize::Materializer::new(
-        &stackless_core::state::Store::state_dir(),
-    )
-    .with_auth(auth)
-    .materialize(
-        ctx.instance,
-        service,
-        &payload.repo,
-        &payload.reference,
-    )
-    .map_err(|err| local_fault(err, ctx.instance))?;
+    let (path, commit) =
+        stackless_local::materialize::Materializer::new(&stackless_core::state::Store::state_dir())
+            .with_auth(auth)
+            .materialize(ctx.instance, service, &payload.repo, &payload.reference)
+            .map_err(|err| local_fault(err, ctx.instance))?;
     if let Err(err) = run_setup(
         ctx.def,
         ctx.instance,
@@ -273,10 +262,7 @@ fn recorded_path(checkpoint: &Checkpoint) -> Option<PathBuf> {
 }
 
 fn local_fault(err: stackless_local::error::LocalError, instance: &str) -> CliError {
-    CliError::substrate(
-        SubstrateFault::from_fault(&err),
-        Some(instance.to_owned()),
-    )
+    CliError::substrate(SubstrateFault::from_fault(&err), Some(instance.to_owned()))
 }
 
 #[cfg(test)]

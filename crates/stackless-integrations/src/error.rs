@@ -8,9 +8,7 @@ pub enum IntegrationError {
     #[error("[{location}] is invalid: {detail}")]
     ConfigInvalid { location: String, detail: String },
 
-    #[error(
-        "integration provider {provider:?} is not supported on host {host:?}"
-    )]
+    #[error("integration provider {provider:?} is not supported on host {host:?}")]
     HostUnsupported { provider: String, host: Host },
 
     #[error("provisioning integration {integration:?} failed: {detail}")]

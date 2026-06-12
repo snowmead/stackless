@@ -159,7 +159,10 @@ mod tests {
 
     #[test]
     fn locked_instance_is_skipped() {
-        assert_eq!(ReapDecision::decide(100, true, None), ReapDecision::SkipLocked);
+        assert_eq!(
+            ReapDecision::decide(100, true, None),
+            ReapDecision::SkipLocked
+        );
     }
 
     #[test]

@@ -62,10 +62,7 @@ impl<'a> Materializer<'a> {
 
     /// `<state_root>/sources/<instance>/<service>` (§8).
     pub fn source_dir(&self, instance: &str, service: &str) -> PathBuf {
-        self.state_root
-            .join("sources")
-            .join(instance)
-            .join(service)
+        self.state_root.join("sources").join(instance).join(service)
     }
 
     fn cache_path(&self, repo: &str) -> PathBuf {
@@ -89,14 +86,15 @@ impl<'a> Materializer<'a> {
         let cache = self.cache_path(repo);
         let cache_repo = self.ensure_cache(repo, &cache)?;
         let commit_id = resolve_ref(&cache_repo, service, repo, reference)?;
-        let commit = cache_repo
-            .find_commit(commit_id)
-            .map_err(|err| LocalError::GitRefNotFound {
-                service: service.to_owned(),
-                repo: repo.to_owned(),
-                reference: reference.to_owned(),
-                detail: err.to_string(),
-            })?;
+        let commit =
+            cache_repo
+                .find_commit(commit_id)
+                .map_err(|err| LocalError::GitRefNotFound {
+                    service: service.to_owned(),
+                    repo: repo.to_owned(),
+                    reference: reference.to_owned(),
+                    detail: err.to_string(),
+                })?;
         let tree_id = commit
             .tree_id()
             .map_err(|err| checkout_err(service, &commit_id.to_string(), Path::new(""), &err))?
@@ -112,25 +110,27 @@ impl<'a> Materializer<'a> {
     /// `GitFetchFailed`; a clone failure as `GitCloneFailed`.
     fn ensure_cache(&self, repo: &str, cache: &Path) -> Result<gix::Repository, LocalError> {
         let lock_path = FileLock::git_cache_lock_path(&Materializer::cache_key(repo));
-        let _guard = FileLock::acquire_with_wait(&lock_path, GIT_CACHE_LOCK_BUDGET).map_err(|err| {
-            if cache.join("objects").is_dir() {
+        let _guard =
+            FileLock::acquire_with_wait(&lock_path, GIT_CACHE_LOCK_BUDGET).map_err(|err| {
+                if cache.join("objects").is_dir() {
+                    LocalError::GitFetchFailed {
+                        repo: repo.to_owned(),
+                        detail: format!("git cache lock: {err}"),
+                    }
+                } else {
+                    LocalError::GitCloneFailed {
+                        repo: repo.to_owned(),
+                        detail: format!("git cache lock: {err}"),
+                    }
+                }
+            })?;
+        if cache.join("objects").is_dir() {
+            let cache_repo = gix::open_opts(cache, gix_open_opts()).map_err(|err| {
                 LocalError::GitFetchFailed {
                     repo: repo.to_owned(),
-                    detail: format!("git cache lock: {err}"),
-                }
-            } else {
-                LocalError::GitCloneFailed {
-                    repo: repo.to_owned(),
-                    detail: format!("git cache lock: {err}"),
-                }
-            }
-        })?;
-        if cache.join("objects").is_dir() {
-            let cache_repo =
-                gix::open_opts(cache, gix_open_opts()).map_err(|err| LocalError::GitFetchFailed {
-                    repo: repo.to_owned(),
                     detail: err.to_string(),
-                })?;
+                }
+            })?;
             self.fetch_cache(repo, &cache_repo)?;
             return Ok(cache_repo);
         }

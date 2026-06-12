@@ -110,10 +110,9 @@ fn materialize_cache_checkout_reuse_and_refresh() {
     // (d) refresh-to-pinned-commit after the worktree was dirtied.
     std::fs::write(dest.join("README.md"), "DIRTY\n").unwrap();
     std::fs::remove_file(dest.join("second.txt")).unwrap();
-    let (dest_again, commit_again) =
-        materialize::Materializer::new(root)
-            .materialize("inst-a", "svc", &url, "main")
-            .expect("re-materialize");
+    let (dest_again, commit_again) = materialize::Materializer::new(root)
+        .materialize("inst-a", "svc", &url, "main")
+        .expect("re-materialize");
     assert_eq!(dest_again, dest);
     assert_eq!(commit_again, head);
     assert_eq!(
@@ -153,7 +152,7 @@ fn materialize_public_https() {
             "https://github.com/octocat/Hello-World",
             "master",
         )
-    .expect("clone a public repo over HTTPS");
+        .expect("clone a public repo over HTTPS");
     assert_eq!(commit.len(), 40, "resolved a full commit sha");
     assert!(dest.join("README").exists(), "checked out the repo");
 }

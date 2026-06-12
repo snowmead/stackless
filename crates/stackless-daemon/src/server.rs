@@ -59,7 +59,10 @@ pub async fn run() -> std::io::Result<()> {
     let proxy_state = state.clone();
     tokio::spawn(async move {
         if let Err(err) = proxy::serve(proxy_state, port).await {
-            eprintln!("stackless daemon: proxy failed to bind port {}: {err}", port.get());
+            eprintln!(
+                "stackless daemon: proxy failed to bind port {}: {err}",
+                port.get()
+            );
         }
     });
 

@@ -14,9 +14,9 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
-use stackless_core::def::{self, StackDef};
 use crate::error::CliError;
 use crate::output::Output;
+use stackless_core::def::{self, StackDef};
 
 #[derive(Parser)]
 #[command(name = "stackless", version, about = "Disposable software stacks")]
@@ -142,5 +142,3 @@ fn check(file: &PathBuf, substrate: Option<&str>, output: &Output) -> Result<(),
     output.check_ok(&def, &graph, substrate);
     Ok(())
 }
-
-
