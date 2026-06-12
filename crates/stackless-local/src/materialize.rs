@@ -11,8 +11,7 @@
 
 use std::path::{Path, PathBuf};
 
-use stackless_core::lockfile;
-use stackless_core::state::state_dir;
+use stackless_core::lockfile::FileLock;
 
 use crate::error::LocalError;
 
@@ -26,6 +25,7 @@ const GIT_CACHE_LOCK_BUDGET: std::time::Duration = std::time::Duration::from_sec
 const NO_PROMPT: &str = "credential.terminalPrompt=false";
 
 /// Source materialization scoped to a state root (§8).
+#[derive(Debug)]
 pub struct Materializer<'a> {
     state_root: &'a Path,
 }
@@ -98,43 +98,12 @@ impl<'a> Materializer<'a> {
     }
 }
 
-/// A filesystem-safe slug for a source URL.
-pub fn cache_key(repo: &str) -> String {
-    Materializer::cache_key(repo)
-}
-
-/// `state_dir()/sources/<instance>/<service>` (§8).
-pub fn source_dir(instance: &str, service: &str) -> PathBuf {
-    Materializer::new(&state_dir()).source_dir(instance, service)
-}
-
-/// Materialize under `state_dir()`.
-pub fn materialize(
-    instance: &str,
-    service: &str,
-    repo: &str,
-    reference: &str,
-) -> Result<(PathBuf, String), LocalError> {
-    Materializer::new(&state_dir()).materialize(instance, service, repo, reference)
-}
-
-/// Materialize under an explicit `state_root` (tests pass a tempdir).
-pub fn materialize_in(
-    state_root: &Path,
-    instance: &str,
-    service: &str,
-    repo: &str,
-    reference: &str,
-) -> Result<(PathBuf, String), LocalError> {
-    Materializer::new(state_root).materialize(instance, service, repo, reference)
-}
-
 /// Clone the bare cache if absent, else fetch the default remote to
 /// refresh it. A fetch failure (network, auth) surfaces as
 /// `GitFetchFailed`; a clone failure as `GitCloneFailed`.
 fn ensure_cache(repo: &str, cache: &Path) -> Result<gix::Repository, LocalError> {
-    let lock_path = lockfile::git_cache_lock_path(&cache_key(repo));
-    let _guard = lockfile::acquire_with_wait(&lock_path, GIT_CACHE_LOCK_BUDGET).map_err(|err| {
+    let lock_path = FileLock::git_cache_lock_path(&Materializer::cache_key(repo));
+    let _guard = FileLock::acquire_with_wait(&lock_path, GIT_CACHE_LOCK_BUDGET).map_err(|err| {
         if cache.join("objects").is_dir() {
             LocalError::GitFetchFailed {
                 repo: repo.to_owned(),

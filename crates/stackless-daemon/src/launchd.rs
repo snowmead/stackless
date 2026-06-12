@@ -11,14 +11,14 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use stackless_core::state::state_dir;
+use stackless_core::state::Store;
 
 pub const LABEL: &str = "dev.stackless.daemon";
 
 /// The one-line file `status`/`list` read: "registered" on success, the
 /// failure reason otherwise.
 pub fn persistence_status_path() -> PathBuf {
-    state_dir().join("daemon.persistence")
+    Store::state_dir().join("daemon.persistence")
 }
 
 fn plist_path() -> Option<PathBuf> {

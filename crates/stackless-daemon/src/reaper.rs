@@ -22,7 +22,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use stackless_core::state::{ReapDecision, Store, backoff_after, decide, state_dir};
+use stackless_core::state::{ReapAttempt, ReapDecision, Store};
 use tokio::time::{self, MissedTickBehavior};
 
 const TICK: Duration = Duration::from_secs(60);
@@ -73,7 +73,10 @@ fn plan_reaps() -> Vec<String> {
         .filter(|instance| {
             let lock_held = store.lock_holder_alive(instance).unwrap_or(false);
             let prior = store.reap_attempt(instance).ok().flatten();
-            matches!(decide(now, lock_held, prior.as_ref()), ReapDecision::Reap)
+            matches!(
+                ReapDecision::decide(now, lock_held, prior.as_ref()),
+                ReapDecision::Reap
+            )
         })
         .collect()
 }
@@ -100,7 +103,7 @@ fn record_outcome(instance: &str, outcome: Result<(), String>) {
             eprintln!(
                 "stackless reaper: reap of {instance:?} failed: {reason} \
                  (attempt {attempts}, retrying in {}s)",
-                backoff_after(attempts).as_secs()
+                ReapAttempt::backoff_after(attempts).as_secs()
             );
         }
     }
@@ -149,7 +152,7 @@ fn gc_tombstones(store: &Store) {
 }
 
 fn logs_dir(instance: &str) -> PathBuf {
-    state_dir().join("logs").join(instance)
+    Store::state_dir().join("logs").join(instance)
 }
 
 /// Re-exported so the daemon's startup pass can run one immediate reap
@@ -189,7 +192,7 @@ mod tests {
         assert!(lock_held);
         // The decision the per-tick logic makes: never reap mid-flight.
         assert_eq!(
-            decide(Store::now_secs(), lock_held, None),
+            ReapDecision::decide(Store::now_secs(), lock_held, None),
             ReapDecision::SkipLocked
         );
     }

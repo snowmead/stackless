@@ -3,12 +3,6 @@
 use super::error::DefError;
 use super::model::StackDef;
 
-/// Parse definition text. Syntax errors and schema mismatches are
-/// distinct codes: an agent fixes them differently.
-pub fn parse(text: &str) -> Result<StackDef, DefError> {
-    StackDef::parse(text)
-}
-
 impl StackDef {
     /// Parse definition text. Syntax errors and schema mismatches are
     /// distinct codes: an agent fixes them differently.

@@ -9,13 +9,13 @@ use std::time::Duration;
 
 use rustix::process::Signal;
 use stackless_core::process::ProcessStamp;
-use stackless_core::state::state_dir;
+use stackless_core::state::Store;
 use stackless_core::types::{Pid, TcpPort};
 
 use crate::error::LocalError;
 
 pub fn log_dir(instance: &str) -> PathBuf {
-    state_dir().join("logs").join(instance)
+    Store::state_dir().join("logs").join(instance)
 }
 
 pub fn log_path(instance: &str, service: &str) -> PathBuf {

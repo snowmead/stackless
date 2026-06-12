@@ -1054,7 +1054,7 @@ mod tests {
 
     #[test]
     fn resource_name_and_origin_are_dns_safe() {
-        let def = stackless_core::def::parse(
+        let def = StackDef::parse(
             "[stack]\nname=\"atto\"\n[services.api]\nsource={repo=\"r\",ref=\"main\"}\nenv={}\nhealth={path=\"/h\"}\n[services.api.render]\nruntime=\"rust\"\nbuild=\"b\"\nstart=\"s\"\n",
         )
         .unwrap();

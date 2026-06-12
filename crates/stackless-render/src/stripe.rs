@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use serde::Deserialize;
-use stackless_core::lockfile;
+
 
 use crate::error::RenderError;
 
@@ -67,8 +67,10 @@ impl CommandRunner for TokioRunner {
 }
 
 fn run_stripe_locked(args: &[String], cwd: &Path) -> Result<CommandOutput, RenderError> {
-    let lock_path = lockfile::stripe_lock_path(cwd);
-    let _guard = lockfile::acquire_with_wait(&lock_path, STRIPE_LOCK_BUDGET).map_err(|err| {
+    let lock_path = stackless_core::lockfile::FileLock::stripe_lock_path(cwd);
+    let _guard =
+        stackless_core::lockfile::FileLock::acquire_with_wait(&lock_path, STRIPE_LOCK_BUDGET)
+            .map_err(|err| {
         RenderError::StripeLockHeld {
             definition_dir: cwd.display().to_string(),
             detail: err.to_string(),

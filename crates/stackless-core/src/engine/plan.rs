@@ -59,13 +59,6 @@ impl Step {
     }
 }
 
-/// Expand the topological order into steps. Dependencies come first in
-/// the order, so per-node expansion preserves the §4 sequencing
-/// contract (a service's `prepare` runs after its datastores exist).
-pub fn plan(def: &StackDef) -> Result<Vec<Step>, DefError> {
-    def.plan()
-}
-
 impl StackDef {
     /// Expand the topological order into lifecycle steps.
     pub fn plan(&self) -> Result<Vec<Step>, DefError> {

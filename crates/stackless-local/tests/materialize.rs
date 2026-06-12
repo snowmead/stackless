@@ -59,7 +59,8 @@ fn materialize_cache_checkout_reuse_and_refresh() {
     let url = format!("file://{}", repo.display());
 
     // (a) cache clone from a local path URL, (b) checkout + detached HEAD.
-    let (dest, commit) = materialize::materialize_in(root, "inst-a", "svc", &url, "main")
+    let (dest, commit) = materialize::Materializer::new(root)
+        .materialize("inst-a", "svc", &url, "main")
         .expect("first materialize");
     assert_eq!(commit, head, "resolved the pinned commit");
     assert!(dest.join("README.md").exists(), "checkout produced files");
@@ -85,7 +86,8 @@ fn materialize_cache_checkout_reuse_and_refresh() {
         .unwrap();
 
     // (c) a second instance reuses the same cache — no re-clone.
-    let (dest_b, commit_b) = materialize::materialize_in(root, "inst-b", "svc", &url, "main")
+    let (dest_b, commit_b) = materialize::Materializer::new(root)
+        .materialize("inst-b", "svc", &url, "main")
         .expect("second materialize");
     assert_eq!(commit_b, head);
     assert!(dest_b.join("README.md").exists());
@@ -109,7 +111,9 @@ fn materialize_cache_checkout_reuse_and_refresh() {
     std::fs::write(dest.join("README.md"), "DIRTY\n").unwrap();
     std::fs::remove_file(dest.join("second.txt")).unwrap();
     let (dest_again, commit_again) =
-        materialize::materialize_in(root, "inst-a", "svc", &url, "main").expect("re-materialize");
+        materialize::Materializer::new(root)
+            .materialize("inst-a", "svc", &url, "main")
+            .expect("re-materialize");
     assert_eq!(dest_again, dest);
     assert_eq!(commit_again, head);
     assert_eq!(
@@ -130,7 +134,9 @@ fn materialize_cache_checkout_reuse_and_refresh() {
     materialize::destroy(&dest).unwrap(); // idempotent
 
     // A bad ref surfaces as a ref-not-found fault, not a panic.
-    let err = materialize::materialize_in(root, "inst-c", "svc", &url, "no-such-ref").unwrap_err();
+    let err = materialize::Materializer::new(root)
+        .materialize("inst-c", "svc", &url, "no-such-ref")
+        .unwrap_err();
     assert_eq!(err.code(), "local.git.ref_not_found");
 }
 
@@ -140,13 +146,13 @@ fn materialize_cache_checkout_reuse_and_refresh() {
 #[ignore = "requires network access to github.com"]
 fn materialize_public_https() {
     let state = tempfile::tempdir().unwrap();
-    let (dest, commit) = materialize::materialize_in(
-        state.path(),
-        "inst-https",
-        "hello",
-        "https://github.com/octocat/Hello-World",
-        "master",
-    )
+    let (dest, commit) = materialize::Materializer::new(state.path())
+        .materialize(
+            "inst-https",
+            "hello",
+            "https://github.com/octocat/Hello-World",
+            "master",
+        )
     .expect("clone a public repo over HTTPS");
     assert_eq!(commit.len(), 40, "resolved a full commit sha");
     assert!(dest.join("README").exists(), "checked out the repo");

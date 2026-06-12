@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use serde::Serialize;
-use stackless_core::def::{self, StackDef};
+use stackless_core::def::StackDef;
 use stackless_core::engine::{DownOutcome, Engine, UpRequest};
 use stackless_core::state::{InstanceRecord, InstanceStatus, Store};
 use stackless_core::substrate::Substrate;
@@ -264,7 +264,7 @@ pub fn status_report(
     store: &Store,
     record: &InstanceRecord,
 ) -> Result<InstanceStatusReport, CliError> {
-    let def = def::parse(&record.definition)?;
+    let def = StackDef::parse(&record.definition)?;
     let def_dir = if record.definition_dir.is_empty() {
         std::env::current_dir().unwrap_or_default()
     } else {
@@ -377,7 +377,7 @@ pub fn logs(
     let record = store
         .instance(name)?
         .ok_or_else(|| stackless_core::state::StateError::InstanceNotFound { name: name.into() })?;
-    let def = def::parse(&record.definition)?;
+    let def = StackDef::parse(&record.definition)?;
     let services: Vec<String> = match service {
         Some(one) => vec![one.to_owned()],
         None => def.services.keys().cloned().collect(),
@@ -415,8 +415,8 @@ pub fn logs(
 }
 
 pub fn parse_and_validate(text: &str) -> Result<StackDef, CliError> {
-    let def = def::parse(text)?;
-    def::validate(&def, KNOWN_SUBSTRATES)?;
+    let def = StackDef::parse(text)?;
+    def.validate(KNOWN_SUBSTRATES)?;
     Ok(def)
 }
 

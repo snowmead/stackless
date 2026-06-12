@@ -5,5 +5,5 @@ pub mod plan;
 pub mod run;
 
 pub use error::EngineError;
-pub use plan::{Step, StepKind, plan};
+pub use plan::{Step, StepKind};
 pub use run::{DownOutcome, Engine, UpOutcome, UpRequest};

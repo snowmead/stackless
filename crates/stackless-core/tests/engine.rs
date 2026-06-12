@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use stackless_core::def::{self, StackDef};
+use stackless_core::def::StackDef;
 use stackless_core::engine::{DownOutcome, Engine, UpRequest};
 use stackless_core::fault::{Fault, codes};
 use stackless_core::process::ProcessStamp;
@@ -38,8 +38,8 @@ health = { path = "/health", contains = "ok" }
 "#;
 
 fn parse_def() -> StackDef {
-    let def = def::parse(DEF_TEXT).unwrap();
-    def::validate(&def, &["mock"]).unwrap();
+    let def = StackDef::parse(DEF_TEXT).unwrap();
+    def.validate(&["mock"]).unwrap();
     def
 }
 

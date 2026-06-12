@@ -271,7 +271,8 @@ impl Substrate for LocalSubstrate {
                 // gix's blocking network/checkout work must not run on the
                 // async executor (mirrors run_hook's spawn_blocking).
                 let (path, commit) = tokio::task::spawn_blocking(move || {
-                    materialize::materialize(&instance, &service_owned, &repo, &reference)
+                    materialize::Materializer::new(&stackless_core::state::Store::state_dir())
+                        .materialize(&instance, &service_owned, &repo, &reference)
                 })
                 .await
                 .map_err(|err| SubstrateFault {

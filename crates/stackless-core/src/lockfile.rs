@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::process::ProcessStamp;
-use crate::state::state_dir;
+use crate::state::Store;
 use crate::types::{Pid, ProcessStartTime};
 
 const DEFAULT_POLL: Duration = Duration::from_millis(100);
@@ -102,14 +102,14 @@ impl FileLock {
 
     /// `{state_dir}/locks/stripe/{digest}.lock` for a definition dir.
     pub fn stripe_lock_path(definition_dir: &Path) -> PathBuf {
-        state_dir()
+        Store::state_dir()
             .join("locks/stripe")
             .join(format!("{}.lock", Self::path_key(definition_dir)))
     }
 
     /// `{state_dir}/locks/git-cache/{cache_key}.lock`.
     pub fn git_cache_lock_path(cache_key: &str) -> PathBuf {
-        state_dir()
+        Store::state_dir()
             .join("locks/git-cache")
             .join(format!("{cache_key}.lock"))
     }
@@ -123,32 +123,6 @@ pub enum LockError {
     CreateParent { path: PathBuf, detail: String },
 }
 
-/// Try once; returns [`LockError::Held`] if a live holder has the lock.
-pub fn try_acquire(path: &Path) -> Result<FileLock, LockError> {
-    FileLock::try_acquire(path)
-}
-
-/// Block until the lock is acquired, a stale holder is taken over, or
-/// `budget` elapses.
-pub fn acquire_with_wait(path: &Path, budget: Duration) -> Result<FileLock, LockError> {
-    FileLock::acquire_with_wait(path, budget)
-}
-
-/// Filesystem-safe digest of a path for lock file names.
-pub fn path_key(path: &Path) -> String {
-    FileLock::path_key(path)
-}
-
-/// `{state_dir}/locks/stripe/{digest}.lock` for a definition dir.
-pub fn stripe_lock_path(definition_dir: &Path) -> PathBuf {
-    FileLock::stripe_lock_path(definition_dir)
-}
-
-/// `{state_dir}/locks/git-cache/{cache_key}.lock`.
-pub fn git_cache_lock_path(cache_key: &str) -> PathBuf {
-    FileLock::git_cache_lock_path(cache_key)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -160,10 +134,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.lock");
 
-        let lock = try_acquire(&path).unwrap();
-        assert!(matches!(try_acquire(&path), Err(LockError::Held { .. })));
+        let lock = FileLock::try_acquire(&path).unwrap();
+        assert!(matches!(FileLock::try_acquire(&path), Err(LockError::Held { .. })));
         drop(lock);
-        assert!(try_acquire(&path).is_ok());
+        assert!(FileLock::try_acquire(&path).is_ok());
     }
 
     #[test]
@@ -177,7 +151,7 @@ mod tests {
             let start = Arc::clone(&start);
             handles.push(thread::spawn(move || {
                 start.wait();
-                let _lock = acquire_with_wait(
+                let _lock = FileLock::acquire_with_wait(
                     &dir.path().join("queue.lock"),
                     Duration::from_secs(5),
                 )

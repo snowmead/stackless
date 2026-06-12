@@ -328,7 +328,7 @@ mod tests {
     }
 
     fn test_def() -> StackDef {
-        stackless_core::def::parse(
+        StackDef::parse(
             r#"
 [stack]
 name = "atto"

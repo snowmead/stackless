@@ -16,15 +16,6 @@ const KNOWN_ENGINES: &[&str] = &["postgres"];
 const KNOWN_INTEGRATIONS: &[&str] = &["clerk"];
 const CLERK_OUTPUTS: &[&str] = &["secret_key", "publishable_key"];
 
-/// Validate the whole definition against the rules substrates share.
-///
-/// Per-substrate shape validation (does `[services.X.render]` carry what
-/// Render needs?) belongs to the substrate implementations; core checks
-/// here are substrate-blind.
-pub fn validate(def: &StackDef, known_substrates: &[&str]) -> Result<(), DefError> {
-    def.validate(known_substrates)
-}
-
 impl StackDef {
     /// Validate the whole definition against the rules substrates share.
     pub fn validate(&self, known_substrates: &[&str]) -> Result<(), DefError> {
@@ -113,13 +104,6 @@ fn validate_definition(def: &StackDef, known_substrates: &[&str]) -> Result<(), 
     }
 
     Ok(())
-}
-
-/// `up --on <s>` fails at validation if any service lacks the config
-/// that substrate requires (ARCHITECTURE.md §2). Core checks presence;
-/// the substrate's own validation checks shape.
-pub fn validate_for_substrate(def: &StackDef, substrate: &str) -> Result<(), DefError> {
-    def.validate_for_substrate(substrate)
 }
 
 fn validate_substrate_keys(

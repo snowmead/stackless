@@ -182,10 +182,10 @@ fn required_str(table: &toml::Table, key: &str, location: &str) -> Result<String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use stackless_core::def;
+
 
     fn parse(toml: &str) -> StackDef {
-        def::parse(toml).expect("valid base toml")
+        StackDef::parse(toml).expect("valid base toml")
     }
 
     #[test]

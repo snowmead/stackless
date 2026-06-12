@@ -4,7 +4,7 @@
 // Test helpers panic by design; the workspace denies apply to shipped code.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use stackless_core::def::{self, DefError, Namespace, Node};
+use stackless_core::def::{self, DefError, Namespace, Node, StackDef};
 use stackless_core::fault::{Fault, codes};
 
 const KNOWN_SUBSTRATES: &[&str] = &["local", "render"];
@@ -15,8 +15,8 @@ fn fixture(name: &str) -> String {
 }
 
 fn parse_valid(name: &str) -> def::StackDef {
-    let def = def::parse(&fixture(name)).unwrap_or_else(|err| panic!("parse {name}: {err}"));
-    def::validate(&def, KNOWN_SUBSTRATES).unwrap_or_else(|err| panic!("validate {name}: {err}"));
+    let def = StackDef::parse(&fixture(name)).unwrap_or_else(|err| panic!("parse {name}: {err}"));
+    def.validate(KNOWN_SUBSTRATES).unwrap_or_else(|err| panic!("validate {name}: {err}"));
     def
 }
 
@@ -130,15 +130,15 @@ fn atto_graph_orders_db_before_api_without_origin_cycles() {
 #[test]
 fn atto_validates_for_both_substrates() {
     let def = parse_valid("atto.toml");
-    def::validate_for_substrate(&def, "local").unwrap();
-    def::validate_for_substrate(&def, "render").unwrap();
+    def.validate_for_substrate("local").unwrap();
+    def.validate_for_substrate("render").unwrap();
 }
 
 #[test]
 fn minimal_lacks_render_config() {
     let def = parse_valid("minimal.toml");
-    def::validate_for_substrate(&def, "local").unwrap();
-    let err = def::validate_for_substrate(&def, "render").unwrap_err();
+    def.validate_for_substrate("local").unwrap();
+    let err = def.validate_for_substrate("render").unwrap_err();
     assert_eq!(err.code(), codes::DEF_SUBSTRATE_CONFIG_MISSING);
     assert!(!err.remediation().is_empty());
 }
@@ -177,7 +177,7 @@ fn api_env_resolves_against_a_namespace() {
 
 fn expect_invalid(name: &str, expected_code: &str) {
     let text = fixture(&format!("invalid/{name}"));
-    let result = def::parse(&text).and_then(|def| def::validate(&def, KNOWN_SUBSTRATES));
+    let result = StackDef::parse(&text).and_then(|def| def.validate(KNOWN_SUBSTRATES));
     let err = result.unwrap_err();
     assert_eq!(err.code(), expected_code, "fixture {name}: {err}");
     assert!(
@@ -208,13 +208,13 @@ source = { repo = "https://example.invalid/web", ref = "main" }
 [services.web.local]
 run = "true"
 "#;
-    let err = def::parse(text).unwrap_err();
+    let err = StackDef::parse(text).unwrap_err();
     assert_eq!(err.code(), codes::DEF_PARSE_SCHEMA);
 }
 
 #[test]
 fn toml_syntax_error_is_its_own_code() {
-    let err = def::parse("[stack\nname = ").unwrap_err();
+    let err = StackDef::parse("[stack\nname = ").unwrap_err();
     assert_eq!(err.code(), codes::DEF_PARSE_SYNTAX);
 }
 
@@ -231,7 +231,7 @@ health = { path = "/" }
 [services.web.local]
 run = "true"
 "#;
-    let err = def::parse(text).unwrap_err();
+    let err = StackDef::parse(text).unwrap_err();
     assert_eq!(err.code(), codes::DEF_PARSE_SCHEMA);
 }
 

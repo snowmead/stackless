@@ -9,8 +9,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use stackless_core::fault::{Fault, codes};
-use stackless_core::lockfile;
-use stackless_core::state::state_dir;
+use stackless_core::state::Store;
 
 use stackless_core::types::ProtocolVersion;
 
@@ -45,7 +44,7 @@ impl Fault for DaemonError {
                 std::env::current_exe()
                     .map(|p| p.display().to_string())
                     .unwrap_or_else(|_| "stackless".into()),
-                state_dir().display()
+                Store::state_dir().display()
             ),
             Self::Request { .. } => {
                 "re-run the command; the daemon may have been restarting".into()
@@ -173,7 +172,7 @@ fn spawn_daemon() -> Result<(), DaemonError> {
             detail: err.to_string(),
         })?;
     }
-    let _lock = match lockfile::try_acquire(&lock_path) {
+    let _lock = match stackless_core::lockfile::FileLock::try_acquire(&lock_path) {
         Ok(lock) => lock,
         // Someone else is spawning; wait for their daemon instead.
         Err(_) => return Ok(()),
@@ -188,7 +187,7 @@ fn spawn_daemon() -> Result<(), DaemonError> {
     let log = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(state_dir().join("daemon.log"))
+        .open(Store::state_dir().join("daemon.log"))
         .map_err(|err| DaemonError::Spawn {
             detail: err.to_string(),
         })?;
@@ -209,5 +208,5 @@ fn spawn_daemon() -> Result<(), DaemonError> {
 }
 
 fn spawn_lock_path() -> PathBuf {
-    state_dir().join("daemon.spawn.lock")
+    Store::state_dir().join("daemon.spawn.lock")
 }

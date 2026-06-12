@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use super::error::EngineError;
 
-use crate::def::{self, DefError, StackDef};
+use crate::def::{DefError, StackDef};
 use crate::state::{InstanceStatus, Store};
 use crate::substrate::{Observation, StepContext, Substrate};
 
@@ -64,7 +64,7 @@ impl Engine<'_> {
             }
             .into());
         }
-        def::validate_for_substrate(request.def, self.substrate.name())?;
+        request.def.validate_for_substrate(self.substrate.name())?;
         self.substrate
             .validate_definition(request.def)
             .map_err(|fault| EngineError::SubstrateValidation {

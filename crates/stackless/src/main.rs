@@ -14,7 +14,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
-use stackless_core::def;
+use stackless_core::def::{self, StackDef};
 
 use crate::error::CliError;
 use crate::output::Output;
@@ -143,10 +143,10 @@ fn check(file: &PathBuf, substrate: Option<&str>, output: &Output) -> Result<(),
         path: file.display().to_string(),
         source,
     })?;
-    let def = def::parse(&text)?;
-    def::validate(&def, KNOWN_SUBSTRATES)?;
+    let def = StackDef::parse(&text)?;
+    def.validate(KNOWN_SUBSTRATES)?;
     if let Some(substrate) = substrate {
-        def::validate_for_substrate(&def, substrate)?;
+        def.validate_for_substrate(substrate)?;
     }
     let graph = def::DependencyGraph::derive(&def)?;
     output.check_ok(&def, &graph, substrate);

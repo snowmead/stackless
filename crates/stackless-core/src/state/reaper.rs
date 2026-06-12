@@ -72,17 +72,6 @@ impl ReapDecision {
     }
 }
 
-/// Backoff delay after `attempts` consecutive failures: 60s, 120s,
-/// 240s, … capped at 1h.
-pub fn backoff_after(attempts: i64) -> Duration {
-    ReapAttempt::backoff_after(attempts)
-}
-
-/// The pure per-tick decision for one expired instance.
-pub fn decide(now: i64, lock_held: bool, prior: Option<&ReapAttempt>) -> ReapDecision {
-    ReapDecision::decide(now, lock_held, prior)
-}
-
 impl Store {
     /// Record a failed reap, advancing the backoff. `attempts`
     /// increments; `next_retry_at` is now + the doubled delay.
@@ -162,7 +151,7 @@ mod tests {
 
     #[test]
     fn unlocked_with_no_prior_is_reaped() {
-        assert_eq!(decide(100, false, None), ReapDecision::Reap);
+        assert_eq!(ReapDecision::decide(100, false, None), ReapDecision::Reap);
     }
 
     #[test]
@@ -174,7 +163,7 @@ mod tests {
             next_retry_at: 200,
         };
         assert_eq!(
-            decide(100, false, Some(&prior)),
+            ReapDecision::decide(100, false, Some(&prior)),
             ReapDecision::WaitBackoff { until: 200 }
         );
     }
@@ -187,14 +176,17 @@ mod tests {
             last_error: "boom".into(),
             next_retry_at: 50,
         };
-        assert_eq!(decide(100, false, Some(&prior)), ReapDecision::Reap);
+        assert_eq!(
+            ReapDecision::decide(100, false, Some(&prior)),
+            ReapDecision::Reap
+        );
     }
 
     #[test]
     fn backoff_doubles_and_caps() {
-        assert_eq!(backoff_after(1), Duration::from_secs(60));
-        assert_eq!(backoff_after(2), Duration::from_secs(120));
-        assert_eq!(backoff_after(3), Duration::from_secs(240));
-        assert_eq!(backoff_after(100), Duration::from_secs(3600));
+        assert_eq!(ReapAttempt::backoff_after(1), Duration::from_secs(60));
+        assert_eq!(ReapAttempt::backoff_after(2), Duration::from_secs(120));
+        assert_eq!(ReapAttempt::backoff_after(3), Duration::from_secs(240));
+        assert_eq!(ReapAttempt::backoff_after(100), Duration::from_secs(3600));
     }
 }

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use stackless_core::process::ProcessStamp;
-use stackless_core::state::state_dir;
+use stackless_core::state::Store;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 
@@ -16,7 +16,7 @@ use crate::rpc::{Envelope, Request, Response, ResponseBody, build_version};
 use crate::state::DaemonState;
 
 pub fn socket_path() -> PathBuf {
-    state_dir().join("daemon.sock")
+    Store::state_dir().join("daemon.sock")
 }
 
 /// Run the daemon until told to shut down. Returns once drained.

@@ -684,7 +684,4 @@ fn rusqlite_shim(e: libsql::Error) -> rusqlite::Error {
     )
 }
 
-/// `$XDG_STATE_HOME/stackless`, falling back to `~/.local/state/stackless`.
-pub fn state_dir() -> PathBuf {
-    Store::state_dir()
-}
+

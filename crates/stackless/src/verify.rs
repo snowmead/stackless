@@ -41,7 +41,7 @@ pub fn verify(name: &str, output: &Output) -> Result<(), CliError> {
     let record = store
         .instance(name)?
         .ok_or_else(|| stackless_core::state::StateError::InstanceNotFound { name: name.into() })?;
-    let def = def::parse(&record.definition)?;
+    let def = StackDef::parse(&record.definition)?;
     let Some(spec) = &def.stack.verify else {
         return Err(CliError::VerifyNotDeclared);
     };
@@ -172,7 +172,10 @@ fn render_verify_source_dir(
         }
     }
 
-    let (path, commit) = stackless_local::materialize::materialize(
+    let (path, commit) = stackless_local::materialize::Materializer::new(
+        &stackless_core::state::Store::state_dir(),
+    )
+    .materialize(
         ctx.instance,
         service,
         &payload.repo,
@@ -278,7 +281,7 @@ mod tests {
     use stackless_core::fault::Fault;
 
     fn parse_def() -> StackDef {
-        def::parse(
+        StackDef::parse(
             r#"
 [stack]
 name = "atto"
