@@ -5,7 +5,7 @@
 //! Projects CLI and the Render REST API both flatten into this enum so
 //! the agent-facing contract crosses the substrate boundary intact.
 
-use stackless_core::fault::{Fault, codes};
+use stackless_core::fault::{ErrorContext, Fault, codes};
 
 #[derive(Debug, thiserror::Error)]
 pub enum RenderError {
@@ -62,8 +62,13 @@ pub enum RenderError {
         budget_secs: u64,
     },
 
-    #[error("prepare for {service:?} failed: {detail}")]
-    PrepareFailed { service: String, detail: String },
+    #[error("prepare for {service:?} failed: {message}")]
+    PrepareFailed {
+        service: String,
+        command: Option<String>,
+        message: String,
+        log_tail: Option<String>,
+    },
 
     #[error("{resource:?} still exists on Render after teardown (it bills until removed)")]
     TeardownSurvivor { resource: String },
@@ -145,13 +150,31 @@ impl Fault for RenderError {
                 "`stackless logs <name> {service}` shows the service's output; fix and re-run `up`"
             ),
             Self::PrepareFailed { service, .. } => format!(
-                "run the {service} prepare command by hand against the external DB url and fix \
-                 what it reports, then re-run `up`"
+                "`stackless logs <name> {service}`; inspect context.log_tail; run the prepare \
+                 command by hand against the external DB url; re-run `stackless up <name>`"
             ),
             Self::TeardownSurvivor { resource } => format!(
                 "delete {resource} in the Render dashboard (dashboard.render.com) to stop billing, \
                  then re-run `down`"
             ),
+        }
+    }
+
+    fn context(&self) -> ErrorContext {
+        match self {
+            Self::PrepareFailed {
+                service,
+                command,
+                log_tail,
+                ..
+            } => ErrorContext {
+                service: Some(service.clone()),
+                command: command.clone(),
+                log_hint: Some(format!("stackless logs <name> {service}")),
+                log_tail: log_tail.clone(),
+                ..ErrorContext::default()
+            },
+            _ => ErrorContext::default(),
         }
     }
 }

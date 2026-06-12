@@ -2,8 +2,10 @@
 
 pub mod error;
 pub mod plan;
+pub mod progress;
 pub mod run;
 
 pub use error::EngineError;
 pub use plan::{Step, StepKind};
+pub use progress::{NullProgress, ProgressSink, StepProgress, StepProgressEvent};
 pub use run::{DownOutcome, Engine, UpOutcome, UpRequest};

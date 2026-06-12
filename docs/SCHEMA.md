@@ -9,8 +9,9 @@ machine-readable codes (listed throughout) plus a remediation.
 
 A definition lives at the repo root as `stackless.toml`. One file is
 enough: a stranger (or an agent) holding only a repo with this file
-can run `stackless up <name>` and get a working, isolated copy of the
-product.
+can run `stackless up --name <name> --on local` (or omit `--name` for
+an auto-assigned `{stack.name}-{uuid}`) and get a working, isolated
+copy of the product.
 
 ## Minimal valid definition
 

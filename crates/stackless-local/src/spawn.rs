@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rustix::process::Signal;
+use stackless_core::fault::FAILURE_LOG_TAIL_LINES;
 use stackless_core::process::ProcessStamp;
 use stackless_core::state::Store;
 use stackless_core::types::{Pid, TcpPort};
@@ -81,6 +82,7 @@ impl<'a> Spawner<'a> {
             path: self.log_path(service).display().to_string(),
             source,
         })?;
+        let log_path = self.log_path(service).display().to_string();
         let child = std::process::Command::new("/bin/sh")
             .args(["-c", &format!("exec {command}")])
             .current_dir(dir)
@@ -95,12 +97,14 @@ impl<'a> Spawner<'a> {
                 service: service.to_owned(),
                 command: command.to_owned(),
                 detail: err.to_string(),
+                log_path: Some(log_path.clone()),
             })?;
         let pid = child.id();
         ProcessStamp::of(pid).ok_or_else(|| LocalError::SpawnFailed {
             service: service.to_owned(),
             command: command.to_owned(),
             detail: "process exited before it could be stamped".into(),
+            log_path: Some(log_path),
         })
     }
 
@@ -132,13 +136,19 @@ impl<'a> Spawner<'a> {
                 service: service.to_owned(),
                 command: command.to_owned(),
                 detail: err.to_string(),
+                log_path: Some(self.log_path(service).display().to_string()),
             })?;
         if !status.success() {
             return Err(LocalError::HookFailed {
                 service: service.to_owned(),
                 hook,
                 status: status.to_string(),
-                tail: self.log_tail(service, 20),
+                command: Box::from(command),
+                source_dir: Box::from(dir.display().to_string()),
+                log_path: Box::from(self.log_path(service).display().to_string()),
+                tail: self
+                    .log_tail(service, FAILURE_LOG_TAIL_LINES)
+                    .into_boxed_str(),
             });
         }
         Ok(())

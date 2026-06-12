@@ -6,6 +6,7 @@
 use std::time::{Duration, Instant};
 
 use stackless_core::def::Health;
+use stackless_core::fault::FAILURE_LOG_TAIL_LINES;
 use stackless_core::process::ProcessStamp;
 use stackless_core::types::TcpPort;
 
@@ -26,6 +27,8 @@ pub async fn wait_healthy(
     health: &Health,
     process: ProcessStamp,
 ) -> Result<(), LocalError> {
+    let spawner = Spawner::new(instance);
+    let log_path = spawner.log_path(service).display().to_string();
     let url = format!("http://127.0.0.1:{}{}", proxy_port.get(), health.path);
     let client = reqwest::Client::new();
     let deadline = Instant::now() + HEALTH_BUDGET;
@@ -34,7 +37,10 @@ pub async fn wait_healthy(
         if !process.is_alive() {
             return Err(LocalError::ServiceDied {
                 service: service.to_owned(),
-                tail: Spawner::new(instance).log_tail(service, 25),
+                log_path: log_path.clone(),
+                tail: spawner
+                    .log_tail(service, FAILURE_LOG_TAIL_LINES)
+                    .into_boxed_str(),
             });
         }
         match probe(&client, &url, host, health).await {
@@ -48,6 +54,10 @@ pub async fn wait_healthy(
         url: format!("http://{host}:{}{}", proxy_port.get(), health.path),
         detail: last_detail,
         budget_secs: HEALTH_BUDGET.as_secs(),
+        log_path,
+        tail: spawner
+            .log_tail(service, FAILURE_LOG_TAIL_LINES)
+            .into_boxed_str(),
     })
 }
 

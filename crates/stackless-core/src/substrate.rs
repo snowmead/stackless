@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use crate::def::{Namespace, StackDef};
 use crate::engine::Step;
-use crate::fault::Fault;
+use crate::fault::{ErrorContext, Fault};
 use crate::state::Checkpoint;
 
 /// A substrate failure, flattened at the trait boundary so the §2
@@ -24,6 +24,7 @@ pub struct SubstrateFault {
     pub code: &'static str,
     pub message: String,
     pub remediation: String,
+    pub context: Box<ErrorContext>,
 }
 
 impl SubstrateFault {
@@ -32,6 +33,7 @@ impl SubstrateFault {
             code: fault.code(),
             message: fault.to_string(),
             remediation: fault.remediation(),
+            context: Box::new(fault.context()),
         }
     }
 }
@@ -43,6 +45,10 @@ impl Fault for SubstrateFault {
 
     fn remediation(&self) -> String {
         self.remediation.clone()
+    }
+
+    fn context(&self) -> ErrorContext {
+        self.context.as_ref().clone()
     }
 }
 

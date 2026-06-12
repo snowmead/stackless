@@ -91,7 +91,7 @@ enum Command {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    let output = Output::new(cli.json);
+    let mut output = Output::new(cli.json);
     let result = match cli.command {
         Command::Up {
             name,
@@ -109,7 +109,7 @@ fn main() -> ExitCode {
                 lease,
                 confirm_paid,
             },
-            &output,
+            &mut output,
         ),
         Command::Down { name } => commands::down(&name, &output),
         Command::Verify { name } => verify::verify(&name, &output),

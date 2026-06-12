@@ -7,6 +7,23 @@
 
 use serde::Serialize;
 
+/// Lines of captured output included in failure context (hooks, health,
+/// prepare). Aligns with `stackless logs --tail` defaults for operators.
+pub const FAILURE_LOG_TAIL_LINES: usize = 80;
+
+/// Factual observables agents use to locate and inspect a failure.
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+pub struct ErrorContext {
+    pub service: Option<String>,
+    pub hook: Option<String>,
+    pub command: Option<String>,
+    pub source_dir: Option<String>,
+    pub log_path: Option<String>,
+    pub log_hint: Option<String>,
+    pub exit_status: Option<String>,
+    pub log_tail: Option<String>,
+}
+
 /// Stable machine-readable error codes.
 ///
 /// Codes are versioned API surface: renaming one is a breaking change
@@ -192,11 +209,16 @@ pub trait Fault: std::error::Error {
     fn instance(&self) -> Option<&str> {
         None
     }
+    /// Structured observables for agents (`command`, `log_path`, `log_tail`, …).
+    fn context(&self) -> ErrorContext {
+        ErrorContext::default()
+    }
 }
 
 /// The serialized error shape agents consume in `--json` mode.
 #[derive(Debug, Serialize)]
 pub struct Report {
+    pub schema_version: u32,
     pub code: &'static str,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -204,28 +226,58 @@ pub struct Report {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instance: Option<String>,
     pub remediation: String,
+    pub context: ErrorContext,
 }
 
 impl Report {
     pub fn from_fault(fault: &dyn Fault) -> Self {
         Self {
+            schema_version: 1,
             code: fault.code(),
             message: fault.to_string(),
             step: fault.step().map(str::to_owned),
             instance: fault.instance().map(str::to_owned),
             remediation: fault.remediation(),
+            context: fault.context(),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::codes;
+    use super::{ErrorContext, Report, codes};
+    use crate::substrate::SubstrateFault;
     use std::collections::BTreeSet;
 
     #[test]
     fn codes_are_unique() {
         let set: BTreeSet<_> = codes::ALL.iter().collect();
         assert_eq!(set.len(), codes::ALL.len());
+    }
+
+    #[test]
+    fn report_serializes_schema_version_and_context() {
+        let fault = SubstrateFault {
+            code: codes::LOCAL_HOOK_FAILED,
+            message: "setup hook exited with exit status: 1".into(),
+            remediation: "re-run up".into(),
+            context: Box::new(ErrorContext {
+                service: Some("web".into()),
+                hook: Some("setup".into()),
+                command: Some("mise install".into()),
+                source_dir: Some("/tmp/web".into()),
+                log_path: Some("/tmp/logs/web.log".into()),
+                exit_status: Some("exit status: 1".into()),
+                log_tail: Some("error: trust denied".into()),
+                ..ErrorContext::default()
+            }),
+        };
+        let report = Report::from_fault(&fault);
+        assert_eq!(report.schema_version, 1);
+        assert_eq!(report.context.service.as_deref(), Some("web"));
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(json["schema_version"], 1);
+        assert_eq!(json["context"]["command"], "mise install");
+        assert_eq!(json["context"]["log_tail"], "error: trust denied");
     }
 }

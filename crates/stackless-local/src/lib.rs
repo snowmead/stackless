@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)] // HookFailed carries agent telemetry fields.
+
 //! stackless-local (ARCHITECTURE.md §3): the local substrate — app
 //! services as host processes, datastores as containers (M5), wiring
 //! through the built-in proxy.
@@ -325,6 +327,7 @@ impl Substrate for LocalSubstrate {
                         code: stackless_core::fault::codes::LOCAL_DATASTORE_FAILED,
                         message: format!("datastore {datastore:?} is not in the definition"),
                         remediation: "re-run `up`; if it persists this is a stackless bug".into(),
+                        context: Box::default(),
                     });
                 };
                 let provisioned = ContainerRunner::connect()
@@ -396,6 +399,7 @@ impl Substrate for LocalSubstrate {
                     code: stackless_core::fault::codes::LOCAL_GIT_CHECKOUT_FAILED,
                     message: format!("materialize task panicked: {err}"),
                     remediation: "re-run `up`".into(),
+                    context: Box::default(),
                 })?
                 .map_err(fault)?;
                 let payload = MaterializePayload {
@@ -430,6 +434,7 @@ impl Substrate for LocalSubstrate {
                     code: stackless_core::fault::codes::LOCAL_HOOK_FAILED,
                     message: format!("{hook} hook task panicked: {err}"),
                     remediation: "re-run `up`".into(),
+                    context: Box::default(),
                 })?
                 .map_err(fault)?;
                 Ok(action_resource(&ctx.step.id))
@@ -502,6 +507,7 @@ impl Substrate for LocalSubstrate {
                         code: stackless_core::fault::codes::LOCAL_HEALTH_FAILED,
                         message: format!("{service:?} has no recorded start to health-check"),
                         remediation: "re-run `up`".into(),
+                        context: Box::default(),
                     });
                 };
                 let host = start
@@ -656,6 +662,7 @@ impl Substrate for LocalSubstrate {
                             code: stackless_core::fault::codes::LOCAL_KILL_FAILED,
                             message: format!("unreadable start payload: {err}"),
                             remediation: "kill the process by hand and re-run `down`".into(),
+                            context: Box::default(),
                         }
                     })?;
                 spawn::kill_group(ProcessStamp {
@@ -683,6 +690,7 @@ impl Substrate for LocalSubstrate {
                             code: stackless_core::fault::codes::LOCAL_GIT_CHECKOUT_FAILED,
                             message: format!("cannot remove source checkout {path}: {err}"),
                             remediation: format!("remove {path} by hand and re-run `down`"),
+                            context: Box::default(),
                         }
                     })?;
                 }

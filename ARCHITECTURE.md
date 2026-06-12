@@ -201,15 +201,17 @@ block, but worth saying out loud.
 Decided (generalized from `cloud-env.ts`'s manifest model and the
 vision's invariants; flag anything to veto):
 
-- **Verbs.** `stackless up <name>`, `down <name>`, `verify <name>`,
-  `status <name>`, `list`, `logs <name>` (locally the daemon captures
-  service output per instance; on Render it fetches recent per-service
-  logs through the Render REST API's logs endpoint — recent window, no
-  streaming in v0; agents need it to debug a failed health gate, which
-  bites hardest on slow cloud deploys). `up` on an existing instance
-  resumes it (invariant 3) — there is no separate resume verb. **The
-  substrate is chosen at creation only** (`--on local|render`, required
-  on first `up` for a name), becomes part of the instance's
+- **Verbs.** `stackless up [--name <name>]`, `down <name>`, `verify
+  <name>`, `status <name>`, `list`, `logs <name>` (locally the daemon
+  captures service output per instance; on Render it fetches recent
+  per-service logs through the Render REST API's logs endpoint — recent
+  window, no streaming in v0; agents need it to debug a failed health
+  gate, which bites hardest on slow cloud deploys). `up` on an existing
+  instance resumes it (invariant 3) — there is no separate resume
+  verb. **`--name` is optional at creation** (`{stack.name}-{uuid}`
+  when omitted); resume needs only `--name`. **The substrate is chosen
+  at creation only** (`--on local|render`, required on first `up` for
+  a name), becomes part of the instance's
   identity in the state store, and is never asked for again —
   `verify`/`down`/`status` resolve it by name. Names are unique across
   substrates: creating `demo` on Render while a local `demo` exists is
@@ -244,16 +246,22 @@ vision's invariants; flag anything to veto):
   primary users, so every error stackless emits carries three parts:
   *what* failed (the step and instance), *why* (the observed cause,
   not a guess), and *how to proceed* (a concrete command, flag, or
-  fix). In `--json` mode errors serialize as structured objects with a
-  **stable machine-readable code** alongside the human message —
-  agents branch on codes, never parse prose (the lesson of
-  `cloud-env.ts` branching on the Stripe plugin's
+  fix). In `--json` mode errors serialize as structured objects with
+  `schema_version`, a **stable machine-readable code**, optional `step`
+  and `instance`, a `context` object (service, hook, command,
+  log_path, log_tail, … — only fields with observables), and
+  `remediation` — agents branch on codes, never parse prose (the
+  lesson of `cloud-env.ts` branching on the Stripe plugin's
   `JSON_REQUIRES_CONFIRMATION`-style codes). Codes are versioned API
-  surface: renaming one is a breaking change.
-- **Identity.** The instance name is given at creation, validated
-  against a DNS-safe pattern (it becomes hostnames and cloud service
-  names — same constraint `cloud-env.ts` enforces), and persisted in
-  the instance manifest. Nothing is ever re-derived from the working
+  surface: renaming one is a breaking change. **stdout** carries
+  final success/failure envelopes; **stderr** carries NDJSON `up`
+  progress (`step_started`/`step_skipped`/`step_completed`/`step_failed`)
+  in `--json` mode so stdout stays parseable.
+- **Identity.** The instance name is given at creation (`--name`, or
+  auto-assigned `{stack.name}-{uuid}` when omitted), validated against
+  a DNS-safe pattern (it becomes hostnames and cloud service names —
+  same constraint `cloud-env.ts` enforces), and persisted in the
+  instance manifest. Nothing is ever re-derived from the working
   directory or other ambient context at runtime (invariant 1 — the
   lesson of `.atto-env`'s guard rails).
 - **State: a SQL state store.** Instance records, leases, operation
@@ -556,16 +564,16 @@ Workspace-wide conventions:
   failed step/instance context, and a remediation, all the way from
   where it occurs to where it's serialized — an opaque boxed error
   can't. Each crate defines its own error types; the CLI layer maps
-  them onto the agent-facing `{code, message, step, instance,
-  remediation}` shape and exit codes. A new error variant is only
-  complete when its remediation text says what the operator should
-  actually do.
+  them onto the agent-facing `{schema_version, code, message, step,
+  instance, context, remediation}` shape and exit codes. A new error
+  variant is only complete when its remediation text says what the
+  operator should actually do.
 
 - **`stackless-core`** — the definition model (serde + validation,
-  interpolation, the derived dependency graph), the Turso-backed state
-  store (instance records, leases, operation locks, checkpoint
-  journal; local file via the `turso` crate by default, `libsql`
-  remote mode for the opt-in fleet plane — §2), and the lifecycle
+  interpolation, the derived dependency graph), the SQL state store
+  (instance records, leases, operation locks, checkpoint journal;
+  local file via `rusqlite` — bundled SQLite, WAL; `libsql` remote
+  mode for the opt-in fleet plane — §2), and the lifecycle
   engine: plan steps, checkpoint, reconcile recorded state against
   observation. The engine is shared by `up`, resume, daemon adoption,
   and the reaper — they are the same machinery. Defines the

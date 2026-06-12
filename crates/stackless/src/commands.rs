@@ -198,7 +198,7 @@ fn resolve_up_context(
     }
 }
 
-pub fn up(args: UpArgs, output: &Output) -> Result<(), CliError> {
+pub fn up(args: UpArgs, output: &mut Output) -> Result<(), CliError> {
     let store = open_store()?;
     let (name, text, def, existing) = resolve_up_context(&store, &args)?;
     let substrate_name = match existing.as_ref() {
@@ -257,6 +257,7 @@ pub fn up(args: UpArgs, output: &Output) -> Result<(), CliError> {
         source_overrides: overrides,
         definition_dir: def_dir.display().to_string(),
         lease,
+        progress: Some(output),
     }))?;
 
     let origins: Vec<(String, String)> = def
@@ -447,6 +448,8 @@ pub fn logs(
     tail: usize,
     output: &Output,
 ) -> Result<(), CliError> {
+    use crate::output::LogService;
+
     let store = open_store()?;
     let record = store
         .instance(name)?
@@ -456,34 +459,73 @@ pub fn logs(
         Some(one) => vec![one.to_owned()],
         None => def.services.keys().cloned().collect(),
     };
+    let mut entries = Vec::new();
     // On render the daemon never saw these processes — fetch recent logs
     // through the Render REST API (§2: recent window, no streaming).
     if record.substrate.as_str() == RENDER {
         let dir = PathBuf::from(&record.definition_dir);
         let rt = runtime()?;
         for service in &services {
-            output.message(&format!("── {service} ──"));
             let lines = rt
                 .block_on(stackless_render::fetch_logs(
                     &dir, &def, name, service, tail,
                 ))
-                .map_err(|err| stackless_core::substrate::SubstrateFault::from_fault(&err))?;
-            if lines.is_empty() {
-                output.message("(no output captured)");
+                .map_err(|err| {
+                    CliError::substrate(
+                        stackless_core::substrate::SubstrateFault::from_fault(&err),
+                        Some(name.to_owned()),
+                    )
+                })?;
+            if output.is_json() {
+                entries.push(LogService {
+                    service,
+                    source: "render_api",
+                    log_path: None,
+                    lines: if lines.is_empty() {
+                        vec![]
+                    } else {
+                        lines
+                    },
+                });
             } else {
-                output.message(&lines.join("\n"));
+                output.message(&format!("── {service} ──"));
+                if lines.is_empty() {
+                    output.message("(no output captured)");
+                } else {
+                    output.message(&lines.join("\n"));
+                }
             }
+        }
+        if output.is_json() {
+            output.logs_json(name, &entries);
         }
         return Ok(());
     }
+    let spawner = stackless_local::spawn::Spawner::new(name);
     for service in &services {
-        let tail_text = stackless_local::spawn::Spawner::new(name).log_tail(service, tail);
-        output.message(&format!("── {service} ──"));
-        if tail_text.is_empty() {
-            output.message("(no output captured)");
+        let tail_text = spawner.log_tail(service, tail);
+        if output.is_json() {
+            entries.push(LogService {
+                service,
+                source: "file",
+                log_path: Some(spawner.log_path(service).display().to_string()),
+                lines: if tail_text.is_empty() {
+                    vec![]
+                } else {
+                    tail_text.lines().map(str::to_owned).collect()
+                },
+            });
         } else {
-            output.message(&tail_text);
+            output.message(&format!("── {service} ──"));
+            if tail_text.is_empty() {
+                output.message("(no output captured)");
+            } else {
+                output.message(&tail_text);
+            }
         }
+    }
+    if output.is_json() {
+        output.logs_json(name, &entries);
     }
     Ok(())
 }

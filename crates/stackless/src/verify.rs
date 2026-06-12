@@ -183,7 +183,7 @@ fn render_verify_source_dir(
         &payload.repo,
         &payload.reference,
     )
-    .map_err(local_fault)?;
+    .map_err(|err| local_fault(err, ctx.instance))?;
     if let Err(err) = run_setup(
         ctx.def,
         ctx.instance,
@@ -236,7 +236,7 @@ fn run_setup(
     )?;
     stackless_local::spawn::Spawner::new(instance)
         .run_hook(service, "setup", command, dir, &env)
-        .map_err(local_fault)
+        .map_err(|err| local_fault(err, instance))
 }
 
 fn service_env(
@@ -272,8 +272,11 @@ fn recorded_path(checkpoint: &Checkpoint) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-fn local_fault(err: stackless_local::error::LocalError) -> CliError {
-    CliError::Substrate(SubstrateFault::from_fault(&err))
+fn local_fault(err: stackless_local::error::LocalError, instance: &str) -> CliError {
+    CliError::substrate(
+        SubstrateFault::from_fault(&err),
+        Some(instance.to_owned()),
+    )
 }
 
 #[cfg(test)]

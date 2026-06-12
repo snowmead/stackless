@@ -520,7 +520,9 @@ impl<R: CommandRunner> RenderSubstrate<R> {
         let raw = spec.effective_env(service, SUBSTRATE_NAME).map_err(|err| {
             fault(RenderError::PrepareFailed {
                 service: service.to_owned(),
-                detail: err.to_string(),
+                command: Some(command.clone()),
+                message: err.to_string(),
+                log_tail: None,
             })
         })?;
         let mut env: Vec<(String, String)> = Vec::new();
@@ -530,7 +532,9 @@ impl<R: CommandRunner> RenderSubstrate<R> {
                 .map_err(|err| {
                     fault(RenderError::PrepareFailed {
                         service: service.to_owned(),
-                        detail: err.to_string(),
+                        command: Some(command.clone()),
+                        message: err.to_string(),
+                        log_tail: None,
                     })
                 })?;
             env.push((key.clone(), value));
@@ -544,14 +548,23 @@ impl<R: CommandRunner> RenderSubstrate<R> {
         let repo = spec.source.repo.clone();
         let reference = spec.source.reference.clone();
         let service_owned = service.to_owned();
+        let command_for_task = command.clone();
         tokio::task::spawn_blocking(move || {
-            project::run_prepare_command(&service_owned, &repo, &reference, &command, &env)
+            project::run_prepare_command(
+                &service_owned,
+                &repo,
+                &reference,
+                &command_for_task,
+                &env,
+            )
         })
         .await
         .map_err(|err| {
             fault(RenderError::PrepareFailed {
                 service: service.to_owned(),
-                detail: format!("prepare task panicked: {err}"),
+                command: Some(command),
+                message: format!("prepare task panicked: {err}"),
+                log_tail: None,
             })
         })?
         .map_err(fault)
@@ -966,6 +979,7 @@ fn destroy_source_ref(path: &str) -> Result<(), SubstrateFault> {
             code: stackless_core::fault::codes::LOCAL_GIT_CHECKOUT_FAILED,
             message: format!("cannot remove verify checkout {path}: {err}"),
             remediation: format!("remove {path} by hand, then re-run `stackless down`"),
+            context: Box::default(),
         }),
     }
 }

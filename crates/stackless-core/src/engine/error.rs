@@ -3,7 +3,7 @@
 //! contract requires.
 
 use crate::def::DefError;
-use crate::fault::{Fault, codes};
+use crate::fault::{ErrorContext, Fault, codes};
 use crate::state::StateError;
 use crate::substrate::SubstrateFault;
 
@@ -116,6 +116,15 @@ impl Fault for EngineError {
             | Self::Step { instance, .. }
             | Self::TeardownSurvivors { instance, .. } => Some(instance),
             _ => None,
+        }
+    }
+
+    fn context(&self) -> ErrorContext {
+        match self {
+            Self::Step { fault, .. } | Self::SubstrateValidation { fault, .. } => {
+                fault.context.as_ref().clone()
+            }
+            _ => ErrorContext::default(),
         }
     }
 }

@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 use stackless_core::def::StackDef;
+use stackless_core::fault::FAILURE_LOG_TAIL_LINES;
 
 
 use crate::RenderSubstrate;
@@ -424,9 +425,11 @@ pub fn run_prepare_command(
     command: &str,
     env: &[(String, String)],
 ) -> Result<(), RenderError> {
-    let tmp = tempdir().map_err(|detail| RenderError::PrepareFailed {
+    let tmp = tempdir().map_err(|message| RenderError::PrepareFailed {
         service: service.to_owned(),
-        detail,
+        command: Some(command.to_owned()),
+        message,
+        log_tail: None,
     })?;
     let result = (|| {
         // git clone --depth 1 --branch <ref> <repo> <tmp>
@@ -444,15 +447,16 @@ pub fn run_prepare_command(
             .output()
             .map_err(|err| RenderError::PrepareFailed {
                 service: service.to_owned(),
-                detail: format!("could not run git: {err}"),
+                command: Some(format!("git clone --depth 1 --branch {reference} {repo}")),
+                message: format!("could not run git: {err}"),
+                log_tail: None,
             })?;
         if !clone.status.success() {
             return Err(RenderError::PrepareFailed {
                 service: service.to_owned(),
-                detail: format!(
-                    "git clone {repo}@{reference} failed: {}",
-                    String::from_utf8_lossy(&clone.stderr).trim()
-                ),
+                command: Some(format!("git clone --depth 1 --branch {reference} {repo}")),
+                message: format!("git clone {repo}@{reference} failed"),
+                log_tail: Some(tail_bytes(&clone.stderr)),
             });
         }
         // Run the prepare command in the checkout with the instance env.
@@ -466,20 +470,29 @@ pub fn run_prepare_command(
         }
         let output = cmd.output().map_err(|err| RenderError::PrepareFailed {
             service: service.to_owned(),
-            detail: format!("could not run prepare command: {err}"),
+            command: Some(command.to_owned()),
+            message: format!("could not run prepare command: {err}"),
+            log_tail: None,
         })?;
         if !output.status.success() {
-            let tail = String::from_utf8_lossy(&output.stderr);
-            let tail: String = tail.lines().rev().take(20).collect::<Vec<_>>().join("\n");
             return Err(RenderError::PrepareFailed {
                 service: service.to_owned(),
-                detail: format!("`{command}` exited {}: {tail}", output.status),
+                command: Some(command.to_owned()),
+                message: format!("`{command}` exited {}", output.status),
+                log_tail: Some(tail_bytes(&output.stderr)),
             });
         }
         Ok(())
     })();
     let _ = std::fs::remove_dir_all(&tmp);
     result
+}
+
+fn tail_bytes(bytes: &[u8]) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    let lines: Vec<&str> = text.lines().collect();
+    let start = lines.len().saturating_sub(FAILURE_LOG_TAIL_LINES);
+    lines[start..].join("\n")
 }
 
 /// A unique temp directory under the OS temp dir, created here so we own

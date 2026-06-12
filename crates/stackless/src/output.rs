@@ -4,7 +4,8 @@
 use serde::Serialize;
 
 use stackless_core::def::{DependencyGraph, StackDef};
-use stackless_core::fault::{Fault, Report};
+use stackless_core::engine::{ProgressSink, StepProgress, StepProgressEvent};
+use stackless_core::fault::{ErrorContext, Fault, Report};
 
 pub struct Output {
     json: bool,
@@ -48,6 +49,10 @@ struct ListEnvelope<'a> {
 impl Output {
     pub fn new(json: bool) -> Self {
         Self { json }
+    }
+
+    pub fn is_json(&self) -> bool {
+        self.json
     }
 
     pub fn check_ok(&self, def: &StackDef, graph: &DependencyGraph, substrate: Option<&str>) {
@@ -104,6 +109,7 @@ impl Output {
         if self.json {
             #[derive(Serialize)]
             struct UpOk<'a> {
+                schema_version: u32,
                 ok: bool,
                 instance: &'a str,
                 substrate: &'a str,
@@ -117,6 +123,7 @@ impl Output {
                 origin: &'a str,
             }
             self.emit(&UpOk {
+                schema_version: 1,
                 ok: true,
                 instance: name,
                 substrate,
@@ -223,16 +230,62 @@ impl Output {
         }
     }
 
+    pub fn logs_json(
+        &self,
+        instance: &str,
+        services: &[LogService<'_>],
+    ) {
+        #[derive(Serialize)]
+        struct LogsOk<'a> {
+            ok: bool,
+            instance: &'a str,
+            services: &'a [LogService<'a>],
+        }
+        self.emit(&LogsOk {
+            ok: true,
+            instance,
+            services,
+        });
+    }
+
     pub fn fault(&self, fault: &dyn Fault) {
+        let report = Report::from_fault(fault);
         if self.json {
             self.emit(&ErrorEnvelope {
                 ok: false,
-                error: Report::from_fault(fault),
+                error: report,
             });
             return;
         }
-        eprintln!("error[{}]: {fault}", fault.code());
-        eprintln!("  remediation: {}", fault.remediation());
+        if let Some(instance) = &report.instance {
+            eprintln!("instance: {instance}");
+        }
+        if let Some(step) = &report.step {
+            eprintln!("step: {step}");
+        }
+        eprintln!("code: {}", report.code);
+        eprintln!("message: {}", report.message);
+        Self::print_context(&report.context);
+        if let Some(tail) = &report.context.log_tail {
+            eprintln!("log_tail:");
+            eprintln!("{tail}");
+        }
+        eprintln!("remediation: {}", report.remediation);
+    }
+
+    fn print_context(context: &ErrorContext) {
+        let field = |label: &str, value: &Option<String>| {
+            if let Some(value) = value {
+                eprintln!("{label}: {value}");
+            }
+        };
+        field("service", &context.service);
+        field("hook", &context.hook);
+        field("command", &context.command);
+        field("source_dir", &context.source_dir);
+        field("log_path", &context.log_path);
+        field("log_hint", &context.log_hint);
+        field("exit_status", &context.exit_status);
     }
 
     fn emit<T: Serialize>(&self, value: &T) {
@@ -241,6 +294,110 @@ impl Output {
             // Serialization of our own types cannot fail; if it ever
             // does, say so on stderr rather than emitting half-JSON.
             Err(err) => eprintln!("error[cli.json.serialize]: {err}"),
+        }
+    }
+
+    fn emit_ndjson<T: Serialize>(&self, value: &T) {
+        match serde_json::to_string(value) {
+            Ok(json) => eprintln!("{json}"),
+            Err(err) => eprintln!("error[cli.json.serialize]: {err}"),
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct LogService<'a> {
+    pub service: &'a str,
+    pub source: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub log_path: Option<String>,
+    pub lines: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn logs_json_envelope_shape() {
+        let entry = LogService {
+            service: "web",
+            source: "file",
+            log_path: Some("/tmp/demo/web.log".into()),
+            lines: vec!["listening on :3000".into()],
+        };
+        #[derive(Serialize)]
+        struct LogsOk<'a> {
+            ok: bool,
+            instance: &'a str,
+            services: &'a [LogService<'a>],
+        }
+        let json = serde_json::to_value(&LogsOk {
+            ok: true,
+            instance: "demo",
+            services: &[entry],
+        })
+        .unwrap();
+        assert_eq!(json["ok"], true);
+        assert_eq!(json["instance"], "demo");
+        assert_eq!(json["services"][0]["source"], "file");
+        assert_eq!(json["services"][0]["log_path"], "/tmp/demo/web.log");
+        assert_eq!(json["services"][0]["lines"][0], "listening on :3000");
+    }
+}
+
+impl ProgressSink for Output {
+    fn on_step(&mut self, progress: StepProgress) {
+        if self.json {
+            #[derive(Serialize)]
+            struct ProgressEvent<'a> {
+                schema_version: u32,
+                event: &'a str,
+                instance: String,
+                step: String,
+                kind: stackless_core::engine::StepKind,
+                node: String,
+                index: usize,
+                total: usize,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                code: Option<&'static str>,
+            }
+            let event = match progress.event {
+                StepProgressEvent::Started => "step_started",
+                StepProgressEvent::Skipped => "step_skipped",
+                StepProgressEvent::Completed => "step_completed",
+                StepProgressEvent::Failed => "step_failed",
+            };
+            self.emit_ndjson(&ProgressEvent {
+                schema_version: 1,
+                event,
+                instance: progress.instance,
+                step: progress.step_id,
+                kind: progress.step_kind,
+                node: progress.node,
+                index: progress.index,
+                total: progress.total,
+                code: progress.code,
+            });
+            return;
+        }
+        let prefix = format!("{}: ", progress.instance);
+        match progress.event {
+            StepProgressEvent::Started => {
+                eprintln!(
+                    "{prefix}→ {} ({}/{})",
+                    progress.step_id, progress.index, progress.total
+                );
+            }
+            StepProgressEvent::Skipped => {
+                eprintln!("{prefix}↷ {} (skipped)", progress.step_id);
+            }
+            StepProgressEvent::Completed => {
+                eprintln!("{prefix}✓ {}", progress.step_id);
+            }
+            StepProgressEvent::Failed => {
+                eprintln!("{prefix}✗ {}", progress.step_id);
+            }
         }
     }
 }

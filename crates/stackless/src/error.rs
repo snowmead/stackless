@@ -53,11 +53,23 @@ pub enum CliError {
     #[error("verify source for service {service:?} is unavailable: {detail}")]
     VerifySourceUnavailable { service: String, detail: String },
 
-    #[error(transparent)]
-    Substrate(#[from] stackless_core::substrate::SubstrateFault),
+    #[error("{fault}")]
+    Substrate {
+        fault: stackless_core::substrate::SubstrateFault,
+        instance: Option<String>,
+    },
 
     #[error("runtime error: {0}")]
     Runtime(std::io::Error),
+}
+
+impl CliError {
+    pub fn substrate(
+        fault: stackless_core::substrate::SubstrateFault,
+        instance: Option<String>,
+    ) -> Self {
+        Self::Substrate { fault, instance }
+    }
 }
 
 impl Fault for CliError {
@@ -75,7 +87,7 @@ impl Fault for CliError {
             Self::VerifyNotDeclared => codes::VERIFY_NOT_DECLARED,
             Self::VerifyFailed { .. } => codes::VERIFY_FAILED,
             Self::VerifySourceUnavailable { .. } => codes::VERIFY_SOURCE_UNAVAILABLE,
-            Self::Substrate(fault) => fault.code(),
+            Self::Substrate { fault, .. } => fault.code(),
             Self::Runtime(_) => codes::CLI_RUNTIME,
         }
     }
@@ -116,7 +128,7 @@ impl Fault for CliError {
                 "re-run `stackless up` for this instance so {service} has a recorded source, \
                  or fix the recorded checkout and re-run `stackless verify`"
             ),
-            Self::Substrate(fault) => fault.remediation(),
+            Self::Substrate { fault, .. } => fault.remediation(),
             Self::Runtime(_) => "re-run the command; if it persists this is a stackless bug".into(),
         }
     }
@@ -125,6 +137,7 @@ impl Fault for CliError {
         match self {
             Self::Def(err) => err.step(),
             Self::Engine(err) => err.step(),
+            Self::Substrate { fault, .. } => fault.step(),
             _ => None,
         }
     }
@@ -132,8 +145,51 @@ impl Fault for CliError {
     fn instance(&self) -> Option<&str> {
         match self {
             Self::Def(err) => err.instance(),
+            Self::Engine(err) => err.instance(),
+            Self::State(err) => err.instance(),
+            Self::Substrate {
+                instance: Some(name),
+                ..
+            } => Some(name),
+            Self::Substrate { fault, .. } => fault.instance(),
             Self::SubstrateRequired { name } => Some(name),
             _ => None,
         }
+    }
+
+    fn context(&self) -> stackless_core::fault::ErrorContext {
+        match self {
+            Self::Engine(err) => err.context(),
+            Self::Substrate { fault, .. } => fault.context(),
+            _ => stackless_core::fault::ErrorContext::default(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use stackless_core::engine::EngineError;
+    use stackless_core::fault::{Fault, Report, codes};
+    use stackless_core::substrate::SubstrateFault;
+
+    use super::*;
+
+    #[test]
+    fn engine_step_forwards_instance_and_step() {
+        let err = CliError::Engine(EngineError::Step {
+            instance: "git-auth-test".into(),
+            step: "setup:web".into(),
+            fault: SubstrateFault {
+                code: codes::LOCAL_HOOK_FAILED,
+                message: "setup hook exited".into(),
+                remediation: "re-run".into(),
+                context: Box::default(),
+            },
+        });
+        assert_eq!(err.instance(), Some("git-auth-test"));
+        assert_eq!(err.step(), Some("setup:web"));
+        let report = Report::from_fault(&err);
+        assert_eq!(report.instance.as_deref(), Some("git-auth-test"));
+        assert_eq!(report.step.as_deref(), Some("setup:web"));
     }
 }

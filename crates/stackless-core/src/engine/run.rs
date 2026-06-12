@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use super::error::EngineError;
+use super::progress::{NullProgress, ProgressSink, StepProgress, StepProgressEvent};
 
 use crate::def::{DefError, StackDef};
 use crate::state::{InstanceStatus, Store};
@@ -26,7 +27,6 @@ impl std::fmt::Debug for Engine<'_> {
     }
 }
 
-#[derive(Debug)]
 pub struct UpRequest<'a> {
     pub instance: &'a str,
     /// The raw definition text, snapshotted at creation (invariant 1).
@@ -37,6 +37,19 @@ pub struct UpRequest<'a> {
     pub definition_dir: String,
     /// `--lease`; defaults to the substrate's (§6).
     pub lease: Option<Duration>,
+    /// Step progress telemetry; defaults to [`NullProgress`] when unset.
+    pub progress: Option<&'a mut dyn ProgressSink>,
+}
+
+impl std::fmt::Debug for UpRequest<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UpRequest")
+            .field("instance", &self.instance)
+            .field("definition_dir", &self.definition_dir)
+            .field("lease", &self.lease)
+            .field("progress", &self.progress.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -134,7 +147,8 @@ impl Engine<'_> {
             .unwrap_or_else(|| self.substrate.default_lease());
         self.store.renew_lease(request.instance, lease)?;
 
-        let result = self.run_steps(&request, &source_overrides).await;
+        let mut request = request;
+        let result = self.run_steps(&mut request, &source_overrides).await;
         self.store.release_lock(&claim)?;
         let outcome = result?;
         // A successful `up` renews again (§6).
@@ -145,12 +159,30 @@ impl Engine<'_> {
 
     async fn run_steps(
         &self,
-        request: &UpRequest<'_>,
+        request: &mut UpRequest<'_>,
         source_overrides: &std::collections::BTreeMap<String, String>,
     ) -> Result<UpOutcome, EngineError> {
         let steps = request.def.plan()?;
+        let total = steps.len();
+        let mut null = NullProgress;
+        let progress = request
+            .progress
+            .as_deref_mut()
+            .unwrap_or(&mut null);
         let mut outcome = UpOutcome::default();
-        for step in &steps {
+        for (offset, step) in steps.iter().enumerate() {
+            let index = offset + 1;
+            let base = || StepProgress {
+                event: StepProgressEvent::Started,
+                instance: request.instance.to_owned(),
+                step_id: step.id.clone(),
+                step_kind: step.kind,
+                node: step.node.clone(),
+                index,
+                total,
+                code: None,
+            };
+            progress.on_step(base());
             // Resume reconciles against observation, not memory
             // (invariant 4): a recorded step is only skipped if its
             // resource is still really there.
@@ -159,12 +191,23 @@ impl Engine<'_> {
                     .substrate
                     .observe(request.instance, &checkpoint)
                     .await
-                    .map_err(|fault| EngineError::Step {
-                        instance: request.instance.to_owned(),
-                        step: step.id.clone(),
-                        fault,
+                    .map_err(|fault| {
+                        progress.on_step(StepProgress {
+                            event: StepProgressEvent::Failed,
+                            code: Some(fault.code),
+                            ..base()
+                        });
+                        EngineError::Step {
+                            instance: request.instance.to_owned(),
+                            step: step.id.clone(),
+                            fault,
+                        }
                     })?;
                 if observation == Observation::Present {
+                    progress.on_step(StepProgress {
+                        event: StepProgressEvent::Skipped,
+                        ..base()
+                    });
                     outcome.skipped.push(step.id.clone());
                     continue;
                 }
@@ -180,10 +223,17 @@ impl Engine<'_> {
                     prior: &prior,
                 })
                 .await
-                .map_err(|fault| EngineError::Step {
-                    instance: request.instance.to_owned(),
-                    step: step.id.clone(),
-                    fault,
+                .map_err(|fault| {
+                    progress.on_step(StepProgress {
+                        event: StepProgressEvent::Failed,
+                        code: Some(fault.code),
+                        ..base()
+                    });
+                    EngineError::Step {
+                        instance: request.instance.to_owned(),
+                        step: step.id.clone(),
+                        fault,
+                    }
                 })?;
             // Checkpoint before proceeding (§2/§4).
             self.store.record_checkpoint(
@@ -193,6 +243,10 @@ impl Engine<'_> {
                 &resource.resource_id,
                 &resource.payload,
             )?;
+            progress.on_step(StepProgress {
+                event: StepProgressEvent::Completed,
+                ..base()
+            });
             outcome.executed.push(step.id.clone());
         }
         Ok(outcome)

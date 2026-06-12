@@ -9,7 +9,9 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use stackless_core::def::StackDef;
-use stackless_core::engine::{DownOutcome, Engine, UpRequest};
+use stackless_core::engine::{
+    DownOutcome, Engine, ProgressSink, StepProgressEvent, UpRequest,
+};
 use stackless_core::fault::{Fault, codes};
 use stackless_core::process::ProcessStamp;
 use stackless_core::state::{Checkpoint, InstanceStatus, Store};
@@ -120,6 +122,7 @@ impl Substrate for MockSubstrate {
                 code: "mock.step.scripted_failure",
                 message: format!("scripted failure at {}", ctx.step.id),
                 remediation: "this is a test".into(),
+                context: Box::default(),
             });
         }
         *self
@@ -164,6 +167,7 @@ impl Substrate for MockSubstrate {
                 code: "mock.destroy.scripted_failure",
                 message: "scripted destroy failure".into(),
                 remediation: "this is a test".into(),
+                context: Box::default(),
             });
         }
         self.destroyed
@@ -188,6 +192,7 @@ fn request<'a>(def: &'a StackDef) -> UpRequest<'a> {
         source_overrides: BTreeMap::new(),
         definition_dir: String::new(),
         lease: None,
+        progress: None,
     }
 }
 
@@ -432,10 +437,44 @@ async fn source_override_shared_by_active_instance_is_refused() {
             source_overrides: second,
             definition_dir: String::new(),
             lease: None,
+            progress: None,
         })
         .await
         .unwrap_err();
     assert_eq!(err.code(), codes::ENGINE_SOURCE_OVERRIDE_SHARED);
+}
+
+struct RecordingProgress(Mutex<Vec<StepProgressEvent>>);
+
+impl ProgressSink for RecordingProgress {
+    fn on_step(&mut self, progress: stackless_core::engine::StepProgress) {
+        self.0.lock().unwrap().push(progress.event);
+    }
+}
+
+#[tokio::test]
+async fn progress_emits_lifecycle_events() {
+    let (_dir, store) = temp_store();
+    let mock = MockSubstrate::default();
+    let engine = Engine {
+        store: &store,
+        substrate: &mock,
+    };
+    let def = parse_def();
+    let mut recording = RecordingProgress(Mutex::new(Vec::new()));
+    let mut req = request(&def);
+    req.progress = Some(&mut recording);
+    engine.up(req).await.unwrap();
+    let events = recording.0.lock().unwrap().clone();
+    assert!(events.iter().any(|e| *e == StepProgressEvent::Started));
+    assert!(events.iter().any(|e| *e == StepProgressEvent::Completed));
+    assert_eq!(events.last().copied(), Some(StepProgressEvent::Completed));
+
+    let mut req = request(&def);
+    req.progress = Some(&mut recording);
+    engine.up(req).await.unwrap();
+    let events = recording.0.lock().unwrap().clone();
+    assert!(events.iter().any(|e| *e == StepProgressEvent::Skipped));
 }
 
 #[test]
