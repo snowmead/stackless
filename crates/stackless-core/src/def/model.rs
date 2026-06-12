@@ -181,8 +181,12 @@ impl Service {
         service_name: &str,
         substrate: &str,
     ) -> Result<BTreeMap<String, String>, DefError> {
+        let overlay = self.substrate_env(service_name, substrate)?;
+        if overlay.is_empty() {
+            return Ok(self.env.clone());
+        }
         let mut env = self.env.clone();
-        env.extend(self.substrate_env(service_name, substrate)?);
+        env.extend(overlay);
         Ok(env)
     }
 }

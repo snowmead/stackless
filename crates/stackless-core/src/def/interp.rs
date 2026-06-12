@@ -28,28 +28,38 @@ pub enum Reference {
 }
 
 /// Extract every `${...}` reference from a value.
-///
-/// `location` names where the value lives (e.g. `services.api.env.DATABASE_URL`)
-/// so errors point at the right line of the definition.
 pub fn references(value: &str, location: &str) -> Result<Vec<Reference>, DefError> {
-    let mut refs = Vec::new();
-    let mut rest = value;
-    while let Some(start) = rest.find("${") {
-        let after = &rest[start + 2..];
-        let Some(end) = after.find('}') else {
-            return Err(DefError::ReferenceSyntax {
-                location: location.to_owned(),
-                reference: rest[start..].to_owned(),
-                detail: "unterminated ${...}".into(),
-            });
-        };
-        refs.push(parse_reference(&after[..end], location)?);
-        rest = &after[end + 1..];
-    }
-    Ok(refs)
+    Reference::collect_in(value, location)
 }
 
-fn parse_reference(inner: &str, location: &str) -> Result<Reference, DefError> {
+impl Reference {
+    /// Extract every `${...}` reference from a value.
+    ///
+    /// `location` names where the value lives (e.g. `services.api.env.DATABASE_URL`)
+    /// so errors point at the right line of the definition.
+    pub fn collect_in(value: &str, location: &str) -> Result<Vec<Self>, DefError> {
+        let mut refs = Vec::new();
+        let mut rest = value;
+        while let Some(start) = rest.find("${") {
+            let after = &rest[start + 2..];
+            let Some(end) = after.find('}') else {
+                return Err(DefError::ReferenceSyntax {
+                    location: location.to_owned(),
+                    reference: rest[start..].to_owned(),
+                    detail: "unterminated ${...}".into(),
+                });
+            };
+            refs.push(Self::parse(&after[..end], location)?);
+            rest = &after[end + 1..];
+        }
+        Ok(refs)
+    }
+
+    fn parse(inner: &str, location: &str) -> Result<Self, DefError> {
+        Self::parse_reference(inner, location)
+    }
+
+    fn parse_reference(inner: &str, location: &str) -> Result<Self, DefError> {
     let parts: Vec<&str> = inner.split('.').collect();
     let reference = match parts.as_slice() {
         ["instance", "name"] => Reference::InstanceName,
@@ -69,7 +79,8 @@ fn parse_reference(inner: &str, location: &str) -> Result<Reference, DefError> {
             });
         }
     };
-    Ok(reference)
+        Ok(reference)
+    }
 }
 
 /// The values a substrate supplies for one instance. Built per instance
@@ -169,28 +180,33 @@ impl Namespace {
             }
         }
     }
+
+    /// Substitute every `${...}` in `value` from this namespace.
+    pub fn resolve(&self, value: &str, location: &str) -> Result<String, DefError> {
+        let mut out = String::with_capacity(value.len());
+        let mut rest = value;
+        while let Some(start) = rest.find("${") {
+            out.push_str(&rest[..start]);
+            let after = &rest[start + 2..];
+            let Some(end) = after.find('}') else {
+                return Err(DefError::ReferenceSyntax {
+                    location: location.to_owned(),
+                    reference: rest[start..].to_owned(),
+                    detail: "unterminated ${...}".into(),
+                });
+            };
+            let reference = Reference::parse_reference(&after[..end], location)?;
+            out.push_str(&self.lookup(&reference, location)?);
+            rest = &after[end + 1..];
+        }
+        out.push_str(rest);
+        Ok(out)
+    }
 }
 
 /// Substitute every `${...}` in `value` from the namespace.
 pub fn resolve(value: &str, namespace: &Namespace, location: &str) -> Result<String, DefError> {
-    let mut out = String::with_capacity(value.len());
-    let mut rest = value;
-    while let Some(start) = rest.find("${") {
-        out.push_str(&rest[..start]);
-        let after = &rest[start + 2..];
-        let Some(end) = after.find('}') else {
-            return Err(DefError::ReferenceSyntax {
-                location: location.to_owned(),
-                reference: rest[start..].to_owned(),
-                detail: "unterminated ${...}".into(),
-            });
-        };
-        let reference = parse_reference(&after[..end], location)?;
-        out.push_str(&namespace.lookup(&reference, location)?);
-        rest = &after[end + 1..];
-    }
-    out.push_str(rest);
-    Ok(out)
+    namespace.resolve(value, location)
 }
 
 #[cfg(test)]
