@@ -16,8 +16,8 @@
 //!    changed ⇒ we hold it.
 //! 2. **Takeover** — if step 1 changed nothing, the lock is held by
 //!    someone else. Read the holder row and decide host-side:
-//!    - **Same host** (`holder_host` == ours, or the legacy empty
-//!      string): the recorded PID's liveness is meaningful here. If the
+//!    - **Same host** (`holder_host` == ours): the recorded PID's
+//!      liveness is meaningful here. If the
 //!      holder is dead, a second CAS keyed on the *exact* dead holder
 //!      identity (`holder_host`, `holder_pid`, `holder_start_time`)
 //!      takes it over atomically — only one racer can win.
@@ -116,10 +116,7 @@ impl Store {
             pid: Pid::from_os(holder_pid),
             start_time: ProcessStartTime::from_os(holder_start as u64),
         };
-        // An empty holder_host is a legacy (pre-fleet) row written by
-        // this machine — treat it as same-host so a dead local holder is
-        // taken over immediately, not held for the foreign budget.
-        let same_host = holder_host.is_empty() || holder_host == host;
+        let same_host = holder_host == host;
 
         let takeover_ok = if same_host {
             // Same liveness check the daemon uses for service processes.
@@ -238,7 +235,7 @@ impl Store {
             |row: &Row| Ok((row.get_u32(0)?, row.get_i64(1)?, row.get_string(2)?)),
         )?;
         Ok(existing.is_some_and(|(pid, start_time, holder_host)| {
-            let same_host = holder_host.is_empty() || holder_host == host;
+            let same_host = holder_host == host;
             if same_host {
                 ProcessStamp {
                     pid: Pid::from_os(pid),

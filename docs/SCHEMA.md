@@ -3,7 +3,8 @@
 This document is sufficient on its own to write a valid stack
 definition. It describes what the implementation actually enforces;
 every rule here is checked by `stackless check <file>` (add
-`--on local` / `--on render` for substrate-specific completeness)
+`--on local` / `--on render` / `--on vercel` for substrate-specific
+completeness)
 before anything provisions. Validation failures carry stable
 machine-readable codes (listed throughout) plus a remediation.
 
@@ -27,6 +28,26 @@ health = { path = "/", contains = "hello" }
   [services.web.local]
   run = "python3 -m http.server $PORT --bind 127.0.0.1"
 ```
+
+### Minimal Vercel definition
+
+```toml
+[stack]
+name = "hello"
+
+[services.web]
+source = { repo = "https://github.com/you/hello", ref = "main" }
+health = { path = "/", contains = "hello" }
+
+  [services.web.vercel]
+  framework = "vite"
+  build = "npm run build"
+```
+
+Requires `VERCEL_TOKEN` (or `.vercel-token`) and a GitHub repo your
+Vercel team can deploy. No `[services.web.local]` block is required
+if you only deploy to Vercel, but `stackless check --on local` will
+report missing local config.
 
 ## Top level
 
@@ -69,6 +90,9 @@ project = "project_..."  # written back by stackless after first project creatio
 
 [stack.render]           # optional: per-substrate stack config
 region = "oregon"
+
+[stack.vercel]           # optional: per-substrate stack config
+plan = "hobby"           # hobby (default) or pro (paid → requires --confirm-paid)
 ```
 
 - `name` — required.
@@ -81,11 +105,16 @@ region = "oregon"
   `stackless verify` fail with `verify.not_declared`.
 - `projects.stripe.project` — optional. Stackless writes this after it
   creates or adopts the stack's Stripe Project. Local integrations and
-  Render resources use the same project. Older `[stack.render].project`
-  anchors remain readable for compatibility.
+  cloud resources (Render, Vercel, Clerk, …) share this anchor;
+  re-link a fresh checkout with `stripe projects pull <id>`.
 - Any other key under `[stack]` must be the name of a registered
-  substrate (`local`, `render`) and must be a table
+  substrate (`local`, `render`, `vercel`) and must be a table
   (`def.validate.unknown_key`, `def.validate.substrate_block_invalid`).
+- `[stack.render]` — optional. `region` defaults to `"oregon"` (Render
+  substrate only).
+- `[stack.vercel]` — optional. `plan` defaults to `"hobby"`. `"pro"`
+  provisions the Vercel Pro plan through Stripe Projects and requires
+  `--confirm-paid` (`vercel.payment.not_confirmed`).
 
 ## `[secrets]`
 
@@ -111,14 +140,36 @@ required = ["GITHUB_PACKAGES_TOKEN"]
 
 ```toml
 [integrations.clerk]
+provider = "clerk"
 app_name = "${stack.name}-${instance.name}"
 credential_set = "development"
 organizations = true
 ```
 
-- `clerk` is the only v0 integration. Stackless provisions a Clerk app
-  through Stripe Projects (`clerk/auth`) and exposes the selected keys
-  through interpolation.
+- The table key (`clerk` in `[integrations.clerk]`) is the **logical
+  slot** — the name used in `${integrations.clerk.*}` references.
+  `provider` is the **catalog adapter** (`clerk` → `clerk/auth` via
+  Stripe Projects, internal to stackless). A later slot like
+  `[integrations.auth]` with `provider = "clerk"` does not require a
+  schema change.
+- Each provider declares a **hosting model** in the integrations registry:
+  - **Managed** (Clerk): runs on the provider's cloud, not on your stack
+    host. Config is **global only** — `[integrations.clerk.render]` and
+    other per-host tables are rejected (`integration.config.invalid`).
+    Managed integrations are available on every `--on` host.
+  - **Host-bound** (future): tied to explicit stack hosts (`local`,
+    `render`, `vercel`). `stackless check --on <host>` rejects providers
+    not listed for that host (`integration.host.unsupported`). Host-bound
+    providers may allow per-host override tables when declared.
+- `${integrations.<name>.<output>}` references are **ordering edges**
+  in the derived dependency graph: integrations provision before any
+  service whose env references them.
+- `clerk` is the only v0 provider. Stackless provisions a Clerk app
+  through Stripe Projects and exposes the selected keys through
+  interpolation. Provider-specific fields are validated by
+  `stackless-integrations` during `stackless check`.
+- `provider` — required string naming a known catalog provider (`clerk`
+  today).
 - `app_name` — required string, interpolation allowed.
 - `credential_set` — optional, `"development"` by default. `"production"`
   requires `production_domain`.
@@ -148,9 +199,11 @@ version = "17"           # image / managed-service version, as a string
 - `version` — string, becomes the image tag locally
   (`postgres:17`) and the managed version on cloud substrates.
 - Locally a datastore is a container with a per-instance volume and an
-  instance-minted password; on Render it is a managed postgres. Its
-  connection string is consumed via `${datastores.<name>.url}` —
-  declaring a datastore nothing references is legal but pointless.
+  instance-minted password; on Render it is a managed postgres. Vercel
+  does not support datastores in v0 (`up --on vercel` with any
+  `[datastores.*]` fails at provision). Its connection string is
+  consumed via `${datastores.<name>.url}` — declaring a datastore
+  nothing references is legal but pointless.
 
 ## `[services.<name>]`
 
@@ -249,6 +302,39 @@ Or a static site:
   the ref), and requires `--confirm-paid` for anything that bills
   (`render.payment.not_confirmed`).
 
+### `[services.<name>.vercel]` — how Vercel runs it
+
+```toml
+  [services.web.vercel]
+  framework = "vite"                    # optional Vercel framework preset
+  build = "npm run build"               # optional build command override
+  install = "npm install"               # optional install command override
+  root = "apps/web"                     # optional monorepo root directory
+  output = "dist"                       # optional output directory
+  env = { VITE_API_ORIGIN = "${services.api.origin}" }  # optional overlay
+```
+
+- `source.repo` must be a public GitHub HTTPS remote
+  (`https://github.com/org/repo`) — Vercel deploys via `gitSource`.
+- Cloud resource names are `{stack}-{instance}-{service}`; the live
+  origin is the deployment URL recorded at `start` (typically
+  `https://{name}.vercel.app`).
+- `up --on vercel` requires every service to carry a `vercel` block
+  (`def.validate.substrate_config_missing`), refuses `--source` pins
+  (`engine.source_override.unsupported`), and requires `--confirm-paid`
+  when `[stack.vercel].plan = "pro"` (`vercel.payment.not_confirmed`).
+- Datastores are not supported on Vercel in v0.
+- Setup is skipped on cloud (same as Render); prepare runs on the
+  operator's machine from a shallow `git clone` of the pinned ref.
+- **Two layers (same as Render):** Stripe Projects provisions the
+  `vercel/project` catalog resource; the Vercel REST API handles env,
+  deploy, health, and teardown. Stripe does not replace the API token —
+  set `VERCEL_TOKEN` or write `.vercel-token` next to the definition
+  (`vercel.api_key.missing`). Optional `VERCEL_TEAM_ID` for team-scoped
+  projects.
+- `stackless logs` is not wired for Vercel in v0 — use the Vercel
+  dashboard.
+
 ## The interpolation namespace
 
 Env values (common `env`, substrate `env` overlays, and
@@ -258,7 +344,7 @@ Env values (common `env`, substrate `env` overlays, and
 |---|---|
 | `${stack.name}` | the stack's declared name |
 | `${instance.name}` | the instance's name — the one identity everything derives from |
-| `${services.X.origin}` | service X's substrate-appropriate origin. Local: `http://x.{instance}.localhost:4444` (the root-origin service resolves to `http://{instance}.localhost:4444` — what browsers actually use). Render: `https://{stack}-{instance}-x.onrender.com` |
+| `${services.X.origin}` | service X's substrate-appropriate origin. Local: `http://x.{instance}.localhost:4444` (the root-origin service resolves to `http://{instance}.localhost:4444` — what browsers actually use). Render: `https://{stack}-{instance}-x.onrender.com`. Vercel: the deployment URL after `start` (best-effort `https://{stack}-{instance}-x.vercel.app` before deploy) |
 | `${datastores.X.url}` | X's connection string. Local: `postgres://...@127.0.0.1:{mapped-port}/postgres`. Render: the internal URL for services, the external one for `prepare` hooks |
 | `${secrets.KEY}` | the resolved secret value (KEY must be in `[secrets].required`) — for renaming; the `secrets = [...]` list already injects same-named vars |
 | `${integrations.clerk.secret_key}` | the Clerk secret key selected from Stripe Projects' Clerk environments JSON (`CLERK_AUTH_ENVIRONMENTS` or `CLERK_ENVIRONMENTS`) |
@@ -316,7 +402,9 @@ most:
 | `def.validate.depends_on_rejected` | use wiring, not `depends_on` |
 | `def.validate.undeclared_reference` | `${...}` names something not declared |
 | `def.validate.secret_not_required` | a secret used but not in `[secrets].required` |
-| `def.validate.integration_invalid` | an `[integrations.*]` block is unsupported or internally inconsistent |
+| `def.validate.integration_invalid` | an `[integrations.*]` block is structurally invalid (missing `provider`, bad host override) |
+| `integration.config.invalid` | provider config/outputs or per-host override policy fail registry validation (`stackless check`) |
+| `integration.host.unsupported` | a host-bound integration's provider is not supported on the selected `--on` host |
 | `def.validate.substrate_config_missing` | `up --on X` but a service has no `[services.*.X]` block |
 | `def.validate.root_origin_conflict` | more than one `root_origin = true` |
 | `secrets.unresolved` | a required secret resolved from no source |
@@ -324,6 +412,13 @@ most:
 | `engine.source_override.unsupported` | `--source` on a cloud substrate |
 | `verify.source_unavailable` | `stackless verify` could not find or materialize the command cwd |
 | `render.payment.not_confirmed` | re-run with `--confirm-paid` |
+| `vercel.payment.not_confirmed` | re-run with `--confirm-paid` (required for `plan = "pro"`) |
+| `vercel.api_key.missing` | set `VERCEL_TOKEN` or write `.vercel-token` next to the definition |
+| `vercel.deploy.failed` | inspect Vercel deployment logs and re-run `stackless up` |
+| `vercel.deploy.timeout` | wait for the build or fix it, then re-run `stackless up` |
+| `vercel.health.failed` | fix the health contract and re-run `stackless up` |
+| `vercel.teardown.survivor` | remove the project from the Vercel dashboard or re-run `stackless down` |
+| `integration.host.unsupported` | pick a supported `--on` host or change the integration provider |
 
 ## Full annotated example
 
@@ -347,6 +442,7 @@ env = { ATTO_STACKLESS = "1", ATTO_E2E_WEB_ORIGIN = "${services.web.origin}", AT
 required = ["GITHUB_PACKAGES_TOKEN"]
 
 [integrations.clerk]
+provider = "clerk"
 app_name = "${stack.name}-${instance.name}"
 credential_set = "development"
 organizations = true
@@ -389,19 +485,51 @@ health = { path = "/", contains = 'id="root"' }
   env = { BUN_VERSION = "1.3.11", GITHUB_PACKAGES_TOKEN = "${secrets.GITHUB_PACKAGES_TOKEN}" }
 ```
 
+## Supported providers (checklist)
+
+Stripe Projects is internal plumbing — never declared in
+`stackless.toml`. This list tracks what the implementation supports
+today.
+
+### Stack hosts (`--on`)
+
+- [x] **local** — processes, Docker postgres, proxy
+- [x] **render** — web services, static sites, managed postgres
+- [x] **vercel** — git-backed projects (no datastores in v0)
+
+### Integrations (`[integrations.*]`)
+
+- [x] **clerk** (`provider = "clerk"`) — Stripe `clerk/auth`; all hosts
+
+### Not yet
+
+- [ ] Other stack hosts (Fly.io, Railway, Netlify, …)
+- [ ] Host-bound integrations (beyond Clerk's managed model)
+- [ ] Integrations beyond Clerk
+- [ ] `stackless logs` on Vercel
+
 ## Checklist for agents writing a definition
 
 1. Every service: `source` + `health` + a `[services.X.local]` block
-   with `run` (and a `render` block if cloud deploys are wanted).
+   with `run`. Add `[services.X.render]` and/or `[services.X.vercel]`
+   for each cloud host you intend to use.
 2. Express every dependency as an env reference; never invent ordering
    keys.
 3. The service must bind `$PORT` on `127.0.0.1` when run locally.
 4. Put every hand-managed secret you reference into `[secrets].required`;
-   use `[integrations.clerk]` for Clerk app credentials, and set
-   `organizations = true` when tests need Clerk org fixtures.
-5. Exactly one user-facing service gets `root_origin = true`.
+   use `[integrations.clerk]` with `provider = "clerk"` for Clerk app
+   credentials, and set `organizations = true` when tests need Clerk
+   org fixtures. Do not add `[integrations.clerk.render]` or other
+   per-host integration tables — Clerk is managed/global-only.
+5. Exactly one user-facing service gets `root_origin = true` (local
+   substrate only; cloud keeps per-service origins).
 6. Declare a `[stack.verify]` command that proves the stack works
    end-to-end — health checks prove liveness; verify proves behavior.
-7. Run `stackless check stackless.toml --on local` (and `--on render`)
-   and fix what it reports; it validates everything this document
-   describes without provisioning anything.
+7. Run `stackless check stackless.toml --on local` (and `--on render`
+   / `--on vercel` for each cloud target) and fix what it reports; it
+   validates everything this document describes without provisioning
+   anything.
+8. Cloud deploys: commit and pin refs (`--source` is local-only). Vercel
+   requires `source.repo` as `https://github.com/org/repo`. Set
+   `RENDER_API_KEY` / `VERCEL_TOKEN` (or scoped key files) before
+   `stackless up --on render` / `--on vercel`.

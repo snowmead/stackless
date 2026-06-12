@@ -11,11 +11,14 @@ as decided, it was decided deliberately.
   `stackless` binary. The core owns everything the vision is opinionated
   about: identity, state, lifecycle, wiring, verification, leases,
   teardown. Substrate backends may drive external CLIs where those earn
-  their keep — the Stripe Projects CLI is the first-class backend for
-  Render provisioning and spend tracking, with the Render REST API used
-  directly for what Stripe Projects cannot express (env vars, routes,
-  deploy polling, teardown verification). This split is proven by
-  atto-web's `cloud-env.ts`.
+  their keep — the Stripe Projects CLI is the internal catalog driver
+  for cloud provisioning and spend tracking (Render, Vercel, Clerk,
+  …). Each cloud substrate also talks to the provider's REST API for
+  what Stripe Projects cannot express: interpolated env vars, deploy
+  triggers, deploy polling, health waits, and teardown verification.
+  Operators never declare "use Stripe Projects" in `stackless.toml` —
+  stackless always does when a catalog resource is needed. This split is
+  proven by atto-web's `cloud-env.ts` (Render) and mirrored on Vercel.
 - **The trust boundary is sequenced, not shipped, in v0.** Default-deny
   egress and secret blinding remain the destination (VISION.md), but v0
   ships the lifecycle layer first. v0 keeps the seam that makes the
@@ -37,17 +40,20 @@ Decided:
 - **A service is substrate-independent identity + wiring + health**;
   how a substrate runs it is nested per substrate
   (`[services.api.local]` with a `run` command,
-  `[services.api.render]` with repo/runtime/build/start).
+  `[services.api.render]` with repo/runtime/build/start,
+  `[services.web.vercel]` with framework/build settings).
 - **Code sources are git references** (`repo` + `ref` per service).
   `up` materializes each service's source into instance-owned space
   (clone/worktree). A per-invocation override pins a service to an
   existing checkout instead — the agent's "run my dirty worktree" loop
   is first-class, but it is an explicit, recorded choice, never ambient
-  discovery, and it is **local-only**: Render deploys committed refs,
-  so `up --on render` with `--source` fails validation, remediation
-  "commit and push, then pin the ref". Declared sources are symmetric
-  with Render (repo + branch) and pass the stranger test: one repo
-  with a `stackless.toml` is enough.
+  discovery, and it is **local-only**: cloud substrates deploy committed
+  refs, so `up --on render` or `up --on vercel` with `--source` fails
+  validation, remediation "commit and push, then pin the ref". Declared
+  sources are symmetric with cloud deploys (repo + ref) and pass the
+  stranger test: one repo with a `stackless.toml` is enough. On Vercel,
+  `source.repo` must be a public GitHub HTTPS remote
+  (`https://github.com/org/repo`).
 - **Wiring is interpolation, and the dependency graph is derived from
   it.** Env values reference a namespace evaluated per instance per
   substrate: `${instance.name}`, `${services.api.origin}`,
@@ -55,7 +61,8 @@ Decided:
   references service B or datastore D, that *is* the dependency edge —
   startup order is derived from wiring, never declared separately
   (nothing to drift). Origins are derivable from the instance name
-  alone on both substrates, so mutual references between services
+  alone on local and Render (Vercel uses the deployment URL after
+  `start`), so mutual references between services
   (api ↔ web CORS) are not cycles.
 
 - **Two per-service lifecycle hooks, both optional.** `setup` runs once
@@ -81,6 +88,15 @@ Decided:
   by the `verify` verb with the instance's origins/env exported. One
   command in v0; named tiers can be added later without breaking the
   schema.
+- **Hosted integrations separate logical name from catalog provider.**
+  `[integrations.<name>]` is the interpolation slot
+  (`${integrations.<name>.<output>}`); `provider` names the catalog
+  adapter (`clerk` → `clerk/auth`, provisioned via Stripe Projects
+  internally). Each provider declares **managed** (Clerk — global config
+  only, runs on provider cloud) or **host-bound** (future — explicit
+  `local`/`render`/`vercel` support, optional per-host overrides).
+  Provider-specific config is validated by `stackless-integrations`;
+  `${integrations.*}` references are ordering edges in the derived graph.
 
 ### Schema reference (the atto dogfood as the example)
 
@@ -109,6 +125,7 @@ env = { ATTO_STACKLESS = "1", ATTO_E2E_WEB_ORIGIN = "${services.web.origin}", AT
 required = ["GITHUB_PACKAGES_TOKEN"]
 
 [integrations.clerk]
+provider = "clerk"
 app_name = "${stack.name}-${instance.name}"
 credential_set = "development"
 organizations = true
@@ -161,7 +178,7 @@ health = { path = "/", contains = 'id="root"' }   # the SPA shell check, product
 |---|---|---|
 | `${stack.name}` | the stack's declared name | useful for hosted integration names |
 | `${instance.name}` | the instance's name | the one identity everything derives from |
-| `${services.X.origin}` | substrate-appropriate origin | local: `http://x.{instance}.localhost:<port>`; Render: `https://{stack}-{instance}-x.onrender.com`. Derived from the name alone, so mutual references (api ↔ web) are not cycles |
+| `${services.X.origin}` | substrate-appropriate origin | local: `http://x.{instance}.localhost:<port>`; Render: `https://{stack}-{instance}-x.onrender.com`; Vercel: deployment URL after `start` (best-effort `https://{stack}-{instance}-x.vercel.app` before deploy). Derived from the name alone on local/Render; mutual references (api ↔ web) are not cycles |
 | `${datastores.X.url}` | connection string | local: mapped loopback port; Render: internal URL for services, external for `prepare` |
 | `${secrets.KEY}` | resolved secret value | for renaming; the `secrets = [...]` list injects same-named vars |
 | `${integrations.clerk.secret_key}` | Clerk secret key | selected from Stripe Projects' Clerk environments JSON (`CLERK_AUTH_ENVIRONMENTS` or `CLERK_ENVIRONMENTS`) |
@@ -205,12 +222,14 @@ vision's invariants; flag anything to veto):
   <name>`, `status <name>`, `list`, `logs <name>` (locally the daemon
   captures service output per instance; on Render it fetches recent
   per-service logs through the Render REST API's logs endpoint — recent
-  window, no streaming in v0; agents need it to debug a failed health
-  gate, which bites hardest on slow cloud deploys). `up` on an existing
+  window, no streaming in v0; Vercel has no `logs` verb in v0 — use the
+  dashboard; agents need logs to debug a failed health gate, which bites
+  hardest on slow cloud deploys). `up` on an existing
   instance resumes it (invariant 3) — there is no separate resume
   verb. **`--name` is optional at creation** (`{stack.name}-{uuid}`
   when omitted); resume needs only `--name`. **The substrate is chosen
-  at creation only** (`--on local|render`, required on first `up` for
+  at creation only** (`--on local|render|vercel`, required on first
+  `up` for
   a name), becomes part of the instance's
   identity in the state store, and is never asked for again —
   `verify`/`down`/`status` resolve it by name. Names are unique across
@@ -418,13 +437,13 @@ proven there.
   and cloud instances as named environments (plugin v0.19+). The project
   id is recorded at `[stack.projects.stripe].project` after first
   creation — the reproducibility anchor that lets any fresh checkout
-  re-link with a `pull`. Older `[stack.render].project` anchors remain
-  readable.
+  re-link with a `pull`.
 - **Per-instance resources derive from the definition:** datastores →
   `render/postgres`, services → `render/web-service` or
   `render/static-site` per their `[services.X.render]` config, and
-  `[integrations.clerk]` → `clerk/auth` (optionally enabling Clerk
-  Organizations and slugs for app/test fixtures). Cloud resource names are
+  integrations with `provider = "clerk"` → `clerk/auth` (optionally
+  enabling Clerk Organizations and slugs for app/test fixtures). Cloud
+  resource names are
   `{stack}-{instance}-{service}`, DNS-safe by construction (§2 name
   rules).
 - **Stripe Projects provisions and tracks spend; the Render REST API
@@ -477,6 +496,39 @@ proven there.
   invariant 8's "unless the definition explicitly says so" (not in
   the v0 schema).
 
+## 4b. Vercel substrate
+
+Mirrors §4's Stripe + provider-API split for
+[Vercel](https://vercel.com) git-backed projects.
+
+- **Same Stripe project per stack** as Render and hosted integrations
+  (§4). Per-instance resources are named environments; cloud resource
+  names remain `{stack}-{instance}-{service}`.
+- **Catalog resources:** services → `vercel/project` with
+  `{"name": "<resource-name>"}` only at provision time; optional
+  stack-level `vercel/pro` when `[stack.vercel].plan = "pro"` (paid →
+  `--confirm-paid`). Hobby projects are free-tier catalog resources.
+- **Stripe Projects provisions; the Vercel REST API operates:** after
+  Stripe creates/links the project, stackless pushes interpolated env
+  vars, creates a git deployment from the pinned `ref` and
+  `[services.X.vercel]` build settings, polls until `READY`, runs the
+  health gate against the deployment URL, and on `down` deletes the
+  project and polls until gone. The Vercel API token resolves from
+  `VERCEL_TOKEN` or a scoped `.vercel-token` file next to the
+  definition (`VERCEL_TEAM_ID` optional for team-scoped projects).
+- **No datastores on Vercel in v0** — postgres and other managed state
+  belong on `local` or `render` today.
+- **No root-origin alias on cloud** (same as Render): every service
+  keeps its own deployment URL; `${services.X.origin}` resolves
+  accordingly.
+- **Setup is skipped** (cloud builds run in Vercel's pipeline);
+  **prepare** runs on the operator's machine from a shallow git clone,
+  same as Render (§1).
+- **Spend caps and summaries** follow §4 (`billing update --provider
+  vercel`; spend line printed after cloud `up`/`down`).
+- **`stackless logs` is not wired for Vercel in v0** — use the Vercel
+  dashboard; Render and local substrates support the `logs` verb.
+
 ## 5. Trust boundary (phased, post-v0) — TBD
 
 Recorded from design discussion, to be developed when sequenced:
@@ -505,8 +557,8 @@ substrate-side backstop is a candidate for later.
 Lease semantics:
 
 - **Every instance carries a lease from birth** — `--lease <duration>`
-  at `up`, with per-substrate defaults (local: 24h; Render: 8h —
-  cloud instances bill, so abandonment must be expensive to nobody).
+  at `up`, with per-substrate defaults (local: 24h; Render and Vercel:
+  8h — cloud instances bill, so abandonment must be expensive to nobody).
 - **The lease renews to its full duration at the start of every
   mutating verb, and again on a successful `up` or `verify`.**
   "In use" means exactly "recently verbed": `verify` is the keepalive
@@ -530,8 +582,9 @@ Lease semantics:
 The contract shapes were decided in §1; this is how they execute.
 
 - **Per-service health checks run through the instance's public
-  origin** — locally the proxy, on Render the `onrender.com` URL —
-  never the raw port, so routing is part of what "healthy" proves. Shape:
+  origin** — locally the proxy; on Render the `onrender.com` URL; on
+  Vercel the recorded deployment URL — never the raw port, so routing
+  is part of what "healthy" proves. Shape:
   `health = { path, status = 200, contains = "..." }` with a retry
   budget defaulting per substrate (seconds locally; minutes against a
   cold cloud deploy, as `cloud-env.ts`'s 5-minute health wait proved
@@ -551,8 +604,8 @@ The contract shapes were decided in §1; this is how they execute.
 
 ## 8. Crate layout
 
-One Cargo workspace, five crates; the seams mirror the load-bearing
-boundaries above so each substrate compiles and tests in isolation.
+One Cargo workspace; the seams mirror the load-bearing boundaries above
+so each substrate compiles and tests in isolation.
 
 Workspace-wide conventions:
 
@@ -596,11 +649,17 @@ Workspace-wide conventions:
   `git rev-parse`. No git CLI dependency, no fork; if true linked
   worktrees are ever wanted, contribute the admin plumbing upstream
   rather than fork a 100-crate fast-moving workspace.
-- **`stackless-render`** — `Substrate` impl: the Stripe Projects CLI
-  driver (JSON mode with the proven plain-mode fallbacks) and a Render
-  REST client.
+- **`stackless-stripe-projects`** — neutral Stripe Projects CLI
+  driver: project anchor (`[stack.projects.stripe]`), per-instance
+  environments, catalog add/remove, env materialization, spend caps.
+- **`stackless-integrations`** — hosted integration routing and
+  provider adapters (Clerk today); substrates call here for provision /
+  observe / destroy. Each provider declares managed vs host-bound
+  hosting and config scope via the `Hostable` trait.
+- **`stackless-render`** — `Substrate` impl and Render REST client.
+- **`stackless-vercel`** — `Substrate` impl and Vercel REST client.
 - **`stackless-daemon`** — unix-socket RPC server, process
   bookkeeping, the reaper tick, and the reverse proxy (hyper,
   Host-header routing).
-- **`stackless`** (bin) — the clap CLI: daemon client/spawner, human
-  and `--json` output.
+- **`stackless`** (bin) — the clap CLI: substrate registry, daemon
+  client/spawner, human and `--json` output.

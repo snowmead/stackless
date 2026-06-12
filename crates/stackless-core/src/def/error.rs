@@ -147,8 +147,8 @@ impl Fault for DefError {
                  anything provisions"
             ),
             Self::IntegrationInvalid { integration, .. } => format!(
-                "fix [integrations.{integration}]; v0 supports [integrations.clerk] with \
-                 app_name and credential_set = \"development\" or \"production\""
+                "fix [integrations.{integration}]; declare provider and provider-specific \
+                 config (see `stackless check` / SCHEMA.md)"
             ),
             Self::WiringCycle { .. } => {
                 "break the cycle: at least one of these references must be removed or replaced \

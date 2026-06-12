@@ -22,6 +22,8 @@ env = { ATTO_STACKLESS = "1", ATTO_E2E_WEB_ORIGIN = "${services.web.origin}", AT
 required = ["GITHUB_PACKAGES_TOKEN"]
 
 [integrations.clerk]
+provider = "clerk"
+
 app_name = "${stack.name}-${instance.name}"
 credential_set = "development"
 organizations = true

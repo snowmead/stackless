@@ -1,7 +1,7 @@
 //! The fleet-mode CAS claim flow (M9) against the **local (rusqlite)**
 //! backend: self-reclaim, same-host dead takeover, live-holder
-//! liveness, foreign-host respect and stale-budget takeover, and the
-//! legacy empty-host normalization. The same flow is exercised through
+//! liveness, foreign-host respect and stale-budget takeover. The same
+//! flow is exercised through
 //! the libsql driver in `libsql_backend.rs` (a separate test process —
 //! rusqlite and libsql-local both bundle SQLite and cannot share one
 //! process, so the two backends are tested in isolation).
@@ -126,12 +126,4 @@ fn stale_foreign_host_holder_is_taken_over() {
     store.claim_lock("demo", "down").unwrap();
 }
 
-#[test]
-fn legacy_empty_host_dead_holder_is_taken_over_immediately() {
-    let (_dir, store) = store();
-    // A pre-fleet row (migration 003) has empty holder_host; it is
-    // treated as same-host so a dead local holder is reclaimed at once,
-    // not held for the foreign budget.
-    inject_holder(&store, "", std::process::id(), 1, Store::now_secs());
-    store.claim_lock("demo", "up").unwrap();
-}
+

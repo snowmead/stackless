@@ -282,6 +282,13 @@ impl Engine<'_> {
                 survivors,
             });
         }
+        if let Err(fault) = self.substrate.finalize_teardown(instance).await {
+            return Err(EngineError::Step {
+                instance: instance.to_owned(),
+                step: "finalize_teardown".into(),
+                fault,
+            });
+        }
         self.store.tombstone_instance(instance)?;
         self.store.delete_lease(instance)?;
         // A successful teardown clears any recorded reap failure —

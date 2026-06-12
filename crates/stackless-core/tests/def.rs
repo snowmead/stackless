@@ -6,8 +6,7 @@
 
 use stackless_core::def::{self, DefError, Namespace, Node, StackDef};
 use stackless_core::fault::{Fault, codes};
-
-const KNOWN_SUBSTRATES: &[&str] = &["local", "render"];
+use stackless_core::host::Host;
 
 fn fixture(name: &str) -> String {
     let path = format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
@@ -16,7 +15,7 @@ fn fixture(name: &str) -> String {
 
 fn parse_valid(name: &str) -> def::StackDef {
     let def = StackDef::parse(&fixture(name)).unwrap_or_else(|err| panic!("parse {name}: {err}"));
-    def.validate(KNOWN_SUBSTRATES).unwrap_or_else(|err| panic!("validate {name}: {err}"));
+    def.validate().unwrap_or_else(|err| panic!("validate {name}: {err}"));
     def
 }
 
@@ -51,12 +50,15 @@ fn atto_parses_to_the_documented_model() {
     );
 
     assert_eq!(def.secrets.required, vec!["GITHUB_PACKAGES_TOKEN"]);
+    let clerk = &def.integrations["clerk"];
+    assert_eq!(clerk.provider, "clerk");
+    let clerk_config = clerk.effective_config(Host::Local);
     assert_eq!(
-        def.integrations["clerk"].app_name,
-        "${stack.name}-${instance.name}"
+        clerk_config["app_name"].as_str(),
+        Some("${stack.name}-${instance.name}")
     );
-    assert_eq!(def.integrations["clerk"].credential_set, "development");
-    assert!(def.integrations["clerk"].organizations);
+    assert_eq!(clerk_config["credential_set"].as_str(), Some("development"));
+    assert_eq!(clerk_config["organizations"].as_bool(), Some(true));
 
     let db = &def.datastores["db"];
     assert_eq!(db.engine, "postgres");
@@ -116,15 +118,35 @@ fn atto_graph_orders_db_before_api_without_origin_cycles() {
     let pos = |node: &Node| order.iter().position(|n| n == node).unwrap();
     // db before api: the url reference is an ordering edge.
     assert!(pos(&Node::Datastore("db".into())) < pos(&Node::Service("api".into())));
+    // clerk before api/web: integration outputs are ordering edges.
+    assert!(pos(&Node::Integration("clerk".into())) < pos(&Node::Service("api".into())));
+    assert!(pos(&Node::Integration("clerk".into())) < pos(&Node::Service("web".into())));
     // api <-> web mutual origin references are wiring, not a cycle:
     // derive succeeded and both are in the order.
-    assert_eq!(order.len(), 3);
+    assert_eq!(order.len(), 4);
 
     // Wiring records the origin edges (the future egress seam).
     let wiring = graph.wiring();
     assert!(wiring.contains(&(Node::Service("api".into()), Node::Service("web".into()))));
     assert!(wiring.contains(&(Node::Service("web".into()), Node::Service("api".into()))));
     assert!(wiring.contains(&(Node::Service("api".into()), Node::Datastore("db".into()))));
+    assert!(wiring.contains(&(Node::Service("api".into()), Node::Integration("clerk".into()))));
+    assert!(wiring.contains(&(Node::Service("web".into()), Node::Integration("clerk".into()))));
+}
+
+#[test]
+fn atto_plan_orders_integration_before_services() {
+    let def = parse_valid("atto.toml");
+    let steps = def.plan().unwrap();
+    let integration = steps
+        .iter()
+        .position(|step| step.id == "integration:clerk")
+        .unwrap();
+    let start_api = steps
+        .iter()
+        .position(|step| step.id == "start:api")
+        .unwrap();
+    assert!(integration < start_api);
 }
 
 #[test]
@@ -177,7 +199,7 @@ fn api_env_resolves_against_a_namespace() {
 
 fn expect_invalid(name: &str, expected_code: &str) {
     let text = fixture(&format!("invalid/{name}"));
-    let result = StackDef::parse(&text).and_then(|def| def.validate(KNOWN_SUBSTRATES));
+    let result = StackDef::parse(&text).and_then(|def| def.validate());
     let err = result.unwrap_err();
     assert_eq!(err.code(), expected_code, "fixture {name}: {err}");
     assert!(

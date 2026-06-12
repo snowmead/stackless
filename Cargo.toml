@@ -1,6 +1,15 @@
 [workspace]
 resolver = "3"
-members = ["crates/stackless-core", "crates/stackless-daemon", "crates/stackless-local", "crates/stackless-render", "crates/stackless"]
+members = [
+    "crates/stackless-core",
+    "crates/stackless-daemon",
+    "crates/stackless-integrations",
+    "crates/stackless-local",
+    "crates/stackless-render",
+    "crates/stackless-vercel",
+    "crates/stackless-stripe-projects",
+    "crates/stackless",
+]
 
 [workspace.package]
 edition = "2024"
@@ -23,3 +32,6 @@ stackless-core = { path = "crates/stackless-core" }
 stackless-daemon = { path = "crates/stackless-daemon" }
 stackless-local = { path = "crates/stackless-local" }
 stackless-render = { path = "crates/stackless-render" }
+stackless-vercel = { path = "crates/stackless-vercel" }
+stackless-integrations = { path = "crates/stackless-integrations" }
+stackless-stripe-projects = { path = "crates/stackless-stripe-projects" }

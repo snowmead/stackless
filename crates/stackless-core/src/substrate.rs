@@ -143,4 +143,10 @@ pub trait Substrate: Send + Sync {
     /// engine immediately verifies with `observe` — silence is not
     /// success (invariant 4).
     async fn destroy(&self, instance: &str, checkpoint: &Checkpoint) -> Result<(), SubstrateFault>;
+
+    /// Substrate-wide cleanup after verified teardown (e.g. delete a
+    /// shared Stripe Projects environment).
+    async fn finalize_teardown(&self, _instance: &str) -> Result<(), SubstrateFault> {
+        Ok(())
+    }
 }

@@ -96,11 +96,14 @@ pub mod codes {
     pub const RENDER_CONFIG_INVALID: &str = "render.config.invalid";
     pub const RENDER_API_KEY_MISSING: &str = "render.api_key.missing";
     pub const RENDER_API_FAILED: &str = "render.api.failed";
-    pub const RENDER_STRIPE_UNAVAILABLE: &str = "render.stripe.unavailable";
-    pub const RENDER_STRIPE_AUTH: &str = "render.stripe.auth";
-    pub const RENDER_STRIPE_FAILED: &str = "render.stripe.failed";
-    pub const RENDER_STRIPE_LOCK_HELD: &str = "render.stripe.lock_held";
-    pub const RENDER_PROJECT_ANCHOR: &str = "render.project.anchor";
+    pub const STRIPE_PROJECTS_UNAVAILABLE: &str = "stripe.projects.unavailable";
+    pub const STRIPE_PROJECTS_AUTH: &str = "stripe.projects.auth";
+    pub const STRIPE_PROJECTS_FAILED: &str = "stripe.projects.failed";
+    pub const STRIPE_PROJECTS_LOCK_HELD: &str = "stripe.projects.lock_held";
+    pub const STRIPE_PROJECT_ANCHOR: &str = "stripe.project.anchor";
+    pub const STRIPE_PROJECTS_PROVISION_FAILED: &str = "stripe.projects.provision_failed";
+    pub const INTEGRATION_CONFIG_INVALID: &str = "integration.config.invalid";
+    pub const INTEGRATION_HOST_UNSUPPORTED: &str = "integration.host.unsupported";
     pub const RENDER_PAYMENT_NOT_CONFIRMED: &str = "render.payment.not_confirmed";
     pub const RENDER_PROVISION_FAILED: &str = "render.provision.failed";
     pub const RENDER_DEPLOY_FAILED: &str = "render.deploy.failed";
@@ -108,6 +111,16 @@ pub mod codes {
     pub const RENDER_HEALTH_FAILED: &str = "render.health.failed";
     pub const RENDER_PREPARE_FAILED: &str = "render.prepare.failed";
     pub const RENDER_TEARDOWN_SURVIVOR: &str = "render.teardown.survivor";
+    pub const VERCEL_CONFIG_INVALID: &str = "vercel.config.invalid";
+    pub const VERCEL_API_KEY_MISSING: &str = "vercel.api_key.missing";
+    pub const VERCEL_API_FAILED: &str = "vercel.api.failed";
+    pub const VERCEL_PAYMENT_NOT_CONFIRMED: &str = "vercel.payment.not_confirmed";
+    pub const VERCEL_PROVISION_FAILED: &str = "vercel.provision.failed";
+    pub const VERCEL_DEPLOY_FAILED: &str = "vercel.deploy.failed";
+    pub const VERCEL_DEPLOY_TIMEOUT: &str = "vercel.deploy.timeout";
+    pub const VERCEL_HEALTH_FAILED: &str = "vercel.health.failed";
+    pub const VERCEL_PREPARE_FAILED: &str = "vercel.prepare.failed";
+    pub const VERCEL_TEARDOWN_SURVIVOR: &str = "vercel.teardown.survivor";
 
     /// Every code in the registry, for uniqueness tests.
     pub const ALL: &[&str] = &[
@@ -177,11 +190,14 @@ pub mod codes {
         RENDER_CONFIG_INVALID,
         RENDER_API_KEY_MISSING,
         RENDER_API_FAILED,
-        RENDER_STRIPE_UNAVAILABLE,
-        RENDER_STRIPE_AUTH,
-        RENDER_STRIPE_FAILED,
-        RENDER_STRIPE_LOCK_HELD,
-        RENDER_PROJECT_ANCHOR,
+        STRIPE_PROJECTS_UNAVAILABLE,
+        STRIPE_PROJECTS_AUTH,
+        STRIPE_PROJECTS_FAILED,
+        STRIPE_PROJECTS_LOCK_HELD,
+        STRIPE_PROJECT_ANCHOR,
+        STRIPE_PROJECTS_PROVISION_FAILED,
+        INTEGRATION_CONFIG_INVALID,
+        INTEGRATION_HOST_UNSUPPORTED,
         RENDER_PAYMENT_NOT_CONFIRMED,
         RENDER_PROVISION_FAILED,
         RENDER_DEPLOY_FAILED,
@@ -189,6 +205,16 @@ pub mod codes {
         RENDER_HEALTH_FAILED,
         RENDER_PREPARE_FAILED,
         RENDER_TEARDOWN_SURVIVOR,
+        VERCEL_CONFIG_INVALID,
+        VERCEL_API_KEY_MISSING,
+        VERCEL_API_FAILED,
+        VERCEL_PAYMENT_NOT_CONFIRMED,
+        VERCEL_PROVISION_FAILED,
+        VERCEL_DEPLOY_FAILED,
+        VERCEL_DEPLOY_TIMEOUT,
+        VERCEL_HEALTH_FAILED,
+        VERCEL_PREPARE_FAILED,
+        VERCEL_TEARDOWN_SURVIVOR,
     ];
 }
 

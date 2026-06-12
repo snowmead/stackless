@@ -9,7 +9,7 @@ use stackless_core::def::StackDef;
 use crate::RenderSubstrate;
 use crate::SUBSTRATE_NAME;
 use crate::error::RenderError;
-use crate::stripe::CommandRunner;
+use stackless_stripe_projects::stripe::CommandRunner;
 
 /// A service's `[services.X.render]` block: either a runtime web service
 /// or a static site.
@@ -136,26 +136,9 @@ impl<R: CommandRunner> RenderSubstrate<R> {
         required_str(block, "plan", &location)
     }
 
-    /// The recorded Stripe Projects anchor, when present.
-    ///
-    /// New definitions use `[stack.projects.stripe].project` because
-    /// integrations need the same project on local and Render. Older
-    /// definitions with `[stack.render].project` remain valid.
+    /// The recorded Stripe Projects anchor from `[stack.projects.stripe].project`.
     pub fn stack_project(def: &StackDef) -> Option<String> {
-        def.stack
-            .projects
-            .stripe
-            .as_ref()
-            .and_then(|stripe| stripe.project.clone())
-            .or_else(|| {
-                def.stack
-                    .substrates
-                    .get(SUBSTRATE_NAME)
-                    .and_then(|value| value.as_table())
-                    .and_then(|table| table.get("project"))
-                    .and_then(|value| value.as_str())
-                    .map(str::to_owned)
-            })
+        stackless_stripe_projects::recorded_project_id(def)
     }
 
     /// The recorded `[stack.render].region`, defaulting to oregon (§1).
@@ -186,40 +169,25 @@ fn required_str(table: &toml::Table, key: &str, location: &str) -> Result<String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::stripe::TokioRunner;
+    use stackless_stripe_projects::TokioRunner;
 
     fn parse(toml: &str) -> StackDef {
         StackDef::parse(toml).expect("valid base toml")
     }
 
     #[test]
-    fn stack_project_prefers_neutral_anchor_and_reads_legacy_render_anchor() {
-        let neutral = parse(
+    fn stack_project_reads_neutral_anchor() {
+        let def = parse(
             r#"
 [stack]
 name = "atto"
 [stack.projects.stripe]
 project = "project_neutral"
-[stack.render]
-project = "project_legacy"
 "#,
         );
         assert_eq!(
-            RenderSubstrate::<TokioRunner>::stack_project(&neutral).as_deref(),
+            RenderSubstrate::<TokioRunner>::stack_project(&def).as_deref(),
             Some("project_neutral")
-        );
-
-        let legacy = parse(
-            r#"
-[stack]
-name = "atto"
-[stack.render]
-project = "project_legacy"
-"#,
-        );
-        assert_eq!(
-            RenderSubstrate::<TokioRunner>::stack_project(&legacy).as_deref(),
-            Some("project_legacy")
         );
     }
 

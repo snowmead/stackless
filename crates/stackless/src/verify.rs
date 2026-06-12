@@ -134,9 +134,13 @@ fn verify_source_dir(ctx: &VerifySourceContext<'_>, service: &str) -> Result<Pat
             detail: format!("missing checkpoint {step_id:?}"),
         })?;
 
-    if checkpoint.resource_kind == "source-ref" && ctx.substrate == stackless_render::SUBSTRATE_NAME
+    if checkpoint.resource_kind == "source-ref"
+        && matches!(
+            ctx.substrate,
+            stackless_render::SUBSTRATE_NAME | stackless_vercel::SUBSTRATE_NAME
+        )
     {
-        return render_verify_source_dir(ctx, checkpoint, service);
+        return cloud_verify_source_dir(ctx, checkpoint, service);
     }
 
     let path = recorded_path(checkpoint).ok_or_else(|| CliError::VerifySourceUnavailable {
@@ -152,7 +156,7 @@ fn verify_source_dir(ctx: &VerifySourceContext<'_>, service: &str) -> Result<Pat
     Ok(path)
 }
 
-fn render_verify_source_dir(
+fn cloud_verify_source_dir(
     ctx: &VerifySourceContext<'_>,
     checkpoint: &Checkpoint,
     service: &str,
@@ -189,6 +193,7 @@ fn render_verify_source_dir(
         ctx.instance,
         service,
         &path,
+        ctx.substrate,
         ctx.namespace,
         ctx.secrets,
     ) {
@@ -217,6 +222,7 @@ fn run_setup(
     instance: &str,
     service: &str,
     dir: &Path,
+    substrate: &str,
     namespace: &Namespace,
     secrets: &BTreeMap<String, String>,
 ) -> Result<(), CliError> {
@@ -227,13 +233,7 @@ fn run_setup(
     else {
         return Ok(());
     };
-    let env = service_env(
-        def,
-        service,
-        stackless_render::SUBSTRATE_NAME,
-        namespace,
-        secrets,
-    )?;
+    let env = service_env(def, service, substrate, namespace, secrets)?;
     stackless_local::spawn::Spawner::new(instance)
         .run_hook(service, "setup", command, dir, &env)
         .map_err(|err| local_fault(err, instance))
@@ -296,7 +296,10 @@ run = "true"
 env = { WEB = "${services.web.origin}", API = "${services.api.origin}", DB = "${datastores.db.url}", SLUG = "${instance.name}", CLERK = "${integrations.clerk.secret_key}" }
 
 [integrations.clerk]
+provider = "clerk"
+
 app_name = "${stack.name}-${instance.name}"
+credential_set = "development"
 
 [datastores.db]
 engine = "postgres"

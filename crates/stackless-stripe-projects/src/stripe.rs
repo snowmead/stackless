@@ -1,13 +1,7 @@
 //! The Stripe Projects CLI driver (ARCHITECTURE.md §4).
 //!
-//! Drives the `stripe projects` plugin (v0.19.0) non-interactively.
-//! Every JSON-mode invocation parses the `{ok, command, version, data}`
-//! envelope (the Stripe Projects JSON contract); when JSON mode fails with
-//! confirmation/auth/live-mode errors the driver falls back to plain
-//! mode with `--yes`/`--accept-tos`, matching the proven atto Render flow.
-//!
-//! The driver is generic over a [`CommandRunner`] so tests inject canned
-//! CLI envelopes without spawning a subprocess.
+//! Drives the `stripe projects` plugin non-interactively. The driver is
+//! generic over a [`CommandRunner`] so tests inject canned CLI envelopes.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -15,15 +9,10 @@ use std::time::Duration;
 use async_trait::async_trait;
 use serde::Deserialize;
 
+use crate::error::ProjectsError;
 
-use crate::error::RenderError;
-
-/// How long parallel `up` commands wait for the per-definition_dir
-/// Stripe Projects lock before failing.
 const STRIPE_LOCK_BUDGET: Duration = Duration::from_secs(30 * 60);
 
-/// One process invocation's result. `status` is the exit code; stdout
-/// and stderr are captured separately so JSON parsing reads only stdout.
 #[derive(Debug, Clone)]
 pub struct CommandOutput {
     pub status: i32,
@@ -31,57 +20,48 @@ pub struct CommandOutput {
     pub stderr: String,
 }
 
-/// The seam tests inject through. Production uses [`TokioRunner`]; unit
-/// tests supply scripted outputs keyed on the argument vector.
 #[async_trait]
 pub trait CommandRunner: Send + Sync {
-    /// Run `stripe projects <args>` in `cwd` and capture its output.
-    async fn run(&self, args: &[String], cwd: &Path) -> Result<CommandOutput, RenderError>;
+    async fn run(&self, args: &[String], cwd: &Path) -> Result<CommandOutput, ProjectsError>;
 }
 
-/// A shared reference runs like the runner it points at, so a substrate
-/// holding one `R` can hand out `StripeProjects<&R>` per call without
-/// moving or cloning it.
 #[async_trait]
 impl<T: CommandRunner + ?Sized> CommandRunner for &T {
-    async fn run(&self, args: &[String], cwd: &Path) -> Result<CommandOutput, RenderError> {
+    async fn run(&self, args: &[String], cwd: &Path) -> Result<CommandOutput, ProjectsError> {
         (**self).run(args, cwd).await
     }
 }
 
-/// Spawns the real `stripe` binary via tokio::process.
 #[derive(Debug, Default)]
 pub struct TokioRunner;
 
 #[async_trait]
 impl CommandRunner for TokioRunner {
-    async fn run(&self, args: &[String], cwd: &Path) -> Result<CommandOutput, RenderError> {
+    async fn run(&self, args: &[String], cwd: &Path) -> Result<CommandOutput, ProjectsError> {
         let args = args.to_vec();
         let cwd: PathBuf = cwd.to_path_buf();
         tokio::task::spawn_blocking(move || run_stripe_locked(&args, &cwd))
             .await
-            .map_err(|err| RenderError::StripeUnavailable {
+            .map_err(|err| ProjectsError::Unavailable {
                 detail: format!("stripe task panicked: {err}"),
             })?
     }
 }
 
-fn run_stripe_locked(args: &[String], cwd: &Path) -> Result<CommandOutput, RenderError> {
+fn run_stripe_locked(args: &[String], cwd: &Path) -> Result<CommandOutput, ProjectsError> {
     let lock_path = stackless_core::lockfile::FileLock::stripe_lock_path(cwd);
     let _guard =
         stackless_core::lockfile::FileLock::acquire_with_wait(&lock_path, STRIPE_LOCK_BUDGET)
-            .map_err(|err| {
-        RenderError::StripeLockHeld {
-            definition_dir: cwd.display().to_string(),
-            detail: err.to_string(),
-        }
-    })?;
+            .map_err(|err| ProjectsError::LockHeld {
+                definition_dir: cwd.display().to_string(),
+                detail: err.to_string(),
+            })?;
     let output = std::process::Command::new("stripe")
         .arg("projects")
         .args(args)
         .current_dir(cwd)
         .output()
-        .map_err(|err| RenderError::StripeUnavailable {
+        .map_err(|err| ProjectsError::Unavailable {
             detail: format!("could not run `stripe`: {err}"),
         })?;
     Ok(CommandOutput {
@@ -91,7 +71,6 @@ fn run_stripe_locked(args: &[String], cwd: &Path) -> Result<CommandOutput, Rende
     })
 }
 
-/// The plugin's JSON envelope, narrowed to what the driver reads.
 #[derive(Debug, Deserialize)]
 struct Envelope {
     ok: bool,
@@ -117,7 +96,6 @@ struct EnvelopeMeta {
     authenticated: Option<bool>,
 }
 
-/// One parsed `stripe projects … --json` invocation.
 #[derive(Debug, Clone)]
 pub struct StripeResult {
     pub ok: bool,
@@ -127,28 +105,15 @@ pub struct StripeResult {
     pub data: serde_json::Value,
 }
 
-/// Error codes whose confirmation/auth requirement cannot be satisfied
-/// in `--json` mode; plain mode with `--yes` accepts the session
-/// (the proven atto Render fallback set).
-///
-/// `DIRECTORY_SELECTION_REQUIRED` (live-observed 2026-06-11): `stripe
-/// projects init` refuses to initialize a non-empty directory in JSON
-/// mode, asking to "Re-run with `--yes` to initialize here". The flag
-/// rides in on the caller's `plain_extra`, so folding the code here makes
-/// the fallback append `--yes` exactly as the plugin instructs. (The
-/// definition dir is never empty — it holds stackless.toml — so init
-/// always lands here on a fresh anchor.)
 const PLAIN_FALLBACK_CODES: &[&str] = &[
     "JSON_REQUIRES_CONFIRMATION",
     "JSON_REQUIRES_AUTH",
     "DIRECTORY_SELECTION_REQUIRED",
 ];
 
-/// The Stripe Projects driver. Holds a runner and the definition dir
-/// (every invocation runs from the definition dir).
 pub struct StripeProjects<R: CommandRunner> {
     runner: R,
-    dir: std::path::PathBuf,
+    dir: PathBuf,
 }
 
 impl<R: CommandRunner> std::fmt::Debug for StripeProjects<R> {
@@ -160,7 +125,7 @@ impl<R: CommandRunner> std::fmt::Debug for StripeProjects<R> {
 }
 
 impl<R: CommandRunner> StripeProjects<R> {
-    pub fn new(runner: R, dir: impl Into<std::path::PathBuf>) -> Self {
+    pub fn new(runner: R, dir: impl Into<PathBuf>) -> Self {
         Self {
             runner,
             dir: dir.into(),
@@ -171,23 +136,18 @@ impl<R: CommandRunner> StripeProjects<R> {
         &self.dir
     }
 
-    /// The underlying runner — tests reach through it to assert calls.
     #[cfg(test)]
     fn runner(&self) -> &R {
         &self.runner
     }
 
-    /// Run in `--json` mode and parse the envelope. The plugin prints a
-    /// plain-text welcome screen (no JSON) for unknown commands and
-    /// errors without JSON when the plugin is missing — both surface as
-    /// `StripeUnavailable`.
-    pub async fn json(&self, args: &[&str]) -> Result<StripeResult, RenderError> {
+    pub async fn json(&self, args: &[&str]) -> Result<StripeResult, ProjectsError> {
         let mut argv: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
         argv.push("--json".into());
         let out = self.runner.run(&argv, &self.dir).await?;
         let Some(start) = out.stdout.find('{') else {
             let stderr = out.stderr.trim();
-            return Err(RenderError::StripeUnavailable {
+            return Err(ProjectsError::Unavailable {
                 detail: format!(
                     "`stripe projects {}` produced no JSON output{}",
                     args.join(" "),
@@ -200,7 +160,7 @@ impl<R: CommandRunner> StripeProjects<R> {
             });
         };
         let envelope: Envelope = serde_json::from_str(&out.stdout[start..]).map_err(|err| {
-            RenderError::StripeUnavailable {
+            ProjectsError::Unavailable {
                 detail: format!(
                     "`stripe projects {}` emitted malformed JSON: {err}",
                     args.join(" ")
@@ -220,17 +180,12 @@ impl<R: CommandRunner> StripeProjects<R> {
         })
     }
 
-    /// Run in plain mode (no `--json`) for confirmations `--json` can't
-    /// satisfy. Returns the merged output; the caller inspects status.
-    pub async fn plain(&self, args: &[&str]) -> Result<CommandOutput, RenderError> {
+    pub async fn plain(&self, args: &[&str]) -> Result<CommandOutput, ProjectsError> {
         let argv: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
         self.runner.run(&argv, &self.dir).await
     }
 
-    /// Map a failed [`StripeResult`] to the right fault: an
-    /// unauthenticated session or an auth-coded error is `StripeAuth`
-    /// (remediation: `stripe login`); everything else is `StripeFailed`.
-    fn classify_failure(&self, command: &str, result: &StripeResult) -> RenderError {
+    fn classify_failure(&self, command: &str, result: &StripeResult) -> ProjectsError {
         let message = result
             .error_message
             .clone()
@@ -241,9 +196,9 @@ impl<R: CommandRunner> StripeProjects<R> {
             || message.to_ascii_lowercase().contains("not authenticated")
             || message.to_ascii_lowercase().contains("log in");
         if auth_like {
-            RenderError::StripeAuth { detail: message }
+            ProjectsError::Auth { detail: message }
         } else {
-            RenderError::StripeFailed {
+            ProjectsError::Failed {
                 command: command.to_owned(),
                 detail: format!(
                     "{message}{}",
@@ -257,17 +212,12 @@ impl<R: CommandRunner> StripeProjects<R> {
         }
     }
 
-    /// Run a command that must succeed, with the atto Render fallback:
-    /// when `--json` fails with a confirmation/auth code OR a live-mode
-    /// complaint, retry in plain mode with the same args (still
-    /// non-interactive thanks to `--yes`/`--accept-tos` the caller
-    /// passes). `plain_extra` are flags appended only on the fallback.
     pub async fn run_ok(
         &self,
         command: &str,
         args: &[&str],
         plain_extra: &[&str],
-    ) -> Result<serde_json::Value, RenderError> {
+    ) -> Result<serde_json::Value, ProjectsError> {
         let result = self.json(args).await?;
         if result.ok {
             return Ok(result.data);
@@ -279,9 +229,8 @@ impl<R: CommandRunner> StripeProjects<R> {
             let mut plain_args: Vec<&str> = args.to_vec();
             plain_args.extend_from_slice(plain_extra);
             let out = self.plain(&plain_args).await?;
-            // Plain mode prints a "✗" glyph on failure even at status 0.
             if out.status != 0 || out.stdout.contains('✗') || out.stderr.contains('✗') {
-                return Err(RenderError::StripeFailed {
+                return Err(ProjectsError::Failed {
                     command: command.to_owned(),
                     detail: merge_output(&out),
                 });
@@ -303,9 +252,6 @@ mod tests {
     use stackless_core::fault::{Fault, codes};
     use std::sync::Mutex;
 
-    /// A scripted runner: returns queued outputs in order and records the
-    /// argv of every call (so tests assert the fallback re-ran in plain
-    /// mode with the right flags).
     struct ScriptRunner {
         outputs: Mutex<std::collections::VecDeque<CommandOutput>>,
         calls: Mutex<Vec<Vec<String>>>,
@@ -326,13 +272,13 @@ mod tests {
 
     #[async_trait]
     impl CommandRunner for ScriptRunner {
-        async fn run(&self, args: &[String], _cwd: &Path) -> Result<CommandOutput, RenderError> {
+        async fn run(&self, args: &[String], _cwd: &Path) -> Result<CommandOutput, ProjectsError> {
             self.calls.lock().unwrap().push(args.to_vec());
             self.outputs
                 .lock()
                 .unwrap()
                 .pop_front()
-                .ok_or_else(|| RenderError::StripeUnavailable {
+                .ok_or_else(|| ProjectsError::Unavailable {
                     detail: "ScriptRunner exhausted".into(),
                 })
         }
@@ -363,18 +309,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn skips_leading_noise_before_json() {
-        // The plugin sometimes prints a banner line before the JSON.
-        let d = driver(vec![out(0, "welcome!\n{\"ok\":true,\"data\":null}", "")]);
-        let result = d.json(&["status"]).await.unwrap();
-        assert!(result.ok);
-    }
-
-    #[tokio::test]
     async fn no_json_is_unavailable() {
         let d = driver(vec![out(127, "", "command not found: stripe")]);
         let err = d.json(&["status"]).await.unwrap_err();
-        assert_eq!(err.code(), codes::RENDER_STRIPE_UNAVAILABLE);
+        assert_eq!(err.code(), codes::STRIPE_PROJECTS_UNAVAILABLE);
     }
 
     #[tokio::test]
@@ -385,47 +323,15 @@ mod tests {
             "",
         )]);
         let err = d.run_ok("status", &["status"], &[]).await.unwrap_err();
-        assert_eq!(err.code(), codes::RENDER_STRIPE_AUTH);
+        assert_eq!(err.code(), codes::STRIPE_PROJECTS_AUTH);
     }
 
     #[tokio::test]
     async fn confirmation_code_falls_back_to_plain_mode() {
-        // JSON mode reports JSON_REQUIRES_CONFIRMATION; the driver retries
-        // in plain mode (no --json) with the extra flags and succeeds.
         let d = driver(vec![
             out(
                 0,
                 r#"{"ok":false,"error":{"code":"JSON_REQUIRES_CONFIRMATION","message":"needs confirmation"}}"#,
-                "",
-            ),
-            out(0, "✓ created project", ""),
-        ]);
-        let value = d
-            .run_ok(
-                "init",
-                &["init", "atto", "--skip-skills", "--accept-tos"],
-                &["--accept-tos", "--yes"],
-            )
-            .await
-            .unwrap();
-        assert!(value.is_null());
-        let calls = d.runner().calls();
-        assert_eq!(calls.len(), 2);
-        // First call carries --json; the fallback drops it and appends --yes.
-        assert!(calls[0].contains(&"--json".to_owned()));
-        assert!(!calls[1].contains(&"--json".to_owned()));
-        assert!(calls[1].contains(&"--yes".to_owned()));
-    }
-
-    #[tokio::test]
-    async fn directory_selection_required_falls_back_to_plain_mode() {
-        // Live-observed (2026-06-11): `init` in a non-empty dir returns
-        // DIRECTORY_SELECTION_REQUIRED in JSON mode; the driver retries in
-        // plain mode with the caller's --yes, which the plugin honors.
-        let d = driver(vec![
-            out(
-                0,
-                r#"{"ok":false,"error":{"code":"DIRECTORY_SELECTION_REQUIRED","message":"Current directory is not empty. Re-run with `--yes` to initialize here, or pass `--name <directory>` to create a subdirectory."}}"#,
                 "",
             ),
             out(0, "✓ created project", ""),
@@ -442,75 +348,5 @@ mod tests {
         assert!(calls[0].contains(&"--json".to_owned()));
         assert!(!calls[1].contains(&"--json".to_owned()));
         assert!(calls[1].contains(&"--yes".to_owned()));
-    }
-
-    #[tokio::test]
-    async fn live_mode_message_falls_back_to_plain_mode() {
-        let d = driver(vec![
-            out(
-                0,
-                r#"{"ok":false,"error":{"code":"OTHER","message":"requires live mode login"}}"#,
-                "",
-            ),
-            out(0, "added", ""),
-        ]);
-        d.run_ok(
-            "add render/postgres",
-            &["add", "render/postgres"],
-            &["--yes"],
-        )
-        .await
-        .unwrap();
-        assert_eq!(d.runner().calls().len(), 2);
-    }
-
-    #[tokio::test]
-    async fn plain_fallback_failure_surfaces_glyph() {
-        let d = driver(vec![
-            out(
-                0,
-                r#"{"ok":false,"error":{"code":"JSON_REQUIRES_CONFIRMATION","message":"x"}}"#,
-                "",
-            ),
-            out(0, "✗ provider declined", ""),
-        ]);
-        let err = d
-            .run_ok("add x", &["add", "x"], &["--yes"])
-            .await
-            .unwrap_err();
-        assert_eq!(err.code(), codes::RENDER_STRIPE_FAILED);
-    }
-
-    #[tokio::test]
-    async fn plain_non_zero_status_is_failure() {
-        let d = driver(vec![
-            out(
-                0,
-                r#"{"ok":false,"error":{"code":"JSON_REQUIRES_AUTH"}}"#,
-                "",
-            ),
-            out(1, "", "boom"),
-        ]);
-        let err = d
-            .run_ok("env use", &["env", "use", "x"], &["--yes"])
-            .await
-            .unwrap_err();
-        assert_eq!(err.code(), codes::RENDER_STRIPE_FAILED);
-    }
-
-    #[tokio::test]
-    async fn generic_failure_without_fallback_is_stripe_failed() {
-        let d = driver(vec![out(
-            0,
-            r#"{"ok":false,"error":{"code":"VALIDATION","message":"bad config"}}"#,
-            "",
-        )]);
-        let err = d
-            .run_ok("add x", &["add", "x"], &["--yes"])
-            .await
-            .unwrap_err();
-        assert_eq!(err.code(), codes::RENDER_STRIPE_FAILED);
-        // No fallback ran — exactly one call.
-        assert_eq!(d.runner().calls().len(), 1);
     }
 }

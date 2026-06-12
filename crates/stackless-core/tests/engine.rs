@@ -41,7 +41,7 @@ health = { path = "/health", contains = "ok" }
 
 fn parse_def() -> StackDef {
     let def = StackDef::parse(DEF_TEXT).unwrap();
-    def.validate(&["mock"]).unwrap();
+    def.validate_hosts(&["mock"]).unwrap();
     def
 }
 

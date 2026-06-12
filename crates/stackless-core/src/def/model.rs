@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 
 use super::error::DefError;
+use crate::host::Host;
 use crate::types::{DnsName, HttpStatus};
 
 /// Top level of `stackless.toml`. Unknown top-level sections are
@@ -36,7 +37,7 @@ pub struct Stack {
     #[serde(default)]
     pub projects: ProjectsSpec,
     pub verify: Option<VerifySpec>,
-    /// Per-substrate stack config (e.g. `[stack.render]` project/region),
+    /// Per-substrate stack config (e.g. `[stack.render]` region),
     /// plus any unknown keys — validation tells them apart.
     #[serde(flatten)]
     pub substrates: BTreeMap<String, toml::Value>,
@@ -71,18 +72,53 @@ pub struct SecretsSpec {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Integration {
-    pub app_name: String,
-    #[serde(default = "default_credential_set")]
-    pub credential_set: String,
-    pub production_domain: Option<String>,
-    #[serde(default)]
-    pub organizations: bool,
+    /// Catalog adapter (e.g. `clerk` → `clerk/auth`).
+    pub provider: String,
+    /// Provider config and optional per-host override tables
+    /// (`[integrations.<name>.<host>]`), allowed only for host-bound
+    /// providers that declare per-host config in the integrations registry.
+    #[serde(flatten)]
+    pub fields: BTreeMap<String, toml::Value>,
 }
 
-fn default_credential_set() -> String {
-    "development".to_owned()
+impl Integration {
+    /// Config keys excluding registered host override tables.
+    pub fn config_fields(&self) -> BTreeMap<String, toml::Value> {
+        self.fields
+            .iter()
+            .filter(|(key, _)| !Host::is_host_key(key))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect()
+    }
+
+    pub fn host_block(&self, host: Host) -> Option<&toml::Table> {
+        self.fields
+            .get(host.as_str())
+            .and_then(toml::Value::as_table)
+    }
+
+    /// Parent config merged with a host override table when present.
+    pub fn effective_config(&self, host: Host) -> BTreeMap<String, toml::Value> {
+        let mut out = self.config_fields();
+        if let Some(override_table) = self.host_block(host) {
+            for (key, value) in override_table {
+                out.insert(key.clone(), value.clone());
+            }
+        }
+        out
+    }
+
+    /// Every host-key table nested under this integration.
+    pub fn host_blocks(&self) -> BTreeMap<Host, &toml::Table> {
+        self.fields
+            .iter()
+            .filter_map(|(key, value)| {
+                let host = Host::parse(key)?;
+                Some((host, value.as_table()?))
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Deserialize)]

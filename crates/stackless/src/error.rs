@@ -24,6 +24,9 @@ pub enum CliError {
     Def(#[from] DefError),
 
     #[error(transparent)]
+    Integration(#[from] stackless_integrations::IntegrationError),
+
+    #[error(transparent)]
     Daemon(#[from] stackless_daemon::DaemonError),
 
     #[error(transparent)]
@@ -88,6 +91,7 @@ impl Fault for CliError {
             Self::VerifyFailed { .. } => codes::VERIFY_FAILED,
             Self::VerifySourceUnavailable { .. } => codes::VERIFY_SOURCE_UNAVAILABLE,
             Self::Substrate { fault, .. } => fault.code(),
+            Self::Integration(err) => err.code(),
             Self::Runtime(_) => codes::CLI_RUNTIME,
         }
     }
@@ -108,8 +112,8 @@ impl Fault for CliError {
                 format!("fix the {argument} value; see `stackless --help`")
             }
             Self::SubstrateRequired { name } => format!(
-                "pass a substrate at creation: `stackless up --name {name} --on local` or \
-                 `--on render`"
+                "pass a substrate at creation: `stackless up --name {name} --on local`, \
+                 `--on render`, or `--on vercel`"
             ),
             Self::SecretsUnresolved { missing, .. } => format!(
                 "add {missing:?} to the {} file next to stackless.toml (KEY=value lines), or \
@@ -129,6 +133,7 @@ impl Fault for CliError {
                  or fix the recorded checkout and re-run `stackless verify`"
             ),
             Self::Substrate { fault, .. } => fault.remediation(),
+            Self::Integration(err) => err.remediation(),
             Self::Runtime(_) => "re-run the command; if it persists this is a stackless bug".into(),
         }
     }

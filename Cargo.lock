@@ -3656,8 +3656,10 @@ dependencies = [
  "serde_json",
  "stackless-core",
  "stackless-daemon",
+ "stackless-integrations",
  "stackless-local",
  "stackless-render",
+ "stackless-vercel",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -3697,6 +3699,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "stackless-integrations"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "stackless-core",
+ "stackless-stripe-projects",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
+ "wiremock",
+]
+
+[[package]]
 name = "stackless-local"
 version = "0.1.0"
 dependencies = [
@@ -3713,7 +3732,8 @@ dependencies = [
  "serde_json",
  "stackless-core",
  "stackless-daemon",
- "stackless-render",
+ "stackless-integrations",
+ "stackless-stripe-projects",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -3728,11 +3748,46 @@ dependencies = [
  "serde",
  "serde_json",
  "stackless-core",
+ "stackless-integrations",
+ "stackless-stripe-projects",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "toml",
  "toml_edit",
+ "wiremock",
+]
+
+[[package]]
+name = "stackless-stripe-projects"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "stackless-core",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
+ "toml_edit",
+]
+
+[[package]]
+name = "stackless-vercel"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "stackless-core",
+ "stackless-integrations",
+ "stackless-stripe-projects",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
  "wiremock",
 ]
 

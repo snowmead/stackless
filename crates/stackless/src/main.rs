@@ -15,14 +15,8 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 
 use stackless_core::def::{self, StackDef};
-
 use crate::error::CliError;
 use crate::output::Output;
-
-/// Substrates registered with this binary. Implementation crates take
-/// over these entries as they land (stackless-local, stackless-render);
-/// core itself never names a substrate.
-const KNOWN_SUBSTRATES: &[&str] = &["local", "render"];
 
 #[derive(Parser)]
 #[command(name = "stackless", version, about = "Disposable software stacks")]
@@ -46,7 +40,7 @@ enum Command {
         /// instance's snapshot on resume).
         #[arg(long)]
         file: Option<PathBuf>,
-        /// Substrate, required at creation (`local` or `render`); ignored on resume.
+        /// Substrate, required at creation (`local`, `render`, or `vercel`); ignored on resume.
         #[arg(long = "on", value_name = "SUBSTRATE")]
         on: Option<String>,
         /// Pin a service to a checkout: SERVICE or SERVICE=PATH (PATH
@@ -133,20 +127,14 @@ fn main() -> ExitCode {
 }
 
 fn check(file: &PathBuf, substrate: Option<&str>, output: &Output) -> Result<(), CliError> {
-    if let Some(substrate) = substrate
-        && !KNOWN_SUBSTRATES.contains(&substrate)
-    {
-        return Err(CliError::SubstrateUnknown {
-            substrate: substrate.to_owned(),
-            known: KNOWN_SUBSTRATES.iter().map(|s| (*s).to_owned()).collect(),
-        });
-    }
+    let active_host = substrate.map(commands::parse_host).transpose()?;
     let text = std::fs::read_to_string(file).map_err(|source| CliError::FileRead {
         path: file.display().to_string(),
         source,
     })?;
     let def = StackDef::parse(&text)?;
-    def.validate(KNOWN_SUBSTRATES)?;
+    def.validate()?;
+    stackless_integrations::validate_all(&def, active_host)?;
     if let Some(substrate) = substrate {
         def.validate_for_substrate(substrate)?;
     }
@@ -154,3 +142,5 @@ fn check(file: &PathBuf, substrate: Option<&str>, output: &Output) -> Result<(),
     output.check_ok(&def, &graph, substrate);
     Ok(())
 }
+
+

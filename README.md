@@ -47,22 +47,25 @@ verifiably. No wiki page, no teammate, no manual cleanup.
   `CLERK_SECRET_KEY = "${integrations.clerk.secret_key}"` — and the
   startup order is *derived* from it; there is no `depends_on` to
   drift.
-- **Hosted integrations** are provisioned as stack resources too. For
-  Clerk, Stackless creates the app through Stripe Projects, can enable
-  slugged Organizations, and exposes the selected publishable/secret
-  keys for services and verify.
+- **Hosted integrations** (`[integrations.<name>]`, with a required
+  `provider` naming the catalog adapter) are provisioned as stack
+  resources too. For Clerk (`provider = "clerk"`), Stackless creates
+  the app through Stripe Projects, can enable slugged Organizations,
+  and exposes the selected publishable/secret keys for services and
+  verify.
 - **Secrets** — `[secrets].required` keys resolve from `.stackless.env`
-  beside the definition file (vault pull layers in when a Stripe
-  project is recorded). A required key missing from every source fails
-  validation before anything provisions.
+  beside the definition file (vault pull layers in when
+  `[stack.projects.stripe].project` is recorded). A required key
+  missing from every source fails validation before anything
+  provisions.
 - **An instance** is a named, short-lived incarnation of the stack.
   Pass `--name` at creation (DNS-safe); omit it and stackless assigns
   `{stack.name}-{uuid}`. Everything the instance owns derives from
   the name. Any number of instances coexist without colliding on ports,
   names, data, or credentials.
-- **Substrates** decide where instances live. Pass `--on local` or
-  `--on render` at creation (required); resume uses the recorded
-  substrate and never asks again:
+- **Substrates** (stack hosts) decide where instances live. Pass
+  `--on local`, `--on render`, or `--on vercel` at creation (required);
+  resume uses the recorded substrate and never asks again:
   - **local** — services run as host processes from your declared
     commands; datastores run as labeled Docker containers with
     per-instance volumes; everything meets at a built-in reverse proxy,
@@ -72,9 +75,18 @@ verifiably. No wiki page, no teammate, no manual cleanup.
     [Render](https://render.com) through the same Stripe Project used
     for hosted integrations (one long-lived project per stack, one
     named environment per instance), with hard spend caps and
-    per-invocation paid consent (`--confirm-paid`). After cloud
-    `up`/`down`, a spend summary is printed (bounded by the project
-    hard cap).
+    per-invocation paid consent (`--confirm-paid`). Stripe Projects
+    provisions catalog resources; the Render REST API handles env vars,
+    deploys, health waits, and teardown verification (`RENDER_API_KEY`
+    or `.render-api-key`). After cloud `up`/`down`, a spend summary is
+    printed (bounded by the project hard cap).
+  - **vercel** — git-backed projects on
+    [Vercel](https://vercel.com) via Stripe `vercel/project` (and
+    optional `vercel/pro` when `[stack.vercel].plan = "pro"`). Stripe
+    creates/links the project; the Vercel REST API pushes interpolated
+    env, triggers git deployments, polls until READY, and verifies
+    teardown (`VERCEL_TOKEN` or `.vercel-token`). No managed postgres
+    on Vercel in v0; `source.repo` must be a public GitHub HTTPS remote.
 - **Sources are git references** (`repo` + `ref`), materialized per
   instance from a shared object cache. For the edit loop,
   `--source service=/path/to/checkout` pins a service to your dirty
@@ -88,7 +100,8 @@ verifiably. No wiki page, no teammate, no manual cleanup.
   up when every service's health contract passes through its public
   origin. `stackless verify` runs the stack's own proof command (the
   smoke tier) with the instance's origins and env exported.
-- **Every instance carries a lease** (local default 24h, render 8h).
+- **Every instance carries a lease** (local default 24h; render and
+  vercel default 8h).
   Mutating verbs and successful `verify` renew it; when it expires, a
   reaper sends the instance through the same verified teardown as
   `down`. Teardown refuses to report success while anything that bills
@@ -104,7 +117,7 @@ verifiably. No wiki page, no teammate, no manual cleanup.
 | `verify <name>` | Run the stack's proof contract; renews the lease |
 | `status <name>` | Staged truth per service: provisioned → prepared → started → healthy, downgraded by observation |
 | `list` | All instances with substrate, `active`/`tombstoned`, per-service stage, remaining lease |
-| `logs <name> [service]` | Captured service output (local files / Render log API), survives teardown; `--tail` (default 100) |
+| `logs <name> [service]` | Captured service output (local files / Render log API); Vercel uses the dashboard for now; survives teardown; `--tail` (default 100) |
 | `check <file>` | Parse + validate a definition, print the derived graph; `--on <substrate>` adds substrate checks |
 
 Every command is non-interactive, supports `--json`, and exits with
@@ -178,8 +191,11 @@ it is written to be sufficient on its own, for humans and agents.
 | Crate | Owns |
 |---|---|
 | `stackless-core` | Definition model + validation + interpolation + derived graph, the SQL state store (local `rusqlite` file; opt-in fleet plane via `libsql` remote), instances, leases, locks, checkpoint journal, the lifecycle engine, the `Substrate` trait |
-| `stackless-local` | Local substrate: process spawn/teardown, container datastores, gix source materialization, wiring |
-| `stackless-render` | Render substrate, hosted integration provisioning through Stripe Projects, and Render REST client |
+| `stackless-stripe-projects` | Neutral Stripe Projects CLI driver: project anchor (`[stack.projects.stripe]`), per-instance environments, catalog add/remove, env materialization |
+| `stackless-integrations` | Hosted integration routing and provider adapters (Clerk today); substrates call here for provision / observe / destroy |
+| `stackless-local` | Local substrate: process spawn/teardown, container datastores, gix source materialization, wiring, hosted integrations |
+| `stackless-render` | Render substrate and Render REST client |
+| `stackless-vercel` | Vercel substrate and Vercel REST client |
 | `stackless-daemon` | The one resident component: reverse proxy, supervision, lease reaper, launchd/systemd persistence |
 | `stackless` | The clap CLI binary (also hosts the daemon via `daemon run`) |
 
@@ -187,13 +203,38 @@ Substrates are plugins behind one trait: adding a provider crate
 requires no changes to the engine or state machinery — only a registry
 entry in the binary.
 
+## Supported providers
+
+Stripe Projects is the internal catalog driver for hosted resources —
+you never declare it in `stackless.toml`. This checklist tracks what
+stackless can provision and operate today.
+
+### Stack hosts (`stackless up --on <host>`)
+
+- [x] **local** — host processes, Docker postgres, built-in reverse proxy
+- [x] **render** — web services, static sites, managed postgres
+- [x] **vercel** — git-backed projects and deployments (no datastores in v0)
+
+### Integrations (`[integrations.<name>]`)
+
+- [x] **clerk** — `provider = "clerk"` → Stripe `clerk/auth`; managed (runs on Clerk's cloud); global config only; available on every host
+
+### Not yet
+
+- [ ] Additional stack hosts (Fly.io, Railway, Netlify, …)
+- [ ] Host-bound integrations with per-host config tables (registry supports the model; no providers ship yet)
+- [ ] Integrations beyond Clerk (any future Stripe catalog adapter needs an entry in `stackless-integrations`)
+- [ ] `stackless logs` on Vercel (use the Vercel dashboard; Render and local are supported)
+- [ ] Fleet plane live verification on Turso Cloud (`STACKLESS_STATE_URL` + `STACKLESS_STATE_TOKEN` — implemented, not fully dogfooded)
+
 ## Status
 
 v0 lifecycle layer, under active development. Local substrate, daemon,
-and lifecycle engine are implemented and tested. Render substrate is
-implemented; live end-to-end verification is ongoing. Opt-in fleet
-mode (`STACKLESS_STATE_URL` + `STACKLESS_STATE_TOKEN`) shares state
-across machines; Turso Cloud live verification is pending. The
-secret-blind egress boundary described in VISION.md is deliberately
-sequenced after v0 — see ARCHITECTURE.md §0 for the v0 secrets posture
-(operator-visible, test-scoped).
+and lifecycle engine are implemented and tested. Render and Vercel
+substrates are implemented (Stripe Projects provisions catalog
+resources; each cloud host's REST API handles post-provision lifecycle
+steps). Live end-to-end verification on real cloud accounts is ongoing.
+Opt-in fleet mode shares state across machines; Turso Cloud live
+verification is pending. The secret-blind egress boundary described in
+VISION.md is deliberately sequenced after v0 — see ARCHITECTURE.md §0
+for the v0 secrets posture (operator-visible, test-scoped).

@@ -6,6 +6,8 @@
 //! - `${datastores.X.url}` is an **ordering** edge: the value does not
 //!   exist until the datastore is provisioned, so the referencing
 //!   service starts after it.
+//! - `${integrations.X.output}` is an **ordering** edge: outputs exist
+//!   only after the integration is provisioned.
 //! - `${services.X.origin}` is **wiring only**: origins are derivable
 //!   from the instance name alone on every substrate, so mutual
 //!   references (api ↔ web CORS) are recorded but never order startup —
@@ -31,6 +33,7 @@ use super::model::StackDef;
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(tag = "kind", content = "name", rename_all = "snake_case")]
 pub enum Node {
+    Integration(String),
     Datastore(String),
     Service(String),
 }
@@ -38,7 +41,7 @@ pub enum Node {
 impl Node {
     pub fn name(&self) -> &str {
         match self {
-            Self::Datastore(name) | Self::Service(name) => name,
+            Self::Integration(name) | Self::Datastore(name) | Self::Service(name) => name,
         }
     }
 }
@@ -60,12 +63,17 @@ impl DependencyGraph {
     /// Call on a validated definition: undeclared references have
     /// already been rejected, so lookups here cannot miss.
     pub fn derive(def: &StackDef) -> Result<Self, DefError> {
-        // Dense indices: datastores first, then services, both in the
-        // definition's (sorted) order — deterministic by construction.
+        // Dense indices: integrations, then datastores, then services —
+        // all in the definition's (sorted) order for deterministic ties.
         let nodes: Vec<Node> = def
-            .datastores
+            .integrations
             .keys()
-            .map(|name| Node::Datastore(name.clone()))
+            .map(|name| Node::Integration(name.clone()))
+            .chain(
+                def.datastores
+                    .keys()
+                    .map(|name| Node::Datastore(name.clone())),
+            )
             .chain(def.services.keys().map(|name| Node::Service(name.clone())))
             .collect();
         let index_of =
@@ -93,20 +101,39 @@ impl DependencyGraph {
                     let target = match reference {
                         Reference::DatastoreUrl(name) => Node::Datastore(name),
                         Reference::ServiceOrigin(name) => Node::Service(name),
-                        Reference::StackName
-                        | Reference::InstanceName
-                        | Reference::Secret(_)
-                        | Reference::IntegrationOutput { .. } => continue,
+                        Reference::IntegrationOutput { integration, .. } => {
+                            Node::Integration(integration)
+                        }
+                        Reference::StackName | Reference::InstanceName | Reference::Secret(_) => {
+                            continue;
+                        }
                     };
                     let Some(target_idx) = index_of(&target) else {
                         continue;
                     };
                     wiring.insert((service_idx, target_idx));
-                    if matches!(target, Node::Datastore(_)) {
+                    if matches!(target, Node::Datastore(_) | Node::Integration(_)) {
                         // Edge points dependency → dependent so Kahn
                         // emits dependencies first.
                         ordering_edges.insert((target_idx, service_idx));
                     }
+                }
+            }
+        }
+
+        if let Some(verify) = &def.stack.verify {
+            for (key, value) in &verify.env {
+                let location = format!("stack.verify.env.{key}");
+                for reference in interp::references(value, &location)? {
+                    let Reference::IntegrationOutput { integration, .. } = reference else {
+                        continue;
+                    };
+                    let target = Node::Integration(integration);
+                    let Some(target_idx) = index_of(&target) else {
+                        continue;
+                    };
+                    // Verify runs after `up`; record wiring only.
+                    let _ = target_idx;
                 }
             }
         }

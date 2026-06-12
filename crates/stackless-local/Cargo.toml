@@ -22,7 +22,8 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 stackless-core.workspace = true
 stackless-daemon.workspace = true
-stackless-render.workspace = true
+stackless-integrations.workspace = true
+stackless-stripe-projects.workspace = true
 thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["rt", "time", "macros"] }
 

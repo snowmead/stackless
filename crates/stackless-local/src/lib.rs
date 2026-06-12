@@ -306,16 +306,18 @@ impl Substrate for LocalSubstrate {
         let service = ctx.step.node.as_str();
         match ctx.step.kind {
             StepKind::ProvisionIntegration => {
-                let stripe = stackless_render::stripe::StripeProjects::new(
-                    stackless_render::stripe::TokioRunner,
+                let stripe = stackless_stripe_projects::StripeProjects::new(
+                    stackless_stripe_projects::TokioRunner,
                     self.definition_dir.clone(),
                 );
-                stackless_render::integrations::provision(
+                stackless_integrations::provision(
+                    SUBSTRATE_NAME,
                     &stripe,
                     ctx.def,
                     &self.definition_dir,
                     ctx.instance,
                     service,
+                    false,
                 )
                 .await
                 .map_err(|err| SubstrateFault::from_fault(&err))
@@ -541,15 +543,17 @@ impl Substrate for LocalSubstrate {
         checkpoint: &Checkpoint,
     ) -> Result<Observation, SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
-            kind if stackless_render::integrations::is_clerk_resource(kind) => {
-                let stripe = stackless_render::stripe::StripeProjects::new(
-                    stackless_render::stripe::TokioRunner,
+            kind if stackless_integrations::is_integration_resource(kind) => {
+                let stripe = stackless_stripe_projects::StripeProjects::new(
+                    stackless_stripe_projects::TokioRunner,
                     self.definition_dir.clone(),
                 );
-                stackless_render::integrations::observe(
+                stackless_integrations::observe(
+                    SUBSTRATE_NAME,
                     &stripe,
                     &checkpoint.payload,
                     &checkpoint.resource_id,
+                    kind,
                 )
                 .await
                 .map_err(|err| SubstrateFault::from_fault(&err))
@@ -623,16 +627,17 @@ impl Substrate for LocalSubstrate {
 
     async fn destroy(&self, instance: &str, checkpoint: &Checkpoint) -> Result<(), SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
-            kind if stackless_render::integrations::is_clerk_resource(kind) => {
-                let stripe = stackless_render::stripe::StripeProjects::new(
-                    stackless_render::stripe::TokioRunner,
+            kind if stackless_integrations::is_integration_resource(kind) => {
+                let stripe = stackless_stripe_projects::StripeProjects::new(
+                    stackless_stripe_projects::TokioRunner,
                     self.definition_dir.clone(),
                 );
-                stackless_render::integrations::destroy(
+                stackless_integrations::destroy(
+                    SUBSTRATE_NAME,
                     &stripe,
-                    instance,
                     &checkpoint.payload,
                     &checkpoint.resource_id,
+                    kind,
                 )
                 .await
                 .map_err(|err| SubstrateFault::from_fault(&err))
@@ -699,6 +704,15 @@ impl Substrate for LocalSubstrate {
             // `--source` overrides are the operator's, never removed.
             _ => Ok(()),
         }
+    }
+
+    async fn finalize_teardown(&self, instance: &str) -> Result<(), SubstrateFault> {
+        let stripe = stackless_stripe_projects::StripeProjects::new(
+            stackless_stripe_projects::TokioRunner,
+            self.definition_dir.clone(),
+        );
+        stackless_integrations::finalize_stripe_instance(&stripe, instance).await;
+        Ok(())
     }
 }
 

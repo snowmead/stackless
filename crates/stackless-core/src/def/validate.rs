@@ -9,16 +9,21 @@ use std::collections::BTreeMap;
 
 use super::error::DefError;
 use super::interp::{self, Reference};
-use super::model::{Service, StackDef};
+use super::model::{Integration, Service, StackDef};
+use crate::host::Host;
 
 /// Engines with built-in readiness in v0 (ARCHITECTURE.md §7).
 const KNOWN_ENGINES: &[&str] = &["postgres"];
-const KNOWN_INTEGRATIONS: &[&str] = &["clerk"];
-const CLERK_OUTPUTS: &[&str] = &["secret_key", "publishable_key"];
 
 impl StackDef {
-    /// Validate the whole definition against the rules substrates share.
-    pub fn validate(&self, known_substrates: &[&str]) -> Result<(), DefError> {
+    /// Validate the whole definition against the rules registered hosts share.
+    pub fn validate(&self) -> Result<(), DefError> {
+        let known_substrates: Vec<&str> = Host::ALL.iter().map(|host| host.as_str()).collect();
+        validate_definition(self, &known_substrates)
+    }
+
+    /// Validate against an explicit host list (tests and tooling only).
+    pub fn validate_hosts(&self, known_substrates: &[&str]) -> Result<(), DefError> {
         validate_definition(self, known_substrates)
     }
 
@@ -49,7 +54,7 @@ fn validate_definition(def: &StackDef, known_substrates: &[&str]) -> Result<(), 
     }
 
     validate_substrate_keys(&def.stack.substrates, "stack", known_substrates)?;
-    validate_integrations(def)?;
+    validate_integrations(def, known_substrates)?;
 
     for (name, datastore) in &def.datastores {
         if !crate::types::dns_safe(name) {
@@ -170,43 +175,67 @@ fn validate_service_references(
     Ok(())
 }
 
-fn validate_integrations(def: &StackDef) -> Result<(), DefError> {
+fn validate_integrations(def: &StackDef, known_substrates: &[&str]) -> Result<(), DefError> {
     for (name, integration) in &def.integrations {
-        if !KNOWN_INTEGRATIONS.contains(&name.as_str()) {
-            return Err(DefError::IntegrationInvalid {
-                integration: name.clone(),
-                detail: format!("unknown integration {name:?} (known: {KNOWN_INTEGRATIONS:?})"),
+        if !crate::types::dns_safe(name) {
+            return Err(DefError::NameInvalid {
+                kind: "integration",
+                name: name.clone(),
             });
         }
-        match integration.credential_set.as_str() {
-            "development" => {}
-            "production" => {
-                if integration.production_domain.is_none() {
-                    return Err(DefError::IntegrationInvalid {
-                        integration: name.clone(),
-                        detail: "credential_set = \"production\" requires production_domain".into(),
-                    });
-                }
-            }
-            other => {
-                return Err(DefError::IntegrationInvalid {
-                    integration: name.clone(),
-                    detail: format!(
-                        "credential_set must be \"development\" or \"production\", got {other:?}"
-                    ),
-                });
-            }
+        if integration.provider.is_empty() {
+            return Err(DefError::IntegrationInvalid {
+                integration: name.clone(),
+                detail: "provider is required".into(),
+            });
         }
-        for (field, value) in [
-            ("app_name", Some(integration.app_name.as_str())),
-            (
-                "production_domain",
-                integration.production_domain.as_deref(),
-            ),
-        ] {
-            let Some(value) = value else { continue };
-            let location = format!("integrations.{name}.{field}");
-            let refs = interp::references(value, &location)?;
+        validate_integration_substrate_keys(name, integration, known_substrates)?;
+        validate_integration_string_refs(def, name, integration)?;
+    }
+    Ok(())
+}
+
+fn validate_integration_substrate_keys(
+    name: &str,
+    integration: &Integration,
+    known_substrates: &[&str],
+) -> Result<(), DefError> {
+    let substrates: std::collections::BTreeMap<String, toml::Value> = integration
+        .fields
+        .iter()
+        .filter(|(key, _)| known_substrates.contains(&key.as_str()))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    validate_substrate_keys(
+        &substrates,
+        &format!("integrations.{name}"),
+        known_substrates,
+    )
+}
+
+fn validate_integration_string_refs(
+    def: &StackDef,
+    name: &str,
+    integration: &Integration,
+) -> Result<(), DefError> {
+    for (key, value) in integration.config_fields() {
+        let Some(text) = value.as_str() else {
+            continue;
+        };
+        let location = format!("integrations.{name}.{key}");
+        let refs = interp::references(text, &location)?;
+        validate_references(def, &refs, &location)?;
+    }
+    for host in Host::ALL {
+        let Some(block) = integration.host_block(*host) else {
+            continue;
+        };
+        for (key, value) in block {
+            let Some(text) = value.as_str() else {
+                continue;
+            };
+            let location = format!("integrations.{name}.{}.{}", host.as_str(), key);
+            let refs = interp::references(text, &location)?;
             validate_references(def, &refs, &location)?;
         }
     }
@@ -243,22 +272,12 @@ fn validate_references(def: &StackDef, refs: &[Reference], location: &str) -> Re
                     });
                 }
             }
-            Reference::IntegrationOutput {
-                integration,
-                output,
-            } => {
+            Reference::IntegrationOutput { integration, .. } => {
                 if !def.integrations.contains_key(integration) {
                     return Err(DefError::UndeclaredReference {
                         location: location.to_owned(),
                         kind: "integration",
                         name: integration.clone(),
-                    });
-                }
-                if integration == "clerk" && !CLERK_OUTPUTS.contains(&output.as_str()) {
-                    return Err(DefError::UndeclaredReference {
-                        location: location.to_owned(),
-                        kind: "integration output",
-                        name: format!("{integration}.{output}"),
                     });
                 }
             }

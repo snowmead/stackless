@@ -1,5 +1,5 @@
 [package]
-name = "stackless-render"
+name = "stackless-stripe-projects"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
@@ -10,18 +10,13 @@ workspace = true
 
 [dependencies]
 async-trait = "0.1.89"
-reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "charset", "http2", "json"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 stackless-core.workspace = true
-stackless-integrations.workspace = true
-stackless-stripe-projects.workspace = true
 thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["rt", "time", "macros", "process"] }
-toml = "1.1.2"
 toml_edit = "0.25.12"
 
 [dev-dependencies]
-stackless-core = { path = "../stackless-core" }
 tempfile = "3.27.0"
-wiremock = "0.6.5"
+toml = "1.1.2"

@@ -64,11 +64,11 @@ impl StackDef {
     pub fn plan(&self) -> Result<Vec<Step>, DefError> {
         let graph = DependencyGraph::derive(self)?;
         let mut steps = Vec::new();
-        for integration in self.integrations.keys() {
-            steps.push(Step::new(StepKind::ProvisionIntegration, integration));
-        }
         for node in graph.startup_order() {
             match node {
+                Node::Integration(name) => {
+                    steps.push(Step::new(StepKind::ProvisionIntegration, name));
+                }
                 Node::Datastore(name) => {
                     steps.push(Step::new(StepKind::ProvisionDatastore, name));
                 }

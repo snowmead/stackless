@@ -7,12 +7,13 @@ use std::path::PathBuf;
 use serde::Serialize;
 use stackless_core::def::StackDef;
 use stackless_core::engine::{DownOutcome, Engine, UpRequest};
+use stackless_core::host::Host;
 use stackless_core::state::{InstanceRecord, InstanceStatus, Store};
 use stackless_core::substrate::Substrate;
-use stackless_local::{LocalSubstrate, SUBSTRATE_NAME as LOCAL};
+use stackless_local::LocalSubstrate;
 use stackless_render::{RenderSubstrate, SUBSTRATE_NAME as RENDER};
+use stackless_vercel::{VercelSubstrate, SUBSTRATE_NAME as VERCEL};
 
-use crate::KNOWN_SUBSTRATES;
 use crate::error::CliError;
 use crate::output::Output;
 
@@ -36,22 +37,30 @@ pub(crate) fn build_substrate(
     substrate(name, ctx)
 }
 
+pub(crate) fn parse_host(substrate: &str) -> Result<Host, CliError> {
+    Host::parse(substrate).ok_or_else(|| CliError::SubstrateUnknown {
+        substrate: substrate.to_owned(),
+        known: Host::ALL.iter().map(|host| host.as_str().to_owned()).collect(),
+    })
+}
+
 fn substrate(name: &str, ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliError> {
-    match name {
-        LOCAL => Ok(Box::new(LocalSubstrate {
+    match parse_host(name)? {
+        Host::Local => Ok(Box::new(LocalSubstrate {
             proxy_port: stackless_daemon::proxy::proxy_port(),
             secrets: ctx.secrets,
             definition_dir: ctx.definition_dir,
         })),
-        RENDER => Ok(Box::new(RenderSubstrate::new(
+        Host::Render => Ok(Box::new(RenderSubstrate::new(
             ctx.definition_dir,
             ctx.secrets,
             ctx.confirm_paid,
         ))),
-        other => Err(CliError::SubstrateUnknown {
-            substrate: other.to_owned(),
-            known: KNOWN_SUBSTRATES.iter().map(|s| (*s).to_owned()).collect(),
-        }),
+        Host::Vercel => Ok(Box::new(VercelSubstrate::new(
+            ctx.definition_dir,
+            ctx.secrets,
+            ctx.confirm_paid,
+        ))),
     }
 }
 
@@ -234,6 +243,7 @@ pub fn up(args: UpArgs, output: &mut Output) -> Result<(), CliError> {
         .unwrap_or_default();
     let def_dir = std::fs::canonicalize(&def_dir).unwrap_or(def_dir);
     let secrets = crate::secrets::resolve(&def, &def_dir)?;
+    stackless_integrations::validate_all(&def, Some(parse_host(&substrate_name)?))?;
     let provider = substrate(
         &substrate_name,
         SubstrateCtx {
@@ -275,6 +285,8 @@ pub fn up(args: UpArgs, output: &mut Output) -> Result<(), CliError> {
     // nothing; bounded by the project's hard cap).
     if substrate_name == RENDER {
         output.message(&rt.block_on(stackless_render::spend_line(&def_dir)));
+    } else if substrate_name == VERCEL {
+        output.message(&rt.block_on(stackless_vercel::spend_line(&def_dir)));
     }
     Ok(())
 }
@@ -307,9 +319,16 @@ pub fn down(name: &str, output: &Output) -> Result<(), CliError> {
         DownOutcome::AlreadyDown => output.message(&format!("{name}: already down")),
     }
     // Spend is printed after every cloud `down` too (§4).
-    if record.substrate.as_str() == RENDER {
-        let dir = PathBuf::from(&record.definition_dir);
-        output.message(&rt.block_on(stackless_render::spend_line(&dir)));
+    match record.substrate.as_str() {
+        RENDER => {
+            let dir = PathBuf::from(&record.definition_dir);
+            output.message(&rt.block_on(stackless_render::spend_line(&dir)));
+        }
+        VERCEL => {
+            let dir = PathBuf::from(&record.definition_dir);
+            output.message(&rt.block_on(stackless_vercel::spend_line(&dir)));
+        }
+        _ => {}
     }
     Ok(())
 }
@@ -532,7 +551,7 @@ pub fn logs(
 
 pub fn parse_and_validate(text: &str) -> Result<StackDef, CliError> {
     let def = StackDef::parse(text)?;
-    def.validate(KNOWN_SUBSTRATES)?;
+    def.validate()?;
     Ok(def)
 }
 

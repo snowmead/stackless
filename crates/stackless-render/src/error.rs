@@ -1,9 +1,4 @@
 //! Render-substrate errors (codes in core's `render.*` registry).
-//!
-//! Every variant carries a remediation that says what the operator
-//! should actually do (ARCHITECTURE.md §2/§8). Failures from the Stripe
-//! Projects CLI and the Render REST API both flatten into this enum so
-//! the agent-facing contract crosses the substrate boundary intact.
 
 use stackless_core::fault::{ErrorContext, Fault, codes};
 
@@ -21,26 +16,6 @@ pub enum RenderError {
         path: String,
         detail: String,
     },
-
-    #[error("the Stripe CLI or its `projects` plugin is unavailable: {detail}")]
-    StripeUnavailable { detail: String },
-
-    #[error("Stripe Projects is not authenticated: {detail}")]
-    StripeAuth { detail: String },
-
-    #[error("`stripe projects {command}` failed: {detail}")]
-    StripeFailed { command: String, detail: String },
-
-    #[error(
-        "another stackless process holds the Stripe Projects lock for {definition_dir}: {detail}"
-    )]
-    StripeLockHeld {
-        definition_dir: String,
-        detail: String,
-    },
-
-    #[error("cannot anchor the stack's Stripe project: {detail}")]
-    ProjectAnchor { detail: String },
 
     #[error("creating paid Render resources requires explicit consent")]
     PaymentNotConfirmed { resource: String },
@@ -80,11 +55,6 @@ impl Fault for RenderError {
             Self::ConfigInvalid { .. } => codes::RENDER_CONFIG_INVALID,
             Self::ApiKeyMissing { .. } => codes::RENDER_API_KEY_MISSING,
             Self::ApiFailed { .. } => codes::RENDER_API_FAILED,
-            Self::StripeUnavailable { .. } => codes::RENDER_STRIPE_UNAVAILABLE,
-            Self::StripeAuth { .. } => codes::RENDER_STRIPE_AUTH,
-            Self::StripeFailed { .. } => codes::RENDER_STRIPE_FAILED,
-            Self::StripeLockHeld { .. } => codes::RENDER_STRIPE_LOCK_HELD,
-            Self::ProjectAnchor { .. } => codes::RENDER_PROJECT_ANCHOR,
             Self::PaymentNotConfirmed { .. } => codes::RENDER_PAYMENT_NOT_CONFIRMED,
             Self::ProvisionFailed { .. } => codes::RENDER_PROVISION_FAILED,
             Self::DeployFailed { .. } => codes::RENDER_DEPLOY_FAILED,
@@ -108,27 +78,6 @@ impl Fault for RenderError {
             Self::ApiFailed { .. } => {
                 "check the Render API key's scope and that api.render.com is reachable, then \
                  re-run `up`"
-                    .into()
-            }
-            Self::StripeUnavailable { .. } => {
-                "install the Stripe CLI (https://docs.stripe.com/stripe-cli), then run \
-                 `stripe plugin install projects`"
-                    .into()
-            }
-            Self::StripeAuth { .. } => "run `stripe login`, then re-run `up`".into(),
-            Self::StripeFailed { command, .. } => {
-                format!(
-                    "run `stripe projects {command}` by hand to see the full error, then re-run"
-                )
-            }
-            Self::StripeLockHeld { .. } => {
-                "another `stackless up` is provisioning Stripe Projects in this definition dir; \
-                 wait for it to finish, then re-run `up`"
-                    .into()
-            }
-            Self::ProjectAnchor { .. } => {
-                "ensure the definition dir is writable and `stripe projects status` reports a \
-                 linked project, then re-run `up`"
                     .into()
             }
             Self::PaymentNotConfirmed { .. } => {

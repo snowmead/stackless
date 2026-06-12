@@ -30,10 +30,8 @@
 pub mod api_key;
 pub mod config;
 pub mod error;
-pub mod integrations;
-pub mod project;
+pub mod prepare;
 pub mod render_api;
-pub mod stripe;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -52,7 +50,9 @@ use tokio::sync::Mutex;
 use crate::config::ServiceRender;
 use crate::error::RenderError;
 use crate::render_api::{HEALTH_BUDGET, RenderApi, STATIC_DEPLOY_BUDGET, WEB_DEPLOY_BUDGET};
-use crate::stripe::{CommandRunner, StripeProjects, TokioRunner};
+use stackless_stripe_projects::project;
+use stackless_stripe_projects::stripe::{CommandRunner, StripeProjects, TokioRunner};
+use stackless_stripe_projects::ProjectsError;
 
 pub const SUBSTRATE_NAME: &str = "render";
 
@@ -68,6 +68,14 @@ const DESTROY_POLL_BUDGET: Duration = Duration::from_secs(120);
 const DESTROY_POLL_INTERVAL: Duration = Duration::from_secs(5);
 
 fn fault(err: RenderError) -> SubstrateFault {
+    SubstrateFault::from_fault(&err)
+}
+
+fn projects_fault(err: ProjectsError) -> SubstrateFault {
+    SubstrateFault::from_fault(&err)
+}
+
+fn integration_fault(err: stackless_integrations::IntegrationError) -> SubstrateFault {
     SubstrateFault::from_fault(&err)
 }
 
@@ -299,17 +307,17 @@ impl<R: CommandRunner> RenderSubstrate<R> {
         let stripe = self.stripe();
         project::ensure_project(&stripe, def, &self.definition_dir)
             .await
-            .map_err(fault)?;
+            .map_err(projects_fault)?;
         project::ensure_environment(&stripe, instance)
             .await
-            .map_err(fault)?;
+            .map_err(projects_fault)?;
         // The hard spend cap bounds a leak even if reaping fails (§4).
         // Set it once here, when the operator has consented to paid
         // resources — idempotent, so resume re-affirms it cheaply.
         if self.confirm_paid {
-            project::set_spend_cap(&stripe, SPEND_CAP_USD)
+            project::set_spend_cap(&stripe, SPEND_CAP_USD, "render")
                 .await
-                .map_err(fault)?;
+                .map_err(projects_fault)?;
         }
         *done = true;
         Ok(())
@@ -366,7 +374,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
             true,
         )
         .await
-        .map_err(fault)?;
+        .map_err(projects_fault)?;
 
         // Wait until the Render postgres is visible and record BOTH
         // connection strings (§4).
@@ -455,7 +463,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
             paid,
         )
         .await
-        .map_err(fault)?;
+        .map_err(projects_fault)?;
 
         // Resolve the Render service, push env, ensure rewrite, deploy.
         let render = self.render()?;
@@ -550,7 +558,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
         let service_owned = service.to_owned();
         let command_for_task = command.clone();
         tokio::task::spawn_blocking(move || {
-            project::run_prepare_command(
+            prepare::run_prepare_command(
                 &service_owned,
                 &repo,
                 &reference,
@@ -732,15 +740,17 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
 
         let node = ctx.step.node.as_str();
         match ctx.step.kind {
-            StepKind::ProvisionIntegration => integrations::provision(
+            StepKind::ProvisionIntegration => stackless_integrations::provision(
+                SUBSTRATE_NAME,
                 &self.stripe(),
                 ctx.def,
                 &self.definition_dir,
                 ctx.instance,
                 node,
+                true,
             )
             .await
-            .map_err(fault),
+            .map_err(integration_fault),
             StepKind::ProvisionDatastore => {
                 self.provision_datastore(ctx.def, ctx.instance, node).await
             }
@@ -829,10 +839,16 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
                     .is_some_and(|(path, commit)| source_ref_present(&path, &commit));
                 Ok(present_or_gone(present))
             }
-            kind if integrations::is_clerk_resource(kind) => {
-                integrations::observe(&self.stripe(), &checkpoint.payload, &checkpoint.resource_id)
-                    .await
-                    .map_err(fault)
+            kind if stackless_integrations::is_integration_resource(kind) => {
+                stackless_integrations::observe(
+                    SUBSTRATE_NAME,
+                    &self.stripe(),
+                    &checkpoint.payload,
+                    &checkpoint.resource_id,
+                    kind,
+                )
+                .await
+                .map_err(integration_fault)
             }
             // Hooks and gates own nothing destructible: Gone, so teardown
             // drops their checkpoints and resume re-runs them.
@@ -840,7 +856,7 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
         }
     }
 
-    async fn destroy(&self, instance: &str, checkpoint: &Checkpoint) -> Result<(), SubstrateFault> {
+    async fn destroy(&self, _instance: &str, checkpoint: &Checkpoint) -> Result<(), SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
             "render-service" => {
                 let payload = serde_json::from_str::<ServicePayload>(&checkpoint.payload).ok();
@@ -866,13 +882,7 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
                         )
                     });
                 self.remove_and_verify_postgres(&stripe_resource, &render_name)
-                    .await?;
-                // The datastore is the earliest billable resource (last
-                // in the reverse teardown walk among billables); delete
-                // the instance's named environment opportunistically here
-                // — it bills nothing, so failure is a note, not a survivor.
-                let _ = project::delete_environment(&self.stripe(), instance).await;
-                Ok(())
+                    .await
             }
             "source-ref" => {
                 let payload = serde_json::from_str::<SourceRefPayload>(&checkpoint.payload).ok();
@@ -881,17 +891,25 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
                 }
                 Ok(())
             }
-            kind if integrations::is_clerk_resource(kind) => integrations::destroy(
-                &self.stripe(),
-                instance,
-                &checkpoint.payload,
-                &checkpoint.resource_id,
-            )
-            .await
-            .map_err(fault),
+            kind if stackless_integrations::is_integration_resource(kind) => {
+                stackless_integrations::destroy(
+                    SUBSTRATE_NAME,
+                    &self.stripe(),
+                    &checkpoint.payload,
+                    &checkpoint.resource_id,
+                    kind,
+                )
+                .await
+                .map_err(integration_fault)
+            }
             // action kinds: nothing to destroy.
             _ => Ok(()),
         }
+    }
+
+    async fn finalize_teardown(&self, instance: &str) -> Result<(), SubstrateFault> {
+        stackless_integrations::finalize_stripe_instance(&self.stripe(), instance).await;
+        Ok(())
     }
 }
 
@@ -903,7 +921,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
     ) -> Result<(), SubstrateFault> {
         project::remove_resource(&self.stripe(), stripe_resource)
             .await
-            .map_err(fault)?;
+            .map_err(projects_fault)?;
         let render = self.render()?;
         let deadline = tokio::time::Instant::now() + DESTROY_POLL_BUDGET;
         loop {
@@ -931,7 +949,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
     ) -> Result<(), SubstrateFault> {
         project::remove_resource(&self.stripe(), stripe_resource)
             .await
-            .map_err(fault)?;
+            .map_err(projects_fault)?;
         let render = self.render()?;
         let deadline = tokio::time::Instant::now() + DESTROY_POLL_BUDGET;
         loop {
@@ -1028,7 +1046,8 @@ pub async fn spend_line(definition_dir: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::stripe::{CommandOutput, CommandRunner};
+    use stackless_stripe_projects::stripe::{CommandOutput, CommandRunner};
+    use stackless_stripe_projects::ProjectsError;
     use stackless_core::state::Checkpoint;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -1037,8 +1056,8 @@ mod tests {
     struct NoRunner;
     #[async_trait]
     impl CommandRunner for NoRunner {
-        async fn run(&self, _args: &[String], _cwd: &Path) -> Result<CommandOutput, RenderError> {
-            Err(RenderError::StripeUnavailable {
+        async fn run(&self, _args: &[String], _cwd: &Path) -> Result<CommandOutput, ProjectsError> {
+            Err(ProjectsError::Unavailable {
                 detail: "stripe should not be called in this test".into(),
             })
         }
