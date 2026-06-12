@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use stackless_core::lockfile::FileLock;
 
 use crate::error::LocalError;
+use crate::git_auth::GitAuth;
 
 /// How long parallel materialize calls wait for the shared bare cache.
 const GIT_CACHE_LOCK_BUDGET: std::time::Duration = std::time::Duration::from_secs(30 * 60);
@@ -28,11 +29,20 @@ const NO_PROMPT: &str = "credential.terminalPrompt=false";
 #[derive(Debug)]
 pub struct Materializer<'a> {
     state_root: &'a Path,
+    auth: GitAuth,
 }
 
 impl<'a> Materializer<'a> {
     pub fn new(state_root: &'a Path) -> Self {
-        Self { state_root }
+        Self {
+            state_root,
+            auth: GitAuth::default(),
+        }
+    }
+
+    pub fn with_auth(mut self, auth: GitAuth) -> Self {
+        self.auth = auth;
+        self
     }
 
     /// A filesystem-safe, collision-resistant slug for a source URL.
@@ -77,7 +87,7 @@ impl<'a> Materializer<'a> {
         reference: &str,
     ) -> Result<(PathBuf, String), LocalError> {
         let cache = self.cache_path(repo);
-        let cache_repo = ensure_cache(repo, &cache)?;
+        let cache_repo = self.ensure_cache(repo, &cache)?;
         let commit_id = resolve_ref(&cache_repo, service, repo, reference)?;
         let commit = cache_repo
             .find_commit(commit_id)
@@ -96,79 +106,87 @@ impl<'a> Materializer<'a> {
         checkout(&cache, &dest, service, &commit_id, &tree_id)?;
         Ok((dest, commit_id.to_string()))
     }
-}
 
-/// Clone the bare cache if absent, else fetch the default remote to
-/// refresh it. A fetch failure (network, auth) surfaces as
-/// `GitFetchFailed`; a clone failure as `GitCloneFailed`.
-fn ensure_cache(repo: &str, cache: &Path) -> Result<gix::Repository, LocalError> {
-    let lock_path = FileLock::git_cache_lock_path(&Materializer::cache_key(repo));
-    let _guard = FileLock::acquire_with_wait(&lock_path, GIT_CACHE_LOCK_BUDGET).map_err(|err| {
+    /// Clone the bare cache if absent, else fetch the default remote to
+    /// refresh it. A fetch failure (network, auth) surfaces as
+    /// `GitFetchFailed`; a clone failure as `GitCloneFailed`.
+    fn ensure_cache(&self, repo: &str, cache: &Path) -> Result<gix::Repository, LocalError> {
+        let lock_path = FileLock::git_cache_lock_path(&Materializer::cache_key(repo));
+        let _guard = FileLock::acquire_with_wait(&lock_path, GIT_CACHE_LOCK_BUDGET).map_err(|err| {
+            if cache.join("objects").is_dir() {
+                LocalError::GitFetchFailed {
+                    repo: repo.to_owned(),
+                    detail: format!("git cache lock: {err}"),
+                }
+            } else {
+                LocalError::GitCloneFailed {
+                    repo: repo.to_owned(),
+                    detail: format!("git cache lock: {err}"),
+                }
+            }
+        })?;
         if cache.join("objects").is_dir() {
-            LocalError::GitFetchFailed {
-                repo: repo.to_owned(),
-                detail: format!("git cache lock: {err}"),
-            }
-        } else {
-            LocalError::GitCloneFailed {
-                repo: repo.to_owned(),
-                detail: format!("git cache lock: {err}"),
-            }
+            let cache_repo =
+                gix::open_opts(cache, gix_open_opts()).map_err(|err| LocalError::GitFetchFailed {
+                    repo: repo.to_owned(),
+                    detail: err.to_string(),
+                })?;
+            self.fetch_cache(repo, &cache_repo)?;
+            return Ok(cache_repo);
         }
-    })?;
-    if cache.join("objects").is_dir() {
-        let cache_repo =
-            gix::open_opts(cache, open_opts()).map_err(|err| LocalError::GitFetchFailed {
+        if let Some(parent) = cache.parent() {
+            std::fs::create_dir_all(parent).map_err(|err| LocalError::GitCloneFailed {
                 repo: repo.to_owned(),
                 detail: err.to_string(),
             })?;
-        fetch_cache(repo, &cache_repo)?;
-        return Ok(cache_repo);
+        }
+        let auth = self.auth.clone();
+        let mut prepare = gix::prepare_clone_bare(repo, cache)
+            .map_err(|err| LocalError::GitCloneFailed {
+                repo: repo.to_owned(),
+                detail: err.to_string(),
+            })?
+            .with_in_memory_config_overrides([NO_PROMPT])
+            .configure_connection(move |conn| {
+                auth.install_on_connection(conn)?;
+                Ok(())
+            });
+        let (cache_repo, _outcome) = prepare
+            .fetch_only(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)
+            .map_err(|err| LocalError::GitCloneFailed {
+                repo: repo.to_owned(),
+                detail: err.to_string(),
+            })?;
+        Ok(cache_repo)
     }
-    if let Some(parent) = cache.parent() {
-        std::fs::create_dir_all(parent).map_err(|err| LocalError::GitCloneFailed {
-            repo: repo.to_owned(),
-            detail: err.to_string(),
-        })?;
-    }
-    let mut prepare = gix::prepare_clone_bare(repo, cache)
-        .map_err(|err| LocalError::GitCloneFailed {
-            repo: repo.to_owned(),
-            detail: err.to_string(),
-        })?
-        .with_in_memory_config_overrides([NO_PROMPT]);
-    let (cache_repo, _outcome) = prepare
-        .fetch_only(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)
-        .map_err(|err| LocalError::GitCloneFailed {
-            repo: repo.to_owned(),
-            detail: err.to_string(),
-        })?;
-    Ok(cache_repo)
-}
 
-/// Fetch the cache's default remote to pick up new commits/refs the
-/// pinned ref may point at — the update path the clone-only spike lacked.
-fn fetch_cache(repo: &str, cache_repo: &gix::Repository) -> Result<(), LocalError> {
-    let fetch_err = |detail: String| LocalError::GitFetchFailed {
-        repo: repo.to_owned(),
-        detail,
-    };
-    let remote = cache_repo
-        .find_default_remote(gix::remote::Direction::Fetch)
-        .ok_or_else(|| fetch_err("the cache repo has no default remote to fetch from".into()))?
-        .map_err(|err| fetch_err(err.to_string()))?;
-    let connection = remote
-        .connect(gix::remote::Direction::Fetch)
-        .map_err(|err| fetch_err(err.to_string()))?;
-    connection
-        .prepare_fetch(
-            gix::progress::Discard,
-            gix::remote::ref_map::Options::default(),
-        )
-        .map_err(|err| fetch_err(err.to_string()))?
-        .receive(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)
-        .map_err(|err| fetch_err(err.to_string()))?;
-    Ok(())
+    /// Fetch the cache's default remote to pick up new commits/refs the
+    /// pinned ref may point at — the update path the clone-only spike lacked.
+    fn fetch_cache(&self, repo: &str, cache_repo: &gix::Repository) -> Result<(), LocalError> {
+        let fetch_err = |detail: String| LocalError::GitFetchFailed {
+            repo: repo.to_owned(),
+            detail,
+        };
+        let remote = cache_repo
+            .find_default_remote(gix::remote::Direction::Fetch)
+            .ok_or_else(|| fetch_err("the cache repo has no default remote to fetch from".into()))?
+            .map_err(|err| fetch_err(err.to_string()))?;
+        let mut connection = remote
+            .connect(gix::remote::Direction::Fetch)
+            .map_err(|err| fetch_err(err.to_string()))?;
+        self.auth
+            .install_on_connection(&mut connection)
+            .map_err(|err| fetch_err(err.to_string()))?;
+        connection
+            .prepare_fetch(
+                gix::progress::Discard,
+                gix::remote::ref_map::Options::default(),
+            )
+            .map_err(|err| fetch_err(err.to_string()))?
+            .receive(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)
+            .map_err(|err| fetch_err(err.to_string()))?;
+        Ok(())
+    }
 }
 
 /// Resolve the pinned ref to a commit. The value may be a branch, tag,
@@ -268,10 +286,13 @@ fn checkout(
     Ok(())
 }
 
-/// Open options that disable the interactive credential prompt, matching
-/// the clone path (`NO_PROMPT`).
-fn open_opts() -> gix::open::Options {
-    gix::open::Options::default().config_overrides([NO_PROMPT])
+/// Open options that load git installation config (credential helpers)
+/// and disable the interactive credential prompt.
+fn gix_open_opts() -> gix::open::Options {
+    use gix::sec::trust::DefaultForLevel;
+    let mut opts = gix::open::Options::default_for_level(gix::sec::Trust::Full);
+    opts.permissions.config.git_binary = true;
+    opts.config_overrides([NO_PROMPT])
 }
 
 fn checkout_err(

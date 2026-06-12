@@ -172,9 +172,11 @@ fn render_verify_source_dir(
         }
     }
 
+    let auth = stackless_local::git_auth::GitAuth::from_secrets(ctx.secrets);
     let (path, commit) = stackless_local::materialize::Materializer::new(
         &stackless_core::state::Store::state_dir(),
     )
+    .with_auth(auth)
     .materialize(
         ctx.instance,
         service,

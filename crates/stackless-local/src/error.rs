@@ -144,15 +144,15 @@ impl Fault for LocalError {
                 format!("kill process group {pgid} by hand (`kill -9 -{pgid}`) and re-run `down`")
             }
             Self::GitCloneFailed { repo, .. } => format!(
-                "check that {repo} is reachable; for private repos configure a git credential helper that answers non-interactively (a prompt cannot be honored here)"
+                "check that {repo} is reachable; for private GitHub HTTPS repos run `gh auth setup-git` or set GITHUB_TOKEN in .stackless.env (interactive prompts cannot run during `up`)"
             ),
             Self::GitFetchFailed { repo, .. } => format!(
-                "check that {repo} is reachable; for private repos configure a git credential helper that answers non-interactively (a prompt cannot be honored here)"
+                "check that {repo} is reachable; for private GitHub HTTPS repos run `gh auth setup-git` or set GITHUB_TOKEN in .stackless.env (interactive prompts cannot run during `up`)"
             ),
             Self::GitRefNotFound {
                 reference, repo, ..
             } => format!(
-                "check that ref {reference:?} exists in {repo}; for private repos configure a git credential helper that answers non-interactively"
+                "check that ref {reference:?} exists in {repo}; for private GitHub HTTPS repos run `gh auth setup-git` or set GITHUB_TOKEN in .stackless.env"
             ),
             Self::GitCheckoutFailed { dest, .. } => {
                 format!("check that {dest} is writable and has free space, then re-run `up`")

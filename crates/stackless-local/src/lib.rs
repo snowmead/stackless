@@ -4,6 +4,7 @@
 
 pub mod container;
 pub mod error;
+pub mod git_auth;
 pub mod health;
 pub mod materialize;
 pub mod spawn;
@@ -381,10 +382,13 @@ impl Substrate for LocalSubstrate {
                 let service_owned = service.to_owned();
                 let repo = spec.source.repo.clone();
                 let reference = spec.source.reference.clone();
+                let secrets = self.secrets.clone();
                 // gix's blocking network/checkout work must not run on the
                 // async executor (mirrors run_hook's spawn_blocking).
                 let (path, commit) = tokio::task::spawn_blocking(move || {
+                    let auth = crate::git_auth::GitAuth::from_secrets(&secrets);
                     materialize::Materializer::new(&stackless_core::state::Store::state_dir())
+                        .with_auth(auth)
                         .materialize(&instance, &service_owned, &repo, &reference)
                 })
                 .await
