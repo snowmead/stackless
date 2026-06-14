@@ -4,11 +4,13 @@
 //! a fault (agent-trap protection, mirroring stackless-local). The same
 //! parsers feed the Substrate impl so config is read in exactly one place.
 
+use serde::Serialize;
 use stackless_core::def::StackDef;
 
 use crate::RenderSubstrate;
 use crate::SUBSTRATE_NAME;
 use crate::error::RenderError;
+use stackless_stripe_projects::CatalogService;
 use stackless_stripe_projects::stripe::CommandRunner;
 
 /// A service's `[services.X.render]` block: either a runtime web service
@@ -28,17 +30,56 @@ pub enum ServiceRender {
 }
 
 impl ServiceRender {
-    /// The Stripe Projects service reference for this kind.
-    pub fn stripe_reference(&self) -> &'static str {
-        match self {
-            Self::Web { .. } => "render/web-service",
-            Self::Static { .. } => "render/static-site",
-        }
-    }
-
     pub fn is_static(&self) -> bool {
         matches!(self, Self::Static { .. })
     }
+}
+
+/// The typed `render/postgres` `--config`. `name`/`region`/`version` are schema
+/// properties; `instance_type` is a pricing-tier selector (`basic-256mb`, …).
+/// Field names ARE the catalog contract — the gap test pins them.
+#[derive(Debug, Serialize)]
+pub struct RenderPostgresConfig {
+    pub name: String,
+    pub region: String,
+    pub version: String,
+    pub instance_type: String,
+}
+
+impl CatalogService for RenderPostgresConfig {
+    const REFERENCE: &'static str = "render/postgres";
+}
+
+/// The typed `render/web-service` `--config`.
+#[derive(Debug, Serialize)]
+pub struct RenderWebServiceConfig {
+    pub name: String,
+    pub repo: String,
+    pub branch: String,
+    pub runtime: String,
+    pub build_command: String,
+    pub start_command: String,
+    pub health_check_path: String,
+    pub region: String,
+    pub auto_deploy: String,
+}
+
+impl CatalogService for RenderWebServiceConfig {
+    const REFERENCE: &'static str = "render/web-service";
+}
+
+/// The typed `render/static-site` `--config`.
+#[derive(Debug, Serialize)]
+pub struct RenderStaticSiteConfig {
+    pub name: String,
+    pub repo: String,
+    pub branch: String,
+    pub build_command: String,
+    pub publish_path: String,
+}
+
+impl CatalogService for RenderStaticSiteConfig {
+    const REFERENCE: &'static str = "render/static-site";
 }
 
 impl<R: CommandRunner> RenderSubstrate<R> {
@@ -234,19 +275,60 @@ static = { build = "bun run build", publish = "./dist", spa_rewrite = true }
     }
 
     #[test]
-    fn web_reference_is_web_service_static_is_static_site() {
-        let def = parse(BASE);
-        assert_eq!(
-            RenderSubstrate::<TokioRunner>::service_render(&def, "api")
-                .unwrap()
-                .stripe_reference(),
-            "render/web-service"
-        );
-        assert_eq!(
-            RenderSubstrate::<TokioRunner>::service_render(&def, "web")
-                .unwrap()
-                .stripe_reference(),
-            "render/static-site"
+    fn typed_configs_carry_their_catalog_references() {
+        assert_eq!(RenderWebServiceConfig::REFERENCE, "render/web-service");
+        assert_eq!(RenderStaticSiteConfig::REFERENCE, "render/static-site");
+        assert_eq!(RenderPostgresConfig::REFERENCE, "render/postgres");
+    }
+
+    /// Catalog gap check: each Render config must validate against the live
+    /// `configuration_schema` + pricing tiers in the committed catalog fixture.
+    /// Fails loudly if Stripe drifts a field/region/runtime/tier.
+    #[test]
+    fn render_configs_match_catalog() {
+        const FIXTURE: &str = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../stackless-stripe-projects/tests/fixtures/catalog.json"
+        ));
+        let catalog = stackless_stripe_projects::Catalog::from_json_envelope(FIXTURE).unwrap();
+        let mut failures = Vec::new();
+        failures.extend(stackless_stripe_projects::verify_service(
+            &catalog,
+            &RenderPostgresConfig {
+                name: "atto-demo-db".into(),
+                region: "oregon".into(),
+                version: "17".into(),
+                instance_type: "basic-256mb".into(),
+            },
+        ));
+        failures.extend(stackless_stripe_projects::verify_service(
+            &catalog,
+            &RenderWebServiceConfig {
+                name: "atto-demo-api".into(),
+                repo: "https://github.com/haaku-co/atto-server".into(),
+                branch: "main".into(),
+                runtime: "rust".into(),
+                build_command: "cargo build --release".into(),
+                start_command: "./target/release/atto-server".into(),
+                health_check_path: "/health".into(),
+                region: "oregon".into(),
+                auto_deploy: "no".into(),
+            },
+        ));
+        failures.extend(stackless_stripe_projects::verify_service(
+            &catalog,
+            &RenderStaticSiteConfig {
+                name: "atto-demo-web".into(),
+                repo: "https://github.com/haaku-co/atto-web".into(),
+                branch: "main".into(),
+                build_command: "bun run build".into(),
+                publish_path: "./dist".into(),
+            },
+        ));
+        assert!(
+            failures.is_empty(),
+            "render catalog gaps:\n{}",
+            failures.join("\n")
         );
     }
 

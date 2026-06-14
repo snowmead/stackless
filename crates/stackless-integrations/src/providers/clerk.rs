@@ -10,11 +10,10 @@ use stackless_core::host::Host;
 use stackless_core::substrate::{Observation, StepResource};
 use stackless_core::types::DnsName;
 use stackless_stripe_projects::ProjectsError;
+use stackless_stripe_projects::catalog::verify::CatalogService;
 use stackless_stripe_projects::project;
-use stackless_stripe_projects::provision::sealed::Sealed;
 use stackless_stripe_projects::provision::{
-    StripeCatalogService, StripeCredentialResult, StripeEnvCredentials, StripeProvisionContext,
-    provision_with_credentials,
+    ProvisionContext, ProvisionedCredentials, provision_with_credentials,
 };
 use stackless_stripe_projects::stripe::{CommandRunner, StripeProjects};
 
@@ -41,11 +40,20 @@ pub struct ClerkCredentialOutputs {
     pub secret_key: String,
 }
 
-#[derive(Debug)]
-pub struct ClerkStripeConfig {
+/// The typed `clerk/auth` `--config`. Field names ARE the catalog contract; the
+/// gap test pins them against the live `configuration_schema`.
+#[derive(Debug, Serialize)]
+pub struct ClerkAuthConfig {
     pub app_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub production_domain: Option<String>,
 }
+
+impl CatalogService for ClerkAuthConfig {
+    const REFERENCE: &'static str = "clerk/auth";
+}
+
+const CLERK_ENV_KEYS: &[&str] = &["CLERK_AUTH_ENVIRONMENTS", "CLERK_ENVIRONMENTS"];
 
 #[derive(Debug)]
 pub struct ClerkAuth;
@@ -63,121 +71,78 @@ impl Hostable for ClerkAuth {
     const OUTPUTS: &'static [&'static str] = &["secret_key", "publishable_key"];
 }
 
-impl Sealed for ClerkAuth {}
-
 fn active_host(substrate: &str) -> Host {
     Host::parse(substrate).unwrap_or(Host::Local)
 }
 
-impl StripeCatalogService for ClerkAuth {
-    const REFERENCE: &'static str = "clerk/auth";
-    type Config = ClerkStripeConfig;
-
-    fn build_config(ctx: &StripeProvisionContext<'_>) -> Result<Self::Config, ProjectsError> {
-        let spec = ctx.def.integrations.get(ctx.logical_name).ok_or_else(|| {
-            ProjectsError::ProvisionFailed {
-                resource: format!("{}-{}", ctx.instance, ctx.logical_name),
-                detail: "integration not in definition".into(),
-            }
-        })?;
-        let config = spec.effective_config(active_host(ctx.substrate));
-        let app_name_raw = registry::config_string(&config, "app_name").map_err(|err| {
-            ProjectsError::ProvisionFailed {
-                resource: format!("{}-{}", ctx.instance, ctx.logical_name),
-                detail: err.to_string(),
-            }
-        })?;
-        let namespace = Namespace {
-            stack_name: ctx.def.stack.name.clone(),
-            instance_name: DnsName::from_stored(ctx.instance),
-            ..Namespace::default()
-        };
-        let location = format!("integrations.{}.app_name", ctx.logical_name);
-        let app_name = stackless_core::def::interp::resolve(&app_name_raw, &namespace, &location)
-            .map_err(|err| ProjectsError::ProvisionFailed {
-            resource: format!("{}-{}", ctx.instance, ctx.logical_name),
-            detail: err.to_string(),
-        })?;
-        let production_domain =
-            match registry::config_optional_string(&config, "production_domain") {
-                None => None,
-                Some(domain) => {
-                    let location = format!("integrations.{}.production_domain", ctx.logical_name);
-                    Some(
-                        stackless_core::def::interp::resolve(&domain, &namespace, &location)
-                            .map_err(|err| ProjectsError::ProvisionFailed {
-                                resource: format!("{}-{}", ctx.instance, ctx.logical_name),
-                                detail: err.to_string(),
-                            })?,
-                    )
-                }
-            };
-        Ok(ClerkStripeConfig {
-            app_name,
-            production_domain,
-        })
-    }
-
-    fn config_json(config: &Self::Config) -> serde_json::Value {
-        let mut value = serde_json::json!({ "app_name": config.app_name });
-        if let Some(domain) = &config.production_domain {
-            value["production_domain"] = serde_json::Value::String(domain.clone());
+/// Build the typed `clerk/auth` config from the integration definition.
+fn build_clerk_config(ctx: &ProvisionContext<'_>) -> Result<ClerkAuthConfig, ProjectsError> {
+    let resource = ctx.resource_name();
+    let fail = |detail: String| ProjectsError::ProvisionFailed {
+        resource: resource.clone(),
+        detail,
+    };
+    let spec = ctx
+        .def
+        .integrations
+        .get(ctx.logical_name)
+        .ok_or_else(|| fail("integration not in definition".into()))?;
+    let config = spec.effective_config(active_host(ctx.substrate));
+    let app_name_raw =
+        registry::config_string(&config, "app_name").map_err(|err| fail(err.to_string()))?;
+    let namespace = Namespace {
+        stack_name: ctx.def.stack.name.clone(),
+        instance_name: DnsName::from_stored(ctx.instance),
+        ..Namespace::default()
+    };
+    let location = format!("integrations.{}.app_name", ctx.logical_name);
+    let app_name = stackless_core::def::interp::resolve(&app_name_raw, &namespace, &location)
+        .map_err(|err| fail(err.to_string()))?;
+    let production_domain = match registry::config_optional_string(&config, "production_domain") {
+        None => None,
+        Some(domain) => {
+            let location = format!("integrations.{}.production_domain", ctx.logical_name);
+            Some(
+                stackless_core::def::interp::resolve(&domain, &namespace, &location)
+                    .map_err(|err| fail(err.to_string()))?,
+            )
         }
-        value
-    }
-
-    fn requires_paid_confirmation(_ctx: &StripeProvisionContext<'_>) -> bool {
-        false
-    }
+    };
+    Ok(ClerkAuthConfig {
+        app_name,
+        production_domain,
+    })
 }
 
-impl StripeEnvCredentials for ClerkAuth {
-    type Outputs = ClerkCredentialOutputs;
-
-    const ENV_KEYS: &'static [&'static str] = &["CLERK_AUTH_ENVIRONMENTS", "CLERK_ENVIRONMENTS"];
-
-    fn parse_credentials(
-        raw: &str,
-        ctx: &StripeProvisionContext<'_>,
-    ) -> Result<Self::Outputs, ProjectsError> {
-        let spec = ctx.def.integrations.get(ctx.logical_name).ok_or_else(|| {
-            ProjectsError::ProvisionFailed {
-                resource: format!("{}-{}", ctx.instance, ctx.logical_name),
-                detail: "integration not in definition".into(),
-            }
+/// Parse the Clerk env blob into the credentials for the chosen environment.
+fn parse_clerk_credentials(
+    raw: &str,
+    credential_set: &str,
+    resource: &str,
+) -> Result<ClerkCredentialOutputs, ProjectsError> {
+    let parsed: ClerkAuthEnvironments =
+        serde_json::from_str(raw).map_err(|err| ProjectsError::ProvisionFailed {
+            resource: resource.to_owned(),
+            detail: format!("Clerk environments JSON is invalid: {err}"),
         })?;
-        let config = spec.effective_config(active_host(ctx.substrate));
-        let credential_set = registry::config_string(&config, "credential_set").map_err(|err| {
-            ProjectsError::ProvisionFailed {
-                resource: format!("{}-{}", ctx.instance, ctx.logical_name),
-                detail: err.to_string(),
-            }
-        })?;
-        let resource = format!("{}-{}", ctx.instance, ctx.logical_name);
-        let parsed: ClerkAuthEnvironments =
-            serde_json::from_str(raw).map_err(|err| ProjectsError::ProvisionFailed {
-                resource: resource.clone(),
-                detail: format!("Clerk environments JSON is invalid: {err}"),
-            })?;
-        let credentials = match credential_set.as_str() {
-            "development" => parsed.development,
-            "production" => parsed.production,
-            other => {
-                return Err(ProjectsError::ProvisionFailed {
-                    resource,
-                    detail: format!("unknown Clerk credential_set {other:?}"),
-                });
-            }
-        };
-        let credentials = credentials.ok_or_else(|| ProjectsError::ProvisionFailed {
-            resource,
-            detail: format!("Clerk environments JSON has no {credential_set} credentials"),
-        })?;
-        Ok(ClerkCredentialOutputs {
-            publishable_key: credentials.publishable_key,
-            secret_key: credentials.secret_key,
-        })
-    }
+    let credentials = match credential_set {
+        "development" => parsed.development,
+        "production" => parsed.production,
+        other => {
+            return Err(ProjectsError::ProvisionFailed {
+                resource: resource.to_owned(),
+                detail: format!("unknown Clerk credential_set {other:?}"),
+            });
+        }
+    };
+    let credentials = credentials.ok_or_else(|| ProjectsError::ProvisionFailed {
+        resource: resource.to_owned(),
+        detail: format!("Clerk environments JSON has no {credential_set} credentials"),
+    })?;
+    Ok(ClerkCredentialOutputs {
+        publishable_key: credentials.publishable_key,
+        secret_key: credentials.secret_key,
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -242,7 +207,7 @@ pub async fn provision_stripe<R: CommandRunner>(
             detail: "integration not in definition".into(),
         });
     }
-    let ctx = StripeProvisionContext {
+    let ctx = ProvisionContext {
         def,
         instance,
         logical_name: name,
@@ -250,38 +215,41 @@ pub async fn provision_stripe<R: CommandRunner>(
         substrate,
         skip_instance_context,
     };
-    let StripeCredentialResult {
-        stripe_resource,
-        outputs,
-    } = provision_with_credentials::<ClerkAuth, R>(stripe, &ctx).await?;
+    let config = build_clerk_config(&ctx)?;
+    let app_name = config.app_name.clone();
+    let catalog = stripe.catalog().await?;
+    let ProvisionedCredentials { resource_name, raw } =
+        provision_with_credentials(stripe, &catalog, &ctx, &config, CLERK_ENV_KEYS).await?;
 
     let spec = &def.integrations[name];
     let effective = spec.effective_config(active_host(substrate));
-    if registry::config_bool(&effective, "organizations") {
-        enable_clerk_organizations(&outputs.secret_key, &stripe_resource).await?;
-    }
-
-    let config = ClerkAuth::build_config(&ctx)?;
     let credential_set = registry::config_string(&effective, "credential_set").map_err(|err| {
         IntegrationError::ConfigInvalid {
             location: format!("integrations.{name}.credential_set"),
             detail: err.to_string(),
         }
     })?;
+    let outputs = parse_clerk_credentials(&raw, &credential_set, &resource_name)?;
+
+    let organizations = registry::config_bool(&effective, "organizations");
+    if organizations {
+        enable_clerk_organizations(&outputs.secret_key, &resource_name).await?;
+    }
+
     let mut output_map = BTreeMap::new();
     output_map.insert("publishable_key".to_owned(), outputs.publishable_key);
     output_map.insert("secret_key".to_owned(), outputs.secret_key);
 
     let payload = ClerkPayload {
-        stripe_resource: stripe_resource.clone(),
-        app_name: config.app_name,
+        stripe_resource: resource_name.clone(),
+        app_name,
         credential_set,
-        organizations: registry::config_bool(&effective, "organizations"),
+        organizations,
         outputs: output_map,
     };
     Ok(StepResource {
         resource_kind: RESOURCE_KIND.into(),
-        resource_id: stripe_resource,
+        resource_id: resource_name,
         payload: serde_json::to_string(&payload).unwrap_or_default(),
     })
 }
@@ -423,6 +391,40 @@ mod tests {
         }
     }
 
+    /// Catalog gap check: `ClerkAuthConfig` must validate against the live
+    /// `clerk/auth` schema in the committed catalog fixture.
+    #[test]
+    fn clerk_config_matches_catalog() {
+        const FIXTURE: &str = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../stackless-stripe-projects/tests/fixtures/catalog.json"
+        ));
+        let catalog = stackless_stripe_projects::Catalog::from_json_envelope(FIXTURE).unwrap();
+        let failures = stackless_stripe_projects::verify_service(
+            &catalog,
+            &ClerkAuthConfig {
+                app_name: "atto-demo".into(),
+                production_domain: None,
+            },
+        );
+        assert!(
+            failures.is_empty(),
+            "clerk catalog gaps:\n{}",
+            failures.join("\n")
+        );
+    }
+
+    /// A minimal `stripe projects catalog --json` envelope carrying `clerk/auth`.
+    const CLERK_CATALOG_ENVELOPE: &str = r#"{"ok":true,"command":"projects catalog","data":{
+        "last_updated":"2026-06-12T00:00:00Z","services":[{
+            "id":"prvsvc_clerk","object":"v2.provisioning.provider_service_detail",
+            "provider_id":"prvdr_clerk","provider_name":"Clerk","service_id":"auth",
+            "categories":["auth"],"kind":"deployable","scope":"project","availability":"available",
+            "development":false,"livemode":true,"pricing":{"type":"component"},
+            "configuration_schema":{"type":"object","required":["app_name"],"additionalProperties":false,
+                "properties":{"app_name":{"type":"string"},"production_domain":{"type":"string"}}}
+        }]}}"#;
+
     fn test_def() -> StackDef {
         StackDef::parse(
             r#"
@@ -457,6 +459,7 @@ run = "true"
         })
         .to_string();
         let runner = ScriptRunner::new(vec![
+            out(CLERK_CATALOG_ENVELOPE),
             out(r#"{"ok":true,"data":{"project":{"id":"project_1"}}}"#),
             out(r#"{"ok":true,"data":{"environments":[{"name":"demo"}]}}"#),
             out(r#"{"ok":true,"data":null}"#),
@@ -521,7 +524,11 @@ run = "true"
         })
         .unwrap();
         let runner = ScriptRunner::new(vec![
+            // observe → services list
             out(r#"{"ok":true,"data":{"services":[{"name":"demo-clerk"}]}}"#),
+            // destroy → remove_resource's registration pre-check (services list)
+            out(r#"{"ok":true,"data":{"services":[{"name":"demo-clerk"}]}}"#),
+            // destroy → the actual remove
             out(r#"{"ok":true,"data":null}"#),
         ]);
         let stripe = StripeProjects::new(&runner, std::env::temp_dir());

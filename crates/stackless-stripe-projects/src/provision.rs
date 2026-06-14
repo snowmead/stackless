@@ -1,24 +1,23 @@
-//! Generic Stripe catalog provisioning traits and pipelines.
+//! Catalog-anchored provisioning helpers shared by provider plugins.
+//!
+//! The catalog-add boundary itself lives in [`crate::catalog::verify`]. This
+//! module adds the instance-context (project + environment) and the env-blob
+//! credential resolution that credential-bearing services (e.g. Clerk) need.
 
 use std::path::Path;
 
-use serde::Serialize;
 use serde_json::Value;
 use stackless_core::def::StackDef;
 
+use crate::catalog::Catalog;
+use crate::catalog::verify::{CatalogService, add_catalog_resource};
 use crate::error::ProjectsError;
 use crate::project::{self, find_env_value};
 use crate::stripe::{CommandRunner, StripeProjects};
 
-/// Cross-crate sealed trait: only workspace crates that opt in may implement
-/// [`StripeCatalogService`].
-#[doc(hidden)]
-pub mod sealed {
-    pub trait Sealed {}
-}
-
+/// The definition context a plugin provisions within.
 #[derive(Debug)]
-pub struct StripeProvisionContext<'a> {
+pub struct ProvisionContext<'a> {
     pub def: &'a StackDef,
     pub instance: &'a str,
     pub logical_name: &'a str,
@@ -28,122 +27,81 @@ pub struct StripeProvisionContext<'a> {
     pub skip_instance_context: bool,
 }
 
-pub trait StripeCatalogService: sealed::Sealed {
-    const REFERENCE: &'static str;
-
-    fn resource_name(ctx: &StripeProvisionContext<'_>) -> String {
-        format!("{}-{}", ctx.instance, ctx.logical_name)
+impl ProvisionContext<'_> {
+    /// The Stripe resource name: `{instance}-{logical_name}`.
+    pub fn resource_name(&self) -> String {
+        format!("{}-{}", self.instance, self.logical_name)
     }
-
-    type Config;
-
-    fn build_config(ctx: &StripeProvisionContext<'_>) -> Result<Self::Config, ProjectsError>;
-
-    fn config_json(config: &Self::Config) -> Value;
-
-    fn requires_paid_confirmation(ctx: &StripeProvisionContext<'_>) -> bool;
 }
 
-pub trait StripeEnvCredentials: StripeCatalogService {
-    type Outputs: Serialize;
-
-    const ENV_KEYS: &'static [&'static str];
-
-    fn parse_credentials(
-        raw: &str,
-        ctx: &StripeProvisionContext<'_>,
-    ) -> Result<Self::Outputs, ProjectsError>;
-}
-
+/// A credential-bearing catalog provision result: the Stripe resource name and
+/// the raw env blob the provider returned (parsed by the caller, which knows the
+/// provider-specific shape — the catalog does not describe output keys).
 #[derive(Debug)]
-pub struct StripeCredentialResult<O> {
-    pub stripe_resource: String,
-    pub outputs: O,
+pub struct ProvisionedCredentials {
+    pub resource_name: String,
+    pub raw: String,
 }
 
-pub async fn provision_with_credentials<S, R>(
+/// Ensure the project/environment context, add the catalog resource (validated
+/// against the catalog), then resolve the env blob carrying its credentials.
+pub async fn provision_with_credentials<C, R>(
     stripe: &StripeProjects<R>,
-    ctx: &StripeProvisionContext<'_>,
-) -> Result<StripeCredentialResult<S::Outputs>, ProjectsError>
+    catalog: &Catalog,
+    ctx: &ProvisionContext<'_>,
+    config: &C,
+    env_keys: &[&str],
+) -> Result<ProvisionedCredentials, ProjectsError>
 where
-    S: StripeEnvCredentials,
+    C: CatalogService,
     R: CommandRunner,
 {
     if !ctx.skip_instance_context {
         project::ensure_project(stripe, ctx.def, ctx.definition_dir).await?;
         project::ensure_environment(stripe, ctx.instance).await?;
     }
-
-    let stripe_resource = S::resource_name(ctx);
-    let config = S::build_config(ctx)?;
-    let config_json = S::config_json(&config);
-    let add_data = project::add_resource(
+    let resource_name = ctx.resource_name();
+    let add_data = add_catalog_resource(stripe, catalog, config, &resource_name).await?;
+    let raw = resolve_env_blob(
         stripe,
-        S::REFERENCE,
-        &stripe_resource,
-        &config_json,
-        S::requires_paid_confirmation(ctx),
+        &add_data,
+        ctx.instance,
+        &resource_name,
+        C::REFERENCE,
+        env_keys,
     )
     .await?;
-    let raw = resolve_env_blob::<S, R>(stripe, &add_data, ctx.instance, &stripe_resource).await?;
-    let outputs = S::parse_credentials(&raw, ctx)?;
-    Ok(StripeCredentialResult {
-        stripe_resource,
-        outputs,
-    })
+    Ok(ProvisionedCredentials { resource_name, raw })
 }
 
-pub async fn provision_add_only<S, R>(
-    stripe: &StripeProjects<R>,
-    ctx: &StripeProvisionContext<'_>,
-    config: S::Config,
-    paid: bool,
-) -> Result<(), ProjectsError>
-where
-    S: StripeCatalogService,
-    R: CommandRunner,
-{
-    if !ctx.skip_instance_context {
-        project::ensure_project(stripe, ctx.def, ctx.definition_dir).await?;
-        project::ensure_environment(stripe, ctx.instance).await?;
-    }
-
-    let stripe_resource = S::resource_name(ctx);
-    let config_json = S::config_json(&config);
-    project::add_resource(stripe, S::REFERENCE, &stripe_resource, &config_json, paid).await?;
-    Ok(())
-}
-
-async fn resolve_env_blob<S, R>(
+async fn resolve_env_blob<R>(
     stripe: &StripeProjects<R>,
     add_data: &Value,
     instance: &str,
     resource: &str,
+    reference: &str,
+    env_keys: &[&str],
 ) -> Result<String, ProjectsError>
 where
-    S: StripeEnvCredentials,
     R: CommandRunner,
 {
-    for key in S::ENV_KEYS {
+    for key in env_keys {
         if let Some(value) = find_env_value(add_data, key) {
             return Ok(value);
         }
     }
-    for key in S::ENV_KEYS {
-        if let Some(value) = project::refreshed_env_value(stripe, S::REFERENCE, key).await? {
+    for key in env_keys {
+        if let Some(value) = project::refreshed_env_value(stripe, reference, key).await? {
             return Ok(value);
         }
     }
-    for key in S::ENV_KEYS {
+    for key in env_keys {
         if let Some(value) = project::pull_env_value(stripe, instance, key).await? {
             return Ok(value);
         }
     }
     Err(ProjectsError::ProvisionFailed {
         resource: resource.to_owned(),
-        detail: format!(
-            "none of {:?} was returned or pulled from Stripe Projects",
-            S::ENV_KEYS
-        ),
+        detail: format!("none of {env_keys:?} was returned or pulled from Stripe Projects"),
     })
 }

@@ -71,7 +71,10 @@ impl Fault for VercelError {
                 format!("fix [{location}] in stackless.toml and re-run `stackless check`")
             }
             Self::ApiKeyMissing { key_file } => {
-                format!("set VERCEL_TOKEN in the environment or write the token to {key_file}")
+                format!(
+                    "provide the token one of three ways: export VERCEL_TOKEN, add \
+                     `VERCEL_TOKEN=...` to .stackless.env, or write it to {key_file}"
+                )
             }
             Self::ApiFailed { .. } => {
                 "verify the Vercel token and team scope, then re-run `stackless up`".into()

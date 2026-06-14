@@ -14,14 +14,13 @@ use crate::error::CliError;
 
 pub const ENV_FILE: &str = ".stackless.env";
 
-pub fn resolve(def: &StackDef, def_dir: &Path) -> Result<BTreeMap<String, String>, CliError> {
+/// Load the `.stackless.env` overlay into a map. Best-effort: an absent file
+/// yields an empty map. Does NOT enforce `[secrets].required` — use for
+/// read-only paths (e.g. `logs`) that only need whatever keys happen to be set.
+pub fn load(def_dir: &Path) -> BTreeMap<String, String> {
     let mut resolved = BTreeMap::new();
-    let mut sources = Vec::new();
-    // Vault base: not configured until the render substrate records a
-    // Stripe project (M8). Local-only stacks legally run env-file-only.
     let env_path = def_dir.join(ENV_FILE);
     if let Ok(content) = std::fs::read_to_string(&env_path) {
-        sources.push(env_path.display().to_string());
         for line in content.lines() {
             let line = line.trim();
             if line.is_empty() || line.starts_with('#') {
@@ -34,9 +33,20 @@ pub fn resolve(def: &StackDef, def_dir: &Path) -> Result<BTreeMap<String, String
                 );
             }
         }
-    } else {
-        sources.push(format!("{} (absent)", env_path.display()));
     }
+    resolved
+}
+
+pub fn resolve(def: &StackDef, def_dir: &Path) -> Result<BTreeMap<String, String>, CliError> {
+    // Vault base: not configured until the render substrate records a
+    // Stripe project (M8). Local-only stacks legally run env-file-only.
+    let resolved = load(def_dir);
+    let env_path = def_dir.join(ENV_FILE);
+    let sources = vec![if env_path.exists() {
+        env_path.display().to_string()
+    } else {
+        format!("{} (absent)", env_path.display())
+    }];
 
     let missing: Vec<String> = def
         .secrets

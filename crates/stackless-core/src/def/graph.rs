@@ -13,17 +13,15 @@
 //!   references (api ↔ web CORS) are recorded but never order startup —
 //!   which is exactly why they are not cycles.
 //!
-//! Representation and traversal live in oxgraph (CSR over dense node
-//! indices); the one algorithm it does not ship — Kahn's topological
-//! sort with cycle detection — is implemented generically over its
-//! topology capability traits. CSR is outgoing-only by design, so
-//! in-degrees are computed in one successors pass rather than binding
-//! `ElementPredecessors`.
+//! Representation, ordering, and cycle detection all live in oxgraph: the
+//! nodes and ordering edges feed a `GraphBuilder`, `topological_sort` yields
+//! the startup order, and on the rare cycle `strongly_connected_components`
+//! names the members for the error.
 
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::BTreeSet;
 
-use oxgraph::csr::{CsrNativeGraph, CsrNodeId};
-use oxgraph::topology::{DenseElementIndex, ElementSuccessors, TopologyCounts};
+use oxgraph::algo::{strongly_connected_components, topological_sort};
+use oxgraph::graph_build::{GraphBuildError, GraphBuilder};
 use serde::Serialize;
 
 use super::error::DefError;
@@ -138,21 +136,33 @@ impl DependencyGraph {
             }
         }
 
-        let (offsets, targets) = to_csr(nodes.len(), &ordering_edges);
-        let graph = CsrNativeGraph::<u32, u32>::validate(nodes.len() as u32, &offsets, &targets)
-            .map_err(|err| DefError::WiringCycle {
-                // Unreachable for edges we just built; surface honestly
-                // rather than panic if oxgraph rejects the layout.
-                nodes: format!("internal CSR layout error: {err:?}"),
-            })?;
-        let order = kahn_topological_order(&graph, (0..nodes.len() as u32).map(CsrNodeId::new))
-            .map_err(|stuck| DefError::WiringCycle {
-                nodes: stuck
-                    .iter()
+        let mut builder = GraphBuilder::<u32, u32>::new();
+        let mut node_ids = Vec::with_capacity(nodes.len());
+        for _ in &nodes {
+            node_ids.push(builder.add_node().map_err(internal_layout_error)?);
+        }
+        for &(from, to) in &ordering_edges {
+            builder
+                .add_edge(node_ids[from as usize], node_ids[to as usize])
+                .map_err(internal_layout_error)?;
+        }
+        let graph = builder.freeze().map_err(internal_layout_error)?;
+
+        let order = match topological_sort(&graph, &node_ids) {
+            Ok(order) => order,
+            // Toposort only flags that no order exists; SCC names the cycle
+            // members so the error points at the wiring that closed it.
+            Err(_) => {
+                let cycle = strongly_connected_components(&graph, &node_ids)
+                    .into_iter()
+                    .filter(|component| component.len() > 1)
+                    .flatten()
                     .map(|id| nodes[id.get() as usize].name().to_owned())
                     .collect::<Vec<_>>()
-                    .join(" -> "),
-            })?;
+                    .join(" -> ");
+                return Err(DefError::WiringCycle { nodes: cycle });
+            }
+        };
 
         let startup_order = order
             .into_iter()
@@ -182,110 +192,69 @@ impl DependencyGraph {
     }
 }
 
-/// Sorted edge set → CSR offsets/targets (the layout oxgraph borrows).
-fn to_csr(node_count: usize, edges: &BTreeSet<(u32, u32)>) -> (Vec<u32>, Vec<u32>) {
-    let mut offsets = Vec::with_capacity(node_count + 1);
-    let mut targets = Vec::with_capacity(edges.len());
-    let mut edge_iter = edges.iter().peekable();
-    offsets.push(0);
-    for node in 0..node_count as u32 {
-        while let Some((from, to)) = edge_iter.peek() {
-            if *from != node {
-                break;
-            }
-            targets.push(*to);
-            edge_iter.next();
-        }
-        offsets.push(targets.len() as u32);
-    }
-    (offsets, targets)
-}
-
-/// Kahn's algorithm, generic over oxgraph's topology capability traits.
-///
-/// CSR views are outgoing-only (no `ElementPredecessors` by design), so
-/// in-degrees come from one pass over successors. `elements` supplies
-/// enumeration, which the capability traits deliberately do not.
-///
-/// Returns the topological order, or `Err` with the elements stuck in a
-/// cycle.
-pub fn kahn_topological_order<G>(
-    graph: &G,
-    elements: impl Iterator<Item = G::ElementId> + Clone,
-) -> Result<Vec<G::ElementId>, Vec<G::ElementId>>
-where
-    G: ElementSuccessors + DenseElementIndex + TopologyCounts,
-    G::ElementId: Copy,
-{
-    let mut indegree = vec![0usize; graph.element_bound()];
-    for element in elements.clone() {
-        for successor in graph.element_successors(element) {
-            indegree[graph.element_index(successor)] += 1;
-        }
-    }
-    let mut queue: VecDeque<G::ElementId> = elements
-        .clone()
-        .filter(|e| indegree[graph.element_index(*e)] == 0)
-        .collect();
-    let mut order = Vec::with_capacity(graph.element_count());
-    while let Some(element) = queue.pop_front() {
-        order.push(element);
-        for successor in graph.element_successors(element) {
-            let index = graph.element_index(successor);
-            indegree[index] -= 1;
-            if indegree[index] == 0 {
-                queue.push_back(successor);
-            }
-        }
-    }
-    if order.len() == graph.element_count() {
-        Ok(order)
-    } else {
-        Err(elements
-            .filter(|e| indegree[graph.element_index(*e)] > 0)
-            .collect())
+/// Builder/freeze failures are unreachable for the dense edge set we just
+/// built; surface honestly rather than panic if oxgraph rejects the layout.
+fn internal_layout_error(err: GraphBuildError<u32, u32>) -> DefError {
+    DefError::WiringCycle {
+        nodes: format!("internal graph layout error: {err:?}"),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use oxgraph::algo::ToposortError;
+    use oxgraph::graph_build::{FrozenGraph, GraphNodeId};
 
-    fn csr(node_count: usize, edges: &[(u32, u32)]) -> (Vec<u32>, Vec<u32>) {
-        to_csr(node_count, &edges.iter().copied().collect())
+    fn build(
+        node_count: u32,
+        edges: &[(u32, u32)],
+    ) -> (FrozenGraph<u32, u32>, Vec<GraphNodeId<u32>>) {
+        let mut builder = GraphBuilder::<u32, u32>::new();
+        let ids: Vec<_> = (0..node_count)
+            .map(|_| builder.add_node().unwrap())
+            .collect();
+        for &(from, to) in edges {
+            builder
+                .add_edge(ids[from as usize], ids[to as usize])
+                .unwrap();
+        }
+        (builder.freeze().unwrap(), ids)
     }
 
     #[test]
-    fn kahn_orders_a_dag() {
+    fn topological_sort_orders_a_dag() {
         // 0 -> 1 -> 3, 0 -> 2 -> 3
-        let (offsets, targets) = csr(4, &[(0, 1), (0, 2), (1, 3), (2, 3)]);
-        let graph = CsrNativeGraph::<u32, u32>::validate(4, &offsets, &targets).unwrap();
-        let order: Vec<u32> = kahn_topological_order(&graph, (0..4).map(CsrNodeId::new))
+        let (graph, ids) = build(4, &[(0, 1), (0, 2), (1, 3), (2, 3)]);
+        let order: Vec<u32> = topological_sort(&graph, &ids)
             .unwrap()
             .into_iter()
-            .map(CsrNodeId::get)
+            .map(|id| id.get())
             .collect();
         assert_eq!(order, vec![0, 1, 2, 3]);
     }
 
     #[test]
-    fn kahn_reports_the_cycle_members() {
+    fn scc_reports_the_cycle_members() {
         // 0 -> 1 -> 2 -> 1, 3 isolated
-        let (offsets, targets) = csr(4, &[(0, 1), (1, 2), (2, 1)]);
-        let graph = CsrNativeGraph::<u32, u32>::validate(4, &offsets, &targets).unwrap();
-        let stuck: Vec<u32> = kahn_topological_order(&graph, (0..4).map(CsrNodeId::new))
-            .unwrap_err()
+        let (graph, ids) = build(4, &[(0, 1), (1, 2), (2, 1)]);
+        assert_eq!(
+            topological_sort(&graph, &ids).unwrap_err(),
+            ToposortError::Cycle
+        );
+        let mut cycle: Vec<u32> = strongly_connected_components(&graph, &ids)
             .into_iter()
-            .map(CsrNodeId::get)
+            .filter(|component| component.len() > 1)
+            .flatten()
+            .map(|id| id.get())
             .collect();
-        assert_eq!(stuck, vec![1, 2]);
+        cycle.sort_unstable();
+        assert_eq!(cycle, vec![1, 2]);
     }
 
     #[test]
-    fn kahn_handles_no_edges() {
-        let (offsets, targets) = csr(3, &[]);
-        let graph = CsrNativeGraph::<u32, u32>::validate(3, &offsets, &targets).unwrap();
-        let order = kahn_topological_order(&graph, (0..3).map(CsrNodeId::new)).unwrap();
-        assert_eq!(order.len(), 3);
+    fn topological_sort_handles_no_edges() {
+        let (graph, ids) = build(3, &[]);
+        assert_eq!(topological_sort(&graph, &ids).unwrap().len(), 3);
     }
 }

@@ -26,6 +26,15 @@ pub enum ProjectsError {
 
     #[error("provisioning {resource:?} via Stripe Projects did not complete: {detail}")]
     ProvisionFailed { resource: String, detail: String },
+
+    #[error("the Stripe Projects catalog has no service {reference:?}")]
+    CatalogMissing { reference: &'static str },
+
+    #[error("config for {reference:?} does not match the Stripe Projects catalog: {}", violations.join("; "))]
+    ConfigSchema {
+        reference: &'static str,
+        violations: Vec<String>,
+    },
 }
 
 impl Fault for ProjectsError {
@@ -37,6 +46,8 @@ impl Fault for ProjectsError {
             Self::LockHeld { .. } => codes::STRIPE_PROJECTS_LOCK_HELD,
             Self::ProjectAnchor { .. } => codes::STRIPE_PROJECT_ANCHOR,
             Self::ProvisionFailed { .. } => codes::STRIPE_PROJECTS_PROVISION_FAILED,
+            Self::CatalogMissing { .. } => codes::STRIPE_PROJECTS_CATALOG_MISSING,
+            Self::ConfigSchema { .. } => codes::STRIPE_PROJECTS_CONFIG_SCHEMA,
         }
     }
 
@@ -65,6 +76,16 @@ impl Fault for ProjectsError {
             }
             Self::ProvisionFailed { .. } => {
                 "wait a minute for the provider to finish provisioning and re-run `up` to resume"
+                    .into()
+            }
+            Self::CatalogMissing { .. } => {
+                "run `stripe projects catalog --json` to refresh the catalog; the provider may have \
+                 renamed or removed this service"
+                    .into()
+            }
+            Self::ConfigSchema { .. } => {
+                "the service's catalog `configuration_schema` changed; update the plugin's typed \
+                 config to match (the catalog gap test pins this)"
                     .into()
             }
         }

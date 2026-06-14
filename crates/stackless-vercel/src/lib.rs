@@ -24,8 +24,10 @@ use stackless_core::substrate::{
     Observation, StepContext, StepResource, Substrate, SubstrateFault,
 };
 use stackless_stripe_projects::ProjectsError;
-use stackless_stripe_projects::project;
 use stackless_stripe_projects::stripe::{CommandRunner, StripeProjects, TokioRunner};
+use stackless_stripe_projects::{
+    CatalogService, add_catalog_resource, project, requires_confirmation,
+};
 use tokio::sync::Mutex;
 
 use crate::config::{ServiceVercel, StackVercel, VercelPlan};
@@ -35,9 +37,25 @@ use crate::vercel_api::{DEPLOY_BUDGET, HEALTH_BUDGET, VercelApi};
 
 pub const SUBSTRATE_NAME: &str = "vercel";
 
-const STRIPE_PROJECT_REFERENCE: &str = "vercel/project";
-const STRIPE_PRO_REFERENCE: &str = "vercel/pro";
 const PRO_RESOURCE_NAME: &str = "pro";
+
+/// The typed `vercel/project` `--config` (the catalog requires `name`).
+#[derive(Debug, Serialize)]
+struct VercelProjectConfig {
+    name: String,
+}
+
+impl CatalogService for VercelProjectConfig {
+    const REFERENCE: &'static str = "vercel/project";
+}
+
+/// The typed `vercel/pro` `--config` (no fields; a paid plan upgrade).
+#[derive(Debug, Serialize)]
+struct VercelProConfig {}
+
+impl CatalogService for VercelProConfig {
+    const REFERENCE: &'static str = "vercel/pro";
+}
 
 /// The hard per-provider spend cap set on first paid confirmation (§4).
 pub const SPEND_CAP_USD: u32 = 25;
@@ -138,7 +156,7 @@ impl<R: CommandRunner> VercelSubstrate<R> {
     }
 
     async fn vercel(&self, instance: Option<&str>) -> Result<VercelApi, SubstrateFault> {
-        let token = api_key::resolve(&self.definition_dir).map_err(fault)?;
+        let token = api_key::resolve(&self.definition_dir, &self.secrets).map_err(fault)?;
         let mut team_id = std::env::var("VERCEL_TEAM_ID")
             .ok()
             .map(|value| value.trim().to_owned())
@@ -251,16 +269,14 @@ impl<R: CommandRunner> VercelSubstrate<R> {
 
         let stack = StackVercel::parse(def);
         if stack.plan == VercelPlan::Pro {
-            self.require_confirm_paid(PRO_RESOURCE_NAME)?;
-            project::add_resource(
-                &stripe,
-                STRIPE_PRO_REFERENCE,
-                PRO_RESOURCE_NAME,
-                &serde_json::json!({}),
-                true,
-            )
-            .await
-            .map_err(projects_fault)?;
+            let catalog = stripe.catalog().await.map_err(projects_fault)?;
+            let config = VercelProConfig {};
+            if requires_confirmation(&catalog, &config).unwrap_or(true) {
+                self.require_confirm_paid(PRO_RESOURCE_NAME)?;
+            }
+            add_catalog_resource(&stripe, &catalog, &config, PRO_RESOURCE_NAME)
+                .await
+                .map_err(projects_fault)?;
         }
 
         if self.confirm_paid {
@@ -299,16 +315,13 @@ impl<R: CommandRunner> VercelSubstrate<R> {
         })?;
         let github = parse_github_repo(&spec.source.repo).map_err(fault)?;
 
-        let config_json = serde_json::json!({ "name": vercel_name });
-        project::add_resource(
-            &self.stripe(),
-            STRIPE_PROJECT_REFERENCE,
-            &resource,
-            &config_json,
-            false,
-        )
-        .await
-        .map_err(projects_fault)?;
+        let config = VercelProjectConfig {
+            name: vercel_name.clone(),
+        };
+        let catalog = self.stripe().catalog().await.map_err(projects_fault)?;
+        add_catalog_resource(&self.stripe(), &catalog, &config, &resource)
+            .await
+            .map_err(projects_fault)?;
 
         let vercel = self.vercel(Some(instance)).await?;
         let project_id = wait_for_project(&vercel, &vercel_name).await?;
@@ -877,5 +890,32 @@ mod tests {
         assert_eq!(s.name(), "vercel");
         assert!(!s.supports_source_override());
         assert_eq!(s.default_lease(), Duration::from_secs(8 * 3600));
+    }
+
+    /// Catalog gap check: the Vercel configs must validate against the live
+    /// `vercel/project` + `vercel/pro` schemas in the committed catalog fixture.
+    #[test]
+    fn vercel_configs_match_catalog() {
+        const FIXTURE: &str = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../stackless-stripe-projects/tests/fixtures/catalog.json"
+        ));
+        let catalog = stackless_stripe_projects::Catalog::from_json_envelope(FIXTURE).unwrap();
+        let mut failures = Vec::new();
+        failures.extend(stackless_stripe_projects::verify_service(
+            &catalog,
+            &VercelProjectConfig {
+                name: "atto-demo-web".into(),
+            },
+        ));
+        failures.extend(stackless_stripe_projects::verify_service(
+            &catalog,
+            &VercelProConfig {},
+        ));
+        assert!(
+            failures.is_empty(),
+            "vercel catalog gaps:\n{}",
+            failures.join("\n")
+        );
     }
 }

@@ -301,12 +301,15 @@ pub fn down(name: &str, output: &Output) -> Result<(), CliError> {
         .instance(name)?
         .ok_or_else(|| stackless_core::state::StateError::InstanceNotFound { name: name.into() })?;
     // Teardown re-runs the same provider; render needs the recorded
-    // definition dir (its project anchor + API key live there).
+    // definition dir (its project anchor + API key live there). Load the
+    // `.stackless.env` overlay (best-effort, no required-secret gate) so the
+    // provider API key resolves there, exactly as `up` does.
+    let def_dir = PathBuf::from(&record.definition_dir);
     let provider = substrate(
         record.substrate.as_str(),
         SubstrateCtx {
-            secrets: BTreeMap::new(),
-            definition_dir: PathBuf::from(&record.definition_dir),
+            secrets: crate::secrets::load(&def_dir),
+            definition_dir: def_dir,
             confirm_paid: false,
         },
     )?;
@@ -489,11 +492,14 @@ pub fn logs(
     // through the Render REST API (§2: recent window, no streaming).
     if record.substrate.as_str() == RENDER {
         let dir = PathBuf::from(&record.definition_dir);
+        // Read-only: load .stackless.env best-effort (no required-secret gate)
+        // so the Render API key resolves there for `logs` too.
+        let secrets = crate::secrets::load(&dir);
         let rt = runtime()?;
         for service in &services {
             let lines = rt
                 .block_on(stackless_render::fetch_logs(
-                    &dir, &def, name, service, tail,
+                    &dir, &def, name, service, tail, &secrets,
                 ))
                 .map_err(|err| {
                     CliError::substrate(
