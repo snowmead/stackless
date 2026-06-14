@@ -138,6 +138,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
+name = "autocfg"
+version = "1.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
+
+[[package]]
 name = "aws-lc-rs"
 version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -332,6 +338,16 @@ dependencies = [
  "cfg-if",
  "cpufeatures 0.3.0",
  "rand_core 0.10.1",
+]
+
+[[package]]
+name = "chrono"
+version = "0.4.45"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
+dependencies = [
+ "num-traits",
+ "serde",
 ]
 
 [[package]]
@@ -2587,6 +2603,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-traits"
+version = "0.2.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
+dependencies = [
+ "autocfg",
+]
+
+[[package]]
 name = "num_cpus"
 version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2679,21 +2704,34 @@ checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
 
 [[package]]
 name = "oxgraph"
-version = "0.4.2"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3dca24dd20016829171971c3cd26d865f37c2cb72a5502e2bc28ff7819aa0ec3"
+checksum = "82fe8ff4c83917a531c444506ec232a195a35d183dde84a215c77507b0f4d85a"
 dependencies = [
+ "oxgraph-algo",
  "oxgraph-csr",
  "oxgraph-graph",
  "oxgraph-layout-util",
+ "oxgraph-snapshot",
+ "oxgraph-topology",
+]
+
+[[package]]
+name = "oxgraph-algo"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48149219544f78c9aa0a19641883bee91f65c93ccff365f04182698162836aa5"
+dependencies = [
+ "oxgraph-graph",
+ "oxgraph-hyper",
  "oxgraph-topology",
 ]
 
 [[package]]
 name = "oxgraph-csr"
-version = "0.4.2"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b4b355a2e7485ab225aef1baa709f5f2c7c9bf2a7581683b878f994a5a5b4c3"
+checksum = "072e2bdef648830c7c9b622af9ce4e68ba46918924c70cfc592032201aefe14d"
 dependencies = [
  "oxgraph-graph",
  "oxgraph-layout-util",
@@ -2703,27 +2741,36 @@ dependencies = [
 
 [[package]]
 name = "oxgraph-graph"
-version = "0.4.2"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e318c6bbc1723e4541c22b54479af358cce4301fa0813b71e3b5d9424c2352bd"
+checksum = "d8391a95ef48867ff349db0d2a583e1ed0a859e7dd95c46837bfdb99282613c8"
+dependencies = [
+ "oxgraph-topology",
+]
+
+[[package]]
+name = "oxgraph-hyper"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ce75442e8801036827486d4ce0780b0e52600901cb0816e57664a35be7a20eb"
 dependencies = [
  "oxgraph-topology",
 ]
 
 [[package]]
 name = "oxgraph-layout-util"
-version = "0.4.2"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd02bc0397b840765e810f5474a3f97f1501b8162293d86ddfe0d0331c4c95ef"
+checksum = "9b547655888f19185abc4ea3d74d172fb1ee790ec92b24fe9489fd30a886c71c"
 dependencies = [
  "zerocopy 0.8.52",
 ]
 
 [[package]]
 name = "oxgraph-snapshot"
-version = "0.4.2"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b23dc3edb86e235e1260ec13c08afa5880200f9cdff5b83945f88bdbdfcde1cc"
+checksum = "5e9c87e50d5ced891f35f21b03cbf5e4de6b035bc1e954228e58bb48b8403eb1"
 dependencies = [
  "oxgraph-layout-util",
  "zerocopy 0.8.52",
@@ -2731,9 +2778,9 @@ dependencies = [
 
 [[package]]
 name = "oxgraph-topology"
-version = "0.4.2"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34733fbf4385f3c92f6d741a2a6f33ccf79ba5ea39bc8888ae84d97c4eddb62b"
+checksum = "6e69d473e42f9e85bf3c4b2707379266cd546d2f898d44c7e395066ebaa8b47b"
 
 [[package]]
 name = "parking_lot"
@@ -2902,6 +2949,21 @@ dependencies = [
  "bytesize",
  "human_format",
  "parking_lot",
+]
+
+[[package]]
+name = "progenitor-client"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e8a874cf25a33cac7a01b9c1de87bcfbc8aea93f3156d09dcc3bee516a78926"
+dependencies = [
+ "bytes",
+ "futures-core",
+ "percent-encoding",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
 ]
 
 [[package]]
@@ -3104,6 +3166,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
+name = "regress"
+version = "0.10.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2057b2325e68a893284d1538021ab90279adac1139957ca2a74426c6f118fb48"
+dependencies = [
+ "hashbrown 0.16.1",
+ "memchr",
+]
+
+[[package]]
+name = "render-client"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "chrono",
+ "futures-core",
+ "progenitor-client",
+ "regress",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+]
+
+[[package]]
 name = "reqwest"
 version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3133,15 +3220,18 @@ dependencies = [
  "rustls-platform-verifier",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "sync_wrapper",
  "tokio",
  "tokio-rustls 0.26.4",
+ "tokio-util",
  "tower 0.5.3",
  "tower-http",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-streams",
  "web-sys",
 ]
 
@@ -3744,6 +3834,8 @@ name = "stackless-render"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "chrono",
+ "render-client",
  "reqwest",
  "serde",
  "serde_json",
@@ -3788,6 +3880,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "toml",
+ "vercel-client",
  "wiremock",
 ]
 
@@ -4244,6 +4337,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
+name = "vercel-client"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "chrono",
+ "futures-core",
+ "progenitor-client",
+ "regress",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+]
+
+[[package]]
 name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4367,6 +4475,19 @@ dependencies = [
  "indexmap",
  "wasm-encoder",
  "wasmparser",
+]
+
+[[package]]
+name = "wasm-streams"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d1ec4f6517c9e11ae630e200b2b65d193279042e28edd4a2cda233e46670bbb"
+dependencies = [
+ "futures-util",
+ "js-sys",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

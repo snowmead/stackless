@@ -47,12 +47,14 @@ use stackless_core::substrate::{
 };
 use tokio::sync::Mutex;
 
-use crate::config::ServiceRender;
+use crate::config::{
+    RenderPostgresConfig, RenderStaticSiteConfig, RenderWebServiceConfig, ServiceRender,
+};
 use crate::error::RenderError;
 use crate::render_api::{HEALTH_BUDGET, RenderApi, STATIC_DEPLOY_BUDGET, WEB_DEPLOY_BUDGET};
 use stackless_stripe_projects::ProjectsError;
-use stackless_stripe_projects::project;
 use stackless_stripe_projects::stripe::{CommandRunner, StripeProjects, TokioRunner};
+use stackless_stripe_projects::{add_catalog_resource, project, requires_confirmation};
 
 pub const SUBSTRATE_NAME: &str = "render";
 
@@ -187,7 +189,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
     }
 
     fn render(&self) -> Result<RenderApi, SubstrateFault> {
-        let key = api_key::resolve(&self.definition_dir).map_err(fault)?;
+        let key = api_key::resolve(&self.definition_dir, &self.secrets).map_err(fault)?;
         Ok(match &self.api_base {
             Some(base) => RenderApi::with_base(key, base.clone()),
             None => RenderApi::new(key),
@@ -344,7 +346,6 @@ impl<R: CommandRunner> RenderSubstrate<R> {
         let plan = Self::datastore_plan(def, datastore).map_err(fault)?;
         let render_name = Self::resource_name(def, instance, datastore);
         let resource = format!("{instance}-{datastore}");
-        self.require_confirm_paid(&resource)?;
         let spec = def.datastores.get(datastore).ok_or_else(|| {
             fault(RenderError::ConfigInvalid {
                 location: format!("datastores.{datastore}"),
@@ -352,29 +353,22 @@ impl<R: CommandRunner> RenderSubstrate<R> {
             })
         })?;
         let region = Self::stack_region(def);
-        // Live-observed (2026-06-11): the render/postgres `--config` schema
-        // selects the paid tier via `instance_type` (values from the
-        // catalog pricing block: "free", "basic-256mb", "basic-1gb", …),
-        // NOT a field named `plan`. Sending `plan` is silently ignored and
-        // the resource defaults to the free tier (which then collides with
-        // "cannot have more than one active free tier database"). The
-        // `[datastores.X.render].plan` definition key maps straight onto
-        // the catalog's `instance_type` value.
-        let config_json = serde_json::json!({
-            "name": render_name,
-            "region": region,
-            "version": spec.version,
-            "instance_type": plan,
-        });
-        project::add_resource(
-            &self.stripe(),
-            "render/postgres",
-            &resource,
-            &config_json,
-            true,
-        )
-        .await
-        .map_err(projects_fault)?;
+        // `[datastores.X.render].plan` feeds the pricing-tier selector
+        // `instance_type` (values `free`/`basic-256mb`/…); the catalog gap
+        // test pins these against the live `paid_pricing` configurations.
+        let config = RenderPostgresConfig {
+            name: render_name.clone(),
+            region,
+            version: spec.version.clone(),
+            instance_type: plan,
+        };
+        let catalog = self.stripe().catalog().await.map_err(projects_fault)?;
+        if requires_confirmation(&catalog, &config).unwrap_or(false) {
+            self.require_confirm_paid(&resource)?;
+        }
+        add_catalog_resource(&self.stripe(), &catalog, &config, &resource)
+            .await
+            .map_err(projects_fault)?;
 
         // Wait until the Render postgres is visible and record BOTH
         // connection strings (§4).
@@ -424,46 +418,50 @@ impl<R: CommandRunner> RenderSubstrate<R> {
             })
         })?;
 
-        // A web service is paid; a static site is free (§4).
-        let paid = !render_cfg.is_static();
-        if paid {
-            self.require_confirm_paid(&resource)?;
-        }
-
-        // Create/find the Render service via Stripe Projects.
-        let config_json = match &render_cfg {
+        // Create/find the Render service via Stripe Projects. Paid
+        // confirmation is derived from the selected pricing tier (a web
+        // service defaults to the free tier; a static site is free).
+        let catalog = self.stripe().catalog().await.map_err(projects_fault)?;
+        match &render_cfg {
             ServiceRender::Web {
                 runtime,
                 build,
                 start,
-            } => serde_json::json!({
-                "name": render_name,
-                "repo": spec.source.repo,
-                "branch": spec.source.reference,
-                "runtime": runtime,
-                "build_command": build,
-                "start_command": start,
-                "health_check_path": spec.health.path,
-                "region": region,
-                "auto_deploy": "no",
-            }),
-            ServiceRender::Static { build, publish, .. } => serde_json::json!({
-                "name": render_name,
-                "repo": spec.source.repo,
-                "branch": spec.source.reference,
-                "build_command": build,
-                "publish_path": publish,
-            }),
-        };
-        project::add_resource(
-            &self.stripe(),
-            render_cfg.stripe_reference(),
-            &resource,
-            &config_json,
-            paid,
-        )
-        .await
-        .map_err(projects_fault)?;
+            } => {
+                let config = RenderWebServiceConfig {
+                    name: render_name.clone(),
+                    repo: spec.source.repo.clone(),
+                    branch: spec.source.reference.clone(),
+                    runtime: runtime.clone(),
+                    build_command: build.clone(),
+                    start_command: start.clone(),
+                    health_check_path: spec.health.path.clone(),
+                    region,
+                    auto_deploy: "no".to_owned(),
+                };
+                if requires_confirmation(&catalog, &config).unwrap_or(false) {
+                    self.require_confirm_paid(&resource)?;
+                }
+                add_catalog_resource(&self.stripe(), &catalog, &config, &resource)
+                    .await
+                    .map_err(projects_fault)?;
+            }
+            ServiceRender::Static { build, publish, .. } => {
+                let config = RenderStaticSiteConfig {
+                    name: render_name.clone(),
+                    repo: spec.source.repo.clone(),
+                    branch: spec.source.reference.clone(),
+                    build_command: build.clone(),
+                    publish_path: publish.clone(),
+                };
+                if requires_confirmation(&catalog, &config).unwrap_or(false) {
+                    self.require_confirm_paid(&resource)?;
+                }
+                add_catalog_resource(&self.stripe(), &catalog, &config, &resource)
+                    .await
+                    .map_err(projects_fault)?;
+            }
+        }
 
         // Resolve the Render service, push env, ensure rewrite, deploy.
         let render = self.render()?;
@@ -635,15 +633,20 @@ impl<R: CommandRunner> RenderSubstrate<R> {
 
 /// Poll until a just-provisioned Render postgres is visible by name.
 async fn wait_for_postgres(render: &RenderApi, name: &str) -> Result<String, SubstrateFault> {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
+    // Wait for `available`, not just visible: a freshly-provisioned DB reports
+    // `creating` for a minute or two and refuses connections, which would race
+    // the operator-side `prepare` (migrations). Budget covers provisioning lag.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(300);
     loop {
-        if let Some(id) = render.find_postgres_by_name(name).await.map_err(fault)? {
-            return Ok(id);
+        if let Some(pg) = render.find_postgres(name).await.map_err(fault)?
+            && pg.status.as_deref() == Some("available")
+        {
+            return Ok(pg.id);
         }
         if tokio::time::Instant::now() >= deadline {
             return Err(fault(RenderError::ProvisionFailed {
                 resource: name.to_owned(),
-                detail: "postgres not visible via the Render API yet".into(),
+                detail: "postgres did not become available via the Render API in time".into(),
             }));
         }
         tokio::time::sleep(Duration::from_secs(5)).await;
@@ -993,8 +996,9 @@ pub async fn fetch_logs(
     instance: &str,
     service: &str,
     tail: usize,
+    secrets: &BTreeMap<String, String>,
 ) -> Result<Vec<String>, RenderError> {
-    let key = api_key::resolve(definition_dir)?;
+    let key = api_key::resolve(definition_dir, secrets)?;
     let render = RenderApi::new(key);
     let name = format!("{}-{instance}-{service}", def.stack.name.as_str());
     let Some(svc) = render.find_service_by_name(&name).await? else {

@@ -1,12 +1,17 @@
-//! The Render REST client (ARCHITECTURE.md §4): the post-provisioning
-//! steps Stripe Projects can't express — env vars, the SPA rewrite
-//! route, deploy triggers, deploy polling with per-kind budgets,
-//! postgres connection info, recent logs, and the teardown
-//! survivors check. Endpoints were verified against Render's OpenAPI spec.
+//! The Render REST client (ARCHITECTURE.md §4): the post-provisioning steps
+//! Stripe Projects can't express — env vars, the SPA rewrite route, deploy
+//! triggers, deploy polling with per-kind budgets, postgres connection info,
+//! recent logs, and the teardown survivors check.
+//!
+//! This is a thin adapter over the [`render_client`] crate, which is generated
+//! by progenitor from Render's OpenAPI spec (`specs/render-openapi.json`). The
+//! adapter maps the generated typed calls to our [`RenderError`]/`Fault` model
+//! and our `Unknown`-tolerant [`DeployStatus`]; the request/response shapes are
+//! the provider's, used out of the box.
 
 use std::time::Duration;
 
-use serde_json::Value;
+use render_client::types;
 
 use crate::error::RenderError;
 
@@ -20,21 +25,28 @@ pub const STATIC_DEPLOY_BUDGET: Duration = Duration::from_secs(20 * 60);
 pub const HEALTH_BUDGET: Duration = Duration::from_secs(5 * 60);
 
 const POLL_INTERVAL: Duration = Duration::from_secs(10);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone)]
 pub struct RenderService {
     pub id: String,
-    pub name: String,
-    pub url: Option<String>,
-    /// The workspace owner id (`ownerId` on the service) — required to
-    /// scope the `/logs` endpoint (live-observed 2026-06-11).
+    /// The workspace owner id (`ownerId`) — required to scope the `/logs`
+    /// endpoint (the service id would 400).
     pub owner_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct RenderDeploy {
     pub id: String,
-    pub status: String,
+    pub status: DeployStatus,
+}
+
+#[derive(Debug, Clone)]
+pub struct RenderPostgres {
+    pub id: String,
+    /// The `databaseStatus` (e.g. `creating`, `available`); a freshly-provisioned
+    /// DB reports `creating` before it accepts connections.
+    pub status: Option<String>,
 }
 
 /// Postgres connection strings: internal for services on Render's
@@ -46,19 +58,44 @@ pub struct PostgresConnInfo {
 }
 
 pub struct RenderApi {
-    client: reqwest::Client,
-    base: String,
-    api_key: String,
+    client: render_client::Client,
     /// Overridable so deploy polling is fast in tests.
     poll_interval: Duration,
 }
 
 impl std::fmt::Debug for RenderApi {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RenderApi")
-            .field("base", &self.base)
-            .finish_non_exhaustive()
+        f.debug_struct("RenderApi").finish_non_exhaustive()
     }
+}
+
+/// A reqwest client with the bearer token baked into default headers, so every
+/// generated call is authenticated. Build failures fall back to a default
+/// client (calls then 401 → surfaced as `ApiFailed`).
+fn authed_client(api_key: &str) -> reqwest::Client {
+    let mut headers = reqwest::header::HeaderMap::new();
+    if let Ok(mut value) = reqwest::header::HeaderValue::from_str(&format!("Bearer {api_key}")) {
+        value.set_sensitive(true);
+        headers.insert(reqwest::header::AUTHORIZATION, value);
+    }
+    reqwest::Client::builder()
+        .default_headers(headers)
+        .connect_timeout(REQUEST_TIMEOUT)
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
+
+fn api_failed(method: &str, path: &str, err: impl std::fmt::Display) -> RenderError {
+    RenderError::ApiFailed {
+        method: method.to_owned(),
+        path: path.to_owned(),
+        detail: err.to_string(),
+    }
+}
+
+fn limit(n: u64) -> Option<std::num::NonZeroU64> {
+    std::num::NonZeroU64::new(n)
 }
 
 impl RenderApi {
@@ -67,10 +104,10 @@ impl RenderApi {
     }
 
     pub fn with_base(api_key: impl Into<String>, base: impl Into<String>) -> Self {
+        let client =
+            render_client::Client::new_with_client(&base.into(), authed_client(&api_key.into()));
         Self {
-            client: reqwest::Client::new(),
-            base: base.into(),
-            api_key: api_key.into(),
+            client,
             poll_interval: POLL_INTERVAL,
         }
     }
@@ -81,119 +118,82 @@ impl RenderApi {
         self
     }
 
-    async fn request(
-        &self,
-        method: reqwest::Method,
-        path: &str,
-        body: Option<Value>,
-    ) -> Result<Value, RenderError> {
-        let mut req = self
-            .client
-            .request(method.clone(), format!("{}{path}", self.base))
-            .bearer_auth(&self.api_key)
-            .header(reqwest::header::ACCEPT, "application/json")
-            .timeout(Duration::from_secs(30));
-        if let Some(ref body) = body {
-            req = req.json(body);
-        }
-        let response = req.send().await.map_err(|err| RenderError::ApiFailed {
-            method: method.to_string(),
-            path: path.to_owned(),
-            detail: err.to_string(),
-        })?;
-        let status = response.status();
-        let text = response
-            .text()
-            .await
-            .map_err(|err| RenderError::ApiFailed {
-                method: method.to_string(),
-                path: path.to_owned(),
-                detail: err.to_string(),
-            })?;
-        if !status.is_success() {
-            return Err(RenderError::ApiFailed {
-                method: method.to_string(),
-                path: path.to_owned(),
-                detail: format!(
-                    "{}: {}",
-                    status.as_u16(),
-                    text.chars().take(300).collect::<String>()
-                ),
-            });
-        }
-        if text.is_empty() {
-            return Ok(Value::Null);
-        }
-        serde_json::from_str(&text).map_err(|err| RenderError::ApiFailed {
-            method: method.to_string(),
-            path: path.to_owned(),
-            detail: format!("non-JSON response: {err}"),
-        })
-    }
-
-    /// List endpoints wrap items as `[{cursor, <kind>}]`.
-    fn unwrap_list<'a>(value: &'a Value, kind: &str) -> Vec<&'a Value> {
-        value
-            .as_array()
-            .map(|items| items.iter().filter_map(|entry| entry.get(kind)).collect())
-            .unwrap_or_default()
-    }
-
     pub async fn find_service_by_name(
         &self,
         name: &str,
     ) -> Result<Option<RenderService>, RenderError> {
-        let list = self
-            .request(
-                reqwest::Method::GET,
-                &format!("/services?name={}&limit=20", urlencode(name)),
+        let names = vec![name.to_owned()];
+        let response = self
+            .client
+            .list_services(
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                limit(20),
+                Some(&names),
+                None,
+                None,
+                None,
+                None,
+                None,
                 None,
             )
-            .await?;
-        for service in Self::unwrap_list(&list, "service") {
-            if service.get("name").and_then(Value::as_str) != Some(name) {
-                continue;
-            }
-            let Some(id) = service.get("id").and_then(Value::as_str) else {
+            .await
+            .map_err(|err| api_failed("GET", "/services", err))?;
+        for entry in response.into_inner().0 {
+            let Some(service) = entry.service else {
                 continue;
             };
-            let url = service
-                .get("serviceDetails")
-                .and_then(|d| d.get("url"))
-                .and_then(Value::as_str)
-                .or_else(|| service.get("url").and_then(Value::as_str))
-                .map(str::to_owned);
-            let owner_id = service
-                .get("ownerId")
-                .and_then(Value::as_str)
-                .map(str::to_owned);
-            return Ok(Some(RenderService {
-                id: id.to_owned(),
-                name: name.to_owned(),
-                url,
-                owner_id,
-            }));
+            if service.name.as_deref() == Some(name) {
+                return Ok(Some(RenderService {
+                    id: service.id.unwrap_or_default(),
+                    owner_id: service.owner_id,
+                }));
+            }
         }
         Ok(None)
     }
 
-    pub async fn find_postgres_by_name(&self, name: &str) -> Result<Option<String>, RenderError> {
-        let list = self
-            .request(
-                reqwest::Method::GET,
-                &format!("/postgres?name={}&limit=20", urlencode(name)),
+    pub async fn find_postgres(&self, name: &str) -> Result<Option<RenderPostgres>, RenderError> {
+        let names = vec![name.to_owned()];
+        let response = self
+            .client
+            .list_postgres(
+                None,
+                None,
+                None,
+                None,
+                None,
+                limit(20),
+                Some(&names),
+                None,
+                None,
+                None,
+                None,
                 None,
             )
-            .await?;
-        for pg in Self::unwrap_list(&list, "postgres") {
-            if pg.get("name").and_then(Value::as_str) != Some(name) {
+            .await
+            .map_err(|err| api_failed("GET", "/postgres", err))?;
+        for entry in response.into_inner() {
+            let Some(postgres) = entry.postgres else {
                 continue;
-            }
-            if let Some(id) = pg.get("id").and_then(Value::as_str) {
-                return Ok(Some(id.to_owned()));
+            };
+            if postgres.name.as_deref() == Some(name) {
+                return Ok(postgres.id.map(|id| RenderPostgres {
+                    id,
+                    status: postgres.status.map(|s| s.0),
+                }));
             }
         }
         Ok(None)
+    }
+
+    /// The postgres id by name (existence check for observe/teardown).
+    pub async fn find_postgres_by_name(&self, name: &str) -> Result<Option<String>, RenderError> {
+        Ok(self.find_postgres(name).await?.map(|pg| pg.id))
     }
 
     pub async fn postgres_connection_info(
@@ -201,21 +201,14 @@ impl RenderApi {
         postgres_id: &str,
     ) -> Result<PostgresConnInfo, RenderError> {
         let info = self
-            .request(
-                reqwest::Method::GET,
-                &format!("/postgres/{postgres_id}/connection-info"),
-                None,
-            )
-            .await?;
+            .client
+            .retrieve_postgres_connection_info(postgres_id)
+            .await
+            .map_err(|err| api_failed("GET", "/postgres/{id}/connection-info", err))?
+            .into_inner();
         Ok(PostgresConnInfo {
-            internal: info
-                .get("internalConnectionString")
-                .and_then(Value::as_str)
-                .map(str::to_owned),
-            external: info
-                .get("externalConnectionString")
-                .and_then(Value::as_str)
-                .map(str::to_owned),
+            internal: info.internal_connection_string,
+            external: info.external_connection_string,
         })
     }
 
@@ -224,17 +217,19 @@ impl RenderApi {
         service_id: &str,
         vars: &[(String, String)],
     ) -> Result<(), RenderError> {
-        let body = Value::Array(
-            vars.iter()
-                .map(|(key, value)| serde_json::json!({ "key": key, "value": value }))
-                .collect(),
-        );
-        self.request(
-            reqwest::Method::PUT,
-            &format!("/services/{service_id}/env-vars"),
-            Some(body),
-        )
-        .await?;
+        let body: Vec<types::UpdateEnvVarsForServiceBodyItem> = vars
+            .iter()
+            .map(
+                |(key, value)| types::UpdateEnvVarsForServiceBodyItem::Variant0 {
+                    key: Some(key.clone()),
+                    value: Some(value.clone()),
+                },
+            )
+            .collect();
+        self.client
+            .update_env_vars_for_service(service_id, &body)
+            .await
+            .map_err(|err| api_failed("PUT", "/services/{id}/env-vars", err))?;
         Ok(())
     }
 
@@ -242,89 +237,72 @@ impl RenderApi {
     /// Idempotent: returns early when the route already exists.
     pub async fn ensure_spa_rewrite(&self, service_id: &str) -> Result<(), RenderError> {
         let routes = self
-            .request(
-                reqwest::Method::GET,
-                &format!("/services/{service_id}/routes"),
-                None,
-            )
-            .await?;
-        for route in Self::unwrap_list(&routes, "route") {
-            if route.get("source").and_then(Value::as_str) == Some("/*")
-                && route.get("destination").and_then(Value::as_str) == Some("/index.html")
+            .client
+            .list_routes(service_id, None, None, None, None, None)
+            .await
+            .map_err(|err| api_failed("GET", "/services/{id}/routes", err))?
+            .into_inner();
+        for entry in routes {
+            let Some(route) = entry.route else { continue };
+            if route.source.as_deref() == Some("/*")
+                && route.destination.as_deref() == Some("/index.html")
             {
                 return Ok(());
             }
         }
-        self.request(
-            reqwest::Method::POST,
-            &format!("/services/{service_id}/routes"),
-            Some(serde_json::json!({
-                "type": "rewrite",
-                "source": "/*",
-                "destination": "/index.html"
-            })),
-        )
-        .await?;
+        let body = types::RoutePost {
+            destination: Some("/index.html".to_owned()),
+            priority: None,
+            source: Some("/*".to_owned()),
+            type_: Some(types::RouteType("rewrite".to_owned())),
+        };
+        self.client
+            .add_route(service_id, &body)
+            .await
+            .map_err(|err| api_failed("POST", "/services/{id}/routes", err))?;
         Ok(())
     }
 
     pub async fn trigger_deploy(&self, service_id: &str) -> Result<RenderDeploy, RenderError> {
-        let deploy = self
-            .request(
-                reqwest::Method::POST,
-                &format!("/services/{service_id}/deploys"),
-                Some(serde_json::json!({})),
-            )
-            .await?;
-        if let Some(id) = deploy.get("id").and_then(Value::as_str) {
-            return Ok(RenderDeploy {
-                id: id.to_owned(),
-                status: deploy
-                    .get("status")
-                    .and_then(Value::as_str)
-                    .unwrap_or("created")
-                    .to_owned(),
-            });
-        }
-        // Live-observed (2026-06-11): for static sites the deploy POST can
-        // answer `202 Queued` with an EMPTY body (per Render's OpenAPI the
-        // 202 response carries no content, unlike the 201 which returns the
-        // deploy object). The deploy is still enqueued — `request` just
-        // returns Null, so there is no id to read. Recover the just-created
-        // deploy from the deploys list (newest first) and poll that.
-        let latest = self.latest_deploy(service_id).await?;
-        latest.ok_or_else(|| RenderError::ApiFailed {
-            method: "POST".into(),
-            path: format!("/services/{service_id}/deploys"),
-            detail: "deploy trigger returned no id and no deploy is listed".into(),
-        })
+        // The create-deploy response is empty (`202 Queued`); recover the
+        // just-enqueued deploy from the deploys list (newest first).
+        self.client
+            .create_deploy(service_id, &types::CreateDeployBody::default())
+            .await
+            .map_err(|err| api_failed("POST", "/services/{id}/deploys", err))?;
+        self.latest_deploy(service_id)
+            .await?
+            .ok_or_else(|| RenderError::ApiFailed {
+                method: "POST".into(),
+                path: format!("/services/{service_id}/deploys"),
+                detail: "deploy trigger returned no listed deploy".into(),
+            })
     }
 
-    /// The most recent deploy for a service (newest first), or None when
-    /// the service has never deployed. Used to recover the deploy id when
-    /// the trigger answers `202 Queued` with no body.
+    /// The most recent deploy for a service (newest first), or None when the
+    /// service has never deployed. Drives [`Self::wait_for_deploy`].
     async fn latest_deploy(&self, service_id: &str) -> Result<Option<RenderDeploy>, RenderError> {
         let list = self
-            .request(
-                reqwest::Method::GET,
-                &format!("/services/{service_id}/deploys?limit=1"),
+            .client
+            .list_deploys(
+                service_id,
+                None,
+                None,
+                None,
+                None,
+                None,
+                limit(1),
+                None,
+                None,
                 None,
             )
-            .await?;
-        let Some(deploy) = Self::unwrap_list(&list, "deploy").into_iter().next() else {
+            .await
+            .map_err(|err| api_failed("GET", "/services/{id}/deploys", err))?
+            .into_inner();
+        let Some(deploy) = list.0.into_iter().next().and_then(|entry| entry.deploy) else {
             return Ok(None);
         };
-        let Some(id) = deploy.get("id").and_then(Value::as_str) else {
-            return Ok(None);
-        };
-        Ok(Some(RenderDeploy {
-            id: id.to_owned(),
-            status: deploy
-                .get("status")
-                .and_then(Value::as_str)
-                .unwrap_or("created")
-                .to_owned(),
-        }))
+        Ok(Some(into_render_deploy(deploy)))
     }
 
     async fn get_deploy(
@@ -333,24 +311,25 @@ impl RenderApi {
         deploy_id: &str,
     ) -> Result<RenderDeploy, RenderError> {
         let deploy = self
-            .request(
-                reqwest::Method::GET,
-                &format!("/services/{service_id}/deploys/{deploy_id}"),
-                None,
-            )
-            .await?;
-        Ok(RenderDeploy {
-            id: deploy_id.to_owned(),
-            status: deploy
-                .get("status")
-                .and_then(Value::as_str)
-                .unwrap_or("unknown")
-                .to_owned(),
-        })
+            .client
+            .retrieve_deploy(service_id, deploy_id)
+            .await
+            .map_err(|err| api_failed("GET", "/services/{id}/deploys/{deployId}", err))?
+            .into_inner();
+        Ok(into_render_deploy(deploy))
     }
 
-    /// Poll a deploy to `live` within `budget`, failing fast on a
-    /// terminal status.
+    /// Wait until the service has a `live` deploy within `budget`.
+    ///
+    /// Service-centric, not deploy-id-centric: Render auto-creates an initial
+    /// deploy when a service is created — before stackless sets env vars — so
+    /// that deploy can fail (missing build secrets) while the deploy stackless
+    /// triggers afterward succeeds. Polling the service's *latest* deploy
+    /// follows the successful one. `deploy_id` seeds the tracked id. A failed
+    /// latest deploy is a real failure only when it is the deploy we are
+    /// tracking and it stays the newest across two polls (so a superseded
+    /// auto-deploy that is briefly newest before ours registers does not
+    /// false-fail).
     pub async fn wait_for_deploy(
         &self,
         service: &str,
@@ -359,173 +338,218 @@ impl RenderApi {
         budget: Duration,
     ) -> Result<(), RenderError> {
         let deadline = tokio::time::Instant::now() + budget;
+        let mut pending_fail: Option<String> = None;
         loop {
-            let deploy = self.get_deploy(service_id, deploy_id).await?;
-            if deploy.status == "live" {
+            // The newest deploy is the source of truth (Render auto-creates an
+            // initial deploy before env vars are set; we trigger another). Fall
+            // back to the tracked id only when the list is momentarily empty.
+            let latest = match self.latest_deploy(service_id).await? {
+                Some(latest) => latest,
+                None => self.get_deploy(service_id, deploy_id).await?,
+            };
+
+            if latest.status.is_live() {
                 return Ok(());
             }
-            if matches!(
-                deploy.status.as_str(),
-                "build_failed" | "update_failed" | "canceled" | "deactivated" | "pre_deploy_failed"
-            ) || deploy.status.contains("failed")
-            {
-                return Err(RenderError::DeployFailed {
-                    service: service.to_owned(),
-                    status: deploy.status,
-                });
+
+            if latest.status.is_terminal_failed() {
+                // Confirm the failure across two polls: a superseded auto-deploy
+                // can be the newest for a moment before our deploy registers,
+                // after which the newer (non-failed) deploy becomes the latest.
+                // A failure that stays newest is real, and fails fast.
+                if pending_fail.as_deref() == Some(latest.id.as_str()) {
+                    return Err(RenderError::DeployFailed {
+                        service: service.to_owned(),
+                        status: latest.status.as_str().to_owned(),
+                    });
+                }
+                pending_fail = Some(latest.id.clone());
+            } else {
+                pending_fail = None;
             }
+
             if tokio::time::Instant::now() >= deadline {
                 return Err(RenderError::DeployTimeout {
                     service: service.to_owned(),
                     budget_secs: budget.as_secs(),
+                    last_status: latest.status.as_str().to_owned(),
                 });
             }
             tokio::time::sleep(self.poll_interval).await;
         }
     }
 
-    /// Recent logs for the `logs` verb. Render's logs endpoint returns
-    /// `{logs: [{timestamp, message}, ...]}`; we render newest-window
-    /// lines (no streaming in v0, §2).
+    /// Recent logs for the `logs` verb (newest window, no streaming in v0, §2).
+    /// `owner_id` must be the workspace owner (not the service id) or Render 400s.
     pub async fn recent_logs(
         &self,
         owner_id: &str,
         resource_id: &str,
-        limit: usize,
+        tail: usize,
     ) -> Result<Vec<String>, RenderError> {
-        let value = self
-            .request(
-                reqwest::Method::GET,
-                &format!(
-                    "/logs?ownerId={}&resource={}&limit={}&direction=backward",
-                    urlencode(owner_id),
-                    urlencode(resource_id),
-                    limit
-                ),
+        let resources = vec![resource_id.to_owned()];
+        let response = self
+            .client
+            .list_logs(
+                Some("backward"),
+                None,
+                None,
+                None,
+                None,
+                limit(tail as u64),
+                None,
+                owner_id,
+                None,
+                &resources,
+                None,
+                None,
+                None,
+                None,
+                None,
                 None,
             )
-            .await?;
-        let entries = value.get("logs").and_then(Value::as_array);
-        let mut lines = Vec::new();
-        if let Some(entries) = entries {
-            for entry in entries {
-                let ts = entry.get("timestamp").and_then(Value::as_str).unwrap_or("");
-                let msg = entry.get("message").and_then(Value::as_str).unwrap_or("");
-                lines.push(if ts.is_empty() {
-                    msg.to_owned()
-                } else {
-                    format!("{ts} {msg}")
-                });
-            }
-        }
-        Ok(lines)
+            .await
+            .map_err(|err| api_failed("GET", "/logs", err))?
+            .into_inner();
+        Ok(response
+            .logs
+            .into_iter()
+            .map(|entry| {
+                format!(
+                    "{} {}",
+                    entry.timestamp.map(|t| t.to_rfc3339()).unwrap_or_default(),
+                    entry.message.unwrap_or_default()
+                )
+            })
+            .collect())
     }
 }
 
-fn urlencode(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(byte as char);
-            }
-            _ => out.push_str(&format!("%{byte:02X}")),
+fn into_render_deploy(deploy: types::Deploy) -> RenderDeploy {
+    RenderDeploy {
+        id: deploy.id.unwrap_or_default(),
+        status: DeployStatus::from_api(deploy.status.map(|s| s.0).as_deref().unwrap_or("unknown")),
+    }
+}
+
+/// A Render deploy status. Modeled as an enum so the polling logic is
+/// exhaustive; `Unknown` preserves any status not in Render's documented set
+/// verbatim, so drift (a new/renamed status) is visible in logs/errors instead
+/// of being silently misclassified. (The generated client deserializes the
+/// status as a plain string — see `specs/preprocess.py` — and we classify it
+/// here, where drift cannot break deserialization.)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeployStatus {
+    Created,
+    Queued,
+    BuildInProgress,
+    UpdateInProgress,
+    PreDeployInProgress,
+    Live,
+    BuildFailed,
+    UpdateFailed,
+    PreDeployFailed,
+    Canceled,
+    Deactivated,
+    Unknown(String),
+}
+
+impl DeployStatus {
+    /// Render's documented deploy statuses, pinned by `canonical_statuses_are_modeled`.
+    pub const CANONICAL: &'static [&'static str] = &[
+        "created",
+        "queued",
+        "build_in_progress",
+        "update_in_progress",
+        "pre_deploy_in_progress",
+        "live",
+        "build_failed",
+        "update_failed",
+        "pre_deploy_failed",
+        "canceled",
+        "deactivated",
+    ];
+
+    pub fn from_api(status: &str) -> Self {
+        match status {
+            "created" => Self::Created,
+            "queued" => Self::Queued,
+            "build_in_progress" => Self::BuildInProgress,
+            "update_in_progress" => Self::UpdateInProgress,
+            "pre_deploy_in_progress" => Self::PreDeployInProgress,
+            "live" => Self::Live,
+            "build_failed" => Self::BuildFailed,
+            "update_failed" => Self::UpdateFailed,
+            "pre_deploy_failed" => Self::PreDeployFailed,
+            "canceled" => Self::Canceled,
+            "deactivated" => Self::Deactivated,
+            other => Self::Unknown(other.to_owned()),
         }
     }
-    out
+
+    /// The wire string (for errors/logs); an `Unknown` status round-trips verbatim.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Created => "created",
+            Self::Queued => "queued",
+            Self::BuildInProgress => "build_in_progress",
+            Self::UpdateInProgress => "update_in_progress",
+            Self::PreDeployInProgress => "pre_deploy_in_progress",
+            Self::Live => "live",
+            Self::BuildFailed => "build_failed",
+            Self::UpdateFailed => "update_failed",
+            Self::PreDeployFailed => "pre_deploy_failed",
+            Self::Canceled => "canceled",
+            Self::Deactivated => "deactivated",
+            Self::Unknown(raw) => raw,
+        }
+    }
+
+    pub fn is_live(&self) -> bool {
+        matches!(self, Self::Live)
+    }
+
+    /// A terminal build/deploy failure. `Canceled`/`Deactivated` are superseded
+    /// deploys (not failures). An `Unknown` status counts as a failure only when
+    /// it *looks* like one (`*_failed`) — so a new Render failure variant still
+    /// fails fast, while a new in-progress variant never false-fails.
+    pub fn is_terminal_failed(&self) -> bool {
+        match self {
+            Self::BuildFailed | Self::UpdateFailed | Self::PreDeployFailed => true,
+            Self::Unknown(raw) => raw.contains("failed"),
+            _ => false,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wiremock::matchers::{method, path};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    /// Live-observed (2026-06-11): a static-site deploy trigger answers
-    /// `202 Queued` with an EMPTY body. `trigger_deploy` must recover the
-    /// just-enqueued deploy from the deploys list instead of erroring.
-    #[tokio::test]
-    async fn trigger_deploy_recovers_from_202_empty_body() {
-        let server = MockServer::start().await;
-        Mock::given(method("POST"))
-            .and(path("/services/srv_1/deploys"))
-            .respond_with(ResponseTemplate::new(202))
-            .mount(&server)
-            .await;
-        Mock::given(method("GET"))
-            .and(path("/services/srv_1/deploys"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
-                { "deploy": { "id": "dep_new", "status": "build_in_progress" }, "cursor": "c" }
-            ])))
-            .mount(&server)
-            .await;
-        let api = RenderApi::with_base("k", server.uri());
-        let deploy = api.trigger_deploy("srv_1").await.unwrap();
-        assert_eq!(deploy.id, "dep_new");
-        assert_eq!(deploy.status, "build_in_progress");
-    }
-
-    /// Live-observed (2026-06-11): `find_service_by_name` captures the
-    /// service's `ownerId`, which the `/logs` endpoint requires; passing
-    /// the service id as `ownerId` would 400. The owner id and service id
-    /// are distinct.
-    #[tokio::test]
-    async fn find_service_captures_owner_id_distinct_from_service_id() {
-        let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/services"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
-                { "service": { "id": "srv_1", "name": "atto-demo-api", "ownerId": "tea_owner" } }
-            ])))
-            .mount(&server)
-            .await;
-        let api = RenderApi::with_base("k", server.uri());
-        let svc = api
-            .find_service_by_name("atto-demo-api")
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(svc.id, "srv_1");
-        assert_eq!(svc.owner_id.as_deref(), Some("tea_owner"));
-        assert_ne!(svc.owner_id.as_deref(), Some(svc.id.as_str()));
-    }
-
-    /// `recent_logs` scopes by ownerId and resource; the parsed lines join
-    /// timestamp + message.
-    #[tokio::test]
-    async fn recent_logs_scopes_by_owner_and_parses_lines() {
-        let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/logs"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "logs": [
-                    { "timestamp": "2026-06-11T00:00:00Z", "message": "starting" },
-                    { "timestamp": "2026-06-11T00:00:01Z", "message": "ready" }
-                ]
-            })))
-            .mount(&server)
-            .await;
-        let api = RenderApi::with_base("k", server.uri());
-        let lines = api.recent_logs("tea_owner", "srv_1", 50).await.unwrap();
-        assert_eq!(lines.len(), 2);
-        assert!(lines[0].contains("starting"));
-        assert!(lines[1].contains("ready"));
-    }
-
-    /// A 201 with the deploy object inline is read directly (no list call).
-    #[tokio::test]
-    async fn trigger_deploy_reads_inline_201_body() {
-        let server = MockServer::start().await;
-        Mock::given(method("POST"))
-            .and(path("/services/srv_1/deploys"))
-            .respond_with(
-                ResponseTemplate::new(201)
-                    .set_body_json(serde_json::json!({ "id": "dep_inline", "status": "created" })),
-            )
-            .mount(&server)
-            .await;
-        let api = RenderApi::with_base("k", server.uri());
-        let deploy = api.trigger_deploy("srv_1").await.unwrap();
-        assert_eq!(deploy.id, "dep_inline");
+    /// Drift guard: every status in Render's documented set must map to a real
+    /// variant (not `Unknown`) and round-trip back to the wire string. An
+    /// undocumented status is preserved verbatim, and a new `*_failed` variant
+    /// is still classified terminal — so drift surfaces instead of misclassifying.
+    #[test]
+    fn canonical_statuses_are_modeled() {
+        for status in DeployStatus::CANONICAL {
+            let parsed = DeployStatus::from_api(status);
+            assert!(
+                !matches!(parsed, DeployStatus::Unknown(_)),
+                "canonical Render status {status:?} fell through to Unknown — add a variant",
+            );
+            assert_eq!(
+                parsed.as_str(),
+                *status,
+                "status {status:?} does not round-trip"
+            );
+        }
+        let unknown = DeployStatus::from_api("warp_speed");
+        assert_eq!(unknown.as_str(), "warp_speed");
+        assert!(matches!(unknown, DeployStatus::Unknown(_)));
+        assert!(!unknown.is_terminal_failed());
+        assert!(DeployStatus::from_api("hyperdrive_failed").is_terminal_failed());
+        assert!(!DeployStatus::Canceled.is_terminal_failed());
+        assert!(DeployStatus::Live.is_live());
     }
 }

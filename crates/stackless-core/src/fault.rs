@@ -102,6 +102,8 @@ pub mod codes {
     pub const STRIPE_PROJECTS_LOCK_HELD: &str = "stripe.projects.lock_held";
     pub const STRIPE_PROJECT_ANCHOR: &str = "stripe.project.anchor";
     pub const STRIPE_PROJECTS_PROVISION_FAILED: &str = "stripe.projects.provision_failed";
+    pub const STRIPE_PROJECTS_CATALOG_MISSING: &str = "stripe.projects.catalog_missing";
+    pub const STRIPE_PROJECTS_CONFIG_SCHEMA: &str = "stripe.projects.config_schema";
     pub const INTEGRATION_CONFIG_INVALID: &str = "integration.config.invalid";
     pub const INTEGRATION_HOST_UNSUPPORTED: &str = "integration.host.unsupported";
     pub const RENDER_PAYMENT_NOT_CONFIRMED: &str = "render.payment.not_confirmed";
@@ -196,6 +198,8 @@ pub mod codes {
         STRIPE_PROJECTS_LOCK_HELD,
         STRIPE_PROJECT_ANCHOR,
         STRIPE_PROJECTS_PROVISION_FAILED,
+        STRIPE_PROJECTS_CATALOG_MISSING,
+        STRIPE_PROJECTS_CONFIG_SCHEMA,
         INTEGRATION_CONFIG_INVALID,
         INTEGRATION_HOST_UNSUPPORTED,
         RENDER_PAYMENT_NOT_CONFIRMED,

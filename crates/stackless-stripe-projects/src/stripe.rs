@@ -180,6 +180,14 @@ impl<R: CommandRunner> StripeProjects<R> {
         })
     }
 
+    /// Fetch and type the provider catalog (`stripe projects catalog --json`).
+    pub async fn catalog(&self) -> Result<crate::catalog::Catalog, ProjectsError> {
+        let data = self.run_ok("catalog", &["catalog"], &[]).await?;
+        serde_json::from_value(data).map_err(|err| ProjectsError::Unavailable {
+            detail: format!("`stripe projects catalog` returned an unmodeled catalog: {err}"),
+        })
+    }
+
     pub async fn plain(&self, args: &[&str]) -> Result<CommandOutput, ProjectsError> {
         let argv: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
         self.runner.run(&argv, &self.dir).await
@@ -324,6 +332,25 @@ mod tests {
         )]);
         let err = d.run_ok("status", &["status"], &[]).await.unwrap_err();
         assert_eq!(err.code(), codes::STRIPE_PROJECTS_AUTH);
+    }
+
+    /// Opt-in live check (`STRIPE_CATALOG_LIVE=1`): run the real
+    /// `stripe projects catalog --json` and assert the typed model still fully
+    /// covers it. No-op in CI; the canonical way to catch a stale fixture.
+    #[tokio::test]
+    async fn live_catalog_matches_model() {
+        if std::env::var("STRIPE_CATALOG_LIVE").as_deref() != Ok("1") {
+            return;
+        }
+        let dir = std::env::current_dir().unwrap();
+        let stripe = StripeProjects::new(TokioRunner, dir);
+        let catalog = stripe.catalog().await.expect("live catalog should fetch");
+        let report = catalog.drift_report();
+        assert!(
+            report.is_empty(),
+            "LIVE catalog drift — refresh tests/fixtures/catalog.json and update the model:\n{}",
+            report.join("\n")
+        );
     }
 
     #[tokio::test]

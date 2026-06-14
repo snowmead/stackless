@@ -1,0 +1,3670 @@
+{
+  "openapi": "3.0.2",
+  "info": {
+    "title": "Render Public API",
+    "description": "Manage everything about your Render services",
+    "version": "1.0.0",
+    "contact": {
+      "name": "Render API",
+      "url": "https://community.render.com",
+      "email": "support@render.com"
+    }
+  },
+  "x-readme": {
+    "metrics-enabled": false
+  },
+  "servers": [
+    {
+      "url": "https://api.render.com/v1"
+    }
+  ],
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Audit Logs",
+      "description": "[Audit Logs](https://render.com/docs/audit-logs) allow you to retrieve audit logs for workspaces and organizations.\nThese logs provide a trail of actions and changes made to your resources.\n"
+    },
+    {
+      "name": "Blueprints",
+      "description": "[Blueprints](https://render.com/docs/infrastructure-as-code) allow you to define your resources in a `render.yaml` file and automatically sync changes to your Render services.\nThe API gives control over how your Blueprints are used to create and manage resources.\n"
+    },
+    {
+      "name": "Custom Domains",
+      "description": "[Custom Domains](https://render.com/docs/custom-domains) allow you to associate domain names with your Render services.\n"
+    },
+    {
+      "name": "Dedicated IPs",
+      "description": "[Dedicated IPs](https://render.com/docs/dedicated-ips) provide static, outbound IP addresses for your Render services.\n"
+    },
+    {
+      "name": "Deploys",
+      "description": "[Deploys](https://render.com/docs/deploys) are the process of updating your service with new code or configuration.\nThese endpoints allow you to retrieve data on the deploys of your services\nas well as trigger new deploys and rollbacks. Most changes to your service\nwill require a new deploy to take effect.\n\nTo create and manage services, use the `Services` endpoints.\n"
+    },
+    {
+      "name": "Disks",
+      "description": "[Disks](https://render.com/docs/disks) allow you to attach persistent storage to your services.\n"
+    },
+    {
+      "name": "Environment Groups",
+      "description": "Collections of environment variables and secret files that can be shared between multiple services"
+    },
+    {
+      "name": "Events",
+      "description": "View events for a service, postgres or key value"
+    },
+    {
+      "name": "Key Value",
+      "description": "[Key Value](https://render.com/docs/key-value) allows you to interact with your Render Key Value instances.\n"
+    },
+    {
+      "name": "Logs",
+      "description": "[Logs](https://render.com/docs/logging) allow you to retrieve logs for your services, Postgres databases, and redis instances.\nYou can query for logs or subscribe to logs in real-time via a websocket.\n"
+    },
+    {
+      "name": "Maintenance",
+      "description": "The `Maintenance` endpoints allow you to retrieve the latest maintenance runs for your Render services. You can also reschedule maintenance or trigger it to start immediately."
+    },
+    {
+      "name": "Metrics",
+      "description": "The `Metrics` endpoints allow you to retrieve metrics for your services, Postgres databases, and redis instances."
+    },
+    {
+      "name": "Notification Settings",
+      "description": "[Notification Settings](https://render.com/docs/notifications) allow you to configure which notifications you want to receive, and\nwhere you will receive them.\n"
+    },
+    {
+      "name": "One-Off Jobs",
+      "description": "[One-off jobs](https://render.com/docs/one-off-jobs) are standalone tasks that run to completion using the most recent successful build of an existing service.\n"
+    },
+    {
+      "name": "Postgres",
+      "description": "[Postgres](https://render.com/docs/postgresql) endpoints enable you to interact with your Render Postgres databases.\nYou can manage databases, exports, recoveries, and failovers.\n"
+    },
+    {
+      "name": "Projects & Environments",
+      "description": "Collections of services and other resources organized by environment (staging, production, etc.)"
+    },
+    {
+      "name": "Registry Credentials",
+      "description": "[Registry Credentials](https://render.com/docs/deploying-an-image#credentials-for-private-images) allow you to manage credentials for private Docker images.\n"
+    },
+    {
+      "name": "Services",
+      "description": "[Services](https://render.com/docs/service-types) allow you to manage your web services, private services, background workers, cron jobs, and static sites.\n"
+    },
+    {
+      "name": "Services - Cron Jobs",
+      "description": "[Cron Jobs](https://render.com/docs/cronjobs) allow you to interact with runs of your cron jobs.\n"
+    },
+    {
+      "name": "Services - Headers",
+      "description": "Use HTTP headers to inject response headers in static site responses. You can also use wildcards like /path/* to add headers to responses for all matching request paths."
+    },
+    {
+      "name": "Services - Routes",
+      "description": "Add Redirect or Rewrite Rules to modify requests to your site without writing code. You can use URL parameters to capture path segments, and wildcards to redirect everything under a given path."
+    },
+    {
+      "name": "Users",
+      "description": "The `User` endpoints allow you to retrieve information about the authenticated user\n"
+    },
+    {
+      "name": "Workspaces",
+      "description": "The `Workspaces` endpoints supply more information about the workspaces that your API key has access to. This category was previously called `Owners`, as reflected by endpoint paths."
+    },
+    {
+      "name": "Webhooks",
+      "description": "[Webhooks](https://render.com/docs/webhooks) allow you to manage your Render webhook configuration.\n"
+    },
+    {
+      "name": "Workflows (Beta)",
+      "description": "Create and manage [Render Workflows](https://render.com/docs/workflows) services. Workflows are in public beta.\n"
+    },
+    {
+      "name": "Workflow Tasks (Beta)",
+      "description": "Run and manage tasks as part of [Render Workflows](https://render.com/docs/workflows). Workflows are in public beta.\n"
+    },
+    {
+      "name": "Redis (Deprecated)",
+      "description": "[Redis](https://render.com/docs/redis) allows you to interact with your Render Redis instances. This API is deprecated in favor of the Key Value API.\n"
+    }
+  ],
+  "paths": {
+    "/services": {
+      "get": {
+        "summary": "List services",
+        "description": "List services matching the provided filters. If no filters are provided, returns all services you have permissions to view.\n",
+        "operationId": "list-services",
+        "tags": [
+          "Services"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/nameParam"
+          },
+          {
+            "$ref": "#/components/parameters/serviceTypeParam"
+          },
+          {
+            "$ref": "#/components/parameters/environmentIdParam"
+          },
+          {
+            "$ref": "#/components/parameters/envParam"
+          },
+          {
+            "$ref": "#/components/parameters/regionParam"
+          },
+          {
+            "$ref": "#/components/parameters/suspendedParam"
+          },
+          {
+            "$ref": "#/components/parameters/createdBeforeParam"
+          },
+          {
+            "$ref": "#/components/parameters/createdAfterParam"
+          },
+          {
+            "$ref": "#/components/parameters/updatedBeforeParam"
+          },
+          {
+            "$ref": "#/components/parameters/updatedAfterParam"
+          },
+          {
+            "$ref": "#/components/parameters/ownerIdParam"
+          },
+          {
+            "$ref": "#/components/parameters/includePreviewsParam"
+          },
+          {
+            "$ref": "#/components/parameters/cursorParam"
+          },
+          {
+            "$ref": "#/components/parameters/limitParam"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/serviceList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "406": {
+            "$ref": "#/components/responses/406NotAcceptable"
+          },
+          "429": {
+            "$ref": "#/components/responses/429RateLimit"
+          },
+          "500": {
+            "$ref": "#/components/responses/500InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/503ServiceUnavailable"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create service",
+        "description": "Creates a new Render service in the specified workspace with the specified configuration.\n",
+        "operationId": "create-service",
+        "tags": [
+          "Services"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/servicePOST"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/serviceAndDeploy"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "402": {
+            "$ref": "#/components/responses/402PaymentRequired"
+          },
+          "404": {
+            "$ref": "#/components/responses/404NotFound"
+          },
+          "406": {
+            "$ref": "#/components/responses/406NotAcceptable"
+          },
+          "409": {
+            "$ref": "#/components/responses/409Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/429RateLimit"
+          },
+          "500": {
+            "$ref": "#/components/responses/500InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/503ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/postgres": {
+      "get": {
+        "tags": [
+          "Postgres"
+        ],
+        "summary": "List Postgres instances",
+        "description": "List Postgres instances matching the provided filters. If no filters are provided, all Postgres instances are returned.\n",
+        "operationId": "list-postgres",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/nameParam"
+          },
+          {
+            "$ref": "#/components/parameters/regionParam"
+          },
+          {
+            "$ref": "#/components/parameters/suspendedParam"
+          },
+          {
+            "$ref": "#/components/parameters/createdBeforeParam"
+          },
+          {
+            "$ref": "#/components/parameters/createdAfterParam"
+          },
+          {
+            "$ref": "#/components/parameters/updatedBeforeParam"
+          },
+          {
+            "$ref": "#/components/parameters/updatedAfterParam"
+          },
+          {
+            "$ref": "#/components/parameters/ownerIdParam"
+          },
+          {
+            "$ref": "#/components/parameters/environmentIdParam"
+          },
+          {
+            "$ref": "#/components/parameters/includeReplicasParam"
+          },
+          {
+            "$ref": "#/components/parameters/cursorParam"
+          },
+          {
+            "$ref": "#/components/parameters/limitParam"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/postgresWithCursor"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/404NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/409Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/429RateLimit"
+          },
+          "500": {
+            "$ref": "#/components/responses/500InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/503ServiceUnavailable"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Postgres"
+        ],
+        "summary": "Create Postgres instance",
+        "description": "Create a new Postgres instance.\n",
+        "operationId": "create-postgres",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/postgresPOSTInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/postgresDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/404NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/429RateLimit"
+          },
+          "500": {
+            "$ref": "#/components/responses/500InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/503ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/postgres/{postgresId}/connection-info": {
+      "get": {
+        "tags": [
+          "Postgres"
+        ],
+        "summary": "Retrieve Postgres connection info",
+        "description": "Retrieve connection info for a Postgres instance by ID. Connection info includes sensitive information.\n",
+        "operationId": "retrieve-postgres-connection-info",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "postgresId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/postgresConnectionInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/404NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/429RateLimit"
+          },
+          "500": {
+            "$ref": "#/components/responses/500InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/503ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/services/{serviceId}/env-vars": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/serviceIdParam"
+        }
+      ],
+      "get": {
+        "summary": "List environment variables",
+        "description": "List all environment variables for the service with the provided ID.\n",
+        "operationId": "get-env-vars-for-service",
+        "tags": [
+          "Services"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/cursorParam"
+          },
+          {
+            "$ref": "#/components/parameters/limitParam"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/envVarWithCursor"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/403Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/404NotFound"
+          },
+          "406": {
+            "$ref": "#/components/responses/406NotAcceptable"
+          },
+          "410": {
+            "$ref": "#/components/responses/410Gone"
+          },
+          "429": {
+            "$ref": "#/components/responses/429RateLimit"
+          },
+          "500": {
+            "$ref": "#/components/responses/500InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/503ServiceUnavailable"
+          }
+        }
+      },
+      "put": {
+        "summary": "Update environment variables",
+        "description": "Replace all environment variables for a service with the provided list of environment variables.",
+        "operationId": "update-env-vars-for-service",
+        "tags": [
+          "Services"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "value": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "generateValue": {
+                          "type": "boolean",
+                          "description": "If true, Render generates a strong random value for this environment variable on creation. Cannot be combined with `value`."
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/envVarWithCursor"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/403Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/404NotFound"
+          },
+          "406": {
+            "$ref": "#/components/responses/406NotAcceptable"
+          },
+          "410": {
+            "$ref": "#/components/responses/410Gone"
+          },
+          "429": {
+            "$ref": "#/components/responses/429RateLimit"
+          },
+          "500": {
+            "$ref": "#/components/responses/500InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/503ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/services/{serviceId}/routes": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/serviceIdParam"
+        }
+      ],
+      "get": {
+        "summary": "List redirect/rewrite rules",
+        "description": "List a particular service's redirect/rewrite rules that match the provided filters. If no filters are provided, all rules for the service are returned.\n",
+        "operationId": "list-routes",
+        "tags": [
+          "Services - Routes"
+        ],
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": false,
+            "required": false,
+            "description": "Filter for the type of route rule"
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": false,
+            "required": false,
+            "description": "Filter for the source path of the route"
+          },
+          {
+            "name": "destination",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": false,
+            "required": false,
+            "description": "Filter for the destination path of the route"
+          },
+          {
+            "$ref": "#/components/parameters/cursorParam"
+          },
+          {
+            "$ref": "#/components/parameters/limitParam"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/routeWithCursor"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/403Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/404NotFound"
+          },
+          "406": {
+            "$ref": "#/components/responses/406NotAcceptable"
+          },
+          "410": {
+            "$ref": "#/components/responses/410Gone"
+          },
+          "429": {
+            "$ref": "#/components/responses/429RateLimit"
+          },
+          "500": {
+            "$ref": "#/components/responses/500InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/503ServiceUnavailable"
+          }
+        }
+      },
+      "post": {
+        "summary": "Add redirect/rewrite rules",
+        "description": "Add redirect/rewrite rules to the service with the provided ID.\n",
+        "operationId": "add-route",
+        "tags": [
+          "Services - Routes"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/routePost"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/route"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/403Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/404NotFound"
+          },
+          "406": {
+            "$ref": "#/components/responses/406NotAcceptable"
+          },
+          "410": {
+            "$ref": "#/components/responses/410Gone"
+          },
+          "429": {
+            "$ref": "#/components/responses/429RateLimit"
+          },
+          "500": {
+            "$ref": "#/components/responses/500InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/503ServiceUnavailable"
+          }
+        }
+      },
+      "patch": {
+        "summary": "Update redirect/rewrite rule priority",
+        "description": "Update the priority for a particular redirect/rewrite rule.\n\nTo apply redirect/rewrite rules to an incoming request, Render starts from the rule with priority `0` and applies the first encountered rule that matches the request's path (if any).\n\nRender increments the priority of other rules by `1` as necessary to make space for the updated rule.\n",
+        "operationId": "patch-route",
+        "tags": [
+          "Services - Routes"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/routePatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "headers": {
+                      "$ref": "#/components/schemas/route"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/403Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/404NotFound"
+          },
+          "406": {
+            "$ref": "#/components/responses/406NotAcceptable"
+          },
+          "410": {
+            "$ref": "#/components/responses/410Gone"
+          },
+          "429": {
+            "$ref": "#/components/responses/429RateLimit"
+          },
+          "500": {
+            "$ref": "#/components/responses/500InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/503ServiceUnavailable"
+          }
+        }
+      },
+      "put": {
+        "summary": "Update redirect/rewrite rules",
+        "description": "Replace all redirect/rewrite rules for a particular service with the provided list.\n\n**This deletes all existing redirect/rewrite rules for the service that aren't included in the request.**\n\nRule priority is assigned according to list order (the first rule in the list has the highest priority).\n",
+        "operationId": "put-routes",
+        "tags": [
+          "Services - Routes"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/routePut"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/route"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/403Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/404NotFound"
+          },
+          "406": {
+            "$ref": "#/components/responses/406NotAcceptable"
+          },
+          "410": {
+            "$ref": "#/components/responses/410Gone"
+          },
+          "429": {
+            "$ref": "#/components/responses/429RateLimit"
+          },
+          "500": {
+            "$ref": "#/components/responses/500InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/503ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/services/{serviceId}/deploys": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/serviceIdParam"
+        }
+      ],
+      "get": {
+        "summary": "List deploys",
+        "description": "List deploys matching the provided filters. If no filters are provided, all deploys for the service are returned.\n",
+        "operationId": "list-deploys",
+        "tags": [
+          "Deploys"
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/deployStatus"
+              }
+            },
+            "required": false,
+            "description": "Filter for deploys with the specified statuses"
+          },
+          {
+            "name": "createdBefore",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Filter for deploys created before a certain time (specified as an ISO 8601 timestamp)",
+            "example": "2021-06-17T08:15:30Z"
+          },
+          {
+            "name": "createdAfter",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Filter for deploys created after a certain time (specified as an ISO 8601 timestamp)",
+            "example": "2021-02-17T08:15:30Z"
+          },
+          {
+            "name": "updatedBefore",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Filter for deploys updated before a certain time (specified as an ISO 8601 timestamp)",
+            "example": "2021-06-17T08:15:30Z"
+          },
+          {
+            "name": "updatedAfter",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Filter for deploys updated after a certain time (specified as an ISO 8601 timestamp)",
+            "example": "2021-02-17T08:15:30Z"
+          },
+          {
+            "name": "finishedBefore",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Filter for deploys finished before a certain time (specified as an ISO 8601 timestamp)",
+            "example": "2021-06-17T08:15:30Z"
+          },
+          {
+            "name": "finishedAfter",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Filter for deploys finished after a certain time (specified as an ISO 8601 timestamp)",
+            "example": "2021-02-17T08:15:30Z"
+          },
+          {
+            "$ref": "#/components/parameters/cursorParam"
+          },
+          {
+            "$ref": "#/components/parameters/limitParam"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/deployList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/403Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/404NotFound"
+          },
+          "406": {
+            "$ref": "#/components/responses/406NotAcceptable"
+          },
+          "410": {
+            "$ref": "#/components/responses/410Gone"
+          },
+          "429": {
+            "$ref": "#/components/responses/429RateLimit"
+          },
+          "500": {
+            "$ref": "#/components/responses/500InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/503ServiceUnavailable"
+          }
+        }
+      },
+      "post": {
+        "summary": "Trigger deploy",
+        "description": "Trigger a deploy for the service with the provided ID.\n",
+        "operationId": "create-deploy",
+        "tags": [
+          "Deploys"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "clearCache": {
+                    "type": "string",
+                    "default": "do_not_clear",
+                    "description": "If `clear`, Render clears the service's build cache before deploying. This can be useful if you're experiencing issues with your build."
+                  },
+                  "commitId": {
+                    "type": "string",
+                    "description": "The SHA of a specific Git commit to deploy for a service. Defaults to the latest commit on the service's connected branch.\n\nNote that deploying a specific commit with this endpoint does not disable autodeploys for the service.\n\nYou can toggle autodeploys for your service with the [Update service](https://api-docs.render.com/reference/update-service) endpoint or in the Render Dashboard.\n\nNot supported for cron jobs.\n"
+                  },
+                  "imageUrl": {
+                    "type": "string",
+                    "description": "The URL of the image to deploy for an image-backed service.\n\nThe host, repository, and image name all must match the currently configured image for the service.\n"
+                  },
+                  "deployMode": {
+                    "$ref": "#/components/schemas/DeployMode",
+                    "description": "Deployment mode controlling build and deploy behavior.\n\nDefaults to `build_and_deploy` when not specified.\n\n**Validation:** `deploy_mode` cannot be combined with `commitId` or `imageUrl` or `clearCache`.\n"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Queued"
+          },
+          "400": {
+            "$ref": "#/components/responses/400BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/404NotFound"
+          },
+          "406": {
+            "$ref": "#/components/responses/406NotAcceptable"
+          },
+          "409": {
+            "$ref": "#/components/responses/409Conflict"
+          },
+          "410": {
+            "$ref": "#/components/responses/410Gone"
+          },
+          "429": {
+            "$ref": "#/components/responses/429RateLimit"
+          },
+          "500": {
+            "$ref": "#/components/responses/500InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/503ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/services/{serviceId}/deploys/{deployId}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/serviceIdParam"
+        },
+        {
+          "$ref": "#/components/parameters/deployIdParam"
+        }
+      ],
+      "get": {
+        "summary": "Retrieve deploy",
+        "description": "Retrieve the details of a particular deploy for a particular service.\n",
+        "operationId": "retrieve-deploy",
+        "tags": [
+          "Deploys"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/deploy"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/403Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/404NotFound"
+          },
+          "406": {
+            "$ref": "#/components/responses/406NotAcceptable"
+          },
+          "410": {
+            "$ref": "#/components/responses/410Gone"
+          },
+          "429": {
+            "$ref": "#/components/responses/429RateLimit"
+          },
+          "500": {
+            "$ref": "#/components/responses/500InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/503ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/logs": {
+      "get": {
+        "summary": "List logs",
+        "description": "List logs matching the provided filters. Logs are paginated by start and end timestamps.\nThere are more logs to fetch if `hasMore` is true in the response. Provide the `nextStartTime`\nand `nextEndTime` timestamps as the `startTime` and `endTime` query parameters to fetch the next page of logs.\n\nYou can query for logs across multiple resources, but all resources must be in the same region and belong to the same owner.\n",
+        "operationId": "list-logs",
+        "tags": [
+          "Logs"
+        ],
+        "parameters": [
+          {
+            "name": "ownerId",
+            "in": "query",
+            "description": "The ID of the workspace to return logs for",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "$ref": "#/components/parameters/startTimeParam"
+          },
+          {
+            "$ref": "#/components/parameters/endTimeParam"
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "description": "The direction to query logs for. Backward will return most recent logs first.\nForward will start with the oldest logs in the time range.\n",
+            "schema": {
+              "default": "backward",
+              "type": "string"
+            }
+          },
+          {
+            "name": "resource",
+            "in": "query",
+            "required": true,
+            "description": "Filter logs by their resource. A resource is the id of a server, cronjob, job, postgres, redis, or workflow.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "instance",
+            "in": "query",
+            "required": false,
+            "description": "Filter logs by the instance they were emitted from. An instance is the id of a specific running server.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "host",
+            "in": "query",
+            "required": false,
+            "description": "Filter request logs by their host. [Wildcards and regex](https://render.com/docs/logging#wildcards-and-regular-expressions) are supported.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "statusCode",
+            "in": "query",
+            "required": false,
+            "description": "Filter request logs by their status code. [Wildcards and regex](https://render.com/docs/logging#wildcards-and-regular-expressions) are supported.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "method",
+            "in": "query",
+            "required": false,
+            "description": "Filter request logs by their requests method. [Wildcards and regex](https://render.com/docs/logging#wildcards-and-regular-expressions) are supported.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "task",
+            "in": "query",
+            "required": false,
+            "description": "Filter logs by their task(s)",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "taskRun",
+            "in": "query",
+            "required": false,
+            "description": "Filter logs by their task run id(s)",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "required": false,
+            "description": "Filter logs by their severity level. [Wildcards and regex](https://render.com/docs/logging#wildcards-and-regular-expressions) are supported.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "description": "Filter logs by their type. Types include `app` for application logs, `request` for request logs, and `build` for build logs. You can find the full set of types available for a query by using the `GET /logs/values` endpoint.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "text",
+            "in": "query",
+            "required": false,
+            "description": "Filter by the text of the logs. [Wildcards and regex](https://render.com/docs/logging#wildcards-and-regular-expressions) are supported.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "description": "Filter request logs by their path. [Wildcards and regex](https://render.com/docs/logging#wildcards-and-regular-expressions) are supported.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "$ref": "#/components/parameters/limitParam"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Logs200Response"
+          },
+          "400": {
+            "$ref": "#/components/responses/400BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/403Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/404NotFound"
+          },
+          "406": {
+            "$ref": "#/components/responses/406NotAcceptable"
+          },
+          "410": {
+            "$ref": "#/components/responses/410Gone"
+          },
+          "429": {
+            "$ref": "#/components/responses/429RateLimit"
+          },
+          "500": {
+            "$ref": "#/components/responses/500InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/503ServiceUnavailable"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "cursorParam": {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "description": "The position in the result list to start from when fetching paginated results. For details, see [Pagination](https://api-docs.render.com/reference/pagination).",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "deployIdParam": {
+        "name": "deployId",
+        "in": "path",
+        "required": true,
+        "description": "The ID of the deploy",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "limitParam": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "description": "The maximum number of items to return. For details, see [Pagination](https://api-docs.render.com/reference/pagination).",
+        "schema": {
+          "type": "integer",
+          "default": 20,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Defaults to 20"
+        }
+      },
+      "ownerIdParam": {
+        "name": "ownerId",
+        "in": "query",
+        "description": "The ID of the workspaces to return resources for",
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "style": "form",
+        "explode": false,
+        "required": false
+      },
+      "serviceIdParam": {
+        "name": "serviceId",
+        "in": "path",
+        "required": true,
+        "description": "The ID of the service",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "startTimeParam": {
+        "name": "startTime",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "format": "date-time",
+          "example": "2021-06-17T08:15:30Z"
+        },
+        "required": false,
+        "description": "Epoch/Unix timestamp of start of time range to return. Defaults to `now() - 1 hour`."
+      },
+      "endTimeParam": {
+        "name": "endTime",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "format": "date-time",
+          "example": "2021-06-17T08:30:30Z"
+        },
+        "required": false,
+        "description": "Epoch/Unix timestamp of end of time range to return. Defaults to `now()`."
+      },
+      "nameParam": {
+        "name": "name",
+        "in": "query",
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "style": "form",
+        "explode": false,
+        "required": false,
+        "description": "Filter by name"
+      },
+      "serviceTypeParam": {
+        "name": "type",
+        "in": "query",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/serviceType"
+          }
+        },
+        "style": "form",
+        "explode": false,
+        "required": false,
+        "description": "Filter for types of services"
+      },
+      "envParam": {
+        "name": "env",
+        "in": "query",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/serviceRuntime"
+          }
+        },
+        "style": "form",
+        "explode": false,
+        "required": false,
+        "deprecated": true,
+        "description": "Filter for environments (runtimes) of services (deprecated; use `runtime` instead)"
+      },
+      "regionParam": {
+        "name": "region",
+        "in": "query",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/region"
+          }
+        },
+        "style": "form",
+        "explode": false,
+        "required": false,
+        "description": "Filter by resource region"
+      },
+      "suspendedParam": {
+        "name": "suspended",
+        "in": "query",
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "style": "form",
+        "explode": false,
+        "required": false,
+        "description": "Filter resources based on whether they're suspended or not suspended"
+      },
+      "createdBeforeParam": {
+        "name": "createdBefore",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "required": false,
+        "description": "Filter for resources created before a certain time (specified as an ISO 8601 timestamp)",
+        "example": "2021-06-17T08:15:30Z"
+      },
+      "createdAfterParam": {
+        "name": "createdAfter",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "required": false,
+        "description": "Filter for resources created after a certain time (specified as an ISO 8601 timestamp)",
+        "example": "2021-02-17T08:15:30Z"
+      },
+      "updatedBeforeParam": {
+        "name": "updatedBefore",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "required": false,
+        "description": "Filter for resources updated before a certain time (specified as an ISO 8601 timestamp)",
+        "example": "2021-06-17T08:15:30Z"
+      },
+      "updatedAfterParam": {
+        "name": "updatedAfter",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "required": false,
+        "description": "Filter for resources updated after a certain time (specified as an ISO 8601 timestamp)",
+        "example": "2021-06-17T08:15:30Z"
+      },
+      "environmentIdParam": {
+        "name": "environmentId",
+        "in": "query",
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "style": "form",
+        "explode": false,
+        "required": false,
+        "description": "Filter for resources that belong to an environment"
+      },
+      "includePreviewsParam": {
+        "name": "includePreviews",
+        "in": "query",
+        "schema": {
+          "type": "boolean",
+          "default": true
+        },
+        "required": false,
+        "description": "Include previews in the response"
+      },
+      "includeReplicasParam": {
+        "name": "includeReplicas",
+        "in": "query",
+        "schema": {
+          "type": "boolean",
+          "default": true
+        },
+        "required": false,
+        "description": "Include replicas in the response"
+      }
+    },
+    "schemas": {
+      "cursor": {
+        "type": "string"
+      },
+      "service": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "autoDeploy": {
+            "$ref": "#/components/schemas/autoDeploy"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "buildFilter": {
+            "$ref": "#/components/schemas/buildFilter"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dashboardUrl": {
+            "type": "string",
+            "description": "The URL to view the service in the Render Dashboard"
+          },
+          "environmentId": {
+            "type": "string"
+          },
+          "imagePath": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "notifyOnFail": {
+            "$ref": "#/components/schemas/notifySetting"
+          },
+          "ownerId": {
+            "type": "string"
+          },
+          "registryCredential": {
+            "$ref": "#/components/schemas/registryCredentialSummary"
+          },
+          "repo": {
+            "type": "string",
+            "example": "https://github.com/render-examples/flask-hello-world"
+          },
+          "rootDir": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "suspended": {
+            "type": "string"
+          },
+          "suspenders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/suspenderType"
+            }
+          },
+          "type": {
+            "$ref": "#/components/schemas/serviceType"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "serviceDetails": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/staticSiteDetails"
+              },
+              {
+                "$ref": "#/components/schemas/webServiceDetails"
+              },
+              {
+                "$ref": "#/components/schemas/privateServiceDetails"
+              },
+              {
+                "$ref": "#/components/schemas/backgroundWorkerDetails"
+              },
+              {
+                "$ref": "#/components/schemas/cronJobDetails"
+              }
+            ]
+          }
+        }
+      },
+      "deployList": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/deployWithCursor"
+        }
+      },
+      "deployWithCursor": {
+        "type": "object",
+        "properties": {
+          "deploy": {
+            "$ref": "#/components/schemas/deploy"
+          },
+          "cursor": {
+            "$ref": "#/components/schemas/cursor"
+          }
+        }
+      },
+      "serviceAndDeploy": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "$ref": "#/components/schemas/service"
+          },
+          "deployId": {
+            "type": "string"
+          }
+        }
+      },
+      "autoDeploy": {
+        "type": "string",
+        "default": "yes"
+      },
+      "buildFilter": {
+        "type": "object",
+        "properties": {
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ignoredPaths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "registryCredentialSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "registryCredentialRegistry": {
+        "type": "string",
+        "description": "The registry to use this credential with"
+      },
+      "registryCredential": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier for this credential"
+          },
+          "name": {
+            "type": "string",
+            "description": "Descriptive name for this credential"
+          },
+          "registry": {
+            "$ref": "#/components/schemas/registryCredentialRegistry"
+          },
+          "username": {
+            "type": "string",
+            "description": "The username associated with the credential"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Last updated time for the credential"
+          }
+        }
+      },
+      "image": {
+        "type": "object",
+        "properties": {
+          "ownerId": {
+            "type": "string",
+            "description": "The ID of the owner for this image. This should match the owner of the service as well as the owner of any specified registry credential."
+          },
+          "registryCredentialId": {
+            "type": "string",
+            "description": "Optional reference to the registry credential passed to the image repository to retrieve this image."
+          },
+          "imagePath": {
+            "type": "string",
+            "description": "Path to the image used for this server (e.g docker.io/library/nginx:latest)."
+          }
+        }
+      },
+      "dockerDetails": {
+        "type": "object",
+        "properties": {
+          "dockerCommand": {
+            "type": "string"
+          },
+          "dockerContext": {
+            "type": "string"
+          },
+          "dockerfilePath": {
+            "type": "string"
+          },
+          "preDeployCommand": {
+            "type": "string"
+          },
+          "registryCredential": {
+            "$ref": "#/components/schemas/registryCredential"
+          }
+        }
+      },
+      "nativeEnvironmentDetails": {
+        "type": "object",
+        "properties": {
+          "buildCommand": {
+            "type": "string"
+          },
+          "startCommand": {
+            "type": "string"
+          },
+          "preDeployCommand": {
+            "type": "string"
+          }
+        }
+      },
+      "staticSiteDetails": {
+        "type": "object",
+        "properties": {
+          "buildCommand": {
+            "type": "string"
+          },
+          "ipAllowList": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/cidrBlockAndDescription"
+            }
+          },
+          "parentServer": {
+            "$ref": "#/components/schemas/resource"
+          },
+          "publishPath": {
+            "type": "string"
+          },
+          "pullRequestPreviewsEnabled": {
+            "$ref": "#/components/schemas/pullRequestPreviewsEnabled"
+          },
+          "previews": {
+            "$ref": "#/components/schemas/previews"
+          },
+          "url": {
+            "type": "string"
+          },
+          "buildPlan": {
+            "$ref": "#/components/schemas/buildPlan"
+          },
+          "renderSubdomainPolicy": {
+            "$ref": "#/components/schemas/renderSubdomainPolicy"
+          }
+        }
+      },
+      "maintenanceMode": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "uri": {
+            "type": "string",
+            "description": "The page to be served when [maintenance mode](https://render.com/docs/maintenance-mode) is enabled. When empty, the default maintenance mode page is served."
+          }
+        }
+      },
+      "maxShutdownDelaySeconds": {
+        "type": "integer",
+        "description": "The maximum amount of time (in seconds) that Render waits for your application process to exit gracefully after sending it a SIGTERM signal.",
+        "minimum": 1,
+        "maximum": 300,
+        "default": 30
+      },
+      "webServiceDetails": {
+        "type": "object",
+        "properties": {
+          "autoscaling": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": false
+              },
+              "min": {
+                "type": "integer",
+                "description": "The minimum number of instances for the service"
+              },
+              "max": {
+                "type": "integer",
+                "description": "The maximum number of instances for the service"
+              },
+              "criteria": {
+                "type": "object",
+                "properties": {
+                  "cpu": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean",
+                        "default": false
+                      },
+                      "percentage": {
+                        "type": "integer",
+                        "description": "Determines when your service will be scaled. If the average resource utilization is significantly above/below the target, we will increase/decrease the number of instances.\n"
+                      }
+                    }
+                  },
+                  "memory": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean",
+                        "default": false
+                      },
+                      "percentage": {
+                        "type": "integer",
+                        "description": "Determines when your service will be scaled. If the average resource utilization is significantly above/below the target, we will increase/decrease the number of instances.\n"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "cache": {
+            "$ref": "#/components/schemas/cache"
+          },
+          "disk": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^dsk-[0-9a-z]{20}$",
+                "example": "dsk-cph1rs3idesc73a2b2mg"
+              },
+              "name": {
+                "type": "string"
+              },
+              "sizeGB": {
+                "type": "integer"
+              },
+              "mountPath": {
+                "type": "string"
+              }
+            }
+          },
+          "env": {
+            "$ref": "#/components/schemas/serviceEnv"
+          },
+          "envSpecificDetails": {
+            "$ref": "#/components/schemas/envSpecificDetails"
+          },
+          "healthCheckPath": {
+            "type": "string"
+          },
+          "ipAllowList": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/cidrBlockAndDescription"
+            }
+          },
+          "maintenanceMode": {
+            "$ref": "#/components/schemas/maintenanceMode"
+          },
+          "numInstances": {
+            "type": "integer",
+            "description": "For a *manually* scaled service, this is the number of instances the service is scaled to. DOES NOT indicate the number of running instances for an *autoscaled* service."
+          },
+          "openPorts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/serverPort"
+            }
+          },
+          "parentServer": {
+            "$ref": "#/components/schemas/resource"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/plan"
+          },
+          "pullRequestPreviewsEnabled": {
+            "$ref": "#/components/schemas/pullRequestPreviewsEnabled"
+          },
+          "previews": {
+            "$ref": "#/components/schemas/previews"
+          },
+          "region": {
+            "$ref": "#/components/schemas/region"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/serviceRuntime"
+          },
+          "sshAddress": {
+            "$ref": "#/components/schemas/sshAddress"
+          },
+          "url": {
+            "type": "string"
+          },
+          "buildPlan": {
+            "$ref": "#/components/schemas/buildPlan"
+          },
+          "maxShutdownDelaySeconds": {
+            "$ref": "#/components/schemas/maxShutdownDelaySeconds"
+          },
+          "renderSubdomainPolicy": {
+            "$ref": "#/components/schemas/renderSubdomainPolicy"
+          }
+        }
+      },
+      "envSpecificDetails": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/dockerDetails"
+          },
+          {
+            "$ref": "#/components/schemas/nativeEnvironmentDetails"
+          }
+        ]
+      },
+      "envSpecificDetailsPOST": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/dockerDetailsPOST"
+          },
+          {
+            "$ref": "#/components/schemas/nativeEnvironmentDetailsPOST"
+          }
+        ]
+      },
+      "resource": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "privateServiceDetails": {
+        "type": "object",
+        "properties": {
+          "autoscaling": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": false
+              },
+              "min": {
+                "type": "integer",
+                "description": "The minimum number of instances for the service"
+              },
+              "max": {
+                "type": "integer",
+                "description": "The maximum number of instances for the service"
+              },
+              "criteria": {
+                "type": "object",
+                "properties": {
+                  "cpu": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean",
+                        "default": false
+                      },
+                      "percentage": {
+                        "type": "integer",
+                        "description": "Determines when your service will be scaled. If the average resource utilization is significantly above/below the target, we will increase/decrease the number of instances.\n"
+                      }
+                    }
+                  },
+                  "memory": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean",
+                        "default": false
+                      },
+                      "percentage": {
+                        "type": "integer",
+                        "description": "Determines when your service will be scaled. If the average resource utilization is significantly above/below the target, we will increase/decrease the number of instances.\n"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "disk": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^dsk-[0-9a-z]{20}$",
+                "example": "dsk-cph1rs3idesc73a2b2mg"
+              },
+              "name": {
+                "type": "string"
+              },
+              "sizeGB": {
+                "type": "integer"
+              },
+              "mountPath": {
+                "type": "string"
+              }
+            }
+          },
+          "env": {
+            "$ref": "#/components/schemas/serviceEnv"
+          },
+          "envSpecificDetails": {
+            "$ref": "#/components/schemas/envSpecificDetails"
+          },
+          "numInstances": {
+            "type": "integer",
+            "description": "For a *manually* scaled service, this is the number of instances the service is scaled to. DOES NOT indicate the number of running instances for an *autoscaled* service."
+          },
+          "openPorts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/serverPort"
+            }
+          },
+          "parentServer": {
+            "$ref": "#/components/schemas/resource"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/plan"
+          },
+          "pullRequestPreviewsEnabled": {
+            "$ref": "#/components/schemas/pullRequestPreviewsEnabled"
+          },
+          "previews": {
+            "$ref": "#/components/schemas/previews"
+          },
+          "region": {
+            "$ref": "#/components/schemas/region"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/serviceRuntime"
+          },
+          "sshAddress": {
+            "$ref": "#/components/schemas/sshAddress"
+          },
+          "url": {
+            "type": "string"
+          },
+          "buildPlan": {
+            "$ref": "#/components/schemas/buildPlan"
+          },
+          "maxShutdownDelaySeconds": {
+            "$ref": "#/components/schemas/maxShutdownDelaySeconds"
+          }
+        }
+      },
+      "serviceDisk": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "mountPath": {
+            "type": "string"
+          },
+          "sizeGB": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Defaults to 1"
+          }
+        }
+      },
+      "cache": {
+        "type": "object",
+        "properties": {
+          "profile": {
+            "type": "string",
+            "default": "no-cache"
+          }
+        }
+      },
+      "backgroundWorkerDetails": {
+        "type": "object",
+        "properties": {
+          "autoscaling": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": false
+              },
+              "min": {
+                "type": "integer",
+                "description": "The minimum number of instances for the service"
+              },
+              "max": {
+                "type": "integer",
+                "description": "The maximum number of instances for the service"
+              },
+              "criteria": {
+                "type": "object",
+                "properties": {
+                  "cpu": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean",
+                        "default": false
+                      },
+                      "percentage": {
+                        "type": "integer",
+                        "description": "Determines when your service will be scaled. If the average resource utilization is significantly above/below the target, we will increase/decrease the number of instances.\n"
+                      }
+                    }
+                  },
+                  "memory": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean",
+                        "default": false
+                      },
+                      "percentage": {
+                        "type": "integer",
+                        "description": "Determines when your service will be scaled. If the average resource utilization is significantly above/below the target, we will increase/decrease the number of instances.\n"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "disk": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^dsk-[0-9a-z]{20}$",
+                "example": "dsk-cph1rs3idesc73a2b2mg"
+              },
+              "name": {
+                "type": "string"
+              },
+              "sizeGB": {
+                "type": "integer"
+              },
+              "mountPath": {
+                "type": "string"
+              }
+            }
+          },
+          "env": {
+            "$ref": "#/components/schemas/serviceEnv"
+          },
+          "envSpecificDetails": {
+            "$ref": "#/components/schemas/envSpecificDetails"
+          },
+          "numInstances": {
+            "type": "integer",
+            "description": "For a *manually* scaled service, this is the number of instances the service is scaled to. DOES NOT indicate the number of running instances for an *autoscaled* service."
+          },
+          "parentServer": {
+            "$ref": "#/components/schemas/resource"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/plan"
+          },
+          "pullRequestPreviewsEnabled": {
+            "$ref": "#/components/schemas/pullRequestPreviewsEnabled"
+          },
+          "previews": {
+            "$ref": "#/components/schemas/previews"
+          },
+          "region": {
+            "$ref": "#/components/schemas/region"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/serviceRuntime"
+          },
+          "sshAddress": {
+            "$ref": "#/components/schemas/sshAddress"
+          },
+          "buildPlan": {
+            "$ref": "#/components/schemas/buildPlan"
+          },
+          "maxShutdownDelaySeconds": {
+            "$ref": "#/components/schemas/maxShutdownDelaySeconds"
+          }
+        }
+      },
+      "cronJobDetails": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "$ref": "#/components/schemas/serviceEnv"
+          },
+          "envSpecificDetails": {
+            "$ref": "#/components/schemas/envSpecificDetails"
+          },
+          "lastSuccessfulRunAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/plan"
+          },
+          "region": {
+            "$ref": "#/components/schemas/region"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/serviceRuntime"
+          },
+          "schedule": {
+            "type": "string"
+          },
+          "buildPlan": {
+            "$ref": "#/components/schemas/buildPlan"
+          }
+        }
+      },
+      "serviceList": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/serviceWithCursor"
+        }
+      },
+      "serviceWithCursor": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "$ref": "#/components/schemas/service"
+          },
+          "cursor": {
+            "$ref": "#/components/schemas/cursor"
+          }
+        }
+      },
+      "servicePOST": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/serviceType"
+          },
+          "name": {
+            "type": "string",
+            "description": "The service's name. Must be unique within the workspace."
+          },
+          "ownerId": {
+            "type": "string",
+            "description": "The ID of the workspace the service belongs to. Obtain your workspace's ID from its Settings page in the Render Dashboard."
+          },
+          "repo": {
+            "type": "string",
+            "example": "https://github.com/render-examples/flask-hello-world",
+            "description": "The service's repository URL. Do not specify a branch in this string (use the `branch` parameter instead)."
+          },
+          "autoDeploy": {
+            "$ref": "#/components/schemas/autoDeploy"
+          },
+          "branch": {
+            "type": "string",
+            "description": "The repo branch to pull, build, and deploy. If omitted, uses the repository's default branch."
+          },
+          "image": {
+            "$ref": "#/components/schemas/image"
+          },
+          "buildFilter": {
+            "$ref": "#/components/schemas/buildFilter"
+          },
+          "rootDir": {
+            "type": "string"
+          },
+          "envVars": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "generateValue": {
+                      "type": "boolean",
+                      "description": "If true, Render generates a strong random value for this environment variable on creation. Cannot be combined with `value`."
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "secretFiles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/secretFileInput"
+            }
+          },
+          "environmentId": {
+            "type": "string",
+            "description": "The ID of the environment the service belongs to, if any. Obtain an environment's ID from its Settings page in the Render Dashboard."
+          },
+          "serviceDetails": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/staticSiteDetailsPOST"
+              },
+              {
+                "$ref": "#/components/schemas/webServiceDetailsPOST"
+              },
+              {
+                "$ref": "#/components/schemas/privateServiceDetailsPOST"
+              },
+              {
+                "$ref": "#/components/schemas/backgroundWorkerDetailsPOST"
+              },
+              {
+                "$ref": "#/components/schemas/cronJobDetailsPOST"
+              }
+            ]
+          }
+        }
+      },
+      "dockerDetailsPOST": {
+        "type": "object",
+        "properties": {
+          "dockerCommand": {
+            "type": "string"
+          },
+          "dockerContext": {
+            "type": "string"
+          },
+          "dockerfilePath": {
+            "type": "string",
+            "description": "Defaults to \"./Dockerfile\""
+          },
+          "registryCredentialId": {
+            "type": "string"
+          }
+        }
+      },
+      "nativeEnvironmentDetailsPOST": {
+        "type": "object",
+        "properties": {
+          "buildCommand": {
+            "type": "string"
+          },
+          "startCommand": {
+            "type": "string"
+          }
+        },
+        "description": "Fields for native environment (runtime) services"
+      },
+      "staticSiteDetailsPOST": {
+        "type": "object",
+        "properties": {
+          "buildCommand": {
+            "type": "string"
+          },
+          "headers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/headerInput"
+            }
+          },
+          "publishPath": {
+            "type": "string",
+            "description": "Defaults to \"public\""
+          },
+          "pullRequestPreviewsEnabled": {
+            "$ref": "#/components/schemas/pullRequestPreviewsEnabled"
+          },
+          "previews": {
+            "$ref": "#/components/schemas/previews"
+          },
+          "routes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/routePost"
+            }
+          },
+          "renderSubdomainPolicy": {
+            "$ref": "#/components/schemas/renderSubdomainPolicy"
+          },
+          "ipAllowList": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/cidrBlockAndDescription"
+            }
+          }
+        }
+      },
+      "webServiceDetailsPOST": {
+        "type": "object",
+        "properties": {
+          "autoscaling": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": false
+              },
+              "min": {
+                "type": "integer",
+                "description": "The minimum number of instances for the service"
+              },
+              "max": {
+                "type": "integer",
+                "description": "The maximum number of instances for the service"
+              },
+              "criteria": {
+                "type": "object",
+                "properties": {
+                  "cpu": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean",
+                        "default": false
+                      },
+                      "percentage": {
+                        "type": "integer",
+                        "description": "Determines when your service will be scaled. If the average resource utilization is significantly above/below the target, we will increase/decrease the number of instances.\n"
+                      }
+                    }
+                  },
+                  "memory": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean",
+                        "default": false
+                      },
+                      "percentage": {
+                        "type": "integer",
+                        "description": "Determines when your service will be scaled. If the average resource utilization is significantly above/below the target, we will increase/decrease the number of instances.\n"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "disk": {
+            "$ref": "#/components/schemas/serviceDisk"
+          },
+          "env": {
+            "$ref": "#/components/schemas/serviceEnv"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/serviceRuntime"
+          },
+          "envSpecificDetails": {
+            "$ref": "#/components/schemas/envSpecificDetailsPOST"
+          },
+          "healthCheckPath": {
+            "type": "string"
+          },
+          "maintenanceMode": {
+            "$ref": "#/components/schemas/maintenanceMode"
+          },
+          "numInstances": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Defaults to 1"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/plan",
+            "default": "starter",
+            "description": "The instance type to use. If omitted, defaults to `starter` when creating a new service."
+          },
+          "preDeployCommand": {
+            "type": "string"
+          },
+          "pullRequestPreviewsEnabled": {
+            "$ref": "#/components/schemas/pullRequestPreviewsEnabled"
+          },
+          "previews": {
+            "$ref": "#/components/schemas/previews"
+          },
+          "region": {
+            "$ref": "#/components/schemas/region"
+          },
+          "maxShutdownDelaySeconds": {
+            "$ref": "#/components/schemas/maxShutdownDelaySeconds"
+          },
+          "renderSubdomainPolicy": {
+            "$ref": "#/components/schemas/renderSubdomainPolicy"
+          },
+          "ipAllowList": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/cidrBlockAndDescription"
+            }
+          }
+        }
+      },
+      "privateServiceDetailsPOST": {
+        "type": "object",
+        "properties": {
+          "autoscaling": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": false
+              },
+              "min": {
+                "type": "integer",
+                "description": "The minimum number of instances for the service"
+              },
+              "max": {
+                "type": "integer",
+                "description": "The maximum number of instances for the service"
+              },
+              "criteria": {
+                "type": "object",
+                "properties": {
+                  "cpu": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean",
+                        "default": false
+                      },
+                      "percentage": {
+                        "type": "integer",
+                        "description": "Determines when your service will be scaled. If the average resource utilization is significantly above/below the target, we will increase/decrease the number of instances.\n"
+                      }
+                    }
+                  },
+                  "memory": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean",
+                        "default": false
+                      },
+                      "percentage": {
+                        "type": "integer",
+                        "description": "Determines when your service will be scaled. If the average resource utilization is significantly above/below the target, we will increase/decrease the number of instances.\n"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "disk": {
+            "$ref": "#/components/schemas/serviceDisk"
+          },
+          "env": {
+            "$ref": "#/components/schemas/serviceEnv"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/serviceRuntime"
+          },
+          "envSpecificDetails": {
+            "$ref": "#/components/schemas/envSpecificDetailsPOST"
+          },
+          "numInstances": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 1,
+            "description": "Defaults to 1"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/paidPlan"
+          },
+          "preDeployCommand": {
+            "type": "string"
+          },
+          "pullRequestPreviewsEnabled": {
+            "$ref": "#/components/schemas/pullRequestPreviewsEnabled"
+          },
+          "previews": {
+            "$ref": "#/components/schemas/previews"
+          },
+          "region": {
+            "$ref": "#/components/schemas/region"
+          },
+          "maxShutdownDelaySeconds": {
+            "$ref": "#/components/schemas/maxShutdownDelaySeconds"
+          }
+        }
+      },
+      "backgroundWorkerDetailsPOST": {
+        "type": "object",
+        "properties": {
+          "autoscaling": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": false
+              },
+              "min": {
+                "type": "integer",
+                "description": "The minimum number of instances for the service"
+              },
+              "max": {
+                "type": "integer",
+                "description": "The maximum number of instances for the service"
+              },
+              "criteria": {
+                "type": "object",
+                "properties": {
+                  "cpu": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean",
+                        "default": false
+                      },
+                      "percentage": {
+                        "type": "integer",
+                        "description": "Determines when your service will be scaled. If the average resource utilization is significantly above/below the target, we will increase/decrease the number of instances.\n"
+                      }
+                    }
+                  },
+                  "memory": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean",
+                        "default": false
+                      },
+                      "percentage": {
+                        "type": "integer",
+                        "description": "Determines when your service will be scaled. If the average resource utilization is significantly above/below the target, we will increase/decrease the number of instances.\n"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "disk": {
+            "$ref": "#/components/schemas/serviceDisk"
+          },
+          "env": {
+            "$ref": "#/components/schemas/serviceEnv"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/serviceRuntime"
+          },
+          "envSpecificDetails": {
+            "$ref": "#/components/schemas/envSpecificDetailsPOST"
+          },
+          "numInstances": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 1,
+            "description": "Defaults to 1"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/paidPlan"
+          },
+          "preDeployCommand": {
+            "type": "string"
+          },
+          "pullRequestPreviewsEnabled": {
+            "$ref": "#/components/schemas/pullRequestPreviewsEnabled"
+          },
+          "previews": {
+            "$ref": "#/components/schemas/previews"
+          },
+          "region": {
+            "$ref": "#/components/schemas/region"
+          },
+          "maxShutdownDelaySeconds": {
+            "$ref": "#/components/schemas/maxShutdownDelaySeconds"
+          }
+        }
+      },
+      "cronJobDetailsPOST": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "$ref": "#/components/schemas/serviceEnv"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/serviceRuntime"
+          },
+          "envSpecificDetails": {
+            "$ref": "#/components/schemas/envSpecificDetails"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/paidPlan"
+          },
+          "region": {
+            "$ref": "#/components/schemas/region"
+          },
+          "schedule": {
+            "type": "string"
+          }
+        }
+      },
+      "plan": {
+        "type": "string",
+        "example": "starter",
+        "description": "The instance type to use. Legacy variants (`*_legacy`) identify grandfathered plans no longer offered for new services. Note that base services on any paid instance type can't create preview instances with the `free` instance type."
+      },
+      "headerInput": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The request path to add the header to. Wildcards will cause headers to be applied to all matching paths.",
+            "example": "/static/*"
+          },
+          "name": {
+            "type": "string",
+            "description": "Header name",
+            "example": "Cache-Control"
+          },
+          "value": {
+            "type": "string",
+            "description": "Header value",
+            "example": "public, max-age=604800"
+          }
+        }
+      },
+      "owner": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "ipAllowList": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/cidrBlockAndDescription"
+            }
+          },
+          "twoFactorAuthEnabled": {
+            "type": "boolean",
+            "description": "Whether two-factor authentication is enabled for the owner. Only present if `type` is `user`."
+          },
+          "type": {
+            "type": "string"
+          }
+        }
+      },
+      "route": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/routeType"
+          },
+          "source": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "integer",
+            "description": "Redirect and Rewrite Rules are applied in priority order starting at 0"
+          }
+        }
+      },
+      "routeWithCursor": {
+        "type": "object",
+        "properties": {
+          "route": {
+            "$ref": "#/components/schemas/route"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        }
+      },
+      "routePost": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/routeType"
+          },
+          "source": {
+            "type": "string",
+            "example": "/:bar/foo"
+          },
+          "destination": {
+            "type": "string",
+            "example": "/foo/:bar"
+          },
+          "priority": {
+            "type": "integer",
+            "description": "Redirect and Rewrite Rules are applied in priority order starting at 0. Defaults to last in the priority list."
+          }
+        }
+      },
+      "routePatch": {
+        "type": "object",
+        "properties": {
+          "priority": {
+            "x-go-type": "*int",
+            "type": "integer",
+            "description": "Redirect and Rewrite Rules are applied in priority order starting at 0. Moves this route to the specified priority and adjusts other route priorities accordingly."
+          }
+        }
+      },
+      "routePut": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/routeType"
+          },
+          "source": {
+            "type": "string",
+            "example": "/:bar/foo"
+          },
+          "destination": {
+            "type": "string",
+            "example": "/foo/:bar"
+          }
+        }
+      },
+      "routeType": {
+        "type": "string"
+      },
+      "serviceType": {
+        "type": "string"
+      },
+      "serviceRuntime": {
+        "type": "string",
+        "description": "Runtime"
+      },
+      "serviceEnv": {
+        "type": "string",
+        "deprecated": true,
+        "description": "This field has been deprecated, runtime should be used in its place."
+      },
+      "sshAddress": {
+        "type": "string",
+        "description": "The SSH address for the service. Only present for services that have SSH enabled."
+      },
+      "region": {
+        "type": "string",
+        "default": "oregon",
+        "description": "Defaults to \"oregon\""
+      },
+      "notifySetting": {
+        "type": "string"
+      },
+      "suspenderType": {
+        "type": "string"
+      },
+      "deployStatus": {
+        "type": "string"
+      },
+      "deploy": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "image": {
+            "description": "Image information used when creating the deploy. Not present for Git-backed deploys",
+            "type": "object",
+            "properties": {
+              "ref": {
+                "description": "Image reference used when creating the deploy",
+                "type": "string"
+              },
+              "sha": {
+                "description": "SHA that the image reference was resolved to when creating the deploy",
+                "type": "string"
+              },
+              "registryCredential": {
+                "description": "Name of credential used to pull the image, if provided",
+                "type": "string"
+              }
+            }
+          },
+          "status": {
+            "$ref": "#/components/schemas/deployStatus"
+          },
+          "trigger": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "envVar": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "envVarWithCursor": {
+        "type": "object",
+        "properties": {
+          "envVar": {
+            "$ref": "#/components/schemas/envVar"
+          },
+          "cursor": {
+            "$ref": "#/components/schemas/cursor"
+          }
+        }
+      },
+      "serverPort": {
+        "type": "object",
+        "properties": {
+          "port": {
+            "type": "integer",
+            "example": 10000
+          },
+          "protocol": {
+            "type": "string"
+          }
+        }
+      },
+      "error": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "pullRequestPreviewsEnabled": {
+        "type": "string",
+        "default": "no",
+        "deprecated": true,
+        "description": "This field has been deprecated. previews.generation should be used in its place."
+      },
+      "previews": {
+        "type": "object",
+        "properties": {
+          "generation": {
+            "type": "string",
+            "default": "off",
+            "description": "Defaults to \"off\""
+          }
+        }
+      },
+      "buildPlan": {
+        "type": "string",
+        "default": "starter"
+      },
+      "renderSubdomainPolicy": {
+        "type": "string",
+        "description": "Controls whether render.com subdomains are available for the service"
+      },
+      "cidrBlockAndDescription": {
+        "type": "object",
+        "properties": {
+          "cidrBlock": {
+            "type": "string"
+          },
+          "description": {
+            "description": "User-provided description of the CIDR block",
+            "type": "string"
+          }
+        }
+      },
+      "databaseStatus": {
+        "type": "string"
+      },
+      "DeployMode": {
+        "type": "string",
+        "description": "Controls deployment behavior when triggering a deploy.\n\n- `deploy_only`: Deploy the last successful build without rebuilding (minimizes downtime)\n- `build_and_deploy`: Build new code and deploy it (default behavior when not specified)\n\n**Note:** `deploy_only` cannot be combined with `commitId`, `imageUrl` or `clearCache` parameters,\nas those are build related fields.\n",
+        "default": "build_and_deploy"
+      },
+      "secretFileInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          }
+        }
+      },
+      "postgresPOSTInput": {
+        "type": "object",
+        "properties": {
+          "databaseName": {
+            "type": "string",
+            "default": "randomly generated"
+          },
+          "databaseUser": {
+            "type": "string",
+            "default": "randomly generated"
+          },
+          "datadogAPIKey": {
+            "type": "string",
+            "description": "The Datadog API key for the Datadog agent to monitor the new database."
+          },
+          "datadogSite": {
+            "type": "string",
+            "description": "Datadog region to use for monitoring the new database. Defaults to 'US1'.",
+            "example": "US1"
+          },
+          "name": {
+            "type": "string",
+            "description": "The name of the database as it will appear in the Render Dashboard"
+          },
+          "enableHighAvailability": {
+            "type": "boolean",
+            "default": false
+          },
+          "environmentId": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string",
+            "description": "The ID of the workspace to create the database for"
+          },
+          "plan": {
+            "type": "string"
+          },
+          "diskSizeGB": {
+            "type": "integer",
+            "description": "The number of gigabytes of disk space to allocate for the database"
+          },
+          "enableDiskAutoscaling": {
+            "type": "boolean",
+            "default": false
+          },
+          "region": {
+            "$ref": "#/components/schemas/region"
+          },
+          "ipAllowList": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/cidrBlockAndDescription"
+            }
+          },
+          "parameterOverrides": {
+            "$ref": "#/components/schemas/postgresParameterOverrides"
+          },
+          "readReplicas": {
+            "$ref": "#/components/schemas/readReplicasInput"
+          },
+          "version": {
+            "$ref": "#/components/schemas/postgresVersion"
+          }
+        },
+        "description": "Input for creating a database"
+      },
+      "readReplicas": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/readReplica"
+        }
+      },
+      "readReplica": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The replica instance identifier."
+          },
+          "name": {
+            "type": "string",
+            "description": "The display name of the replica instance."
+          },
+          "parameterOverrides": {
+            "$ref": "#/components/schemas/postgresParameterOverrides"
+          }
+        }
+      },
+      "readReplicasInput": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/readReplicaInput"
+        }
+      },
+      "readReplicaInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The display name of the replica instance."
+          },
+          "parameterOverrides": {
+            "$ref": "#/components/schemas/postgresParameterOverrides"
+          }
+        }
+      },
+      "postgresParameterOverrides": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        }
+      },
+      "postgresConnectionInfo": {
+        "type": "object",
+        "properties": {
+          "password": {
+            "type": "string",
+            "format": "password"
+          },
+          "internalConnectionString": {
+            "type": "string",
+            "format": "password"
+          },
+          "externalConnectionString": {
+            "type": "string",
+            "format": "password"
+          },
+          "psqlCommand": {
+            "type": "string",
+            "format": "password"
+          }
+        }
+      },
+      "postgresWithCursor": {
+        "type": "object",
+        "properties": {
+          "postgres": {
+            "$ref": "#/components/schemas/postgres"
+          },
+          "cursor": {
+            "$ref": "#/components/schemas/cursor"
+          }
+        }
+      },
+      "postgres": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "ipAllowList": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/cidrBlockAndDescription"
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "description": "The time at which the database will be expire. Applies to free tier databases only.",
+            "type": "string",
+            "format": "date-time"
+          },
+          "databaseName": {
+            "type": "string"
+          },
+          "databaseUser": {
+            "type": "string"
+          },
+          "environmentId": {
+            "type": "string"
+          },
+          "highAvailabilityEnabled": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner": {
+            "$ref": "#/components/schemas/owner"
+          },
+          "plan": {
+            "type": "string"
+          },
+          "diskSizeGB": {
+            "type": "integer"
+          },
+          "primaryPostgresID": {
+            "type": "string"
+          },
+          "region": {
+            "$ref": "#/components/schemas/region"
+          },
+          "readReplicas": {
+            "$ref": "#/components/schemas/readReplicas"
+          },
+          "role": {
+            "$ref": "#/components/schemas/databaseRole"
+          },
+          "status": {
+            "$ref": "#/components/schemas/databaseStatus"
+          },
+          "version": {
+            "$ref": "#/components/schemas/postgresVersion"
+          },
+          "suspended": {
+            "type": "string"
+          },
+          "suspenders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/suspenderType"
+            }
+          },
+          "dashboardUrl": {
+            "type": "string",
+            "description": "The URL to view the Postgres instance in the Render Dashboard"
+          },
+          "diskAutoscalingEnabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "postgresDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "ipAllowList": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/cidrBlockAndDescription"
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "description": "The time at which the database will be expire. Applies to free tier databases only.",
+            "type": "string",
+            "format": "date-time"
+          },
+          "dashboardUrl": {
+            "type": "string",
+            "description": "The URL to view the Postgres instance in the Render Dashboard"
+          },
+          "databaseName": {
+            "type": "string"
+          },
+          "databaseUser": {
+            "type": "string"
+          },
+          "environmentId": {
+            "type": "string"
+          },
+          "highAvailabilityEnabled": {
+            "type": "boolean"
+          },
+          "maintenance": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^mrn-[0-9a-z]{20}$",
+                "example": "mrn-cph1rs3idesc73a2b2mg"
+              },
+              "type": {
+                "type": "string"
+              },
+              "scheduledAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "pendingMaintenanceBy": {
+                "type": "string",
+                "format": "date-time",
+                "description": "If present, the maintenance run cannot be scheduled for later than this date-time."
+              },
+              "state": {
+                "type": "string"
+              }
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner": {
+            "$ref": "#/components/schemas/owner"
+          },
+          "plan": {
+            "type": "string"
+          },
+          "diskSizeGB": {
+            "type": "integer"
+          },
+          "parameterOverrides": {
+            "$ref": "#/components/schemas/postgresParameterOverrides"
+          },
+          "primaryPostgresID": {
+            "type": "string"
+          },
+          "region": {
+            "$ref": "#/components/schemas/region"
+          },
+          "readReplicas": {
+            "$ref": "#/components/schemas/readReplicas"
+          },
+          "role": {
+            "$ref": "#/components/schemas/databaseRole"
+          },
+          "status": {
+            "$ref": "#/components/schemas/databaseStatus"
+          },
+          "version": {
+            "$ref": "#/components/schemas/postgresVersion"
+          },
+          "suspended": {
+            "type": "string"
+          },
+          "suspenders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/suspenderType"
+            }
+          },
+          "diskAutoscalingEnabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "postgresVersion": {
+        "type": "string",
+        "description": "The PostgreSQL version"
+      },
+      "databaseRole": {
+        "type": "string"
+      },
+      "paidPlan": {
+        "type": "string",
+        "default": "starter",
+        "description": "Defaults to `starter` when creating a new database."
+      }
+    },
+    "responses": {
+      "400BadRequest": {
+        "description": "The request could not be understood by the server.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/error"
+            }
+          }
+        }
+      },
+      "401Unauthorized": {
+        "description": "Authorization information is missing or invalid.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/error"
+            }
+          }
+        }
+      },
+      "402PaymentRequired": {
+        "description": "You must enter payment information to perform this request.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/error"
+            }
+          }
+        }
+      },
+      "403Forbidden": {
+        "description": "You do not have permissions for the requested resource.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/error"
+            }
+          }
+        }
+      },
+      "404NotFound": {
+        "description": "Unable to find the requested resource.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/error"
+            }
+          }
+        }
+      },
+      "406NotAcceptable": {
+        "description": "Unable to generate preferred media types as specified by Accept request header.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/error"
+            }
+          }
+        }
+      },
+      "409Conflict": {
+        "description": "The current state of the resource conflicts with this request.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/error"
+            }
+          }
+        }
+      },
+      "410Gone": {
+        "description": "The requested resource is no longer available.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/error"
+            }
+          }
+        }
+      },
+      "429RateLimit": {
+        "description": "Rate limit has been surpassed.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/error"
+            }
+          }
+        }
+      },
+      "500InternalServerError": {
+        "description": "An unexpected server error has occurred.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/error"
+            }
+          }
+        }
+      },
+      "503ServiceUnavailable": {
+        "description": "Server currently unavailable.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/error"
+            }
+          }
+        }
+      },
+      "Logs200Response": {
+        "description": "A collection of logs with pagination metadata",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "description": "A run of a cron job",
+              "properties": {
+                "hasMore": {
+                  "description": "True if there are more logs to fetch",
+                  "type": "boolean"
+                },
+                "nextStartTime": {
+                  "description": "The start time to use in the next query to fetch the next set of logs",
+                  "type": "string",
+                  "format": "date-time",
+                  "example": "2021-07-15T07:20:05.777035-07:00"
+                },
+                "nextEndTime": {
+                  "description": "The end time to use in the next query to fetch the next set of logs",
+                  "type": "string",
+                  "format": "date-time",
+                  "example": "2021-07-15T07:20:05.777035-07:00"
+                },
+                "logs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "description": "A log entry with metadata",
+                    "properties": {
+                      "id": {
+                        "description": "A unique ID of the log entry",
+                        "type": "string"
+                      },
+                      "message": {
+                        "description": "The message of the log entry",
+                        "type": "string"
+                      },
+                      "timestamp": {
+                        "description": "The timestamp of the log entry",
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "labels": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "description": "A log label",
+                          "properties": {
+                            "name": {
+                              "description": "The name of the log label",
+                              "type": "string"
+                            },
+                            "value": {
+                              "description": "The value of the log label",
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

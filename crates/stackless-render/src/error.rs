@@ -26,8 +26,14 @@ pub enum RenderError {
     #[error("deploy of {service:?} ended {status}")]
     DeployFailed { service: String, status: String },
 
-    #[error("deploy of {service:?} did not reach live within {budget_secs}s")]
-    DeployTimeout { service: String, budget_secs: u64 },
+    #[error(
+        "deploy of {service:?} did not reach live within {budget_secs}s (last status: {last_status})"
+    )]
+    DeployTimeout {
+        service: String,
+        budget_secs: u64,
+        last_status: String,
+    },
 
     #[error("{service:?} failed its health contract ({detail}) within {budget_secs}s at {url}")]
     HealthFailed {
@@ -71,8 +77,9 @@ impl Fault for RenderError {
                 format!("fix the [{location}] block; see ARCHITECTURE.md §1 for the render schema")
             }
             Self::ApiKeyMissing { key_file } => format!(
-                "create a Render API key (dashboard.render.com -> Account Settings -> API Keys) \
-                 and either export RENDER_API_KEY or store it scoped to this tooling only:\n  \
+                "create a Render API key (dashboard.render.com -> Account Settings -> API Keys), \
+                 then provide it one of three ways: export RENDER_API_KEY, add \
+                 `RENDER_API_KEY=...` to .stackless.env, or store it scoped to this tooling only:\n  \
                  ( umask 077 && pbpaste > {key_file} )"
             ),
             Self::ApiFailed { .. } => {

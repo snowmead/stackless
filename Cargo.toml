@@ -9,6 +9,8 @@ members = [
     "crates/stackless-vercel",
     "crates/stackless-stripe-projects",
     "crates/stackless",
+    "crates/render-client",
+    "crates/vercel-client",
 ]
 
 [workspace.package]

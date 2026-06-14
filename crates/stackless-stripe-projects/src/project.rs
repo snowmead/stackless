@@ -8,6 +8,7 @@ use serde_json::Value;
 use stackless_core::def::StackDef;
 
 use crate::error::ProjectsError;
+use crate::responses::{EnvListResponse, ServicesListResponse, StatusResponse};
 use crate::stripe::{CommandRunner, StripeProjects};
 
 /// The recorded Stripe Projects anchor from `[stack.projects.stripe].project`.
@@ -26,12 +27,9 @@ pub async fn ensure_project<R: CommandRunner>(
 ) -> Result<(), ProjectsError> {
     let recorded = recorded_project_id(def);
     let status = stripe.json(&["status"]).await?;
-    let linked = status
-        .data
-        .get("project")
-        .and_then(|p| p.get("id"))
-        .and_then(Value::as_str)
-        .map(str::to_owned);
+    let linked = serde_json::from_value::<StatusResponse>(status.data)
+        .ok()
+        .and_then(|s| s.project_id().map(str::to_owned));
 
     match (&recorded, &linked) {
         (Some(want), Some(have)) if want == have => Ok(()),
@@ -63,15 +61,13 @@ pub async fn ensure_project<R: CommandRunner>(
                 )
                 .await?;
             let status = stripe.json(&["status"]).await?;
-            let id = status
-                .data
-                .get("project")
-                .and_then(|p| p.get("id"))
-                .and_then(Value::as_str)
+            let id = serde_json::from_value::<StatusResponse>(status.data)
+                .ok()
+                .and_then(|s| s.project_id().map(str::to_owned))
                 .ok_or_else(|| ProjectsError::ProjectAnchor {
                     detail: "created project but status reported no id".into(),
                 })?;
-            write_project_anchor(definition_dir, id)?;
+            write_project_anchor(definition_dir, &id)?;
             Ok(())
         }
     }
@@ -120,7 +116,9 @@ pub async fn ensure_environment<R: CommandRunner>(
     instance: &str,
 ) -> Result<(), ProjectsError> {
     let list = stripe.json(&["env", "list"]).await?;
-    let exists = environment_exists(&list.data, instance);
+    let exists = serde_json::from_value::<EnvListResponse>(list.data)
+        .map(|response| response.contains(instance))
+        .unwrap_or(false);
     if exists {
         stripe
             .run_ok("env use", &["env", "use", instance], &["--yes"])
@@ -138,21 +136,6 @@ pub async fn ensure_environment<R: CommandRunner>(
     Ok(())
 }
 
-fn environment_exists(data: &Value, instance: &str) -> bool {
-    if let Some(map) = data.get("environments").and_then(Value::as_object) {
-        return map.contains_key(instance);
-    }
-    if let Some(array) = data
-        .as_array()
-        .or_else(|| data.get("environments").and_then(Value::as_array))
-    {
-        return array
-            .iter()
-            .any(|e| e.get("name").and_then(Value::as_str) == Some(instance));
-    }
-    false
-}
-
 pub async fn resource_registered<R: CommandRunner>(
     stripe: &StripeProjects<R>,
     name: &str,
@@ -161,12 +144,9 @@ pub async fn resource_registered<R: CommandRunner>(
     if !result.ok {
         return Ok(false);
     }
-    let Some(services) = result.data.get("services").and_then(Value::as_array) else {
-        return Ok(false);
-    };
-    Ok(services
-        .iter()
-        .any(|s| s.get("name").and_then(Value::as_str) == Some(name)))
+    Ok(serde_json::from_value::<ServicesListResponse>(result.data)
+        .map(|response| response.contains(name))
+        .unwrap_or(false))
 }
 
 pub async fn add_resource<R: CommandRunner>(
@@ -307,6 +287,12 @@ pub async fn remove_resource<R: CommandRunner>(
     stripe: &StripeProjects<R>,
     resource: &str,
 ) -> Result<(), ProjectsError> {
+    // Idempotent teardown: a resource that is no longer registered is already
+    // gone, and `stripe projects remove` would fail it with RESOURCE_NOT_FOUND.
+    // Skipping keeps `down` retryable (the engine re-runs destroy on survivors).
+    if !resource_registered(stripe, resource).await? {
+        return Ok(());
+    }
     stripe
         .run_ok(
             &format!("remove {resource}"),
