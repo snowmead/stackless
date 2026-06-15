@@ -30,5 +30,6 @@ tokio = { version = "1.52.3", features = ["rt", "time", "macros", "process"] }
 toml = "1.1.2"
 
 [dev-dependencies]
-stackless-core = { path = "../stackless-core" }
-wiremock       = "0.6.5"
+stackless-core            = { path = "../stackless-core" }
+stackless-stripe-projects = { workspace = true, features = ["test-support"] }
+wiremock                  = "0.6.5"

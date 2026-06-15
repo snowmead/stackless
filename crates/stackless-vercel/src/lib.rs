@@ -921,6 +921,7 @@ mod tests {
     use stackless_core::state::Checkpoint;
     use stackless_stripe_projects::ProjectsError;
     use stackless_stripe_projects::stripe::{CommandOutput, CommandRunner};
+    use stackless_stripe_projects::test_support;
     use wiremock::matchers::{method, path_regex};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -979,6 +980,51 @@ mod tests {
             r#"{"repo":"https://github.com/acme/api","ref":"main"}"#,
         );
         assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Gone);
+    }
+
+    #[tokio::test]
+    async fn teardown_removes_via_stripe_then_verifies_gone_via_vercel() {
+        let server = MockServer::start().await;
+        // Stripe removal deprovisions the managed project; the Vercel delete is
+        // best-effort and the GET 404 confirms it's gone.
+        Mock::given(method("DELETE"))
+            .and(path_regex(r"/v9/projects/prj_1.*"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path_regex(r"/v9/projects/prj_1.*"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(api_key::KEY_FILE), "tok_test").unwrap();
+        // The exact `stripe projects` conversation `destroy` has, in order.
+        let runner = test_support::ScriptedRunner::new(vec![
+            test_support::services(&["s1-web"]), // resource_registered -> present
+            test_support::ok_empty(), // env --pull (no managed token -> user-token fallback)
+            test_support::services(&["s1-web"]), // remove_resource's own resource_registered
+            test_support::ok_empty(), // remove
+            test_support::services(&[]), // post-remove resource_registered -> gone
+        ]);
+        let s = VercelSubstrate::for_test(&runner, dir.path(), server.uri(), false);
+        let cp = checkpoint(
+            "vercel-service",
+            "start:web",
+            r#"{"stripe_resource":"s1-web","vercel_name":"smoke-vercel-s1-web","project_id":"prj_1","deployment_id":"dpl_1","origin":"https://x"}"#,
+        );
+        s.destroy("demo", &cp).await.unwrap();
+
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 5, "calls: {calls:?}");
+        assert!(
+            calls
+                .iter()
+                .any(|c| c.first().map(String::as_str) == Some("remove")
+                    && c.iter().any(|a| a == "s1-web")),
+            "expected a `remove s1-web` call, got {calls:?}"
+        );
     }
 
     #[tokio::test]
