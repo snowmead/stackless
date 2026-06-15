@@ -1,5 +1,7 @@
 include = ["**/*.toml"]
-exclude = ["target/**", "**/target/**"]
+# supply-chain/ is generated + managed by cargo-vet (its own formatting); don't
+# let taplo fight it (and avoid taplo-version-dependent alignment diffs in CI).
+exclude = ["target/**", "**/target/**", "supply-chain/**"]
 
 [formatting]
 # 4 spaces to match existing manifests in the tree
