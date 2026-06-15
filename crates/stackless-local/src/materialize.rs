@@ -123,20 +123,22 @@ impl<'a> Materializer<'a> {
             })?;
         }
         let existed = cache.join("objects").is_dir();
-        stackless_git::fetch_bare(cache, repo, CACHE_REFSPECS, None, &self.auth).map_err(|err| {
-            let detail = err.to_string();
-            if existed {
-                LocalError::GitFetchFailed {
-                    repo: repo.to_owned(),
-                    detail,
+        stackless_git::fetch_bare(cache, repo, CACHE_REFSPECS, None, &self.auth).map_err(
+            |err| {
+                let detail = err.to_string();
+                if existed {
+                    LocalError::GitFetchFailed {
+                        repo: repo.to_owned(),
+                        detail,
+                    }
+                } else {
+                    LocalError::GitCloneFailed {
+                        repo: repo.to_owned(),
+                        detail,
+                    }
                 }
-            } else {
-                LocalError::GitCloneFailed {
-                    repo: repo.to_owned(),
-                    detail,
-                }
-            }
-        })?;
+            },
+        )?;
         Ok(())
     }
 }

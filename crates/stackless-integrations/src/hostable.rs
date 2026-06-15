@@ -45,6 +45,9 @@ pub trait Hostable {
 }
 
 /// Managed integrations must be globally configured.
+// Compile-time guard (evaluated via the `VALIDATED` associated const), so this
+// `panic!` is a build-time assertion that can never fire at runtime.
+#[allow(clippy::panic)]
 const fn validate_hostable_pair(hosting: IntegrationHosting, scope: ConfigScope) {
     match (hosting, scope) {
         (IntegrationHosting::Managed, ConfigScope::GlobalOnly) => (),

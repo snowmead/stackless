@@ -322,10 +322,7 @@ impl VercelApi {
     /// Make the project's deployments publicly reachable so the health gate can
     /// hit them: stackless owns disposable stacks, so it clears Vercel's SSO /
     /// deployment protection on the projects it provisions.
-    pub async fn disable_deployment_protection(
-        &self,
-        project_id: &str,
-    ) -> Result<(), VercelError> {
+    pub async fn disable_deployment_protection(&self, project_id: &str) -> Result<(), VercelError> {
         let mut url = format!("{}/v9/projects/{project_id}", self.base);
         if let Some(team) = self.team() {
             url.push_str(&format!("?teamId={team}"));
@@ -416,7 +413,7 @@ mod tests {
             })))
             .mount(&server)
             .await;
-        let api = VercelApi::with_base("tok_test", None, &server.uri());
+        let api = VercelApi::with_base("tok_test", None, server.uri());
         let found = api.find_project_by_name("atto-demo-api").await.unwrap();
         assert_eq!(found.as_ref().map(|p| p.id.as_str()), Some("prj_1"));
     }
@@ -433,7 +430,7 @@ mod tests {
             })))
             .mount(&server)
             .await;
-        let api = VercelApi::with_base("tok_test", None, &server.uri())
+        let api = VercelApi::with_base("tok_test", None, server.uri())
             .with_poll_interval(Duration::from_millis(1));
         let deploy = api
             .wait_for_deployment("api", "dpl_1", Duration::from_secs(1))
@@ -458,7 +455,7 @@ mod tests {
             })))
             .mount(&server)
             .await;
-        let api = VercelApi::with_base("tok", None, &server.uri());
+        let api = VercelApi::with_base("tok", None, server.uri());
         let cfg = ServiceVercel {
             root: Some("site".into()),
             ..Default::default()
@@ -491,7 +488,7 @@ mod tests {
             })))
             .mount(&server)
             .await;
-        let api = VercelApi::with_base("tok", None, &server.uri());
+        let api = VercelApi::with_base("tok", None, server.uri());
         let files = vec![("index.html".to_owned(), b"<p>hi</p>".to_vec())];
         let deploy = api
             .create_file_deployment("prj_1", "web", &files)
@@ -508,10 +505,12 @@ mod tests {
             .and(body_partial_json(
                 serde_json::json!({ "ssoProtection": serde_json::Value::Null }),
             ))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "id": "prj_1" })))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({ "id": "prj_1" })),
+            )
             .mount(&server)
             .await;
-        let api = VercelApi::with_base("tok", None, &server.uri());
+        let api = VercelApi::with_base("tok", None, server.uri());
         api.disable_deployment_protection("prj_1").await.unwrap();
     }
 }

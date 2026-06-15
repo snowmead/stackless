@@ -22,8 +22,7 @@ use stackless_core::engine::StepKind;
 use stackless_core::process::ProcessStamp;
 use stackless_core::state::Checkpoint;
 use stackless_core::substrate::{
-    NamespacePurpose, Observation, StepContext, StepResource, Substrate,
-    SubstrateFault,
+    NamespacePurpose, Observation, StepContext, StepResource, Substrate, SubstrateFault,
 };
 use stackless_core::types::{DnsName, LogPath, ProxyHost, TcpPort};
 use stackless_daemon::DaemonClient;
@@ -722,5 +721,3 @@ impl Substrate for LocalSubstrate {
         Ok(())
     }
 }
-
-

@@ -201,7 +201,7 @@ pub async fn provision_stripe<R: CommandRunner>(
     substrate: &str,
     skip_instance_context: bool,
 ) -> Result<StepResource, IntegrationError> {
-    if def.integrations.get(name).is_none() {
+    if !def.integrations.contains_key(name) {
         return Err(IntegrationError::ConfigInvalid {
             location: format!("integrations.{name}"),
             detail: "integration not in definition".into(),
