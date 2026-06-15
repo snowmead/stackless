@@ -13,7 +13,7 @@ region = "oregon"
 project = "project_61Urzs6B8xvngU0eN16UhtGl9aA8OIk3xIw9EFWsKGVs"
 
 [services.web]
-source      = { repo = "https://github.com/snowmead/stackless", ref = "provider-selftest-framework" }
+source      = { repo = "https://github.com/snowmead/stackless", ref = "main" }
 root_origin = true
 health      = { path = "/", contains = "stackless-smoke-ok" }
 

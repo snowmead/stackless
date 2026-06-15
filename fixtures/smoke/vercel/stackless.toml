@@ -10,7 +10,7 @@ name = "smoke-vercel"
 project = "project_61UrT6wLsz6dTiqJA16UhtGl9aA8OIk3xIw9EFWsKT7Y"
 
 [services.web]
-source      = { repo = "https://github.com/snowmead/stackless", ref = "provider-selftest-framework" }
+source      = { repo = "https://github.com/snowmead/stackless", ref = "main" }
 root_origin = true
 health      = { path = "/", contains = "stackless-smoke-ok" }
 
