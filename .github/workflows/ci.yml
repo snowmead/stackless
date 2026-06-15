@@ -18,19 +18,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install mise
+      # cache: false is the workaround for jdx/mise-action caching a Rust
+      # toolchain with a stale component set (rustfmt/clippy "detected conflict"
+      # + "could not rename ... os error 2"). See jdx/mise-action#215, #237.
+      - name: Install mise + tools
         uses: jdx/mise-action@v2
-
-      - name: Cache mise installs
-        uses: actions/cache@v4
         with:
-          path: ~/.local/share/mise
-          key: ${{ runner.os }}-mise-${{ hashFiles('mise.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-mise-
-
-      - name: Install tools
-        run: mise install
+          install: true
+          cache: false
 
       - name: cargo fmt
         run: mise run fmt
@@ -50,19 +45,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install mise
+      # cache: false is the workaround for jdx/mise-action caching a Rust
+      # toolchain with a stale component set (rustfmt/clippy "detected conflict"
+      # + "could not rename ... os error 2"). See jdx/mise-action#215, #237.
+      - name: Install mise + tools
         uses: jdx/mise-action@v2
-
-      - name: Cache mise installs
-        uses: actions/cache@v4
         with:
-          path: ~/.local/share/mise
-          key: ${{ runner.os }}-mise-${{ hashFiles('mise.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-mise-
-
-      - name: Install tools
-        run: mise install
+          install: true
+          cache: false
 
       - name: Rust / Cargo cache
         uses: Swatinem/rust-cache@v2
@@ -81,19 +71,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install mise
+      # cache: false is the workaround for jdx/mise-action caching a Rust
+      # toolchain with a stale component set (rustfmt/clippy "detected conflict"
+      # + "could not rename ... os error 2"). See jdx/mise-action#215, #237.
+      - name: Install mise + tools
         uses: jdx/mise-action@v2
-
-      - name: Cache mise installs
-        uses: actions/cache@v4
         with:
-          path: ~/.local/share/mise
-          key: ${{ runner.os }}-mise-${{ hashFiles('mise.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-mise-
-
-      - name: Install tools
-        run: mise install
+          install: true
+          cache: false
 
       - name: Rust / Cargo cache
         uses: Swatinem/rust-cache@v2
@@ -110,19 +95,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install mise
+      # cache: false is the workaround for jdx/mise-action caching a Rust
+      # toolchain with a stale component set (rustfmt/clippy "detected conflict"
+      # + "could not rename ... os error 2"). See jdx/mise-action#215, #237.
+      - name: Install mise + tools
         uses: jdx/mise-action@v2
-
-      - name: Cache mise installs
-        uses: actions/cache@v4
         with:
-          path: ~/.local/share/mise
-          key: ${{ runner.os }}-mise-${{ hashFiles('mise.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-mise-
-
-      - name: Install tools
-        run: mise install
+          install: true
+          cache: false
 
       - name: Rust / Cargo cache
         uses: Swatinem/rust-cache@v2

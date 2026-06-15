@@ -37,11 +37,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install mise
+      # cache: false avoids the jdx/mise-action stale-Rust-toolchain bug
+      # (jdx/mise-action#215, #237).
+      - name: Install mise + tools
         uses: jdx/mise-action@v2
-
-      - name: Install tools
-        run: mise install
+        with:
+          install: true
+          cache: false
 
       - name: Rust / Cargo cache
         uses: Swatinem/rust-cache@v2
