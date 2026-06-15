@@ -5,9 +5,15 @@
 .projects/vault
 .projects/state.test.json
 .projects/state.local.test.json
+
+# Per-stack Stripe Projects runtime state for smoke fixtures (project id is recorded in the toml)
+fixtures/smoke/*/.projects/
+
 .env
 .env.*
 !.env.example
+.stackless.env
+**/.stackless.env
 
 # mise local overrides (per-developer tools/env)
 .mise.local.toml
