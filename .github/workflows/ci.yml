@@ -18,14 +18,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # cache: false is the workaround for jdx/mise-action caching a Rust
-      # toolchain with a stale component set (rustfmt/clippy "detected conflict"
-      # + "could not rename ... os error 2"). See jdx/mise-action#215, #237.
-      - name: Install mise + tools
+      # On a cold cache, mise's PARALLEL rustup component installs race/corrupt
+      # downloads ("could not rename ... os error 2", lzma/checksum) and then hit
+      # "detected conflict: bin/cargo-clippy". Install the mise CLI only, then
+      # install tools SERIALLY (MISE_JOBS=1) with a force-retry. (cache: false to
+      # also avoid the stale-toolchain variant; jdx/mise-action#215/#237.)
+      - name: Install mise
         uses: jdx/mise-action@v2
         with:
-          install: true
+          install: false
           cache: false
+      - name: Install tools (serial, retried)
+        env:
+          MISE_JOBS: "1"
+        shell: bash
+        run: |
+          mise install && exit 0
+          for i in 1 2; do echo "retry $i (force)"; sleep 10; mise install --force && exit 0; done
+          exit 1
 
       - name: cargo fmt
         run: mise run fmt
@@ -45,14 +55,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # cache: false is the workaround for jdx/mise-action caching a Rust
-      # toolchain with a stale component set (rustfmt/clippy "detected conflict"
-      # + "could not rename ... os error 2"). See jdx/mise-action#215, #237.
-      - name: Install mise + tools
+      # On a cold cache, mise's PARALLEL rustup component installs race/corrupt
+      # downloads ("could not rename ... os error 2", lzma/checksum) and then hit
+      # "detected conflict: bin/cargo-clippy". Install the mise CLI only, then
+      # install tools SERIALLY (MISE_JOBS=1) with a force-retry. (cache: false to
+      # also avoid the stale-toolchain variant; jdx/mise-action#215/#237.)
+      - name: Install mise
         uses: jdx/mise-action@v2
         with:
-          install: true
+          install: false
           cache: false
+      - name: Install tools (serial, retried)
+        env:
+          MISE_JOBS: "1"
+        shell: bash
+        run: |
+          mise install && exit 0
+          for i in 1 2; do echo "retry $i (force)"; sleep 10; mise install --force && exit 0; done
+          exit 1
 
       - name: Rust / Cargo cache
         uses: Swatinem/rust-cache@v2
@@ -71,14 +91,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # cache: false is the workaround for jdx/mise-action caching a Rust
-      # toolchain with a stale component set (rustfmt/clippy "detected conflict"
-      # + "could not rename ... os error 2"). See jdx/mise-action#215, #237.
-      - name: Install mise + tools
+      # On a cold cache, mise's PARALLEL rustup component installs race/corrupt
+      # downloads ("could not rename ... os error 2", lzma/checksum) and then hit
+      # "detected conflict: bin/cargo-clippy". Install the mise CLI only, then
+      # install tools SERIALLY (MISE_JOBS=1) with a force-retry. (cache: false to
+      # also avoid the stale-toolchain variant; jdx/mise-action#215/#237.)
+      - name: Install mise
         uses: jdx/mise-action@v2
         with:
-          install: true
+          install: false
           cache: false
+      - name: Install tools (serial, retried)
+        env:
+          MISE_JOBS: "1"
+        shell: bash
+        run: |
+          mise install && exit 0
+          for i in 1 2; do echo "retry $i (force)"; sleep 10; mise install --force && exit 0; done
+          exit 1
 
       - name: Rust / Cargo cache
         uses: Swatinem/rust-cache@v2
@@ -95,14 +125,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # cache: false is the workaround for jdx/mise-action caching a Rust
-      # toolchain with a stale component set (rustfmt/clippy "detected conflict"
-      # + "could not rename ... os error 2"). See jdx/mise-action#215, #237.
-      - name: Install mise + tools
+      # On a cold cache, mise's PARALLEL rustup component installs race/corrupt
+      # downloads ("could not rename ... os error 2", lzma/checksum) and then hit
+      # "detected conflict: bin/cargo-clippy". Install the mise CLI only, then
+      # install tools SERIALLY (MISE_JOBS=1) with a force-retry. (cache: false to
+      # also avoid the stale-toolchain variant; jdx/mise-action#215/#237.)
+      - name: Install mise
         uses: jdx/mise-action@v2
         with:
-          install: true
+          install: false
           cache: false
+      - name: Install tools (serial, retried)
+        env:
+          MISE_JOBS: "1"
+        shell: bash
+        run: |
+          mise install && exit 0
+          for i in 1 2; do echo "retry $i (force)"; sleep 10; mise install --force && exit 0; done
+          exit 1
 
       - name: Rust / Cargo cache
         uses: Swatinem/rust-cache@v2

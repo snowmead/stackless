@@ -37,13 +37,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # cache: false avoids the jdx/mise-action stale-Rust-toolchain bug
-      # (jdx/mise-action#215, #237).
-      - name: Install mise + tools
+      # Install the mise CLI only, then install tools serially with a force-retry
+      # to avoid mise's parallel rustup component races on a cold cache.
+      - name: Install mise
         uses: jdx/mise-action@v2
         with:
-          install: true
+          install: false
           cache: false
+      - name: Install tools (serial, retried)
+        env:
+          MISE_JOBS: "1"
+        shell: bash
+        run: |
+          mise install && exit 0
+          for i in 1 2; do echo "retry $i (force)"; sleep 10; mise install --force && exit 0; done
+          exit 1
 
       - name: Rust / Cargo cache
         uses: Swatinem/rust-cache@v2
