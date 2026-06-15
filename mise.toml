@@ -23,5 +23,24 @@ supply-chain = { depends = ["audit", "deny", "vet"] }
 check = { depends = ["fmt", "clippy", "taplo"] }
 ci    = { depends = ["check", "test", "supply-chain"] }
 
+# Live cloud smokes — gated on real provider creds, EXCLUDED from `ci` (which
+# stays hermetic). Locally they read tokens from .stackless.env; in CI the
+# workflow injects VERCEL_TOKEN / RENDER_API_KEY as secrets. Each runs a real
+# up, then always tears down, and fails if either the up (health) or the down
+# (verified-gone) fails.
+smoke-vercel = '''
+[ -f .stackless.env ] && { set -a; . ./.stackless.env; set +a; }
+cargo run -q -p stackless -- up --name smoke-v --on vercel --file fixtures/smoke/vercel/stackless.toml; up=$?
+cargo run -q -p stackless -- down smoke-v; down=$?
+exit $(( up != 0 || down != 0 ))
+'''
+smoke-render = '''
+[ -f .stackless.env ] && { set -a; . ./.stackless.env; set +a; }
+cargo run -q -p stackless -- up --name smoke-r --on render --file fixtures/smoke/render/stackless.toml; up=$?
+cargo run -q -p stackless -- down smoke-r; down=$?
+exit $(( up != 0 || down != 0 ))
+'''
+smoke = { depends = ["smoke-vercel", "smoke-render"] }
+
 [settings]
 # optional: idiomatic for Rust projects

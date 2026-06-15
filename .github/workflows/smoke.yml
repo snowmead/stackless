@@ -1,0 +1,63 @@
+name: Live smoke
+
+# The GATED live tier: a real `stackless up`/`down` against each cloud provider,
+# deploying fixtures/smoke/<provider> (this repo's own source). It is slow, costs
+# real (free-tier) resources, and needs account secrets — so it does NOT run on
+# every PR. The every-PR gate is the hermetic tier (wiremock + mocked Stripe) in
+# ci.yml's `test` job. Run this on a schedule or on demand.
+#
+# Required repo secrets:
+#   STRIPE_API_KEY  — a Stripe secret key for the account whose Stripe Project has
+#                     the providers linked (`stripe projects link vercel|render`,
+#                     a one-time human step — provider links are account-level).
+#   VERCEL_TOKEN, RENDER_API_KEY — provider API creds (Vercel is also resolved from
+#                     the Stripe-managed instance env, but the var is harmless).
+#
+# NOTE: the smoke fixtures deploy `source.ref`; keep it pointed at a pushed ref
+# that contains fixtures/smoke/site (main once merged).
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 7 * * *" # nightly 07:00 UTC
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  smoke:
+    name: smoke (${{ matrix.provider }})
+    # Skip on forks / when the account secret is absent.
+    if: ${{ github.repository_owner == 'snowmead' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: [vercel, render]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mise
+        uses: jdx/mise-action@v2
+
+      - name: Install tools
+        run: mise install
+
+      - name: Rust / Cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Stripe CLI + projects plugin
+        run: |
+          curl -s https://packages.stripe.dev/api/security/keypair/stripe-cli-gpg/public \
+            | gpg --dearmor | sudo tee /usr/share/keyrings/stripe.gpg >/dev/null
+          echo "deb [signed-by=/usr/share/keyrings/stripe.gpg] https://packages.stripe.dev/stripe-cli-debian-local stable main" \
+            | sudo tee /etc/apt/sources.list.d/stripe.list
+          sudo apt-get update && sudo apt-get install -y stripe
+          stripe plugins install projects
+
+      - name: Live ${{ matrix.provider }} up/down
+        env:
+          STRIPE_API_KEY: ${{ secrets.STRIPE_API_KEY }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: mise run smoke-${{ matrix.provider }}

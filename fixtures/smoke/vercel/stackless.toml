@@ -14,6 +14,6 @@ source      = { repo = "https://github.com/snowmead/stackless", ref = "provider-
 root_origin = true
 health      = { path = "/", contains = "stackless-smoke-ok" }
 
-  [services.web.vercel]
-  deploy = "upload"           # upload files directly (no Vercel<->GitHub connection)
-  root   = "fixtures/smoke/site"
+[services.web.vercel]
+deploy = "upload"              # upload files directly (no Vercel<->GitHub connection)
+root   = "fixtures/smoke/site"
