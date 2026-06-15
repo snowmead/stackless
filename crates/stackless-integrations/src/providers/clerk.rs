@@ -344,44 +344,10 @@ async fn update_clerk_organization_settings(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use async_trait::async_trait;
-    use stackless_stripe_projects::stripe::{CommandOutput, CommandRunner, StripeProjects};
-    use std::path::Path;
-    use std::sync::Mutex;
+    use stackless_stripe_projects::stripe::{CommandOutput, StripeProjects};
+    use stackless_stripe_projects::test_support::ScriptedRunner;
     use wiremock::matchers::{body_json, header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
-
-    struct ScriptRunner {
-        outputs: Mutex<std::collections::VecDeque<CommandOutput>>,
-        calls: Mutex<Vec<Vec<String>>>,
-    }
-
-    impl ScriptRunner {
-        fn new(outputs: Vec<CommandOutput>) -> Self {
-            Self {
-                outputs: Mutex::new(outputs.into()),
-                calls: Mutex::new(Vec::new()),
-            }
-        }
-
-        fn calls(&self) -> Vec<Vec<String>> {
-            self.calls.lock().unwrap().clone()
-        }
-    }
-
-    #[async_trait]
-    impl CommandRunner for ScriptRunner {
-        async fn run(&self, args: &[String], _cwd: &Path) -> Result<CommandOutput, ProjectsError> {
-            self.calls.lock().unwrap().push(args.to_vec());
-            self.outputs
-                .lock()
-                .unwrap()
-                .pop_front()
-                .ok_or_else(|| ProjectsError::Unavailable {
-                    detail: "ScriptRunner exhausted".into(),
-                })
-        }
-    }
 
     fn out(stdout: &str) -> CommandOutput {
         CommandOutput {
@@ -458,7 +424,7 @@ run = "true"
             }
         })
         .to_string();
-        let runner = ScriptRunner::new(vec![
+        let runner = ScriptedRunner::new(vec![
             out(CLERK_CATALOG_ENVELOPE),
             out(r#"{"ok":true,"data":{"project":{"id":"project_1"}}}"#),
             out(r#"{"ok":true,"data":{"environments":[{"name":"demo"}]}}"#),
@@ -523,7 +489,7 @@ run = "true"
             outputs: BTreeMap::new(),
         })
         .unwrap();
-        let runner = ScriptRunner::new(vec![
+        let runner = ScriptedRunner::new(vec![
             // observe → services list
             out(r#"{"ok":true,"data":{"services":[{"name":"demo-clerk"}]}}"#),
             // destroy → remove_resource's registration pre-check (services list)

@@ -25,5 +25,6 @@ toml = "1.1.2"
 tokio = { version = "1.52.3", features = ["rt", "time", "macros"] }
 
 [dev-dependencies]
-tempfile = "3.27.0"
-wiremock = "0.6.5"
+stackless-stripe-projects = { workspace = true, features = ["test-support"] }
+tempfile                  = "3.27.0"
+wiremock                  = "0.6.5"
