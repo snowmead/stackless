@@ -4,10 +4,16 @@
 [stack]
 name = "smoke-vercel"
 
+[stack.projects]
+
+[stack.projects.stripe]
+project = "project_61UrT6wLsz6dTiqJA16UhtGl9aA8OIk3xIw9EFWsKT7Y"
+
 [services.web]
 source      = { repo = "https://github.com/snowmead/stackless", ref = "provider-selftest-framework" }
 root_origin = true
 health      = { path = "/", contains = "stackless-smoke-ok" }
 
   [services.web.vercel]
-  root = "fixtures/smoke/site"
+  deploy = "upload"           # upload files directly (no Vercel<->GitHub connection)
+  root   = "fixtures/smoke/site"

@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies]
 async-trait = "0.1.89"
+base64 = "0.22.1"
 vercel-client = { path = "../vercel-client" }
 reqwest = { version = "0.13.4", default-features = false, features = [
     "rustls",
@@ -20,6 +21,7 @@ reqwest = { version = "0.13.4", default-features = false, features = [
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 stackless-core.workspace = true
+stackless-git.workspace = true
 stackless-integrations.workspace = true
 stackless-stripe-projects.workspace = true
 tempfile = "3.27.0"

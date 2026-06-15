@@ -34,6 +34,28 @@ pub struct ServiceVercel {
     pub install: Option<String>,
     pub root: Option<String>,
     pub output: Option<String>,
+    pub deploy: DeployMode,
+}
+
+/// How a service's source reaches Vercel.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum DeployMode {
+    /// Vercel pulls the repo from GitHub (needs the team connected to GitHub).
+    #[default]
+    Git,
+    /// stackless checks out the ref and uploads the files directly — no
+    /// Vercel↔GitHub connection required.
+    Upload,
+}
+
+impl DeployMode {
+    fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "git" => Some(Self::Git),
+            "upload" => Some(Self::Upload),
+            _ => None,
+        }
+    }
 }
 
 impl StackVercel {
@@ -115,16 +137,30 @@ impl ServiceVercel {
         for key in block.keys() {
             if !matches!(
                 key.as_str(),
-                "framework" | "build" | "install" | "root" | "output" | "env"
+                "framework" | "build" | "install" | "root" | "output" | "env" | "deploy"
             ) {
                 return Err(VercelError::ConfigInvalid {
                     location: location.clone(),
                     detail: format!(
-                        "unknown key {key:?} (known: framework, build, install, root, output, env)"
+                        "unknown key {key:?} (known: framework, build, install, root, output, env, deploy)"
                     ),
                 });
             }
         }
+
+        let deploy = match block.get("deploy") {
+            None => DeployMode::default(),
+            Some(value) => {
+                let raw = value.as_str().ok_or_else(|| VercelError::ConfigInvalid {
+                    location: format!("{location}.deploy"),
+                    detail: "must be a string".into(),
+                })?;
+                DeployMode::parse(raw).ok_or_else(|| VercelError::ConfigInvalid {
+                    location: format!("{location}.deploy"),
+                    detail: format!("unknown deploy {raw:?} (known: git, upload)"),
+                })?
+            }
+        };
 
         Ok(Self {
             framework: optional_str(block, "framework", &location)?,
@@ -132,6 +168,7 @@ impl ServiceVercel {
             install: optional_str(block, "install", &location)?,
             root: optional_str(block, "root", &location)?,
             output: optional_str(block, "output", &location)?,
+            deploy,
         })
     }
 }

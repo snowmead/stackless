@@ -30,7 +30,7 @@ use stackless_stripe_projects::{
 };
 use tokio::sync::Mutex;
 
-use crate::config::{ServiceVercel, StackVercel, VercelPlan};
+use crate::config::{DeployMode, ServiceVercel, StackVercel, VercelPlan};
 use crate::error::VercelError;
 use crate::git::parse_github_repo;
 use crate::vercel_api::{DEPLOY_BUDGET, HEALTH_BUDGET, VercelApi};
@@ -155,24 +155,43 @@ impl<R: CommandRunner> VercelSubstrate<R> {
         StripeProjects::new(&self.runner, self.definition_dir.clone())
     }
 
+    /// Build the Vercel API client. Stripe Projects provisions Vercel resources
+    /// inside its *own* managed team, reachable only via the token and
+    /// `VERCEL_ORG_ID` it publishes into the instance environment. When the
+    /// managed token is present we use it together with the managed org *as a
+    /// pair* — never a Stripe token with a user team, or vice versa. The
+    /// user-supplied `VERCEL_TOKEN`/`VERCEL_TEAM_ID` is the fallback for
+    /// bring-your-own-team setups (and for tests, which have no Stripe env).
     async fn vercel(&self, instance: Option<&str>) -> Result<VercelApi, SubstrateFault> {
+        if let Some(instance) = instance {
+            let stripe = self.stripe();
+            let token = project::pull_env_value(&stripe, instance, "VERCEL_TOKEN")
+                .await
+                .ok()
+                .flatten()
+                .filter(|value| !value.trim().is_empty());
+            if let Some(token) = token {
+                let org = project::pull_env_value(&stripe, instance, "VERCEL_ORG_ID")
+                    .await
+                    .ok()
+                    .flatten()
+                    .filter(|value| !value.trim().is_empty());
+                return Ok(self.build_vercel(token, org));
+            }
+        }
         let token = api_key::resolve(&self.definition_dir, &self.secrets).map_err(fault)?;
-        let mut team_id = std::env::var("VERCEL_TEAM_ID")
+        let team_id = std::env::var("VERCEL_TEAM_ID")
             .ok()
             .map(|value| value.trim().to_owned())
             .filter(|value| !value.is_empty());
-        if team_id.is_none()
-            && let Some(instance) = instance
-        {
-            team_id = project::pull_env_value(&self.stripe(), instance, "VERCEL_TEAM_ID")
-                .await
-                .ok()
-                .flatten();
-        }
-        Ok(match &self.api_base {
+        Ok(self.build_vercel(token, team_id))
+    }
+
+    fn build_vercel(&self, token: String, team_id: Option<String>) -> VercelApi {
+        match &self.api_base {
             Some(base) => VercelApi::with_base(token, team_id, base.clone()),
             None => VercelApi::new(token, team_id),
-        })
+        }
     }
 
     fn resource_name(def: &StackDef, instance: &str, node: &str) -> String {
@@ -325,21 +344,51 @@ impl<R: CommandRunner> VercelSubstrate<R> {
 
         let vercel = self.vercel(Some(instance)).await?;
         let project_id = wait_for_project(&vercel, &vercel_name).await?;
+        // Disposable stacks must be reachable for the health gate (and to be
+        // used), so clear Vercel's deployment protection on the project we
+        // provisioned.
+        vercel
+            .disable_deployment_protection(&project_id)
+            .await
+            .map_err(fault)?;
         let env = self.resolved_env(def, instance, service, prior)?;
         vercel
             .put_env_vars(&project_id, &env)
             .await
             .map_err(fault)?;
-        let deploy = vercel
-            .create_git_deployment(
-                &project_id,
-                &vercel_name,
-                &github,
-                &spec.source.reference,
-                &vercel_cfg,
-            )
-            .await
-            .map_err(fault)?;
+        let deploy = match vercel_cfg.deploy {
+            DeployMode::Git => vercel
+                .create_git_deployment(
+                    &project_id,
+                    &vercel_name,
+                    &github,
+                    &spec.source.reference,
+                    &vercel_cfg,
+                )
+                .await
+                .map_err(fault)?,
+            DeployMode::Upload => {
+                let repo = spec.source.repo.clone();
+                let reference = spec.source.reference.clone();
+                let root = vercel_cfg.root.clone();
+                let service_owned = service.to_owned();
+                let files = tokio::task::spawn_blocking(move || {
+                    collect_upload_files(&repo, &reference, root.as_deref())
+                })
+                .await
+                .map_err(|err| {
+                    fault(VercelError::ProvisionFailed {
+                        resource: service_owned,
+                        detail: format!("upload task panicked: {err}"),
+                    })
+                })?
+                .map_err(fault)?;
+                vercel
+                    .create_file_deployment(&project_id, &vercel_name, &files)
+                    .await
+                    .map_err(fault)?
+            }
+        };
         let ready = vercel
             .wait_for_deployment(service, &deploy.id, DEPLOY_BUDGET)
             .await
@@ -448,7 +497,7 @@ impl<R: CommandRunner> VercelSubstrate<R> {
         let url = format!("{origin}{}", spec.health.path);
         let client = reqwest::Client::new();
         let deadline = tokio::time::Instant::now() + HEALTH_BUDGET;
-        let mut last_detail = "no response yet".to_owned();
+        let mut last_detail: String;
         loop {
             match client
                 .get(&url)
@@ -518,6 +567,69 @@ fn deployment_origin(url: &str) -> String {
     } else {
         format!("https://{trimmed}")
     }
+}
+
+/// Check out `repo`@`reference` into a temp dir and read every file under `root`
+/// (or the repo root). Returns `(path-relative-to-root, bytes)` for the
+/// file-upload deploy mode — no Vercel↔GitHub connection required.
+fn collect_upload_files(
+    repo: &str,
+    reference: &str,
+    root: Option<&str>,
+) -> Result<Vec<(String, Vec<u8>)>, VercelError> {
+    let provision_fault = |detail: String| VercelError::ProvisionFailed {
+        resource: repo.to_owned(),
+        detail,
+    };
+    let tmp = tempfile::tempdir().map_err(|err| provision_fault(format!("tempdir: {err}")))?;
+    stackless_git::clone_checkout(
+        repo,
+        reference,
+        tmp.path(),
+        &stackless_git::Credentials::default(),
+    )
+    .map_err(|err| provision_fault(format!("clone {repo}@{reference} failed: {err}")))?;
+    let base = match root {
+        Some(root) => tmp.path().join(root),
+        None => tmp.path().to_path_buf(),
+    };
+    if !base.is_dir() {
+        return Err(provision_fault(format!(
+            "upload root {:?} not found in {repo}@{reference}",
+            root.unwrap_or(".")
+        )));
+    }
+    let mut files = Vec::new();
+    collect_dir(&base, &base, &mut files)
+        .map_err(|err| provision_fault(format!("reading upload files: {err}")))?;
+    if files.is_empty() {
+        return Err(provision_fault(format!(
+            "no files to upload under {:?}",
+            root.unwrap_or(".")
+        )));
+    }
+    Ok(files)
+}
+
+fn collect_dir(base: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        if entry.file_name() == ".git" {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            collect_dir(base, &path, out)?;
+        } else if path.is_file() {
+            let rel = path
+                .strip_prefix(base)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            out.push((rel, std::fs::read(&path)?));
+        }
+    }
+    Ok(())
 }
 
 fn source_ref_present(path: &str, commit: &str) -> bool {
@@ -756,28 +868,50 @@ impl<R: CommandRunner> VercelSubstrate<R> {
         vercel_name: &str,
         instance: &str,
     ) -> Result<(), SubstrateFault> {
-        project::remove_resource(&self.stripe(), stripe_resource)
+        let stripe = self.stripe();
+        // Already gone? Idempotent re-runs need no Vercel credentials.
+        if !project::resource_registered(&stripe, stripe_resource)
+            .await
+            .map_err(projects_fault)?
+        {
+            return Ok(());
+        }
+        // Capture the Vercel client BEFORE removal: the managed token/org live in
+        // the instance env, which `remove_resource` clears. Best-effort — a
+        // bring-your-own-team teardown with no creds still verifies via Stripe.
+        let vercel = self.vercel(Some(instance)).await.ok();
+        project::remove_resource(&stripe, stripe_resource)
             .await
             .map_err(projects_fault)?;
-        let vercel = self.vercel(Some(instance)).await?;
-        let _ = vercel.delete_project(project_id).await.map_err(fault)?;
-        let deadline = tokio::time::Instant::now() + DESTROY_POLL_BUDGET;
-        loop {
-            if vercel
-                .get_project(project_id)
-                .await
-                .map_err(fault)?
-                .is_none()
-            {
-                return Ok(());
-            }
-            if tokio::time::Instant::now() >= deadline {
-                return Err(fault(VercelError::TeardownSurvivor {
-                    resource: vercel_name.to_owned(),
-                }));
-            }
-            tokio::time::sleep(DESTROY_POLL_INTERVAL).await;
+        // Stripe is the authority: removing the resource deprovisions the managed
+        // project, so it must no longer be registered.
+        if project::resource_registered(&stripe, stripe_resource)
+            .await
+            .map_err(projects_fault)?
+        {
+            return Err(fault(VercelError::TeardownSurvivor {
+                resource: vercel_name.to_owned(),
+            }));
         }
+        // Best-effort provider-side cleanup with the pre-captured client. A 404 on
+        // delete just means Stripe already removed it; if the captured creds have
+        // expired post-removal, trust Stripe's authoritative result above.
+        if let Some(vercel) = vercel {
+            let _ = vercel.delete_project(project_id).await;
+            let deadline = tokio::time::Instant::now() + DESTROY_POLL_BUDGET;
+            loop {
+                match vercel.get_project(project_id).await {
+                    Ok(None) | Err(_) => break,
+                    Ok(Some(_)) if tokio::time::Instant::now() >= deadline => {
+                        return Err(fault(VercelError::TeardownSurvivor {
+                            resource: vercel_name.to_owned(),
+                        }));
+                    }
+                    Ok(Some(_)) => tokio::time::sleep(DESTROY_POLL_INTERVAL).await,
+                }
+            }
+        }
+        Ok(())
     }
 }
 

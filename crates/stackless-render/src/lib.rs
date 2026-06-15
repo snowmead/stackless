@@ -21,9 +21,9 @@
 //!   Render builds in its own build step, so the setup hook is recorded
 //!   as a no-op action and never executed here.
 //! - **Prepare runs on the operator's machine** (§1/§4) from a fresh
-//!   `git clone --depth 1` of the pinned ref, with the instance env
-//!   exported (external DB url). This is the v0 cloud-prepare path; the
-//!   gix-unification with the local substrate is a later cleanup.
+//!   shallow clone (`--depth 1`) of the pinned ref, with the instance env
+//!   exported (external DB url). This is the v0 cloud-prepare path; sharing
+//!   the local substrate's cached materializer is a later cleanup.
 //! - **Source override is unsupported** — Render deploys committed refs
 //!   (the engine errors before reaching us).
 

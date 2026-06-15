@@ -1,0 +1,17 @@
+[package]
+name                 = "stackless-git"
+edition.workspace    = true
+version.workspace    = true
+license.workspace    = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+grit-lib = { version = "=0.4.8", features = ["http-ureq"] }
+secrecy = "0.10"
+thiserror = "2.0.18"
+
+[dev-dependencies]
+tempfile = "3.27.0"

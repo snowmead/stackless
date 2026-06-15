@@ -1,53 +1,25 @@
-//! Integration coverage for gix source materialization (ARCHITECTURE.md
+//! Integration coverage for grit-lib source materialization (ARCHITECTURE.md
 //! §8): cache clone, alternates checkout, cache reuse across instances,
-//! and refresh-to-pinned-commit. Built on a throwaway on-disk git repo
+//! and refresh-to-pinned-commit. The source repo is built with grit-lib
 //! so nothing leaves the machine; the HTTPS public-repo path is a
 //! separate `#[ignore]`d test below. The `state_root` seam injects a
 //! tempdir so the real `~/.local/state` is never touched.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use std::path::Path;
-use std::process::Command;
-
 use stackless_core::fault::Fault;
 use stackless_local::materialize;
 
-/// Run a git command in `dir`, asserting success.
-fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
-        .args(args)
-        .current_dir(dir)
-        .env("GIT_AUTHOR_NAME", "t")
-        .env("GIT_AUTHOR_EMAIL", "t@t.co")
-        .env("GIT_COMMITTER_NAME", "t")
-        .env("GIT_COMMITTER_EMAIL", "t@t.co")
-        .output()
-        .expect("git runs");
-    assert!(
-        out.status.success(),
-        "git {args:?} failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    String::from_utf8_lossy(&out.stdout).trim().to_owned()
-}
-
-/// Build a tiny source repo with two commits on `main`, returning its
-/// path and the HEAD commit hex.
-fn make_repo(root: &Path) -> (std::path::PathBuf, String) {
-    let repo = root.join("src-repo");
-    std::fs::create_dir_all(&repo).unwrap();
-    git(&repo, &["init", "-q", "-b", "main"]);
-    std::fs::write(repo.join("README.md"), "hello\n").unwrap();
-    std::fs::write(repo.join("Cargo.toml"), "[package]\nname=\"x\"\n").unwrap();
-    git(&repo, &["add", "-A"]);
-    git(&repo, &["commit", "-qm", "first"]);
-    std::fs::write(repo.join("second.txt"), "more\n").unwrap();
-    git(&repo, &["add", "-A"]);
-    git(&repo, &["commit", "-qm", "second"]);
-    let head = git(&repo, &["rev-parse", "HEAD"]);
-    (repo, head)
-}
+/// Two-commit source-repo fixture (cumulative file sets per commit).
+const COMMIT_1: &[(&str, &str)] = &[
+    ("README.md", "hello\n"),
+    ("Cargo.toml", "[package]\nname=\"x\"\n"),
+];
+const COMMIT_2: &[(&str, &str)] = &[
+    ("README.md", "hello\n"),
+    ("Cargo.toml", "[package]\nname=\"x\"\n"),
+    ("second.txt", "more\n"),
+];
 
 #[test]
 fn materialize_cache_checkout_reuse_and_refresh() {
@@ -55,7 +27,8 @@ fn materialize_cache_checkout_reuse_and_refresh() {
     let work = tempfile::tempdir().unwrap();
     let root = state.path();
 
-    let (repo, head) = make_repo(work.path());
+    let repo = work.path().join("src-repo");
+    let head = stackless_git::build_repo(&repo, &[COMMIT_1, COMMIT_2]).expect("build fixture repo");
     let url = format!("file://{}", repo.display());
 
     // (a) cache clone from a local path URL, (b) checkout + detached HEAD.
