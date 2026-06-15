@@ -113,40 +113,30 @@ impl<'a> Materializer<'a> {
         let lock_path = FileLock::git_cache_lock_path(&Materializer::cache_key(repo));
         let _guard =
             FileLock::acquire_with_wait(&lock_path, GIT_CACHE_LOCK_BUDGET).map_err(|err| {
-                let detail = format!("git cache lock: {err}");
-                cache_fault(repo, cache, detail)
+                // Pre-lock: classify against the cache's current on-disk state.
+                cache_fault(
+                    cache.join("objects").is_dir(),
+                    repo,
+                    format!("git cache lock: {err}"),
+                )
             })?;
-        if let Some(parent) = cache.parent() {
-            std::fs::create_dir_all(parent).map_err(|err| LocalError::GitCloneFailed {
-                repo: repo.to_owned(),
-                detail: err.to_string(),
-            })?;
-        }
+        // Snapshot under the lock — this drives clone-vs-fetch classification for
+        // every failure below.
         let existed = cache.join("objects").is_dir();
-        stackless_git::fetch_bare(cache, repo, CACHE_REFSPECS, None, &self.auth).map_err(
-            |err| {
-                let detail = err.to_string();
-                if existed {
-                    LocalError::GitFetchFailed {
-                        repo: repo.to_owned(),
-                        detail,
-                    }
-                } else {
-                    LocalError::GitCloneFailed {
-                        repo: repo.to_owned(),
-                        detail,
-                    }
-                }
-            },
-        )?;
+        if let Some(parent) = cache.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|err| cache_fault(existed, repo, err.to_string()))?;
+        }
+        stackless_git::fetch_bare(cache, repo, CACHE_REFSPECS, None, &self.auth)
+            .map_err(|err| cache_fault(existed, repo, err.to_string()))?;
         Ok(())
     }
 }
 
-/// Classify a cache failure by whether the cache already exists: a missing
+/// Classify a cache failure by whether the cache already existed: a missing
 /// cache is a clone failure, an existing one a fetch (refresh) failure.
-fn cache_fault(repo: &str, cache: &Path, detail: String) -> LocalError {
-    if cache.join("objects").is_dir() {
+fn cache_fault(existed: bool, repo: &str, detail: String) -> LocalError {
+    if existed {
         LocalError::GitFetchFailed {
             repo: repo.to_owned(),
             detail,

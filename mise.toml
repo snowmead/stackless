@@ -12,8 +12,9 @@ taplo                 = "latest"
 fmt    = "cargo fmt --all -- --check"
 clippy = "cargo clippy --workspace --all-targets --all-features -- -D warnings"
 taplo  = "taplo fmt --check --diff"
-# Testing
-test = "cargo nextest run --workspace"
+# Testing — `--all-features` matches clippy and runs the `test-support`-gated
+# fixtures (e.g. stackless-git's `flow` test, which needs `build_repo`).
+test = "cargo nextest run --workspace --all-features"
 # "Cargo crap" / supply chain (the point of the request)
 # cargo-audit doesn't read deny.toml, so mirror its [advisories].ignore here
 # (libsql's pinned old rustls stack — rustls-webpki / rustls-pemfile).

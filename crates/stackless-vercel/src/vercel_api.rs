@@ -38,6 +38,14 @@ pub struct VercelDeployment {
     pub status: String,
 }
 
+/// One file in a file-upload deployment: its path relative to the deploy root,
+/// and the raw bytes (base64-encoded inline at the API boundary).
+#[derive(Debug, Clone)]
+pub struct UploadFile {
+    pub path: String,
+    pub data: Vec<u8>,
+}
+
 pub struct VercelApi {
     client: vercel_client::Client,
     /// The same authed reqwest client the generated client wraps, kept for the
@@ -107,6 +115,36 @@ impl VercelApi {
 
     fn team(&self) -> Option<&str> {
         self.team_id.as_deref()
+    }
+
+    /// Append `teamId` to `url`, picking `&` or `?` by whether `url` already
+    /// carries a query string — so callers never hand-choose the separator.
+    fn append_team(&self, url: &mut String) {
+        if let Some(team) = self.team() {
+            let sep = if url.contains('?') { '&' } else { '?' };
+            url.push(sep);
+            url.push_str("teamId=");
+            url.push_str(team);
+        }
+    }
+
+    /// `/v13/deployments` with the `skipAutoDetectionConfirmation` flag (required
+    /// to deploy a brand-new project without an interactive framework-detection
+    /// prompt) and `teamId` when configured.
+    fn deployments_url(&self) -> String {
+        let mut url = format!(
+            "{}/v13/deployments?skipAutoDetectionConfirmation=1",
+            self.base
+        );
+        self.append_team(&mut url);
+        url
+    }
+
+    /// `/v9/projects/{id}` with `teamId` when configured.
+    fn project_url(&self, project_id: &str) -> String {
+        let mut url = format!("{}/v9/projects/{project_id}", self.base);
+        self.append_team(&mut url);
+        url
     }
 
     pub async fn find_project_by_name(
@@ -196,17 +234,9 @@ impl VercelApi {
         git_ref: &str,
         cfg: &ServiceVercel,
     ) -> Result<VercelDeployment, VercelError> {
-        // `skipAutoDetectionConfirmation=1` is required to deploy a brand-new
-        // project (no prior framework detection) without an interactive prompt —
-        // e.g. a static site (framework = "Other"/null). The generated client
-        // exposes neither this query param nor the error body, so we post raw.
-        let mut url = format!(
-            "{}/v13/deployments?skipAutoDetectionConfirmation=1",
-            self.base
-        );
-        if let Some(team) = self.team() {
-            url.push_str(&format!("&teamId={team}"));
-        }
+        // Posted raw via `post_deployment`: the generated client exposes neither
+        // the `skipAutoDetectionConfirmation` query param nor the error body.
+        //
         // Only include settings the caller actually set — Vercel's schema is
         // string-only, so sending explicit nulls for unset fields can be rejected
         // or misread. Absent settings + the skip-confirmation flag let Vercel
@@ -246,13 +276,7 @@ impl VercelApi {
         &self,
         body: &serde_json::Value,
     ) -> Result<VercelDeployment, VercelError> {
-        let mut url = format!(
-            "{}/v13/deployments?skipAutoDetectionConfirmation=1",
-            self.base
-        );
-        if let Some(team) = self.team() {
-            url.push_str(&format!("&teamId={team}"));
-        }
+        let url = self.deployments_url();
         let response = self
             .http
             .post(&url)
@@ -297,15 +321,15 @@ impl VercelApi {
         &self,
         project_id: &str,
         name: &str,
-        files: &[(String, Vec<u8>)],
+        files: &[UploadFile],
     ) -> Result<VercelDeployment, VercelError> {
         use base64::Engine as _;
         let entries: Vec<serde_json::Value> = files
             .iter()
-            .map(|(path, data)| {
+            .map(|file| {
                 serde_json::json!({
-                    "file": path,
-                    "data": base64::engine::general_purpose::STANDARD.encode(data),
+                    "file": file.path,
+                    "data": base64::engine::general_purpose::STANDARD.encode(&file.data),
                     "encoding": "base64",
                 })
             })
@@ -323,10 +347,7 @@ impl VercelApi {
     /// hit them: stackless owns disposable stacks, so it clears Vercel's SSO /
     /// deployment protection on the projects it provisions.
     pub async fn disable_deployment_protection(&self, project_id: &str) -> Result<(), VercelError> {
-        let mut url = format!("{}/v9/projects/{project_id}", self.base);
-        if let Some(team) = self.team() {
-            url.push_str(&format!("?teamId={team}"));
-        }
+        let url = self.project_url(project_id);
         let response = self
             .http
             .patch(&url)
@@ -489,7 +510,10 @@ mod tests {
             .mount(&server)
             .await;
         let api = VercelApi::with_base("tok", None, server.uri());
-        let files = vec![("index.html".to_owned(), b"<p>hi</p>".to_vec())];
+        let files = vec![UploadFile {
+            path: "index.html".to_owned(),
+            data: b"<p>hi</p>".to_vec(),
+        }];
         let deploy = api
             .create_file_deployment("prj_1", "web", &files)
             .await

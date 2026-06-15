@@ -33,7 +33,7 @@ use tokio::sync::Mutex;
 use crate::config::{DeployMode, ServiceVercel, StackVercel, VercelPlan};
 use crate::error::VercelError;
 use crate::git::parse_github_repo;
-use crate::vercel_api::{DEPLOY_BUDGET, HEALTH_BUDGET, VercelApi};
+use crate::vercel_api::{DEPLOY_BUDGET, HEALTH_BUDGET, UploadFile, VercelApi};
 
 pub const SUBSTRATE_NAME: &str = "vercel";
 
@@ -165,15 +165,20 @@ impl<R: CommandRunner> VercelSubstrate<R> {
     async fn vercel(&self, instance: Option<&str>) -> Result<VercelApi, SubstrateFault> {
         if let Some(instance) = instance {
             let stripe = self.stripe();
-            let token = project::pull_env_value(&stripe, instance, "VERCEL_TOKEN")
-                .await
-                .ok()
+            // One env pull for both keys — the managed token and org are
+            // published as a pair, so we read them from the same snapshot.
+            let mut values =
+                project::pull_env_values(&stripe, instance, &["VERCEL_TOKEN", "VERCEL_ORG_ID"])
+                    .await
+                    .unwrap_or_default()
+                    .into_iter();
+            let token = values
+                .next()
                 .flatten()
                 .filter(|value| !value.trim().is_empty());
             if let Some(token) = token {
-                let org = project::pull_env_value(&stripe, instance, "VERCEL_ORG_ID")
-                    .await
-                    .ok()
+                let org = values
+                    .next()
                     .flatten()
                     .filter(|value| !value.trim().is_empty());
                 return Ok(self.build_vercel(token, org));
@@ -570,13 +575,13 @@ fn deployment_origin(url: &str) -> String {
 }
 
 /// Check out `repo`@`reference` into a temp dir and read every file under `root`
-/// (or the repo root). Returns `(path-relative-to-root, bytes)` for the
+/// (or the repo root) as [`UploadFile`]s (path relative to root + bytes) for the
 /// file-upload deploy mode — no Vercel↔GitHub connection required.
 fn collect_upload_files(
     repo: &str,
     reference: &str,
     root: Option<&str>,
-) -> Result<Vec<(String, Vec<u8>)>, VercelError> {
+) -> Result<Vec<UploadFile>, VercelError> {
     let provision_fault = |detail: String| VercelError::ProvisionFailed {
         resource: repo.to_owned(),
         detail,
@@ -611,7 +616,7 @@ fn collect_upload_files(
     Ok(files)
 }
 
-fn collect_dir(base: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) -> std::io::Result<()> {
+fn collect_dir(base: &Path, dir: &Path, out: &mut Vec<UploadFile>) -> std::io::Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         if entry.file_name() == ".git" {
@@ -626,7 +631,10 @@ fn collect_dir(base: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) -> std
                 .unwrap_or(&path)
                 .to_string_lossy()
                 .replace('\\', "/");
-            out.push((rel, std::fs::read(&path)?));
+            out.push(UploadFile {
+                path: rel,
+                data: std::fs::read(&path)?,
+            });
         }
     }
     Ok(())

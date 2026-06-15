@@ -195,8 +195,7 @@ pub fn clone_checkout(
         format!("+refs/heads/{reference}:refs/heads/{reference}"),
         format!("+refs/tags/{reference}:refs/tags/{reference}"),
     ];
-    let refspec_refs: Vec<&str> = refspecs.iter().map(String::as_str).collect();
-    let opts = fetch_options(&refspec_refs, Some(1));
+    let opts = fetch_options(&refspecs, Some(1));
     fetch_dispatch(&git_dir, url, &opts, creds)?;
     checkout_tree(&git_dir, dest, reference)
 }
@@ -207,7 +206,9 @@ pub fn clone_checkout(
 ///
 /// Fixture support for tests that need a source repo to materialize from,
 /// without shelling out to the `git` CLI. A fixed identity and timestamp keep
-/// the resulting commit hashes deterministic.
+/// the resulting commit hashes deterministic. Behind the `test-support` feature
+/// so it stays out of the production surface.
+#[cfg(feature = "test-support")]
 pub fn build_repo(path: &Path, commits: &[&[(&str, &str)]]) -> Result<String, GitError> {
     use grit_lib::index::{Index, MODE_REGULAR, entry_from_stat};
     use grit_lib::objects::{CommitData, ObjectId, ObjectKind, serialize_commit};
@@ -264,9 +265,9 @@ fn checkout_tree(git_dir: &Path, work_tree: &Path, spec: &str) -> Result<(), Git
     Ok(())
 }
 
-fn fetch_options(refspecs: &[&str], depth: Option<u32>) -> FetchOptions {
+fn fetch_options<S: AsRef<str>>(refspecs: &[S], depth: Option<u32>) -> FetchOptions {
     FetchOptions {
-        refspecs: refspecs.iter().map(|s| (*s).to_owned()).collect(),
+        refspecs: refspecs.iter().map(|s| s.as_ref().to_owned()).collect(),
         depth,
         ..FetchOptions::default()
     }

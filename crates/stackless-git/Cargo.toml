@@ -8,6 +8,11 @@ repository.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Exposes `build_repo` (a grit-lib fixture-repo builder) for downstream crates'
+# hermetic tests. Enable as a dev-dependency feature.
+test-support = []
+
 [dependencies]
 grit-lib  = { version = "=0.4.8", features = ["http-ureq"] }
 secrecy   = "0.10"
@@ -15,3 +20,10 @@ thiserror = "2.0.18"
 
 [dev-dependencies]
 tempfile = "3.27.0"
+
+# `flow.rs` builds its fixture repo with `build_repo`, which lives behind
+# `test-support`; declare the dependency so the target is skipped (not a compile
+# error) when the feature is off.
+[[test]]
+name              = "flow"
+required-features = ["test-support"]

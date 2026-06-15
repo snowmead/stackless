@@ -26,4 +26,5 @@ thiserror                           = "2.0.18"
 tokio                               = { version = "1.52.3", features = ["rt", "time", "macros"] }
 
 [dev-dependencies]
-tempfile = "3.27.0"
+stackless-git = { workspace = true, features = ["test-support"] }
+tempfile      = "3.27.0"
