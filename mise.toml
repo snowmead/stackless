@@ -15,7 +15,9 @@ taplo  = "taplo fmt --check --diff"
 # Testing
 test = "cargo nextest run --workspace"
 # "Cargo crap" / supply chain (the point of the request)
-audit        = "cargo audit"
+# cargo-audit doesn't read deny.toml, so mirror its [advisories].ignore here
+# (libsql's pinned old rustls stack — rustls-webpki / rustls-pemfile).
+audit        = "cargo audit --ignore RUSTSEC-2026-0049 --ignore RUSTSEC-2026-0098 --ignore RUSTSEC-2026-0099 --ignore RUSTSEC-2026-0104 --ignore RUSTSEC-2025-0134"
 deny         = "cargo deny check"
 vet          = "cargo vet"
 supply-chain = { depends = ["audit", "deny", "vet"] }
