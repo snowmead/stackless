@@ -44,7 +44,7 @@ job per provider, secrets `STRIPE_API_KEY` / `VERCEL_TOKEN` / `RENDER_API_KEY`.
   `stripe projects status`.
 - The provider API token must belong to the **linked** account/team. For Vercel,
   the substrate already reads the Stripe-managed token + `VERCEL_ORG_ID` from the
-  instance env — see [vercel-stripe-managed-model](../README.md) notes below.
+  instance env — see the **Vercel notes** at the end of this doc.
 - **Vercel git-source mode** additionally needs the Stripe-managed Vercel team
   connected to GitHub with access to the repo (else `git_info_fail`). The default
   `deploy = "upload"` avoids this entirely.

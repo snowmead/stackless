@@ -311,11 +311,18 @@ Or a static site:
   install = "npm install"               # optional install command override
   root = "apps/web"                     # optional monorepo root directory
   output = "dist"                       # optional output directory
+  deploy = "git"                        # "git" (default) or "upload"
   env = { VITE_API_ORIGIN = "${services.api.origin}" }  # optional overlay
 ```
 
-- `source.repo` must be a public GitHub HTTPS remote
-  (`https://github.com/org/repo`) — Vercel deploys via `gitSource`.
+- `deploy` controls how the source reaches Vercel. `"git"` (the default)
+  has Vercel pull the repo via `gitSource` — this requires the
+  Stripe-managed Vercel team be connected to GitHub. `"upload"` has
+  stackless clone the pinned ref itself and post the files inline, so no
+  Vercel↔GitHub connection is needed.
+- With `deploy = "git"`, `source.repo` must be a public GitHub HTTPS
+  remote (`https://github.com/org/repo`). `deploy = "upload"` only needs
+  a repo stackless can clone.
 - Cloud resource names are `{stack}-{instance}-{service}`; the live
   origin is the deployment URL recorded at `start` (typically
   `https://{name}.vercel.app`).
