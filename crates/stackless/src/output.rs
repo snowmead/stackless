@@ -310,6 +310,8 @@ pub struct LogService<'a> {
     pub lines: Vec<String>,
 }
 
+// `impl ProgressSink for Output` follows this module; reordering is noise.
+#[allow(clippy::items_after_test_module)]
 #[cfg(test)]
 mod tests {
     use super::*;

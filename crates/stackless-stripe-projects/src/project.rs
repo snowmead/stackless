@@ -205,21 +205,37 @@ pub async fn pull_env_value<R: CommandRunner>(
     instance: &str,
     key: &str,
 ) -> Result<Option<String>, ProjectsError> {
+    Ok(pull_env_values(stripe, instance, &[key])
+        .await?
+        .into_iter()
+        .next()
+        .flatten())
+}
+
+/// Pull the instance's env once and read several keys from it, returning one
+/// `Option<String>` per key in input order. Folds the per-key file scan over a
+/// single `env --pull`, so a caller needing N values doesn't trigger N pulls.
+/// Each key prefers `.env.{instance}` over `.env`, matching [`pull_env_value`].
+pub async fn pull_env_values<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+    instance: &str,
+    keys: &[&str],
+) -> Result<Vec<Option<String>>, ProjectsError> {
     stripe
         .run_ok("env --pull", &["env", "--pull", "--refresh"], &["--yes"])
         .await?;
-    for path in [
+    let texts: Vec<String> = [
         stripe.dir().join(format!(".env.{instance}")),
         stripe.dir().join(".env"),
-    ] {
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        if let Some(value) = parse_env_value(&text, key) {
-            return Ok(Some(value));
-        }
-    }
-    Ok(None)
+    ]
+    .into_iter()
+    .filter_map(|path| std::fs::read_to_string(path).ok())
+    .collect();
+    let values = keys
+        .iter()
+        .map(|&key| texts.iter().find_map(|text| parse_env_value(text, key)))
+        .collect();
+    Ok(values)
 }
 
 pub fn find_env_value(value: &Value, key: &str) -> Option<String> {

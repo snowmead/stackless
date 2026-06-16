@@ -33,4 +33,9 @@ cargo progenitor -i "$SPECS/vercel-trimmed.json" -o "$TMP/vercel-client" -n verc
 cp "$TMP/vercel-client/src/lib.rs" crates/vercel-client/src/lib.rs
 echo "regenerated crates/vercel-client/src/lib.rs"
 
+# progenitor output isn't rustfmt-clean; format so the fmt gate stays green
+# (stable rustfmt can't `ignore` paths, so we commit the clients formatted).
+cargo fmt -p render-client -p vercel-client
+echo "formatted generated clients"
+
 echo "done — run: cargo build -p render-client -p vercel-client"

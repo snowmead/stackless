@@ -463,15 +463,15 @@ async fn progress_emits_lifecycle_events() {
     req.progress = Some(&mut recording);
     engine.up(req).await.unwrap();
     let events = recording.0.lock().unwrap().clone();
-    assert!(events.iter().any(|e| *e == StepProgressEvent::Started));
-    assert!(events.iter().any(|e| *e == StepProgressEvent::Completed));
+    assert!(events.contains(&StepProgressEvent::Started));
+    assert!(events.contains(&StepProgressEvent::Completed));
     assert_eq!(events.last().copied(), Some(StepProgressEvent::Completed));
 
     let mut req = request(&def);
     req.progress = Some(&mut recording);
     engine.up(req).await.unwrap();
     let events = recording.0.lock().unwrap().clone();
-    assert!(events.iter().any(|e| *e == StepProgressEvent::Skipped));
+    assert!(events.contains(&StepProgressEvent::Skipped));
 }
 
 #[test]

@@ -1,0 +1,21 @@
+# Live smoke stack: deploys fixtures/smoke/site from this repo to Render (static site).
+# Run: stackless up --on render --file fixtures/smoke/render/stackless.toml --name <inst>
+# The project anchor ([stack.projects.stripe].project) is recorded here on first up.
+[stack]
+name = "smoke-render"
+
+[stack.render]
+region = "oregon"
+
+[stack.projects]
+
+[stack.projects.stripe]
+project = "project_61Urzs6B8xvngU0eN16UhtGl9aA8OIk3xIw9EFWsKGVs"
+
+[services.web]
+source      = { repo = "https://github.com/snowmead/stackless", ref = "main" }
+root_origin = true
+health      = { path = "/", contains = "stackless-smoke-ok" }
+
+[services.web.render]
+static = { build = "true", publish = "fixtures/smoke/site", spa_rewrite = false }

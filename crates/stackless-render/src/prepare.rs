@@ -20,32 +20,18 @@ pub fn run_prepare_command(
         log_tail: None,
     })?;
     let result = (|| {
-        let clone = std::process::Command::new("git")
-            .args([
-                "clone",
-                "--depth",
-                "1",
-                "--branch",
-                reference,
-                repo,
-                &tmp.display().to_string(),
-            ])
-            .stdin(Stdio::null())
-            .output()
-            .map_err(|err| RenderError::PrepareFailed {
-                service: service.to_owned(),
-                command: Some(format!("git clone --depth 1 --branch {reference} {repo}")),
-                message: format!("could not run git: {err}"),
-                log_tail: None,
-            })?;
-        if !clone.status.success() {
-            return Err(RenderError::PrepareFailed {
-                service: service.to_owned(),
-                command: Some(format!("git clone --depth 1 --branch {reference} {repo}")),
-                message: format!("git clone {repo}@{reference} failed"),
-                log_tail: Some(tail_bytes(&clone.stderr)),
-            });
-        }
+        stackless_git::clone_checkout(
+            repo,
+            reference,
+            &tmp,
+            &stackless_git::Credentials::default(),
+        )
+        .map_err(|err| RenderError::PrepareFailed {
+            service: service.to_owned(),
+            command: Some(format!("clone --depth 1 --branch {reference} {repo}")),
+            message: format!("clone {repo}@{reference} failed: {err}"),
+            log_tail: None,
+        })?;
         let mut cmd = std::process::Command::new("sh");
         cmd.arg("-c")
             .arg(command)

@@ -1,0 +1,19 @@
+# Live smoke stack: deploys fixtures/smoke/site from this repo to Vercel.
+# Run: stackless up --on vercel --file fixtures/smoke/vercel/stackless.toml --name <inst>
+# The project anchor ([stack.projects.stripe].project) is recorded here on first up.
+[stack]
+name = "smoke-vercel"
+
+[stack.projects]
+
+[stack.projects.stripe]
+project = "project_61UrT6wLsz6dTiqJA16UhtGl9aA8OIk3xIw9EFWsKT7Y"
+
+[services.web]
+source      = { repo = "https://github.com/snowmead/stackless", ref = "main" }
+root_origin = true
+health      = { path = "/", contains = "stackless-smoke-ok" }
+
+[services.web.vercel]
+deploy = "upload"              # upload files directly (no Vercel<->GitHub connection)
+root   = "fixtures/smoke/site"

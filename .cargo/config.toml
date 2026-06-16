@@ -1,0 +1,10 @@
+# libsql and rusqlite each statically bundle their own SQLite build, so a binary
+# that links both (e.g. the `catalog_drift` test, via stackless-core's libsql +
+# rusqlite deps) hits duplicate `sqlite3_*` symbols. macOS's linker dedups them;
+# lld on Linux errors ("duplicate symbol: sqlite3_version"). Tell the linker to
+# keep the first definition. Scoped to the Linux targets that use lld.
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-Wl,--allow-multiple-definition"]
+
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-Wl,--allow-multiple-definition"]

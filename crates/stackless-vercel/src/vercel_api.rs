@@ -38,8 +38,21 @@ pub struct VercelDeployment {
     pub status: String,
 }
 
+/// One file in a file-upload deployment: its path relative to the deploy root,
+/// and the raw bytes (base64-encoded inline at the API boundary).
+#[derive(Debug, Clone)]
+pub struct UploadFile {
+    pub path: String,
+    pub data: Vec<u8>,
+}
+
 pub struct VercelApi {
     client: vercel_client::Client,
+    /// The same authed reqwest client the generated client wraps, kept for the
+    /// one call (`create_git_deployment`) that needs a query param the generated
+    /// client doesn't expose and an error body it doesn't surface.
+    http: reqwest::Client,
+    base: String,
     team_id: Option<String>,
     poll_interval: Duration,
 }
@@ -83,10 +96,13 @@ impl VercelApi {
         team_id: Option<String>,
         base: impl Into<String>,
     ) -> Self {
-        let client =
-            vercel_client::Client::new_with_client(&base.into(), authed_client(&token.into()));
+        let base = base.into();
+        let http = authed_client(&token.into());
+        let client = vercel_client::Client::new_with_client(&base, http.clone());
         Self {
             client,
+            http,
+            base,
             team_id,
             poll_interval: POLL_INTERVAL,
         }
@@ -99,6 +115,36 @@ impl VercelApi {
 
     fn team(&self) -> Option<&str> {
         self.team_id.as_deref()
+    }
+
+    /// Append `teamId` to `url`, picking `&` or `?` by whether `url` already
+    /// carries a query string — so callers never hand-choose the separator.
+    fn append_team(&self, url: &mut String) {
+        if let Some(team) = self.team() {
+            let sep = if url.contains('?') { '&' } else { '?' };
+            url.push(sep);
+            url.push_str("teamId=");
+            url.push_str(team);
+        }
+    }
+
+    /// `/v13/deployments` with the `skipAutoDetectionConfirmation` flag (required
+    /// to deploy a brand-new project without an interactive framework-detection
+    /// prompt) and `teamId` when configured.
+    fn deployments_url(&self) -> String {
+        let mut url = format!(
+            "{}/v13/deployments?skipAutoDetectionConfirmation=1",
+            self.base
+        );
+        self.append_team(&mut url);
+        url
+    }
+
+    /// `/v9/projects/{id}` with `teamId` when configured.
+    fn project_url(&self, project_id: &str) -> String {
+        let mut url = format!("{}/v9/projects/{project_id}", self.base);
+        self.append_team(&mut url);
+        url
     }
 
     pub async fn find_project_by_name(
@@ -188,43 +234,137 @@ impl VercelApi {
         git_ref: &str,
         cfg: &ServiceVercel,
     ) -> Result<VercelDeployment, VercelError> {
-        let project_settings = (cfg.framework.is_some()
-            || cfg.build.is_some()
-            || cfg.install.is_some()
-            || cfg.root.is_some()
-            || cfg.output.is_some())
-        .then(|| types::CreateDeploymentBodyProjectSettings {
-            framework: cfg.framework.clone(),
-            build_command: cfg.build.clone(),
-            install_command: cfg.install.clone(),
-            root_directory: cfg.root.clone(),
-            output_directory: cfg.output.clone(),
+        // Posted raw via `post_deployment`: the generated client exposes neither
+        // the `skipAutoDetectionConfirmation` query param nor the error body.
+        //
+        // Only include settings the caller actually set — Vercel's schema is
+        // string-only, so sending explicit nulls for unset fields can be rejected
+        // or misread. Absent settings + the skip-confirmation flag let Vercel
+        // auto-detect.
+        let mut settings = serde_json::Map::new();
+        for (key, value) in [
+            ("framework", cfg.framework.as_deref()),
+            ("buildCommand", cfg.build.as_deref()),
+            ("installCommand", cfg.install.as_deref()),
+            ("rootDirectory", cfg.root.as_deref()),
+            ("outputDirectory", cfg.output.as_deref()),
+        ] {
+            if let Some(value) = value {
+                settings.insert(key.to_owned(), serde_json::Value::String(value.to_owned()));
+            }
+        }
+        let mut body = serde_json::json!({
+            "name": name,
+            "project": project_id,
+            "gitSource": {
+                "type": "github",
+                "org": github.org.as_str(),
+                "repo": github.repo.as_str(),
+                "ref": git_ref,
+            },
         });
-        let body = types::CreateDeploymentBody {
-            name: Some(name.to_owned()),
-            project: Some(project_id.to_owned()),
-            git_source: Some(types::CreateDeploymentBodyGitSource {
-                type_: Some("github".to_owned()),
-                org: Some(github.org.clone()),
-                repo: Some(github.repo.clone()),
-                ref_: Some(git_ref.to_owned()),
-            }),
-            project_settings,
-        };
-        let deploy = self
-            .client
-            .create_deployment(None, self.team(), &body)
+        if !settings.is_empty() {
+            body["projectSettings"] = serde_json::Value::Object(settings);
+        }
+        self.post_deployment(&body).await
+    }
+
+    /// POST a deployment body to `/v13/deployments` (raw — the generated client
+    /// can't pass `skipAutoDetectionConfirmation` and hides error bodies) and
+    /// parse the response. Shared by git and file deployments.
+    async fn post_deployment(
+        &self,
+        body: &serde_json::Value,
+    ) -> Result<VercelDeployment, VercelError> {
+        let url = self.deployments_url();
+        let response = self
+            .http
+            .post(&url)
+            .json(body)
+            .send()
             .await
-            .map_err(|err| api_failed("POST", "/v13/deployments", err))?
-            .into_inner();
+            .map_err(|err| api_failed("POST", "/v13/deployments", err))?;
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        if !status.is_success() {
+            return Err(VercelError::ApiFailed {
+                method: "POST".to_owned(),
+                path: "/v13/deployments".to_owned(),
+                detail: format!("{status}: {}", text.trim()),
+            });
+        }
+        let value: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|err| api_failed("POST", "/v13/deployments", err))?;
+        let id = value["id"].as_str().unwrap_or_default().to_owned();
+        if id.is_empty() {
+            return Err(VercelError::ApiFailed {
+                method: "POST".to_owned(),
+                path: "/v13/deployments".to_owned(),
+                detail: format!("deployment response had no id: {}", text.trim()),
+            });
+        }
         Ok(VercelDeployment {
-            id: deploy.id.unwrap_or_default(),
-            url: deploy.url.unwrap_or_default(),
-            status: deploy
-                .status
-                .or(deploy.ready_state)
-                .unwrap_or_else(|| "QUEUED".to_owned()),
+            id,
+            url: value["url"].as_str().unwrap_or_default().to_owned(),
+            status: value["status"]
+                .as_str()
+                .or_else(|| value["readyState"].as_str())
+                .unwrap_or("QUEUED")
+                .to_owned(),
         })
+    }
+
+    /// Create a deployment by uploading files inline (base64) — no git source,
+    /// so it needs no Vercel↔GitHub connection. Suited to static/prebuilt output;
+    /// very large trees would want the sha-based upload protocol.
+    pub async fn create_file_deployment(
+        &self,
+        project_id: &str,
+        name: &str,
+        files: &[UploadFile],
+    ) -> Result<VercelDeployment, VercelError> {
+        use base64::Engine as _;
+        let entries: Vec<serde_json::Value> = files
+            .iter()
+            .map(|file| {
+                serde_json::json!({
+                    "file": file.path,
+                    "data": base64::engine::general_purpose::STANDARD.encode(&file.data),
+                    "encoding": "base64",
+                })
+            })
+            .collect();
+        let body = serde_json::json!({
+            "name": name,
+            "project": project_id,
+            "target": "production",
+            "files": entries,
+        });
+        self.post_deployment(&body).await
+    }
+
+    /// Make the project's deployments publicly reachable so the health gate can
+    /// hit them: stackless owns disposable stacks, so it clears Vercel's SSO /
+    /// deployment protection on the projects it provisions.
+    pub async fn disable_deployment_protection(&self, project_id: &str) -> Result<(), VercelError> {
+        let url = self.project_url(project_id);
+        let response = self
+            .http
+            .patch(&url)
+            .json(&serde_json::json!({ "ssoProtection": null }))
+            .send()
+            .await
+            .map_err(|err| api_failed("PATCH", "/v9/projects/{id}", err))?;
+        let status = response.status();
+        if !status.is_success() {
+            let text = response.text().await.unwrap_or_default();
+            return Err(VercelError::ApiFailed {
+                method: "PATCH".to_owned(),
+                path: "/v9/projects/{id}".to_owned(),
+                detail: format!("{status}: {}", text.trim()),
+            });
+        }
+        Ok(())
     }
 
     pub async fn get_deployment(
@@ -280,7 +420,8 @@ impl VercelApi {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wiremock::matchers::{method, path_regex};
+    use crate::git::GitHubRepo;
+    use wiremock::matchers::{body_partial_json, method, path, path_regex, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[tokio::test]
@@ -293,7 +434,7 @@ mod tests {
             })))
             .mount(&server)
             .await;
-        let api = VercelApi::with_base("tok_test", None, &server.uri());
+        let api = VercelApi::with_base("tok_test", None, server.uri());
         let found = api.find_project_by_name("atto-demo-api").await.unwrap();
         assert_eq!(found.as_ref().map(|p| p.id.as_str()), Some("prj_1"));
     }
@@ -310,12 +451,90 @@ mod tests {
             })))
             .mount(&server)
             .await;
-        let api = VercelApi::with_base("tok_test", None, &server.uri())
+        let api = VercelApi::with_base("tok_test", None, server.uri())
             .with_poll_interval(Duration::from_millis(1));
         let deploy = api
             .wait_for_deployment("api", "dpl_1", Duration::from_secs(1))
             .await
             .unwrap();
         assert_eq!(deploy.url, "atto-demo-api.vercel.app");
+    }
+
+    #[tokio::test]
+    async fn git_deployment_sends_skip_confirmation_and_settings() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v13/deployments"))
+            .and(query_param("skipAutoDetectionConfirmation", "1"))
+            .and(body_partial_json(serde_json::json!({
+                "project": "prj_1",
+                "gitSource": { "type": "github", "org": "acme", "repo": "web", "ref": "main" },
+                "projectSettings": { "rootDirectory": "site" },
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "dpl_1", "url": "x.vercel.app", "readyState": "QUEUED"
+            })))
+            .mount(&server)
+            .await;
+        let api = VercelApi::with_base("tok", None, server.uri());
+        let cfg = ServiceVercel {
+            root: Some("site".into()),
+            ..Default::default()
+        };
+        let github = GitHubRepo {
+            org: "acme".into(),
+            repo: "web".into(),
+        };
+        let deploy = api
+            .create_git_deployment("prj_1", "web", &github, "main", &cfg)
+            .await
+            .unwrap();
+        assert_eq!(deploy.id, "dpl_1");
+    }
+
+    #[tokio::test]
+    async fn file_deployment_uploads_inline_without_git_source() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v13/deployments"))
+            .and(query_param("skipAutoDetectionConfirmation", "1"))
+            // file deploys carry `target` + `files` and no `gitSource`.
+            .and(body_partial_json(serde_json::json!({
+                "project": "prj_1",
+                "target": "production",
+                "files": [{ "file": "index.html", "encoding": "base64" }],
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "dpl_2", "url": "y.vercel.app", "status": "READY"
+            })))
+            .mount(&server)
+            .await;
+        let api = VercelApi::with_base("tok", None, server.uri());
+        let files = vec![UploadFile {
+            path: "index.html".to_owned(),
+            data: b"<p>hi</p>".to_vec(),
+        }];
+        let deploy = api
+            .create_file_deployment("prj_1", "web", &files)
+            .await
+            .unwrap();
+        assert_eq!(deploy.id, "dpl_2");
+    }
+
+    #[tokio::test]
+    async fn disable_protection_clears_sso() {
+        let server = MockServer::start().await;
+        Mock::given(method("PATCH"))
+            .and(path("/v9/projects/prj_1"))
+            .and(body_partial_json(
+                serde_json::json!({ "ssoProtection": serde_json::Value::Null }),
+            ))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({ "id": "prj_1" })),
+            )
+            .mount(&server)
+            .await;
+        let api = VercelApi::with_base("tok", None, server.uri());
+        api.disable_deployment_protection("prj_1").await.unwrap();
     }
 }

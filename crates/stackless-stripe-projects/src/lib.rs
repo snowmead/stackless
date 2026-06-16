@@ -10,6 +10,9 @@ pub mod provision;
 pub mod responses;
 pub mod stripe;
 
+#[cfg(feature = "test-support")]
+pub mod test_support;
+
 pub use catalog::verify::{
     CatalogService, add_catalog_resource, requires_confirmation, verify_service,
 };

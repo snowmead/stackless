@@ -22,8 +22,7 @@ use stackless_core::engine::StepKind;
 use stackless_core::process::ProcessStamp;
 use stackless_core::state::Checkpoint;
 use stackless_core::substrate::{
-    NamespacePurpose, Observation, StepContext, StepResource, Substrate,
-    SubstrateFault,
+    NamespacePurpose, Observation, StepContext, StepResource, Substrate, SubstrateFault,
 };
 use stackless_core::types::{DnsName, LogPath, ProxyHost, TcpPort};
 use stackless_daemon::DaemonClient;
@@ -60,7 +59,7 @@ impl Default for LocalSubstrate {
 struct MaterializePayload {
     path: String,
     overridden: bool,
-    /// The pinned commit a gix-materialized source is checked out at;
+    /// The pinned commit a grit-lib-materialized source is checked out at;
     /// absent for `--source` overrides (the operator owns that checkout).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     commit: Option<String>,
@@ -379,7 +378,7 @@ impl Substrate for LocalSubstrate {
                         payload: serde_json::to_string(&payload).unwrap_or_default(),
                     });
                 }
-                // No pin: materialize the declared git source via gix (§8).
+                // No pin: materialize the declared git source via grit-lib (§8).
                 let Some(spec) = ctx.def.services.get(service) else {
                     return Err(fault(LocalError::MaterializeUnavailable {
                         service: service.to_owned(),
@@ -390,7 +389,7 @@ impl Substrate for LocalSubstrate {
                 let repo = spec.source.repo.clone();
                 let reference = spec.source.reference.clone();
                 let secrets = self.secrets.clone();
-                // gix's blocking network/checkout work must not run on the
+                // grit-lib's blocking network/checkout work must not run on the
                 // async executor (mirrors run_hook's spawn_blocking).
                 let (path, commit) = tokio::task::spawn_blocking(move || {
                     let auth = crate::git_auth::GitAuth::from_secrets(&secrets);
@@ -611,7 +610,7 @@ impl Substrate for LocalSubstrate {
                     Observation::Gone
                 })
             }
-            // A gix-materialized source (§8): Present iff the checkout
+            // A grit-lib-materialized source (§8): Present iff the checkout
             // still exists and its detached HEAD names the recorded commit.
             "source" => {
                 let payload = serde_json::from_str::<MaterializePayload>(&checkpoint.payload).ok();
@@ -692,7 +691,7 @@ impl Substrate for LocalSubstrate {
                 }
                 Ok(())
             }
-            // A gix-materialized source (§8): remove the instance's
+            // A grit-lib-materialized source (§8): remove the instance's
             // checkout for the service. The shared per-URL cache stays.
             "source" => {
                 let payload = serde_json::from_str::<MaterializePayload>(&checkpoint.payload).ok();
@@ -722,5 +721,3 @@ impl Substrate for LocalSubstrate {
         Ok(())
     }
 }
-
-

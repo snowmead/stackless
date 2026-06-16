@@ -21,9 +21,9 @@
 //!   Render builds in its own build step, so the setup hook is recorded
 //!   as a no-op action and never executed here.
 //! - **Prepare runs on the operator's machine** (§1/§4) from a fresh
-//!   `git clone --depth 1` of the pinned ref, with the instance env
-//!   exported (external DB url). This is the v0 cloud-prepare path; the
-//!   gix-unification with the local substrate is a later cleanup.
+//!   shallow clone (`--depth 1`) of the pinned ref, with the instance env
+//!   exported (external DB url). This is the v0 cloud-prepare path; sharing
+//!   the local substrate's cached materializer is a later cleanup.
 //! - **Source override is unsupported** — Render deploys committed refs
 //!   (the engine errors before reaching us).
 
@@ -1035,6 +1035,7 @@ mod tests {
     use stackless_core::state::Checkpoint;
     use stackless_stripe_projects::ProjectsError;
     use stackless_stripe_projects::stripe::{CommandOutput, CommandRunner};
+    use stackless_stripe_projects::test_support;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -1068,6 +1069,41 @@ mod tests {
         std::fs::write(dir.path().join(api_key::KEY_FILE), "rnd_test_key").unwrap();
         let s = RenderSubstrate::for_test(NoRunner, dir.path(), base, false);
         (dir, s)
+    }
+
+    #[tokio::test]
+    async fn teardown_removes_via_stripe_then_verifies_gone_via_render() {
+        let server = MockServer::start().await;
+        // Render reports the service gone after the Stripe resource is removed.
+        Mock::given(method("GET"))
+            .and(path("/services"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([])))
+            .mount(&server)
+            .await;
+
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(api_key::KEY_FILE), "rnd_test_key").unwrap();
+        let runner = test_support::ScriptedRunner::new(vec![
+            test_support::services(&["s1-web"]), // remove_resource's resource_registered -> present
+            test_support::ok_empty(),            // remove
+        ]);
+        let s = RenderSubstrate::for_test(&runner, dir.path(), server.uri(), false);
+        let cp = checkpoint(
+            "render-service",
+            "start:web",
+            r#"{"stripe_resource":"s1-web","render_name":"smoke-render-r1-web","service_id":"srv_1","origin":"https://x.onrender.com","is_static":true}"#,
+        );
+        s.destroy("demo", &cp).await.unwrap();
+
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 2, "calls: {calls:?}");
+        assert!(
+            calls
+                .iter()
+                .any(|c| c.first().map(String::as_str) == Some("remove")
+                    && c.iter().any(|a| a == "s1-web")),
+            "expected a `remove s1-web` call, got {calls:?}"
+        );
     }
 
     #[test]
