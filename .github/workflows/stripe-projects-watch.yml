@@ -1,0 +1,124 @@
+name: Stripe Projects watch
+
+# The "never remember to upgrade" tier. Nightly, it installs the LATEST
+# `stripe projects` plugin (ignoring the committed pin), re-blesses the
+# snapshots, and — if anything changed (new plugin version, new commands/flags,
+# new services, or unmodeled catalog drift) — opens/updates a PR carrying the
+# fixture diff as the changelog Stripe never publishes. The only human action is
+# reviewing that PR. Detection of new versions is automatic.
+#
+# The bless needs NO Stripe creds — `--version`, the `--help` surface, and
+# `catalog --json` are all unauthenticated.
+#
+# Required repo secrets:
+#   GH_PAT — a PAT with repo scope, so the opened PR re-triggers ci.yml's gates
+#            (PRs created with the default GITHUB_TOKEN do not). Falls back to
+#            GITHUB_TOKEN if absent (PR opens, no CI).
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *" # nightly 06:00 UTC (ahead of the smoke run)
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  watch:
+    name: watch stripe projects plugin
+    if: ${{ github.repository_owner == 'snowmead' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Install the mise CLI only, then install tools serially with a force-retry
+      # to avoid mise's parallel rustup component races on a cold cache.
+      - name: Install mise
+        uses: jdx/mise-action@v2
+        with:
+          install: false
+          cache: false
+      - name: Install tools (serial, retried)
+        env:
+          MISE_JOBS: "1"
+        shell: bash
+        run: |
+          mise install && exit 0
+          for i in 1 2; do echo "retry $i (force)"; sleep 10; mise install --force && exit 0; done
+          exit 1
+
+      - name: Rust / Cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Stripe CLI + LATEST projects plugin
+        run: |
+          curl -s https://packages.stripe.dev/api/security/keypair/stripe-cli-gpg/public \
+            | gpg --dearmor | sudo tee /usr/share/keyrings/stripe.gpg >/dev/null
+          echo "deb [signed-by=/usr/share/keyrings/stripe.gpg] https://packages.stripe.dev/stripe-cli-debian-local stable main" \
+            | sudo tee /etc/apt/sources.list.d/stripe.list
+          sudo apt-get update && sudo apt-get install -y stripe
+          stripe plugin install projects
+
+      - name: Re-bless against the latest plugin
+        id: refresh
+        run: |
+          set +e
+          fixtures=crates/stackless-stripe-projects/tests/fixtures
+          old=$(tr -d '[:space:]' < "$fixtures/plugin-version.txt")
+          latest=$(stripe projects --version | tr -d '[:space:]')
+          mise run stripe-refresh >refresh.log 2>&1
+          status=$?
+          cat refresh.log
+          # The bless aborts before writing if the live catalog has unmodeled
+          # drift; bump the version file ourselves so the PR still carries the
+          # signal and the diff explains the model needs a new variant/field.
+          if [ "$status" -ne 0 ]; then
+            printf '%s\n' "$latest" > "$fixtures/plugin-version.txt"
+          fi
+          {
+            echo "old=$old"
+            echo "latest=$latest"
+            echo "bless_status=$status"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Compose PR body
+        env:
+          OLD: ${{ steps.refresh.outputs.old }}
+          LATEST: ${{ steps.refresh.outputs.latest }}
+          BLESS_STATUS: ${{ steps.refresh.outputs.bless_status }}
+        run: |
+          {
+            echo "Automated by \`.github/workflows/stripe-projects-watch.yml\`."
+            echo
+            echo "- Pinned plugin: \`$OLD\`"
+            echo "- Latest plugin: \`$LATEST\`"
+            echo
+            if [ "$BLESS_STATUS" -ne 0 ]; then
+              echo "> ⚠️ **The re-bless failed** — the live catalog has wire-format the typed"
+              echo "> model does not cover. Update \`crates/stackless-stripe-projects/src/catalog.rs\`,"
+              echo "> then run \`mise run stripe-refresh\` to complete the snapshots."
+              echo
+              echo '```'
+              tail -n 40 refresh.log
+              echo '```'
+            else
+              echo "Re-blessed cleanly. Review the fixture diff below as the changelog:"
+              echo "command-surface.txt (commands/flags), catalog.json (services/schemas/pricing)."
+            fi
+          } > pr-body.md
+
+      - name: Open / update upgrade PR
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          branch: bot/stripe-projects-update
+          base: main
+          commit-message: "chore(stripe-projects): plugin ${{ steps.refresh.outputs.old }} → ${{ steps.refresh.outputs.latest }}"
+          title: "chore(stripe-projects): plugin ${{ steps.refresh.outputs.old }} → ${{ steps.refresh.outputs.latest }}"
+          body-path: pr-body.md
+          add-paths: |
+            crates/stackless-stripe-projects/tests/fixtures/command-surface.txt
+            crates/stackless-stripe-projects/tests/fixtures/plugin-version.txt
+            crates/stackless-stripe-projects/tests/fixtures/catalog.json
+          delete-branch: true

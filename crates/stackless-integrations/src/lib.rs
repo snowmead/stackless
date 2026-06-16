@@ -7,17 +7,55 @@ pub mod error;
 pub mod hostable;
 pub mod providers;
 pub mod registry;
+pub mod resource;
 
 use std::path::Path;
 
+use async_trait::async_trait;
 use stackless_core::def::StackDef;
-use stackless_core::host::Host;
 use stackless_core::substrate::{Observation, StepResource};
 use stackless_stripe_projects::project;
 use stackless_stripe_projects::stripe::{CommandRunner, StripeProjects};
 
 pub use error::IntegrationError;
 pub use registry::validate_all;
+
+/// One integration provider's lifecycle behaviour. The registry stores a
+/// `&'static dyn ProviderOps` per provider, so adding a provider is one
+/// registry row + this impl — dispatch never matches on provider strings.
+///
+/// The runner is erased to `&dyn CommandRunner` (sound via
+/// `impl CommandRunner for &T`) so the registry table is not generic.
+#[async_trait]
+pub trait ProviderOps: Send + Sync {
+    // The provision params mirror the established provisioning call; `&self`
+    // for dispatch tips it one over the lint's limit.
+    #[allow(clippy::too_many_arguments)]
+    async fn provision(
+        &self,
+        stripe: &StripeProjects<&dyn CommandRunner>,
+        def: &StackDef,
+        definition_dir: &Path,
+        instance: &str,
+        name: &str,
+        substrate: &str,
+        skip_stripe_instance_context: bool,
+    ) -> Result<StepResource, IntegrationError>;
+
+    async fn observe(
+        &self,
+        stripe: &StripeProjects<&dyn CommandRunner>,
+        checkpoint_payload: &str,
+        fallback_resource: &str,
+    ) -> Result<Observation, IntegrationError>;
+
+    async fn destroy(
+        &self,
+        stripe: &StripeProjects<&dyn CommandRunner>,
+        checkpoint_payload: &str,
+        fallback_resource: &str,
+    ) -> Result<(), IntegrationError>;
+}
 
 pub async fn provision<R: CommandRunner>(
     substrate: &str,
@@ -35,29 +73,27 @@ pub async fn provision<R: CommandRunner>(
             location: format!("integrations.{name}"),
             detail: "integration not in definition".into(),
         })?;
-    let host = Host::parse(substrate).ok_or_else(|| IntegrationError::ConfigInvalid {
+    registry::validate_integration(
+        name,
+        spec,
+        Some(substrate),
+        registry::provider_host_keys(&spec.provider),
+    )?;
+    let ops = registry::ops_for(&spec.provider).ok_or_else(|| IntegrationError::ConfigInvalid {
         location: format!("integrations.{name}"),
-        detail: format!("unknown substrate {substrate:?}"),
+        detail: format!("no adapter for provider {:?}", spec.provider),
     })?;
-    registry::validate_integration(name, spec, Some(host))?;
-    match spec.provider.as_str() {
-        "clerk" => {
-            providers::clerk::provision_stripe(
-                stripe,
-                def,
-                definition_dir,
-                instance,
-                name,
-                substrate,
-                skip_stripe_instance_context,
-            )
-            .await
-        }
-        provider => Err(IntegrationError::ConfigInvalid {
-            location: format!("integrations.{name}"),
-            detail: format!("no adapter for provider {provider:?}"),
-        }),
-    }
+    let stripe = stripe.as_dyn();
+    ops.provision(
+        &stripe,
+        def,
+        definition_dir,
+        instance,
+        name,
+        substrate,
+        skip_stripe_instance_context,
+    )
+    .await
 }
 
 pub async fn observe<R: CommandRunner>(
@@ -68,10 +104,12 @@ pub async fn observe<R: CommandRunner>(
     resource_kind: &str,
 ) -> Result<Observation, IntegrationError> {
     let _ = substrate;
-    if providers::clerk::is_clerk_resource(resource_kind) {
-        providers::clerk::observe(stripe, checkpoint_payload, fallback_resource).await
-    } else {
-        Ok(Observation::Gone)
+    match registry::ops_for_resource_kind(resource_kind) {
+        Some(ops) => {
+            ops.observe(&stripe.as_dyn(), checkpoint_payload, fallback_resource)
+                .await
+        }
+        None => Ok(Observation::Gone),
     }
 }
 
@@ -83,10 +121,12 @@ pub async fn destroy<R: CommandRunner>(
     resource_kind: &str,
 ) -> Result<(), IntegrationError> {
     let _ = substrate;
-    if providers::clerk::is_clerk_resource(resource_kind) {
-        providers::clerk::destroy(stripe, checkpoint_payload, fallback_resource).await
-    } else {
-        Ok(())
+    match registry::ops_for_resource_kind(resource_kind) {
+        Some(ops) => {
+            ops.destroy(&stripe.as_dyn(), checkpoint_payload, fallback_resource)
+                .await
+        }
+        None => Ok(()),
     }
 }
 

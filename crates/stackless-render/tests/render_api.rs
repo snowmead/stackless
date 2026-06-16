@@ -136,7 +136,7 @@ async fn wait_for_deploy_fails_on_terminal_status() {
         .unwrap_err();
     assert_eq!(
         stackless_core::fault::Fault::code(&err),
-        stackless_core::fault::codes::RENDER_DEPLOY_FAILED
+        stackless_render::codes::RENDER_DEPLOY_FAILED
     );
 }
 
@@ -155,7 +155,7 @@ async fn wait_for_deploy_times_out() {
         .unwrap_err();
     assert_eq!(
         stackless_core::fault::Fault::code(&err),
-        stackless_core::fault::codes::RENDER_DEPLOY_TIMEOUT
+        stackless_render::codes::RENDER_DEPLOY_TIMEOUT
     );
 }
 
@@ -307,6 +307,6 @@ async fn api_error_status_surfaces() {
     let err = api(&server).find_service_by_name("x").await.unwrap_err();
     assert_eq!(
         stackless_core::fault::Fault::code(&err),
-        stackless_core::fault::codes::RENDER_API_FAILED
+        stackless_render::codes::RENDER_API_FAILED
     );
 }

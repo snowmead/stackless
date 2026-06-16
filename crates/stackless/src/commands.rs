@@ -7,12 +7,8 @@ use std::path::PathBuf;
 use serde::Serialize;
 use stackless_core::def::StackDef;
 use stackless_core::engine::{DownOutcome, Engine, UpRequest};
-use stackless_core::host::Host;
 use stackless_core::state::{InstanceRecord, InstanceStatus, Store};
 use stackless_core::substrate::Substrate;
-use stackless_local::LocalSubstrate;
-use stackless_render::{RenderSubstrate, SUBSTRATE_NAME as RENDER};
-use stackless_vercel::{SUBSTRATE_NAME as VERCEL, VercelSubstrate};
 
 use crate::error::CliError;
 use crate::output::Output;
@@ -28,43 +24,13 @@ pub(crate) struct SubstrateCtx {
     pub confirm_paid: bool,
 }
 
-/// The substrate registry (ground rule: providers register here and
-/// only here; core never names one).
+/// Construct a substrate by name via the registry (ground rule: providers
+/// register in `crate::substrates` and only there; core never names one).
 pub(crate) fn build_substrate(
     name: &str,
     ctx: SubstrateCtx,
 ) -> Result<Box<dyn Substrate>, CliError> {
-    substrate(name, ctx)
-}
-
-pub(crate) fn parse_host(substrate: &str) -> Result<Host, CliError> {
-    Host::parse(substrate).ok_or_else(|| CliError::SubstrateUnknown {
-        substrate: substrate.to_owned(),
-        known: Host::ALL
-            .iter()
-            .map(|host| host.as_str().to_owned())
-            .collect(),
-    })
-}
-
-fn substrate(name: &str, ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliError> {
-    match parse_host(name)? {
-        Host::Local => Ok(Box::new(LocalSubstrate {
-            proxy_port: stackless_daemon::proxy::proxy_port(),
-            secrets: ctx.secrets,
-            definition_dir: ctx.definition_dir,
-        })),
-        Host::Render => Ok(Box::new(RenderSubstrate::new(
-            ctx.definition_dir,
-            ctx.secrets,
-            ctx.confirm_paid,
-        ))),
-        Host::Vercel => Ok(Box::new(VercelSubstrate::new(
-            ctx.definition_dir,
-            ctx.secrets,
-            ctx.confirm_paid,
-        ))),
-    }
+    crate::substrates::build(name, ctx)
 }
 
 pub struct UpArgs {
@@ -247,8 +213,9 @@ pub fn up(args: UpArgs, output: &mut Output) -> Result<(), CliError> {
         .unwrap_or_default();
     let def_dir = std::fs::canonicalize(&def_dir).unwrap_or(def_dir);
     let secrets = crate::secrets::resolve(&def, &def_dir)?;
-    stackless_integrations::validate_all(&def, Some(parse_host(&substrate_name)?))?;
-    let provider = substrate(
+    let known = crate::substrates::known_names();
+    stackless_integrations::validate_all(&def, Some(substrate_name.as_str()), &known)?;
+    let provider = build_substrate(
         &substrate_name,
         SubstrateCtx {
             secrets,
@@ -286,11 +253,9 @@ pub fn up(args: UpArgs, output: &mut Output) -> Result<(), CliError> {
         .collect();
     output.up_ok(&name, &substrate_name, &outcome, &origins);
     // Spend is printed after every cloud `up` (§4 — never silently
-    // nothing; bounded by the project's hard cap).
-    if substrate_name == RENDER {
-        output.message(&rt.block_on(stackless_render::spend_line(&def_dir)));
-    } else if substrate_name == VERCEL {
-        output.message(&rt.block_on(stackless_vercel::spend_line(&def_dir)));
+    // nothing; bounded by the project's hard cap). Local spends nothing.
+    if let Some(line) = rt.block_on(provider.spend_line()) {
+        output.message(&line);
     }
     Ok(())
 }
@@ -305,7 +270,7 @@ pub fn down(name: &str, output: &Output) -> Result<(), CliError> {
     // `.stackless.env` overlay (best-effort, no required-secret gate) so the
     // provider API key resolves there, exactly as `up` does.
     let def_dir = PathBuf::from(&record.definition_dir);
-    let provider = substrate(
+    let provider = build_substrate(
         record.substrate.as_str(),
         SubstrateCtx {
             secrets: crate::secrets::load(&def_dir),
@@ -325,17 +290,9 @@ pub fn down(name: &str, output: &Output) -> Result<(), CliError> {
         )),
         DownOutcome::AlreadyDown => output.message(&format!("{name}: already down")),
     }
-    // Spend is printed after every cloud `down` too (§4).
-    match record.substrate.as_str() {
-        RENDER => {
-            let dir = PathBuf::from(&record.definition_dir);
-            output.message(&rt.block_on(stackless_render::spend_line(&dir)));
-        }
-        VERCEL => {
-            let dir = PathBuf::from(&record.definition_dir);
-            output.message(&rt.block_on(stackless_vercel::spend_line(&dir)));
-        }
-        _ => {}
+    // Spend is printed after every cloud `down` too (§4). Local spends nothing.
+    if let Some(line) = rt.block_on(provider.spend_line()) {
+        output.message(&line);
     }
     Ok(())
 }
@@ -487,67 +444,44 @@ pub fn logs(
         Some(one) => vec![one.to_owned()],
         None => def.services.keys().cloned().collect(),
     };
-    let mut entries = Vec::new();
-    // On render the daemon never saw these processes — fetch recent logs
-    // through the Render REST API (§2: recent window, no streaming).
-    if record.substrate.as_str() == RENDER {
-        let dir = PathBuf::from(&record.definition_dir);
-        // Read-only: load .stackless.env best-effort (no required-secret gate)
-        // so the Render API key resolves there for `logs` too.
-        let secrets = crate::secrets::load(&dir);
-        let rt = runtime()?;
-        for service in &services {
-            let lines = rt
-                .block_on(stackless_render::fetch_logs(
-                    &dir, &def, name, service, tail, &secrets,
-                ))
-                .map_err(|err| {
-                    CliError::substrate(
-                        stackless_core::substrate::SubstrateFault::from_fault(&err),
-                        Some(name.to_owned()),
-                    )
-                })?;
-            if output.is_json() {
-                entries.push(LogService {
-                    service,
-                    source: "render_api",
-                    log_path: None,
-                    lines: if lines.is_empty() { vec![] } else { lines },
-                });
-            } else {
-                output.message(&format!("── {service} ──"));
-                if lines.is_empty() {
-                    output.message("(no output captured)");
-                } else {
-                    output.message(&lines.join("\n"));
-                }
-            }
-        }
-        if output.is_json() {
-            output.logs_json(name, &entries);
-        }
+    // The substrate owns how logs are retrieved (cloud REST API, daemon log
+    // files, or none at all). Read-only: load `.stackless.env` best-effort so
+    // a cloud API key resolves here too.
+    let def_dir = PathBuf::from(&record.definition_dir);
+    let provider = build_substrate(
+        record.substrate.as_str(),
+        SubstrateCtx {
+            secrets: crate::secrets::load(&def_dir),
+            definition_dir: def_dir,
+            confirm_paid: false,
+        },
+    )?;
+    let rt = runtime()?;
+    let logs = rt
+        .block_on(provider.fetch_logs(&def, name, &services, tail))
+        .map_err(|err| CliError::substrate(err, Some(name.to_owned())))?;
+    let Some(logs) = logs else {
+        output.message(&format!(
+            "logs are not retrievable for substrate {:?}",
+            record.substrate.as_str()
+        ));
         return Ok(());
-    }
-    let spawner = stackless_local::spawn::Spawner::new(name);
-    for service in &services {
-        let tail_text = spawner.log_tail(service, tail);
+    };
+    let mut entries = Vec::new();
+    for log in &logs {
         if output.is_json() {
             entries.push(LogService {
-                service,
-                source: "file",
-                log_path: Some(spawner.log_path(service).display().to_string()),
-                lines: if tail_text.is_empty() {
-                    vec![]
-                } else {
-                    tail_text.lines().map(str::to_owned).collect()
-                },
+                service: log.service.as_str(),
+                source: log.source,
+                log_path: log.log_path.clone(),
+                lines: log.lines.clone(),
             });
         } else {
-            output.message(&format!("── {service} ──"));
-            if tail_text.is_empty() {
+            output.message(&format!("── {} ──", log.service));
+            if log.lines.is_empty() {
                 output.message("(no output captured)");
             } else {
-                output.message(&tail_text);
+                output.message(&log.lines.join("\n"));
             }
         }
     }
@@ -559,7 +493,7 @@ pub fn logs(
 
 pub fn parse_and_validate(text: &str) -> Result<StackDef, CliError> {
     let def = StackDef::parse(text)?;
-    def.validate()?;
+    def.validate_hosts(&crate::substrates::known_names())?;
     Ok(def)
 }
 

@@ -22,7 +22,7 @@ use stackless_core::engine::StepKind;
 use stackless_core::process::ProcessStamp;
 use stackless_core::state::Checkpoint;
 use stackless_core::substrate::{
-    NamespacePurpose, Observation, StepContext, StepResource, Substrate, SubstrateFault,
+    NamespacePurpose, Observation, ServiceLog, StepContext, StepResource, Substrate, SubstrateFault,
 };
 use stackless_core::types::{DnsName, LogPath, ProxyHost, TcpPort};
 use stackless_daemon::DaemonClient;
@@ -719,5 +719,33 @@ impl Substrate for LocalSubstrate {
         );
         stackless_integrations::finalize_stripe_instance(&stripe, instance).await;
         Ok(())
+    }
+
+    /// Recent logs from the per-service log files the daemon spawner writes.
+    async fn fetch_logs(
+        &self,
+        _def: &StackDef,
+        instance: &str,
+        services: &[String],
+        tail: usize,
+    ) -> Result<Option<Vec<ServiceLog>>, SubstrateFault> {
+        let spawner = crate::spawn::Spawner::new(instance);
+        let logs = services
+            .iter()
+            .map(|service| {
+                let tail_text = spawner.log_tail(service, tail);
+                ServiceLog {
+                    service: service.clone(),
+                    source: "file",
+                    log_path: Some(spawner.log_path(service).display().to_string()),
+                    lines: if tail_text.is_empty() {
+                        vec![]
+                    } else {
+                        tail_text.lines().map(str::to_owned).collect()
+                    },
+                }
+            })
+            .collect();
+        Ok(Some(logs))
     }
 }

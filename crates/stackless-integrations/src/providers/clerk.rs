@@ -4,9 +4,9 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
 
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use stackless_core::def::{Namespace, StackDef};
-use stackless_core::host::Host;
 use stackless_core::substrate::{Observation, StepResource};
 use stackless_core::types::DnsName;
 use stackless_stripe_projects::ProjectsError;
@@ -18,7 +18,7 @@ use stackless_stripe_projects::provision::{
 use stackless_stripe_projects::stripe::{CommandRunner, StripeProjects};
 
 use crate::error::IntegrationError;
-use crate::hostable::{ConfigScope, Hostable, IntegrationHosting};
+use crate::hostable::{ConfigScope, Hostable, IntegrationHosting, host_bound_hosts};
 use crate::registry;
 
 pub const RESOURCE_KIND: &str = "integration-clerk";
@@ -71,8 +71,48 @@ impl Hostable for ClerkAuth {
     const OUTPUTS: &'static [&'static str] = &["secret_key", "publishable_key"];
 }
 
-fn active_host(substrate: &str) -> Host {
-    Host::parse(substrate).unwrap_or(Host::Local)
+#[async_trait]
+impl crate::ProviderOps for ClerkAuth {
+    #[allow(clippy::too_many_arguments)]
+    async fn provision(
+        &self,
+        stripe: &StripeProjects<&dyn CommandRunner>,
+        def: &StackDef,
+        definition_dir: &Path,
+        instance: &str,
+        name: &str,
+        substrate: &str,
+        skip_stripe_instance_context: bool,
+    ) -> Result<StepResource, IntegrationError> {
+        provision_stripe(
+            stripe,
+            def,
+            definition_dir,
+            instance,
+            name,
+            substrate,
+            skip_stripe_instance_context,
+        )
+        .await
+    }
+
+    async fn observe(
+        &self,
+        stripe: &StripeProjects<&dyn CommandRunner>,
+        checkpoint_payload: &str,
+        fallback_resource: &str,
+    ) -> Result<Observation, IntegrationError> {
+        observe(stripe, checkpoint_payload, fallback_resource).await
+    }
+
+    async fn destroy(
+        &self,
+        stripe: &StripeProjects<&dyn CommandRunner>,
+        checkpoint_payload: &str,
+        fallback_resource: &str,
+    ) -> Result<(), IntegrationError> {
+        destroy(stripe, checkpoint_payload, fallback_resource).await
+    }
 }
 
 /// Build the typed `clerk/auth` config from the integration definition.
@@ -87,7 +127,7 @@ fn build_clerk_config(ctx: &ProvisionContext<'_>) -> Result<ClerkAuthConfig, Pro
         .integrations
         .get(ctx.logical_name)
         .ok_or_else(|| fail("integration not in definition".into()))?;
-    let config = spec.effective_config(active_host(ctx.substrate));
+    let config = spec.effective_config(ctx.substrate, host_bound_hosts(ClerkAuth::HOSTING));
     let app_name_raw =
         registry::config_string(&config, "app_name").map_err(|err| fail(err.to_string()))?;
     let namespace = Namespace {
@@ -222,7 +262,7 @@ pub async fn provision_stripe<R: CommandRunner>(
         provision_with_credentials(stripe, &catalog, &ctx, &config, CLERK_ENV_KEYS).await?;
 
     let spec = &def.integrations[name];
-    let effective = spec.effective_config(active_host(substrate));
+    let effective = spec.effective_config(substrate, host_bound_hosts(ClerkAuth::HOSTING));
     let credential_set = registry::config_string(&effective, "credential_set").map_err(|err| {
         IntegrationError::ConfigInvalid {
             location: format!("integrations.{name}.credential_set"),
@@ -276,10 +316,6 @@ pub async fn destroy<R: CommandRunner>(
     let resource = stripe_resource(checkpoint_payload).unwrap_or_else(|| fallback_resource.into());
     project::remove_resource(stripe, &resource).await?;
     Ok(())
-}
-
-pub fn is_clerk_resource(kind: &str) -> bool {
-    kind == RESOURCE_KIND
 }
 
 fn stripe_resource(payload: &str) -> Option<String> {

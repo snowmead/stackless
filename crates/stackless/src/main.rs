@@ -7,6 +7,7 @@ mod daemon_cmd;
 mod error;
 mod output;
 mod secrets;
+mod substrates;
 mod verify;
 
 use std::path::PathBuf;
@@ -127,14 +128,17 @@ fn main() -> ExitCode {
 }
 
 fn check(file: &PathBuf, substrate: Option<&str>, output: &Output) -> Result<(), CliError> {
-    let active_host = substrate.map(commands::parse_host).transpose()?;
+    if let Some(name) = substrate {
+        substrates::ensure_known(name)?;
+    }
+    let known = substrates::known_names();
     let text = std::fs::read_to_string(file).map_err(|source| CliError::FileRead {
         path: file.display().to_string(),
         source,
     })?;
     let def = StackDef::parse(&text)?;
-    def.validate()?;
-    stackless_integrations::validate_all(&def, active_host)?;
+    def.validate_hosts(&known)?;
+    stackless_integrations::validate_all(&def, substrate, &known)?;
     if let Some(substrate) = substrate {
         def.validate_for_substrate(substrate)?;
     }

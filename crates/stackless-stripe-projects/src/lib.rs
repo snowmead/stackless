@@ -9,6 +9,7 @@ pub mod project;
 pub mod provision;
 pub mod responses;
 pub mod stripe;
+pub mod surface;
 
 #[cfg(feature = "test-support")]
 pub mod test_support;
@@ -20,3 +21,7 @@ pub use catalog::{Catalog, ServiceDetail};
 pub use error::ProjectsError;
 pub use project::recorded_project_id;
 pub use stripe::{CommandOutput, CommandRunner, StripeProjects, StripeResult, TokioRunner};
+pub use surface::{
+    command_separators, command_surface, parse_header_version, plugin_version, render_surface,
+    surface_header,
+};

@@ -12,7 +12,6 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 
 use super::error::DefError;
-use crate::host::Host;
 use crate::types::{DnsName, HttpStatus};
 
 /// Top level of `stackless.toml`. Unknown top-level sections are
@@ -83,24 +82,28 @@ pub struct Integration {
 }
 
 impl Integration {
-    /// Config keys excluding registered host override tables.
-    pub fn config_fields(&self) -> BTreeMap<String, toml::Value> {
+    /// Config keys excluding registered host override tables. `known_substrates`
+    /// names the keys that count as host overrides (substrate names), so they are
+    /// stripped from the provider's own config.
+    pub fn config_fields(&self, known_substrates: &[&str]) -> BTreeMap<String, toml::Value> {
         self.fields
             .iter()
-            .filter(|(key, _)| !Host::is_host_key(key))
+            .filter(|(key, _)| !known_substrates.contains(&key.as_str()))
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect()
     }
 
-    pub fn host_block(&self, host: Host) -> Option<&toml::Table> {
-        self.fields
-            .get(host.as_str())
-            .and_then(toml::Value::as_table)
+    pub fn host_block(&self, host: &str) -> Option<&toml::Table> {
+        self.fields.get(host).and_then(toml::Value::as_table)
     }
 
     /// Parent config merged with a host override table when present.
-    pub fn effective_config(&self, host: Host) -> BTreeMap<String, toml::Value> {
-        let mut out = self.config_fields();
+    pub fn effective_config(
+        &self,
+        host: &str,
+        known_substrates: &[&str],
+    ) -> BTreeMap<String, toml::Value> {
+        let mut out = self.config_fields(known_substrates);
         if let Some(override_table) = self.host_block(host) {
             for (key, value) in override_table {
                 out.insert(key.clone(), value.clone());
@@ -110,12 +113,14 @@ impl Integration {
     }
 
     /// Every host-key table nested under this integration.
-    pub fn host_blocks(&self) -> BTreeMap<Host, &toml::Table> {
+    pub fn host_blocks(&self, known_substrates: &[&str]) -> BTreeMap<String, &toml::Table> {
         self.fields
             .iter()
             .filter_map(|(key, value)| {
-                let host = Host::parse(key)?;
-                Some((host, value.as_table()?))
+                if !known_substrates.contains(&key.as_str()) {
+                    return None;
+                }
+                Some((key.clone(), value.as_table()?))
             })
             .collect()
     }

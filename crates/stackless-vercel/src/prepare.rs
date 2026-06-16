@@ -1,8 +1,6 @@
 //! Operator-side cloud prepare: shallow git checkout on the operator's machine.
-
-use std::process::Stdio;
-
-use stackless_core::fault::FAILURE_LOG_TAIL_LINES;
+//! The mechanics are shared (`stackless_cloud::prepare`); this maps the neutral
+//! failure to Vercel's error so its `vercel.*` code/remediation hold.
 
 use crate::error::VercelError;
 
@@ -13,62 +11,12 @@ pub fn run_prepare_command(
     command: &str,
     env: &[(String, String)],
 ) -> Result<(), VercelError> {
-    let tmp = tempdir().map_err(|message| VercelError::PrepareFailed {
-        service: service.to_owned(),
-        command: Some(command.to_owned()),
-        message,
-        log_tail: None,
-    })?;
-    let result = (|| {
-        stackless_git::clone_checkout(
-            repo,
-            reference,
-            &tmp,
-            &stackless_git::Credentials::default(),
-        )
-        .map_err(|err| VercelError::PrepareFailed {
-            service: service.to_owned(),
-            command: Some(format!("clone --depth 1 --branch {reference} {repo}")),
-            message: format!("clone {repo}@{reference} failed: {err}"),
-            log_tail: None,
-        })?;
-        let mut cmd = std::process::Command::new("sh");
-        cmd.arg("-c")
-            .arg(command)
-            .current_dir(&tmp)
-            .stdin(Stdio::null());
-        for (key, value) in env {
-            cmd.env(key, value);
-        }
-        let output = cmd.output().map_err(|err| VercelError::PrepareFailed {
-            service: service.to_owned(),
-            command: Some(command.to_owned()),
-            message: format!("could not run prepare command: {err}"),
-            log_tail: None,
-        })?;
-        if !output.status.success() {
-            return Err(VercelError::PrepareFailed {
-                service: service.to_owned(),
-                command: Some(command.to_owned()),
-                message: format!("`{command}` exited {}", output.status),
-                log_tail: Some(tail_bytes(&output.stderr)),
-            });
-        }
-        Ok(())
-    })();
-    let _ = std::fs::remove_dir_all(&tmp);
-    result
-}
-
-fn tempdir() -> Result<std::path::PathBuf, String> {
-    tempfile::tempdir()
-        .map(|dir| dir.keep())
-        .map_err(|err| err.to_string())
-}
-
-fn tail_bytes(bytes: &[u8]) -> String {
-    let text = String::from_utf8_lossy(bytes);
-    let lines: Vec<&str> = text.lines().collect();
-    let start = lines.len().saturating_sub(FAILURE_LOG_TAIL_LINES);
-    lines[start..].join("\n")
+    stackless_cloud::prepare::run_prepare_command(service, repo, reference, command, env).map_err(
+        |f| VercelError::PrepareFailed {
+            service: f.service,
+            command: f.command,
+            message: f.message,
+            log_tail: f.log_tail,
+        },
+    )
 }

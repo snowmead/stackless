@@ -28,6 +28,7 @@
 //!   (the engine errors before reaching us).
 
 pub mod api_key;
+pub mod codes;
 pub mod config;
 pub mod error;
 pub mod prepare;
@@ -43,7 +44,7 @@ use stackless_core::def::{Namespace, StackDef};
 use stackless_core::engine::StepKind;
 use stackless_core::state::Checkpoint;
 use stackless_core::substrate::{
-    Observation, StepContext, StepResource, Substrate, SubstrateFault,
+    Observation, ServiceLog, StepContext, StepResource, Substrate, SubstrateFault,
 };
 use tokio::sync::Mutex;
 
@@ -903,6 +904,39 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
     async fn finalize_teardown(&self, instance: &str) -> Result<(), SubstrateFault> {
         stackless_integrations::finalize_stripe_instance(&self.stripe(), instance).await;
         Ok(())
+    }
+
+    async fn spend_line(&self) -> Option<String> {
+        Some(spend_line(&self.definition_dir).await)
+    }
+
+    async fn fetch_logs(
+        &self,
+        def: &StackDef,
+        instance: &str,
+        services: &[String],
+        tail: usize,
+    ) -> Result<Option<Vec<ServiceLog>>, SubstrateFault> {
+        let mut out = Vec::with_capacity(services.len());
+        for service in services {
+            let lines = fetch_logs(
+                &self.definition_dir,
+                def,
+                instance,
+                service,
+                tail,
+                &self.secrets,
+            )
+            .await
+            .map_err(|err| SubstrateFault::from_fault(&err))?;
+            out.push(ServiceLog {
+                service: service.clone(),
+                source: "render_api",
+                log_path: None,
+                lines,
+            });
+        }
+        Ok(Some(out))
     }
 }
 

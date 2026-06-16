@@ -1,9 +1,7 @@
-//! Render API key resolution (§4).
-//!
-//! Order: the `RENDER_API_KEY` env var, then a `RENDER_API_KEY` entry in the
-//! resolved secrets (`.stackless.env`), then a 0600 key file at
-//! `<definition_dir>/.render-api-key`. A missing key is a clean fault naming
-//! all three sources.
+//! Render API key resolution (§4): env var, then resolved secrets, then a 0600
+//! key file. Resolution is shared (`stackless_cloud::credential`); the env var
+//! and key-file names are Render's, and a miss maps to Render's error so its
+//! `render.api_key.missing` code and remediation hold.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -13,36 +11,15 @@ use crate::error::RenderError;
 pub const KEY_FILE: &str = ".render-api-key";
 pub const KEY_ENV: &str = "RENDER_API_KEY";
 
-/// Resolve the key from the environment, the resolved secrets, or the scoped
-/// key file next to the definition. The env var wins so CI can inject without a
-/// file; `.stackless.env` is the project's canonical secret store; the file is a
-/// scoped fallback.
 pub fn resolve(
     definition_dir: &Path,
     secrets: &BTreeMap<String, String>,
 ) -> Result<String, RenderError> {
-    if let Ok(key) = std::env::var(KEY_ENV) {
-        let key = key.trim().to_owned();
-        if !key.is_empty() {
-            return Ok(key);
-        }
-    }
-    if let Some(key) = secrets.get(KEY_ENV) {
-        let key = key.trim().to_owned();
-        if !key.is_empty() {
-            return Ok(key);
-        }
-    }
-    let key_file = definition_dir.join(KEY_FILE);
-    if let Ok(contents) = std::fs::read_to_string(&key_file) {
-        let key = contents.trim().to_owned();
-        if !key.is_empty() {
-            return Ok(key);
-        }
-    }
-    Err(RenderError::ApiKeyMissing {
-        key_file: key_file.display().to_string(),
-    })
+    stackless_cloud::credential::resolve(KEY_ENV, KEY_FILE, definition_dir, secrets).map_err(
+        |missing| RenderError::ApiKeyMissing {
+            key_file: missing.key_file,
+        },
+    )
 }
 
 #[cfg(test)]

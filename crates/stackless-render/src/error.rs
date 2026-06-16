@@ -1,6 +1,8 @@
-//! Render-substrate errors (codes in core's `render.*` registry).
+//! Render-substrate errors (codes in this crate's `render.*` registry).
 
-use stackless_core::fault::{ErrorContext, Fault, codes};
+use stackless_core::fault::{ErrorContext, Fault};
+
+use crate::codes;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RenderError {

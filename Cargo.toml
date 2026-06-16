@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/stackless-core",
+    "crates/stackless-cloud",
     "crates/stackless-daemon",
     "crates/stackless-integrations",
     "crates/stackless-local",
@@ -12,6 +13,7 @@ members = [
     "crates/stackless",
     "crates/render-client",
     "crates/vercel-client",
+    "crates/xtask",
 ]
 
 [workspace.package]
@@ -32,6 +34,7 @@ dbg_macro   = "deny"
 
 [workspace.dependencies]
 stackless-core            = { path = "crates/stackless-core" }
+stackless-cloud           = { path = "crates/stackless-cloud" }
 stackless-daemon          = { path = "crates/stackless-daemon" }
 stackless-local           = { path = "crates/stackless-local" }
 stackless-git             = { path = "crates/stackless-git" }
