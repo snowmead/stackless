@@ -136,6 +136,16 @@ impl<R: CommandRunner> StripeProjects<R> {
         &self.dir
     }
 
+    /// Borrow as a `StripeProjects<&dyn CommandRunner>` so callers holding a
+    /// `dyn` dispatch target can run commands without being generic over `R`
+    /// (`impl CommandRunner for &T` makes the erased runner a valid runner).
+    pub fn as_dyn(&self) -> StripeProjects<&'_ dyn CommandRunner> {
+        StripeProjects {
+            runner: &self.runner as &dyn CommandRunner,
+            dir: self.dir.clone(),
+        }
+    }
+
     #[cfg(test)]
     fn runner(&self) -> &R {
         &self.runner

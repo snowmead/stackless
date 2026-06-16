@@ -29,22 +29,15 @@ ci    = { depends = ["check", "test", "supply-chain"] }
 
 # Live cloud smokes — gated on real provider creds, EXCLUDED from `ci` (which
 # stays hermetic). Locally they read tokens from .stackless.env; in CI the
-# workflow injects VERCEL_TOKEN / RENDER_API_KEY as secrets. Each runs a real
-# up, then always tears down, and fails if either the up (health) or the down
-# (verified-gone) fails.
-smoke-vercel = '''
-[ -f .stackless.env ] && { set -a; . ./.stackless.env; set +a; }
-cargo run -q -p stackless -- up --name smoke-v --on vercel --file fixtures/smoke/vercel/stackless.toml; up=$?
-cargo run -q -p stackless -- down smoke-v; down=$?
-exit $(( up != 0 || down != 0 ))
-'''
-smoke-render = '''
-[ -f .stackless.env ] && { set -a; . ./.stackless.env; set +a; }
-cargo run -q -p stackless -- up --name smoke-r --on render --file fixtures/smoke/render/stackless.toml; up=$?
-cargo run -q -p stackless -- down smoke-r; down=$?
-exit $(( up != 0 || down != 0 ))
-'''
-smoke = { depends = ["smoke-vercel", "smoke-render"] }
+# workflow injects STRIPE_API_KEY / VERCEL_TOKEN / RENDER_API_KEY as secrets. All
+# three share `fixtures/smoke/run.sh`: a real up, then ALWAYS a teardown, with a
+# unique per-run instance name; the task fails if up (health) or down (verified-
+# gone) fails. Cloudflare is a catalog integration, so it provisions R2+KV under
+# `--on local` (needs `stripe projects link cloudflare`, account-level).
+smoke-vercel     = "bash fixtures/smoke/run.sh vercel fixtures/smoke/vercel/stackless.toml smoke-v"
+smoke-render     = "bash fixtures/smoke/run.sh render fixtures/smoke/render/stackless.toml smoke-r"
+smoke-cloudflare = "bash fixtures/smoke/run.sh local fixtures/smoke/cloudflare/stackless.toml smoke-c"
+smoke            = { depends = ["smoke-vercel", "smoke-render", "smoke-cloudflare"] }
 
 # Stripe Projects plugin snapshots. `stripe-refresh` is the bless path (writes
 # the committed fixtures from the locally installed plugin); it needs the real
@@ -59,6 +52,19 @@ stripe-coherence = "cargo nextest run -p stackless-stripe-projects -E 'test(fixt
 # Regenerate the vendored OpenAPI client crates (body stays shell — python +
 # cargo-progenitor glue with no Rust types to reuse).
 regen-clients = "bash specs/regen-clients.sh"
+
+# Provider-onboarding tooling (the `xtask` crate). `catalog` is offline (reads the
+# committed catalog fixture); `discover` is live — it provisions a resource into a
+# throwaway environment to capture its real credential envelope, so it needs creds
+# (STRIPE_API_KEY) and a dir with a linked project (default cwd; pass `-- --dir ...`).
+# e.g. `mise run catalog cloudflare`, `mise run discover cloudflare/kv -- --dir fixtures/smoke/cloudflare`
+catalog = "cargo run -q -p xtask -- catalog"
+new-integration = "cargo run -q -p xtask -- new-integration"
+discover = '''
+[ -f .stackless.env ] && { set -a; . ./.stackless.env; set +a; }
+cargo run -q -p xtask -- discover "$@"
+'''
+
 # Install the prek git hooks by hand (normally auto-wired by [hooks].postinstall).
 hooks = "prek install -t pre-commit -t pre-push -f"
 

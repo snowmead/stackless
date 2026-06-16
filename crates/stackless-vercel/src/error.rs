@@ -1,6 +1,8 @@
-//! Vercel-substrate errors (codes in core's `vercel.*` registry).
+//! Vercel-substrate errors (codes in this crate's `vercel.*` registry).
 
-use stackless_core::fault::{ErrorContext, Fault, codes};
+use stackless_core::fault::{ErrorContext, Fault};
+
+use crate::codes;
 
 #[derive(Debug, thiserror::Error)]
 pub enum VercelError {

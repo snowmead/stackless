@@ -93,6 +93,19 @@ pub enum Observation {
     Gone,
 }
 
+/// One service's recent logs as a substrate retrieved them, for the `logs`
+/// verb. The substrate owns where the lines come from (a cloud API, a local
+/// file); the CLI only renders them.
+#[derive(Debug, Clone)]
+pub struct ServiceLog {
+    pub service: String,
+    /// Provenance tag for `--json` output (e.g. `"render_api"`, `"file"`).
+    pub source: &'static str,
+    /// Local log file path, when the lines were read from disk.
+    pub log_path: Option<String>,
+    pub lines: Vec<String>,
+}
+
 /// What `execute` hands back for the journal: the resource the step
 /// created (or re-affirmed), recorded before the engine proceeds.
 #[derive(Debug, Clone)]
@@ -164,5 +177,26 @@ pub trait Substrate: Send + Sync {
     /// shared Stripe Projects environment).
     async fn finalize_teardown(&self, _instance: &str) -> Result<(), SubstrateFault> {
         Ok(())
+    }
+
+    /// A spend line to print after `up`/`down` (§4 — never silently nothing;
+    /// bounded by the project's hard cap). Substrates that spend nothing
+    /// (local) return `None`.
+    async fn spend_line(&self) -> Option<String> {
+        None
+    }
+
+    /// Recent logs for `services` (§2 — recent window, no streaming). `None`
+    /// means this substrate has no log facility (the daemon never saw the
+    /// processes and there is no remote log API); the CLI reports that rather
+    /// than inventing output.
+    async fn fetch_logs(
+        &self,
+        _def: &StackDef,
+        _instance: &str,
+        _services: &[String],
+        _tail: usize,
+    ) -> Result<Option<Vec<ServiceLog>>, SubstrateFault> {
+        Ok(None)
     }
 }

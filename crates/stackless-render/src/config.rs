@@ -341,7 +341,7 @@ static = { build = "bun run build", publish = "./dist", spa_rewrite = true }
         let err = RenderSubstrate::<TokioRunner>::service_render(&parse(&toml), "api").unwrap_err();
         assert_eq!(
             stackless_core::fault::Fault::code(&err),
-            stackless_core::fault::codes::RENDER_CONFIG_INVALID
+            crate::codes::RENDER_CONFIG_INVALID
         );
     }
 
@@ -354,7 +354,7 @@ static = { build = "bun run build", publish = "./dist", spa_rewrite = true }
         let err = RenderSubstrate::<TokioRunner>::service_render(&parse(&toml), "web").unwrap_err();
         assert_eq!(
             stackless_core::fault::Fault::code(&err),
-            stackless_core::fault::codes::RENDER_CONFIG_INVALID
+            crate::codes::RENDER_CONFIG_INVALID
         );
     }
 
@@ -367,7 +367,7 @@ static = { build = "bun run build", publish = "./dist", spa_rewrite = true }
         let err = RenderSubstrate::<TokioRunner>::service_render(&parse(&toml), "api").unwrap_err();
         assert_eq!(
             stackless_core::fault::Fault::code(&err),
-            stackless_core::fault::codes::RENDER_CONFIG_INVALID
+            crate::codes::RENDER_CONFIG_INVALID
         );
     }
 
@@ -377,7 +377,7 @@ static = { build = "bun run build", publish = "./dist", spa_rewrite = true }
         let err = RenderSubstrate::<TokioRunner>::datastore_plan(&parse(&toml), "db").unwrap_err();
         assert_eq!(
             stackless_core::fault::Fault::code(&err),
-            stackless_core::fault::codes::RENDER_CONFIG_INVALID
+            crate::codes::RENDER_CONFIG_INVALID
         );
     }
 }

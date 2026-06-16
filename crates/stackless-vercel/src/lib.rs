@@ -5,6 +5,7 @@
 //! API (env vars, git deployments, deploy polling, health, teardown).
 
 pub mod api_key;
+pub mod codes;
 pub mod config;
 pub mod error;
 pub mod git;
@@ -865,6 +866,10 @@ impl<R: CommandRunner> Substrate for VercelSubstrate<R> {
     async fn finalize_teardown(&self, instance: &str) -> Result<(), SubstrateFault> {
         stackless_integrations::finalize_stripe_instance(&self.stripe(), instance).await;
         Ok(())
+    }
+
+    async fn spend_line(&self) -> Option<String> {
+        Some(spend_line(&self.definition_dir).await)
     }
 }
 

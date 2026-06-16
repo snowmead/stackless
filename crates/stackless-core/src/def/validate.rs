@@ -10,19 +10,13 @@ use std::collections::BTreeMap;
 use super::error::DefError;
 use super::interp::{self, Reference};
 use super::model::{Integration, Service, StackDef};
-use crate::host::Host;
 
 /// Engines with built-in readiness in v0 (ARCHITECTURE.md §7).
 const KNOWN_ENGINES: &[&str] = &["postgres"];
 
 impl StackDef {
-    /// Validate the whole definition against the rules registered hosts share.
-    pub fn validate(&self) -> Result<(), DefError> {
-        let known_substrates: Vec<&str> = Host::ALL.iter().map(|host| host.as_str()).collect();
-        validate_definition(self, &known_substrates)
-    }
-
-    /// Validate against an explicit host list (tests and tooling only).
+    /// Validate the whole definition against the rules registered substrates share.
+    /// Callers pass the names of registered substrates (core knows none by name).
     pub fn validate_hosts(&self, known_substrates: &[&str]) -> Result<(), DefError> {
         validate_definition(self, known_substrates)
     }
@@ -190,7 +184,7 @@ fn validate_integrations(def: &StackDef, known_substrates: &[&str]) -> Result<()
             });
         }
         validate_integration_substrate_keys(name, integration, known_substrates)?;
-        validate_integration_string_refs(def, name, integration)?;
+        validate_integration_string_refs(def, name, integration, known_substrates)?;
     }
     Ok(())
 }
@@ -217,8 +211,9 @@ fn validate_integration_string_refs(
     def: &StackDef,
     name: &str,
     integration: &Integration,
+    known_substrates: &[&str],
 ) -> Result<(), DefError> {
-    for (key, value) in integration.config_fields() {
+    for (key, value) in integration.config_fields(known_substrates) {
         let Some(text) = value.as_str() else {
             continue;
         };
@@ -226,15 +221,15 @@ fn validate_integration_string_refs(
         let refs = interp::references(text, &location)?;
         validate_references(def, &refs, &location)?;
     }
-    for host in Host::ALL {
-        let Some(block) = integration.host_block(*host) else {
+    for substrate in known_substrates {
+        let Some(block) = integration.host_block(substrate) else {
             continue;
         };
         for (key, value) in block {
             let Some(text) = value.as_str() else {
                 continue;
             };
-            let location = format!("integrations.{name}.{}.{}", host.as_str(), key);
+            let location = format!("integrations.{name}.{substrate}.{key}");
             let refs = interp::references(text, &location)?;
             validate_references(def, &refs, &location)?;
         }

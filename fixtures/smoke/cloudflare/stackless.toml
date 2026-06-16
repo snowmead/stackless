@@ -1,0 +1,36 @@
+# Live smoke: provisions Cloudflare R2 + KV through Stripe Projects under
+# `--on local` (integrations provision under any substrate — no deploy target
+# needed), injects their outputs into a trivial local probe service, then tears
+# down and verifies the resources are gone.
+#
+# Run: stackless up --on local --file fixtures/smoke/cloudflare/stackless.toml --name <inst>
+# One-time human step: `stripe projects link cloudflare` (account-level).
+# The project anchor ([stack.projects.stripe].project) is recorded here on first up.
+[stack]
+name = "smoke-cloudflare"
+
+[stack.projects]
+[stack.projects.stripe]
+project = "project_61UsOaLHP2DEe7yTX16UhtGl9aA8OIk3xIw9EFWsK1JQ"
+
+[integrations.bucket]
+provider = "cloudflare-r2"
+name     = "stackless-smoke-${instance.name}"
+
+[integrations.cache]
+provider = "cloudflare-kv"
+title    = "stackless-smoke-${instance.name}"
+
+# A trivial local service that proves the integration outputs resolve into a
+# service env (and gives the stack a health-gated service to run).
+[services.web]
+source      = { repo = "https://github.com/snowmead/stackless", ref = "main" }
+root_origin = true
+health      = { path = "/", contains = "stackless-smoke-ok" }
+env         = { R2_ENDPOINT = "${integrations.bucket.endpoint}", R2_BUCKET = "${integrations.bucket.bucket}", KV_NAMESPACE = "${integrations.cache.namespace_id}" }
+
+# Self-contained probe: serves an inline page so the smoke does not depend on
+# the cloned source ref having fixtures/smoke/site (it isn't on main pre-merge).
+# Local execs the command (`sh -c "exec <run>"`), so wrap the script in `sh -c`.
+[services.web.local]
+run = "sh -c 'd=$(mktemp -d); printf stackless-smoke-ok > \"$d/index.html\"; exec python3 -m http.server $PORT --bind 127.0.0.1 --directory \"$d\"'"

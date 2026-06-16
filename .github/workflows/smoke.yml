@@ -8,7 +8,7 @@ name: Live smoke
 #
 # Required repo secrets:
 #   STRIPE_API_KEY  — a Stripe secret key for the account whose Stripe Project has
-#                     the providers linked (`stripe projects link vercel|render`,
+#                     the providers linked (`stripe projects link vercel|render|cloudflare`,
 #                     a one-time human step — provider links are account-level).
 #   VERCEL_TOKEN, RENDER_API_KEY — provider API creds (Vercel is also resolved from
 #                     the Stripe-managed instance env, but the var is harmless).
@@ -32,7 +32,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        provider: [vercel, render]
+        provider: [vercel, render, cloudflare]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

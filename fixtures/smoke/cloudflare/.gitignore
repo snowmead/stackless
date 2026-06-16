@@ -1,0 +1,15 @@
+# Agent-onboarding files scaffolded by `stripe projects init` — not part of the fixture.
+AGENTS.md
+CLAUDE.md
+.cursorignore
+.claude/
+.cursor/
+.agents/
+
+.projects/cache
+.projects/vault
+.projects/state.test.json
+.projects/state.local.test.json
+.env
+.env.*
+!.env.example

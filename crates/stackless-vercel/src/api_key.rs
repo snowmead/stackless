@@ -1,9 +1,7 @@
-//! Vercel API token resolution.
-//!
-//! Order: the `VERCEL_TOKEN` env var, then a `VERCEL_TOKEN` entry in the
-//! resolved secrets (`.stackless.env`), then a 0600 key file at
-//! `<definition_dir>/.vercel-token`. A missing token is a clean fault naming
-//! all three sources.
+//! Vercel API token resolution: env var, then resolved secrets, then a 0600 key
+//! file. Resolution is shared (`stackless_cloud::credential`); the env var and
+//! key-file names are Vercel's, and a miss maps to Vercel's error so its
+//! `vercel.api_key.missing` code and remediation hold.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -13,36 +11,15 @@ use crate::error::VercelError;
 pub const KEY_FILE: &str = ".vercel-token";
 pub const KEY_ENV: &str = "VERCEL_TOKEN";
 
-/// Resolve the token from the environment, the resolved secrets, or the scoped
-/// key file next to the definition. The env var wins so CI can inject without a
-/// file; `.stackless.env` is the project's canonical secret store; the file is a
-/// scoped fallback.
 pub fn resolve(
     definition_dir: &Path,
     secrets: &BTreeMap<String, String>,
 ) -> Result<String, VercelError> {
-    if let Ok(token) = std::env::var(KEY_ENV) {
-        let token = token.trim().to_owned();
-        if !token.is_empty() {
-            return Ok(token);
-        }
-    }
-    if let Some(token) = secrets.get(KEY_ENV) {
-        let token = token.trim().to_owned();
-        if !token.is_empty() {
-            return Ok(token);
-        }
-    }
-    let key_file = definition_dir.join(KEY_FILE);
-    if let Ok(contents) = std::fs::read_to_string(&key_file) {
-        let token = contents.trim().to_owned();
-        if !token.is_empty() {
-            return Ok(token);
-        }
-    }
-    Err(VercelError::ApiKeyMissing {
-        key_file: key_file.display().to_string(),
-    })
+    stackless_cloud::credential::resolve(KEY_ENV, KEY_FILE, definition_dir, secrets).map_err(
+        |missing| VercelError::ApiKeyMissing {
+            key_file: missing.key_file,
+        },
+    )
 }
 
 #[cfg(test)]

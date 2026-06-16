@@ -1,5 +1,4 @@
 use stackless_core::fault::{ErrorContext, Fault, codes};
-use stackless_core::host::Host;
 
 use stackless_stripe_projects::ProjectsError;
 
@@ -9,7 +8,7 @@ pub enum IntegrationError {
     ConfigInvalid { location: String, detail: String },
 
     #[error("integration provider {provider:?} is not supported on host {host:?}")]
-    HostUnsupported { provider: String, host: Host },
+    HostUnsupported { provider: String, host: String },
 
     #[error("provisioning integration {integration:?} failed: {detail}")]
     ProvisionFailed { integration: String, detail: String },

@@ -8,7 +8,6 @@ pub mod checkpoint;
 pub mod def;
 pub mod engine;
 pub mod fault;
-pub mod host;
 pub mod lockfile;
 pub mod names;
 pub mod process;

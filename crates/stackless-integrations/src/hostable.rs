@@ -2,8 +2,6 @@
 //! output checking, and lifecycle dispatch. Each catalog adapter (Clerk, …)
 //! implements [`Hostable`] once; the registry is built only from those impls.
 
-use stackless_core::host::Host;
-
 /// Whether an integration's config may vary per stack host.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigScope {
@@ -21,7 +19,7 @@ pub enum IntegrationHosting {
     /// when referenced. Must pair with [`ConfigScope::GlobalOnly`].
     Managed,
     /// Runs on or through specific stack hosts; `--on` must be in the host list.
-    HostBound(&'static [Host]),
+    HostBound(&'static [&'static str]),
 }
 
 /// Metadata and compile-time constraints for one integration provider.
@@ -59,15 +57,16 @@ const fn validate_hostable_pair(hosting: IntegrationHosting, scope: ConfigScope)
 }
 
 /// Whether `host` is listed for a host-bound provider.
-pub fn host_bound_supports(hosting: IntegrationHosting, host: Host) -> bool {
+pub fn host_bound_supports(hosting: IntegrationHosting, host: &str) -> bool {
     match hosting {
         IntegrationHosting::Managed => true,
         IntegrationHosting::HostBound(hosts) => hosts.contains(&host),
     }
 }
 
-/// Hosts declared for a host-bound provider (empty for managed).
-pub fn host_bound_hosts(hosting: IntegrationHosting) -> &'static [Host] {
+/// Hosts declared for a host-bound provider (empty for managed). These are the
+/// substrate keys that count as host overrides for this provider's config.
+pub fn host_bound_hosts(hosting: IntegrationHosting) -> &'static [&'static str] {
     match hosting {
         IntegrationHosting::Managed => &[],
         IntegrationHosting::HostBound(hosts) => hosts,
@@ -80,17 +79,17 @@ mod tests {
 
     #[test]
     fn host_bound_supports_declared_hosts_only() {
-        let hosting = IntegrationHosting::HostBound(&[Host::Local, Host::Render]);
-        assert!(host_bound_supports(hosting, Host::Local));
-        assert!(host_bound_supports(hosting, Host::Render));
-        assert!(!host_bound_supports(hosting, Host::Vercel));
+        let hosting = IntegrationHosting::HostBound(&["local", "render"]);
+        assert!(host_bound_supports(hosting, "local"));
+        assert!(host_bound_supports(hosting, "render"));
+        assert!(!host_bound_supports(hosting, "vercel"));
     }
 
     #[test]
     fn managed_supports_every_active_host_check() {
         let hosting = IntegrationHosting::Managed;
-        for host in Host::ALL {
-            assert!(host_bound_supports(hosting, *host));
+        for host in ["local", "render", "vercel"] {
+            assert!(host_bound_supports(hosting, host));
         }
     }
 }

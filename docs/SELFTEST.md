@@ -40,8 +40,8 @@ job per provider, secrets `STRIPE_API_KEY` / `VERCEL_TOKEN` / `RENDER_API_KEY`.
 ### Prerequisites (one-time, human)
 
 - The Stripe Project must have the provider **linked**: `stripe projects link
-  vercel` / `render` (account-level; new projects inherit it). Check with
-  `stripe projects status`.
+  vercel` / `render` / `cloudflare` (account-level; new projects inherit it).
+  Check with `stripe projects status`.
 - The provider API token must belong to the **linked** account/team. For Vercel,
   the substrate already reads the Stripe-managed token + `VERCEL_ORG_ID` from the
   instance env — see the **Vercel notes** at the end of this doc.
@@ -51,9 +51,16 @@ job per provider, secrets `STRIPE_API_KEY` / `VERCEL_TOKEN` / `RENDER_API_KEY`.
 
 ### Adding a provider/integration
 
-1. Implement the `Substrate` (or `Hostable`) as usual.
-2. Add Tier-1 hermetic tests (mock the provider API + Stripe runner).
-3. Drop a `fixtures/smoke/<name>/stackless.toml` that deploys `fixtures/smoke/site`.
+1. Implement the `Substrate` (or `Hostable` + `ProviderOps`) — see
+   `docs/ADDING-A-PROVIDER.md` for the full checklist.
+2. Add Tier-1 hermetic tests (mock the provider API + Stripe runner) and a
+   catalog-gap test (`verify_service`) per config.
+3. Drop a `fixtures/smoke/<name>/stackless.toml`. A **substrate** deploys
+   `fixtures/smoke/site`; a **catalog integration** (Clerk, Cloudflare R2/KV/…)
+   has no deploy target, so it runs `--on local` and provisions the resource(s)
+   alongside a trivial local probe service (see `fixtures/smoke/cloudflare`). The
+   first live run is the source of truth for the credential output envelope —
+   reconcile the provider's `ENV_KEYS`/`parse_outputs` with what Stripe returns.
 4. Add a `mise run smoke-<name>` task and a matrix entry in `smoke.yml`.
 
 ## Stripe Projects plugin snapshots (versioned, auto-watched)

@@ -6,7 +6,9 @@
 
 use stackless_core::def::{self, DefError, Namespace, Node, StackDef};
 use stackless_core::fault::{Fault, codes};
-use stackless_core::host::Host;
+
+/// The substrate names the binary registers; core takes them as input.
+const KNOWN: &[&str] = &["local", "render", "vercel"];
 
 fn fixture(name: &str) -> String {
     let path = format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
@@ -15,7 +17,7 @@ fn fixture(name: &str) -> String {
 
 fn parse_valid(name: &str) -> def::StackDef {
     let def = StackDef::parse(&fixture(name)).unwrap_or_else(|err| panic!("parse {name}: {err}"));
-    def.validate()
+    def.validate_hosts(KNOWN)
         .unwrap_or_else(|err| panic!("validate {name}: {err}"));
     def
 }
@@ -53,7 +55,7 @@ fn atto_parses_to_the_documented_model() {
     assert_eq!(def.secrets.required, vec!["GITHUB_PACKAGES_TOKEN"]);
     let clerk = &def.integrations["clerk"];
     assert_eq!(clerk.provider, "clerk");
-    let clerk_config = clerk.effective_config(Host::Local);
+    let clerk_config = clerk.effective_config("local", KNOWN);
     assert_eq!(
         clerk_config["app_name"].as_str(),
         Some("${stack.name}-${instance.name}")
@@ -206,7 +208,7 @@ fn api_env_resolves_against_a_namespace() {
 
 fn expect_invalid(name: &str, expected_code: &str) {
     let text = fixture(&format!("invalid/{name}"));
-    let result = StackDef::parse(&text).and_then(|def| def.validate());
+    let result = StackDef::parse(&text).and_then(|def| def.validate_hosts(KNOWN));
     let err = result.unwrap_err();
     assert_eq!(err.code(), expected_code, "fixture {name}: {err}");
     assert!(

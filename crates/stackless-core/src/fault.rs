@@ -93,9 +93,6 @@ pub mod codes {
     pub const VERIFY_FAILED: &str = "verify.failed";
     pub const VERIFY_NOT_DECLARED: &str = "verify.not_declared";
     pub const VERIFY_SOURCE_UNAVAILABLE: &str = "verify.source_unavailable";
-    pub const RENDER_CONFIG_INVALID: &str = "render.config.invalid";
-    pub const RENDER_API_KEY_MISSING: &str = "render.api_key.missing";
-    pub const RENDER_API_FAILED: &str = "render.api.failed";
     pub const STRIPE_PROJECTS_UNAVAILABLE: &str = "stripe.projects.unavailable";
     pub const STRIPE_PROJECTS_AUTH: &str = "stripe.projects.auth";
     pub const STRIPE_PROJECTS_FAILED: &str = "stripe.projects.failed";
@@ -106,25 +103,10 @@ pub mod codes {
     pub const STRIPE_PROJECTS_CONFIG_SCHEMA: &str = "stripe.projects.config_schema";
     pub const INTEGRATION_CONFIG_INVALID: &str = "integration.config.invalid";
     pub const INTEGRATION_HOST_UNSUPPORTED: &str = "integration.host.unsupported";
-    pub const RENDER_PAYMENT_NOT_CONFIRMED: &str = "render.payment.not_confirmed";
-    pub const RENDER_PROVISION_FAILED: &str = "render.provision.failed";
-    pub const RENDER_DEPLOY_FAILED: &str = "render.deploy.failed";
-    pub const RENDER_DEPLOY_TIMEOUT: &str = "render.deploy.timeout";
-    pub const RENDER_HEALTH_FAILED: &str = "render.health.failed";
-    pub const RENDER_PREPARE_FAILED: &str = "render.prepare.failed";
-    pub const RENDER_TEARDOWN_SURVIVOR: &str = "render.teardown.survivor";
-    pub const VERCEL_CONFIG_INVALID: &str = "vercel.config.invalid";
-    pub const VERCEL_API_KEY_MISSING: &str = "vercel.api_key.missing";
-    pub const VERCEL_API_FAILED: &str = "vercel.api.failed";
-    pub const VERCEL_PAYMENT_NOT_CONFIRMED: &str = "vercel.payment.not_confirmed";
-    pub const VERCEL_PROVISION_FAILED: &str = "vercel.provision.failed";
-    pub const VERCEL_DEPLOY_FAILED: &str = "vercel.deploy.failed";
-    pub const VERCEL_DEPLOY_TIMEOUT: &str = "vercel.deploy.timeout";
-    pub const VERCEL_HEALTH_FAILED: &str = "vercel.health.failed";
-    pub const VERCEL_PREPARE_FAILED: &str = "vercel.prepare.failed";
-    pub const VERCEL_TEARDOWN_SURVIVOR: &str = "vercel.teardown.survivor";
 
-    /// Every code in the registry, for uniqueness tests.
+    /// Every core code, for uniqueness tests. Substrate codes live in their
+    /// own crates (`stackless_render::codes`, …); the binary aggregates them
+    /// with these for a workspace-wide uniqueness check.
     pub const ALL: &[&str] = &[
         DEF_PARSE_SYNTAX,
         DEF_PARSE_SCHEMA,
@@ -189,9 +171,6 @@ pub mod codes {
         VERIFY_FAILED,
         VERIFY_NOT_DECLARED,
         VERIFY_SOURCE_UNAVAILABLE,
-        RENDER_CONFIG_INVALID,
-        RENDER_API_KEY_MISSING,
-        RENDER_API_FAILED,
         STRIPE_PROJECTS_UNAVAILABLE,
         STRIPE_PROJECTS_AUTH,
         STRIPE_PROJECTS_FAILED,
@@ -202,23 +181,6 @@ pub mod codes {
         STRIPE_PROJECTS_CONFIG_SCHEMA,
         INTEGRATION_CONFIG_INVALID,
         INTEGRATION_HOST_UNSUPPORTED,
-        RENDER_PAYMENT_NOT_CONFIRMED,
-        RENDER_PROVISION_FAILED,
-        RENDER_DEPLOY_FAILED,
-        RENDER_DEPLOY_TIMEOUT,
-        RENDER_HEALTH_FAILED,
-        RENDER_PREPARE_FAILED,
-        RENDER_TEARDOWN_SURVIVOR,
-        VERCEL_CONFIG_INVALID,
-        VERCEL_API_KEY_MISSING,
-        VERCEL_API_FAILED,
-        VERCEL_PAYMENT_NOT_CONFIRMED,
-        VERCEL_PROVISION_FAILED,
-        VERCEL_DEPLOY_FAILED,
-        VERCEL_DEPLOY_TIMEOUT,
-        VERCEL_HEALTH_FAILED,
-        VERCEL_PREPARE_FAILED,
-        VERCEL_TEARDOWN_SURVIVOR,
     ];
 }
 

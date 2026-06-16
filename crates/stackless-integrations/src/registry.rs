@@ -13,7 +13,6 @@ use std::collections::BTreeMap;
 
 use stackless_core::def::interp::{self, Reference};
 use stackless_core::def::{Integration, StackDef};
-use stackless_core::host::Host;
 
 use crate::error::IntegrationError;
 use crate::hostable::{
@@ -23,7 +22,9 @@ use crate::providers;
 
 type ValidateFn = fn(&str, &BTreeMap<String, toml::Value>) -> Result<(), IntegrationError>;
 
-/// One row in the provider table, materialized from a [`Hostable`] impl.
+/// One row in the provider table, materialized from a [`Hostable`] impl plus
+/// its lifecycle [`ProviderOps`]. The registry is the single source of truth
+/// for both metadata and behaviour — dispatch never matches provider strings.
 struct ProviderEntry {
     provider: &'static str,
     hosting: IntegrationHosting,
@@ -31,9 +32,13 @@ struct ProviderEntry {
     resource_kind: &'static str,
     outputs: &'static [&'static str],
     validate_config: ValidateFn,
+    ops: &'static dyn crate::ProviderOps,
 }
 
-const fn provider_entry<T: Hostable>(validate_config: ValidateFn) -> ProviderEntry {
+const fn provider_entry<T: Hostable>(
+    validate_config: ValidateFn,
+    ops: &'static dyn crate::ProviderOps,
+) -> ProviderEntry {
     ProviderEntry {
         provider: T::PROVIDER,
         hosting: T::HOSTING,
@@ -41,12 +46,48 @@ const fn provider_entry<T: Hostable>(validate_config: ValidateFn) -> ProviderEnt
         resource_kind: T::RESOURCE_KIND,
         outputs: T::OUTPUTS,
         validate_config,
+        ops,
     }
 }
 
-const PROVIDERS: &[ProviderEntry] = &[provider_entry::<providers::clerk::ClerkAuth>(
-    providers::clerk::validate_config,
-)];
+const PROVIDERS: &[ProviderEntry] = &[
+    provider_entry::<providers::clerk::ClerkAuth>(
+        providers::clerk::validate_config,
+        &providers::clerk::ClerkAuth,
+    ),
+    provider_entry::<providers::cloudflare::r2::CloudflareR2>(
+        providers::cloudflare::r2::validate_config,
+        &providers::cloudflare::r2::CloudflareR2,
+    ),
+    provider_entry::<providers::cloudflare::kv::CloudflareKv>(
+        providers::cloudflare::kv::validate_config,
+        &providers::cloudflare::kv::CloudflareKv,
+    ),
+    provider_entry::<providers::cloudflare::d1::CloudflareD1>(
+        providers::cloudflare::d1::validate_config,
+        &providers::cloudflare::d1::CloudflareD1,
+    ),
+    provider_entry::<providers::cloudflare::queues::CloudflareQueues>(
+        providers::cloudflare::queues::validate_config,
+        &providers::cloudflare::queues::CloudflareQueues,
+    ),
+    provider_entry::<providers::cloudflare::hyperdrive::CloudflareHyperdrive>(
+        providers::cloudflare::hyperdrive::validate_config,
+        &providers::cloudflare::hyperdrive::CloudflareHyperdrive,
+    ),
+    provider_entry::<providers::cloudflare::workers::CloudflareWorkers>(
+        providers::cloudflare::workers::validate_config,
+        &providers::cloudflare::workers::CloudflareWorkers,
+    ),
+    provider_entry::<providers::cloudflare::workers_ai::CloudflareWorkersAi>(
+        providers::cloudflare::workers_ai::validate_config,
+        &providers::cloudflare::workers_ai::CloudflareWorkersAi,
+    ),
+    provider_entry::<providers::cloudflare::browser_run::CloudflareBrowserRun>(
+        providers::cloudflare::browser_run::validate_config,
+        &providers::cloudflare::browser_run::CloudflareBrowserRun,
+    ),
+];
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
     PROVIDERS.iter().find(|entry| entry.provider == provider)
@@ -63,14 +104,21 @@ pub fn known_outputs(provider: &str) -> Option<&'static [&'static str]> {
 pub fn validate_integration(
     name: &str,
     integration: &Integration,
-    active_host: Option<Host>,
+    active_host: Option<&str>,
+    known_substrates: &[&str],
 ) -> Result<(), IntegrationError> {
     let entry = lookup(&integration.provider).ok_or_else(|| IntegrationError::ConfigInvalid {
         location: format!("integrations.{name}"),
         detail: format!("unsupported provider {:?}", integration.provider),
     })?;
 
-    validate_host_blocks(name, integration, entry.hosting, entry.config_scope)?;
+    validate_host_blocks(
+        name,
+        integration,
+        entry.hosting,
+        entry.config_scope,
+        known_substrates,
+    )?;
 
     if let Some(host) = active_host
         && matches!(entry.hosting, IntegrationHosting::HostBound(_))
@@ -78,22 +126,26 @@ pub fn validate_integration(
     {
         return Err(IntegrationError::HostUnsupported {
             provider: integration.provider.clone(),
-            host,
+            host: host.to_owned(),
         });
     }
 
     let config = match (entry.config_scope, active_host) {
-        (ConfigScope::PerHost, Some(host)) => integration.effective_config(host),
-        _ => integration.config_fields(),
+        (ConfigScope::PerHost, Some(host)) => integration.effective_config(host, known_substrates),
+        _ => integration.config_fields(known_substrates),
     };
     (entry.validate_config)(name, &config)
 }
 
-pub fn validate_all(def: &StackDef, active_host: Option<Host>) -> Result<(), IntegrationError> {
+pub fn validate_all(
+    def: &StackDef,
+    active_host: Option<&str>,
+    known_substrates: &[&str],
+) -> Result<(), IntegrationError> {
     for (name, integration) in &def.integrations {
-        validate_integration(name, integration, active_host)?;
+        validate_integration(name, integration, active_host, known_substrates)?;
     }
-    validate_integration_outputs(def)?;
+    validate_integration_outputs(def, known_substrates)?;
     Ok(())
 }
 
@@ -102,11 +154,12 @@ fn validate_host_blocks(
     integration: &Integration,
     hosting: IntegrationHosting,
     scope: ConfigScope,
+    known_substrates: &[&str],
 ) -> Result<(), IntegrationError> {
-    for (host, _block) in integration.host_blocks() {
+    for (host, _block) in integration.host_blocks(known_substrates) {
         if matches!(hosting, IntegrationHosting::Managed) {
             return Err(IntegrationError::ConfigInvalid {
-                location: format!("integrations.{name}.{}", host.as_str()),
+                location: format!("integrations.{name}.{host}"),
                 detail: format!(
                     "provider {:?} is managed and does not support per-host configuration",
                     integration.provider
@@ -115,19 +168,18 @@ fn validate_host_blocks(
         }
         if matches!(scope, ConfigScope::GlobalOnly) {
             return Err(IntegrationError::ConfigInvalid {
-                location: format!("integrations.{name}.{}", host.as_str()),
+                location: format!("integrations.{name}.{host}"),
                 detail: format!(
                     "provider {:?} does not support per-host configuration",
                     integration.provider
                 ),
             });
         }
-        if !host_bound_supports(hosting, host) {
+        if !host_bound_supports(hosting, &host) {
             return Err(IntegrationError::ConfigInvalid {
-                location: format!("integrations.{name}.{}", host.as_str()),
+                location: format!("integrations.{name}.{host}"),
                 detail: format!(
-                    "host {:?} is not supported by provider {:?}",
-                    host.as_str(),
+                    "host {host:?} is not supported by provider {:?}",
                     integration.provider
                 ),
             });
@@ -137,7 +189,10 @@ fn validate_host_blocks(
     Ok(())
 }
 
-fn validate_integration_outputs(def: &StackDef) -> Result<(), IntegrationError> {
+fn validate_integration_outputs(
+    def: &StackDef,
+    known_substrates: &[&str],
+) -> Result<(), IntegrationError> {
     let mut locations = Vec::new();
     if let Some(verify) = &def.stack.verify {
         for (key, value) in &verify.env {
@@ -148,24 +203,19 @@ fn validate_integration_outputs(def: &StackDef) -> Result<(), IntegrationError> 
         for (key, value) in &service.env {
             locations.push((format!("services.{service_name}.env.{key}"), value.clone()));
         }
-        for host in Host::ALL {
-            for (key, value) in
-                service
-                    .substrate_env(service_name, host.as_str())
-                    .map_err(|err| IntegrationError::ConfigInvalid {
-                        location: format!("services.{service_name}.{}.env", host.as_str()),
-                        detail: err.to_string(),
-                    })?
-            {
-                locations.push((
-                    format!("services.{service_name}.{}.env.{key}", host.as_str()),
-                    value,
-                ));
+        for &host in known_substrates {
+            for (key, value) in service.substrate_env(service_name, host).map_err(|err| {
+                IntegrationError::ConfigInvalid {
+                    location: format!("services.{service_name}.{host}.env"),
+                    detail: err.to_string(),
+                }
+            })? {
+                locations.push((format!("services.{service_name}.{host}.env.{key}"), value));
             }
         }
     }
     for (name, integration) in &def.integrations {
-        for (key, value) in integration.config_fields() {
+        for (key, value) in integration.config_fields(known_substrates) {
             if let Some(text) = value.as_str() {
                 locations.push((format!("integrations.{name}.{key}"), text.to_owned()));
             }
@@ -213,6 +263,29 @@ pub fn dispatch_resource_kind(provider: &str) -> Option<&'static str> {
     lookup(provider).map(|entry| entry.resource_kind)
 }
 
+/// The lifecycle ops for `provider`, for provisioning dispatch.
+pub fn ops_for(provider: &str) -> Option<&'static dyn crate::ProviderOps> {
+    lookup(provider).map(|entry| entry.ops)
+}
+
+/// The lifecycle ops owning resources of `kind`, for observe/destroy dispatch.
+pub fn ops_for_resource_kind(kind: &str) -> Option<&'static dyn crate::ProviderOps> {
+    PROVIDERS
+        .iter()
+        .find(|entry| entry.resource_kind == kind)
+        .map(|entry| entry.ops)
+}
+
+/// The substrate keys that count as host overrides for `provider`'s config —
+/// its declared host-bound hosts (empty for managed providers). The provision
+/// path uses this since it has no global substrate list; the authoritative
+/// misplaced-block check runs at `up`/`check` with the full substrate list.
+pub fn provider_host_keys(provider: &str) -> &'static [&'static str] {
+    lookup(provider)
+        .map(|entry| host_bound_hosts(entry.hosting))
+        .unwrap_or(&[])
+}
+
 pub fn config_string(
     config: &BTreeMap<String, toml::Value>,
     key: &str,
@@ -245,9 +318,25 @@ pub fn config_optional_string(config: &BTreeMap<String, toml::Value>, key: &str)
 mod tests {
     use stackless_core::def::StackDef;
     use stackless_core::fault::{Fault, codes};
-    use stackless_core::host::Host;
 
     use super::*;
+
+    const KNOWN: &[&str] = &["local", "render", "vercel"];
+
+    /// Registry hygiene: every provider string and resource kind is unique, so a
+    /// new `PROVIDERS` row can't silently shadow another's dispatch.
+    #[test]
+    fn registry_providers_and_resource_kinds_are_unique() {
+        use std::collections::BTreeSet;
+        let providers: BTreeSet<&str> = PROVIDERS.iter().map(|e| e.provider).collect();
+        assert_eq!(
+            providers.len(),
+            PROVIDERS.len(),
+            "duplicate provider string"
+        );
+        let kinds: BTreeSet<&str> = PROVIDERS.iter().map(|e| e.resource_kind).collect();
+        assert_eq!(kinds.len(), PROVIDERS.len(), "duplicate resource_kind");
+    }
 
     #[test]
     fn managed_provider_rejects_host_block() {
@@ -268,7 +357,7 @@ run = "true"
 "#,
         )
         .unwrap();
-        let err = validate_integration("clerk", &def.integrations["clerk"], Some(Host::Render))
+        let err = validate_integration("clerk", &def.integrations["clerk"], Some("render"), KNOWN)
             .unwrap_err();
         assert_eq!(err.code(), codes::INTEGRATION_CONFIG_INVALID);
         assert!(err.to_string().contains("managed"));
@@ -296,7 +385,7 @@ run = "true"
                 ),
             ]),
         };
-        let err = validate_integration("clerk", &integration, None).unwrap_err();
+        let err = validate_integration("clerk", &integration, None, KNOWN).unwrap_err();
         assert_eq!(err.code(), codes::INTEGRATION_CONFIG_INVALID);
     }
 }
