@@ -6,6 +6,7 @@ taplo                 = "latest"
 "cargo:cargo-deny"    = "latest"
 "cargo:cargo-vet"     = "latest"
 "cargo:cargo-dist"    = "latest"
+prek                  = "latest" # pre-commit runner; [hooks] below auto-wires it
 
 [tasks]
 # Formatting & lint (keep clippy/fmt wired even if not "crap" tools)
@@ -45,5 +46,28 @@ exit $(( up != 0 || down != 0 ))
 '''
 smoke = { depends = ["smoke-vercel", "smoke-render"] }
 
+# Stripe Projects plugin snapshots. `stripe-refresh` is the bless path (writes
+# the committed fixtures from the locally installed plugin); it needs the real
+# `stripe` CLI + creds, so it is EXCLUDED from `ci`/`check`/`test` and is invoked
+# by the CI watcher, not by hand. `stripe-coherence` is the fast, offline
+# pre-commit check (it also runs inside `mise run test`).
+stripe-refresh = '''
+[ -f .stackless.env ] && { set -a; . ./.stackless.env; set +a; }
+STRIPE_PROJECTS_REFRESH=1 cargo nextest run -p stackless-stripe-projects --all-features -E 'test(refresh_blesses_snapshots)' --no-capture
+'''
+stripe-coherence = "cargo nextest run -p stackless-stripe-projects -E 'test(fixtures_are_coherent)'"
+# Regenerate the vendored OpenAPI client crates (body stays shell — python +
+# cargo-progenitor glue with no Rust types to reuse).
+regen-clients = "bash specs/regen-clients.sh"
+# Install the prek git hooks by hand (normally auto-wired by [hooks].postinstall).
+hooks = "prek install -t pre-commit -t pre-push -f"
+
+# Auto-wire the prek git hooks after `mise install` — the bootstrap devs and CI
+# already run — so the pre-commit/pre-push gates need no separate setup step.
+# Best-effort: a hiccup here must never fail `mise install`.
+[hooks]
+postinstall = "prek install -t pre-commit -t pre-push -f || true"
+
 [settings]
-# optional: idiomatic for Rust projects
+# Required for [hooks] (auto-installing the prek git hooks above).
+experimental = true

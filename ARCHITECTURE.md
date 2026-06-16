@@ -490,8 +490,13 @@ proven there.
   `import` commands (`init --from` exists but nothing can generate a
   share URL yet — the same gap atto's `config.ts` recorded). Until the
   new flags land, the backend keeps `cloud-env.ts`'s plain-mode
-  fallbacks for `--json`'s confirmation/auth quirks; re-test on each
-  plugin release. Environment membership (`env add`/`env remove`) can
+  fallbacks for `--json`'s confirmation/auth quirks. The pinned
+  version of record and the full command surface are committed
+  snapshots
+  (`crates/stackless-stripe-projects/tests/fixtures/{plugin-version,command-surface}.txt`,
+  plus `catalog.json`); CI re-tests them against each release and a
+  nightly watcher opens an upgrade PR automatically (see
+  `docs/SELFTEST.md`). Environment membership (`env add`/`env remove`) can
   express a resource shared across instances — the seam for
   invariant 8's "unless the definition explicitly says so" (not in
   the v0 schema).

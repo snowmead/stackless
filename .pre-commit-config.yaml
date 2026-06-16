@@ -1,0 +1,41 @@
+# Run by `prek` (the Rust pre-commit runner, installed via mise). Hooks are
+# auto-wired by mise.toml's [hooks].postinstall on `mise install`; re-wire by
+# hand with `mise run hooks`. Every hook shells out to a `mise run` task so the
+# toolchain matches CI exactly.
+#
+# pre-commit: fast, offline checks that must never block a commit for long.
+# pre-push:   the full local correctness gate (no network — supply-chain stays
+#             a CI-only job).
+repos:
+  - repo: local
+    hooks:
+      - id: fmt
+        name: cargo fmt --check
+        entry: mise run fmt
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+      - id: taplo
+        name: taplo fmt --check
+        entry: mise run taplo
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+      - id: stripe-coherence
+        name: stripe projects fixtures coherent
+        entry: mise run stripe-coherence
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+      - id: check
+        name: fmt + clippy + taplo
+        entry: mise run check
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+      - id: test
+        name: cargo nextest (workspace, all features)
+        entry: mise run test
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

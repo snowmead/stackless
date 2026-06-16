@@ -63,7 +63,28 @@ jobs:
           echo "deb [signed-by=/usr/share/keyrings/stripe.gpg] https://packages.stripe.dev/stripe-cli-debian-local stable main" \
             | sudo tee /etc/apt/sources.list.d/stripe.list
           sudo apt-get update && sudo apt-get install -y stripe
-          stripe plugins install projects
+          stripe plugin install "projects@$(tr -d '[:space:]' < crates/stackless-stripe-projects/tests/fixtures/plugin-version.txt)"
+
+      # Validate the committed Stripe Projects snapshots against the live PINNED
+      # plugin before spending on cloud resources. `stripe-refresh` re-blesses
+      # and refuses to write if the live catalog has unmodeled drift, so this
+      # also gates catalog model coverage. Only the plugin-pinned artifacts must
+      # match exactly — catalog.json content is server-side and drifts on
+      # Stripe's schedule (the nightly watcher PRs those changes).
+      - name: Stripe Projects snapshot gate (pinned)
+        # No creds: `--version`, the `--help` surface, and `catalog --json` are
+        # all unauthenticated (the catalog is a public provider list).
+        run: |
+          pinned=$(tr -d '[:space:]' < crates/stackless-stripe-projects/tests/fixtures/plugin-version.txt)
+          installed=$(stripe projects --version | tr -d '[:space:]')
+          if [ "$installed" != "$pinned" ]; then
+            echo "::error::installed projects plugin $installed != pinned $pinned"; exit 1
+          fi
+          mise run stripe-refresh
+          git diff --exit-code -- \
+            crates/stackless-stripe-projects/tests/fixtures/command-surface.txt \
+            crates/stackless-stripe-projects/tests/fixtures/plugin-version.txt \
+            || { echo "::error::command surface is stale for plugin $pinned — run 'mise run stripe-refresh' and commit"; exit 1; }
 
       - name: Live ${{ matrix.provider }} up/down
         env:

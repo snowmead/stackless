@@ -353,6 +353,75 @@ mod tests {
         );
     }
 
+    /// The per-catalog-state content version (`data.last_updated`) is stable
+    /// across requests but bumps whenever Stripe republishes the catalog —
+    /// noise unrelated to a real service/schema change. Normalize it so the
+    /// committed `catalog.json` only diffs on content we actually model.
+    const NORMALIZED_TIMESTAMP: &str = "1970-01-01T00:00:00.000Z";
+
+    /// Bless mode (`STRIPE_PROJECTS_REFRESH=1`): regenerate the three committed
+    /// snapshots — `plugin-version.txt`, `catalog.json`, `command-surface.txt` —
+    /// from the LOCALLY INSTALLED plugin. The only path that writes fixtures;
+    /// invoked by `mise run stripe-refresh` and the CI watcher. A no-op (and
+    /// needs no `stripe`) otherwise, so it stays inert in the hermetic gate.
+    #[tokio::test]
+    async fn refresh_blesses_snapshots() {
+        if std::env::var("STRIPE_PROJECTS_REFRESH").as_deref() != Ok("1") {
+            return;
+        }
+        let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let stripe = StripeProjects::new(TokioRunner, std::env::current_dir().unwrap());
+
+        // 1. Pinned plugin version.
+        let version = crate::surface::plugin_version(&stripe)
+            .await
+            .expect("probe `stripe projects --version`");
+
+        // 2. Catalog envelope — refuse to bless anything the typed model can't
+        //    fully represent (forces a src/catalog.rs update first).
+        let raw = stripe
+            .plain(&["catalog", "--json"])
+            .await
+            .expect("run `stripe projects catalog --json`");
+        let start = raw.stdout.find('{').expect("catalog produced JSON");
+        let json = &raw.stdout[start..];
+        let report = crate::catalog::Catalog::from_json_envelope(json)
+            .expect("catalog envelope parses")
+            .drift_report();
+        assert!(
+            report.is_empty(),
+            "live catalog has unmodeled drift — update src/catalog.rs before blessing:\n{}",
+            report.join("\n")
+        );
+        let mut envelope: serde_json::Value =
+            serde_json::from_str(json).expect("catalog envelope is JSON");
+        if let Some(data) = envelope
+            .get_mut("data")
+            .and_then(serde_json::Value::as_object_mut)
+            && data.contains_key("last_updated")
+        {
+            data.insert(
+                "last_updated".into(),
+                serde_json::Value::String(NORMALIZED_TIMESTAMP.into()),
+            );
+        }
+        let catalog_pretty = format!(
+            "{}\n",
+            serde_json::to_string_pretty(&envelope).expect("serialize catalog")
+        );
+
+        // 3. Command surface (header carries the pinned version).
+        let body = crate::surface::command_surface(&stripe)
+            .await
+            .expect("capture command surface");
+        let surface = crate::surface::render_surface(&version, &body);
+
+        std::fs::write(fixtures.join("catalog.json"), catalog_pretty).unwrap();
+        std::fs::write(fixtures.join("command-surface.txt"), surface).unwrap();
+        std::fs::write(fixtures.join("plugin-version.txt"), format!("{version}\n")).unwrap();
+        eprintln!("blessed snapshots for stripe projects plugin v{version}");
+    }
+
     #[tokio::test]
     async fn confirmation_code_falls_back_to_plain_mode() {
         let d = driver(vec![
