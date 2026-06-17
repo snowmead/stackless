@@ -2734,6 +2734,7 @@ dependencies = [
  "serde_json",
  "stackless-core",
  "stackless-daemon",
+ "stackless-fly",
  "stackless-integrations",
  "stackless-local",
  "stackless-render",
@@ -2783,6 +2784,25 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+]
+
+[[package]]
+name = "stackless-fly"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "stackless-cloud",
+ "stackless-core",
+ "stackless-integrations",
+ "stackless-stripe-projects",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
+ "wiremock",
 ]
 
 [[package]]

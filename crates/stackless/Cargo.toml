@@ -19,6 +19,7 @@ stackless-integrations.workspace = true
 stackless-local.workspace        = true
 stackless-render.workspace       = true
 stackless-vercel.workspace       = true
+stackless-fly.workspace          = true
 thiserror                        = "2.0.18"
 tokio                            = { version = "1.52.3", features = ["rt-multi-thread"] }
 

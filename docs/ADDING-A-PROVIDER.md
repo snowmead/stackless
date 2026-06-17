@@ -24,8 +24,43 @@ mise run discover <reference> -- --dir fixtures/smoke/cloudflare   # provision o
 ```
 
 `catalog` is offline (reads the committed catalog fixture). `discover` is live
-(needs `STRIPE_API_KEY` + a linked project) — it pins the credential **output
-envelope**, which the catalog does *not* describe. Both are the `xtask` crate.
+(needs a linked Stripe project + the provider linked — see next section) — it pins
+the credential **output envelope**, which the catalog does *not* describe. Both are
+the `xtask` crate.
+
+## One-time setup: initialize + link the provider (do this before `discover`/smoke)
+
+`discover` and the live smoke both drive the `stripe projects` plugin, which only
+operates **inside an initialized Stripe-project directory** (one that has a
+`.projects/` dir). Each smoke fixture is its own such directory. So before the
+first `discover` or smoke of a **new** provider, do this once, from that fixture
+dir:
+
+```sh
+cd fixtures/smoke/<name>
+# Creates .projects/ — exactly what `stackless up` runs via ensure_project.
+stripe projects init <stack-name> --skip-skills --accept-tos
+# Interactive provider OAuth — must be a human; opens a browser/device flow.
+stripe projects link <provider>
+```
+
+- **The `link` command needs a project context**, which is why `init` comes first.
+  Running any `stripe projects` verb from a *non*-initialized dir just prints the
+  "Get started by running `stripe projects init`" welcome and does nothing — that
+  is the symptom of skipping `init`.
+- **Provider links are account-level**, not per-project: once linked, the provider
+  shows on *every* project (`stripe projects status` lists them, e.g.
+  `Providers ✓ Cloudflare, ✓ Vercel, ✓ Render`). So you only link each provider
+  once per Stripe account, ever — but from inside *some* initialized project dir.
+- The `<provider>` slug is the lowercased catalog provider name (`cloudflare`,
+  `flyio`, `render`, `vercel`, …). Re-link a stale provider
+  (`PENDING_AUTH`/`EXPIRED`) with `stripe projects link --force <provider>`.
+- Paid providers also need a billing method on the account
+  (`stripe projects billing add`); confirm the account with `stripe projects status`.
+- `stackless up` runs `init` for you on first deploy and records the project id
+  into the fixture's `[stack.projects.stripe].project`; the `.projects/` runtime
+  state is gitignored. So the genuinely manual, can't-automate step is just the
+  one-time `link`.
 
 ## Catalog integration (the common case)
 
@@ -90,8 +125,10 @@ A live smoke runs through the shared `fixtures/smoke/run.sh` (always tears down,
 unique per-run instance name). Add `fixtures/smoke/<name>/stackless.toml`, a
 `smoke-<name>` mise task calling `run.sh`, and a `smoke.yml` matrix entry.
 Catalog integrations have no deploy target, so they smoke under `--on local`
-with a trivial probe service (see `fixtures/smoke/cloudflare`). One-time human
-step: `stripe projects link <provider>` (account-level).
+with a trivial probe service (see `fixtures/smoke/cloudflare`). Before a new
+provider's first smoke, do the one-time `stripe projects init` + `link` from its
+fixture dir (see "One-time setup" above) — the smoke fails at the first
+`stripe projects add` otherwise.
 
 ---
 

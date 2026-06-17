@@ -3,8 +3,8 @@
 This document is sufficient on its own to write a valid stack
 definition. It describes what the implementation actually enforces;
 every rule here is checked by `stackless check <file>` (add
-`--on local` / `--on render` / `--on vercel` for substrate-specific
-completeness)
+`--on local` / `--on render` / `--on vercel` / `--on fly` for
+substrate-specific completeness)
 before anything provisions. Validation failures carry stable
 machine-readable codes (listed throughout) plus a remediation.
 
@@ -93,6 +93,9 @@ region = "oregon"
 
 [stack.vercel]           # optional: per-substrate stack config
 plan = "hobby"           # hobby (default) or pro (paid → requires --confirm-paid)
+
+[stack.fly]              # optional: per-substrate stack config
+region = "iad"           # Fly region (default iad)
 ```
 
 - `name` — required.
@@ -108,13 +111,15 @@ plan = "hobby"           # hobby (default) or pro (paid → requires --confirm-p
   cloud resources (Render, Vercel, Clerk, …) share this anchor;
   re-link a fresh checkout with `stripe projects pull <id>`.
 - Any other key under `[stack]` must be the name of a registered
-  substrate (`local`, `render`, `vercel`) and must be a table
+  substrate (`local`, `render`, `vercel`, `fly`) and must be a table
   (`def.validate.unknown_key`, `def.validate.substrate_block_invalid`).
 - `[stack.render]` — optional. `region` defaults to `"oregon"` (Render
   substrate only).
 - `[stack.vercel]` — optional. `plan` defaults to `"hobby"`. `"pro"`
   provisions the Vercel Pro plan through Stripe Projects and requires
   `--confirm-paid` (`vercel.payment.not_confirmed`).
+- `[stack.fly]` — optional. `region` defaults to `"iad"` (Fly substrate
+  only).
 
 ## `[secrets]`
 
@@ -342,6 +347,42 @@ Or a static site:
 - `stackless logs` is not wired for Vercel in v0 — use the Vercel
   dashboard.
 
+### `[services.<name>.fly]` — how Fly runs it
+
+Fly v0 is **image-only**: a service declares a prebuilt container image
+and the substrate runs it as a Fly machine.
+
+```toml
+  [services.web.fly]
+  image = "ghcr.io/org/web:latest"      # required: prebuilt container image
+  internal_port = 8080                  # optional, the port the container listens on (default 8080)
+  cmd = ["server", "--port", "8080"]    # optional: override the image CMD (container args)
+  cpu_kind = "shared"                   # optional machine preset (default shared)
+  cpus = 1                              # optional (default 1)
+  memory_mb = 256                       # optional (default 256)
+  env = { API_ORIGIN = "${services.api.origin}" }  # optional overlay
+```
+
+- Cloud resource names are `{stack}-{instance}-{service}` — also the Fly
+  app name, so it must be a legal app name (`^[a-z][a-z0-9-]{2,62}$`);
+  origins are `https://{stack}-{instance}-{service}.fly.dev`.
+- `up --on fly` requires every service to carry a `fly` block
+  (`fly.config.invalid`), refuses `--source` pins
+  (`engine.source_override.unsupported`), and requires `--confirm-paid`
+  (`fly.payment.not_confirmed` — `flyio/app` is usage-billed).
+- Datastores are not supported on Fly in v0 (`up --on fly` with any
+  `[datastores.*]` block is rejected); `flyio/mpg` (managed Postgres) is
+  a separate catalog integration.
+- Setup is skipped on cloud (same as Render); prepare runs on the
+  operator's machine from a shallow `git clone` of the pinned ref.
+- **Two layers (same as Render):** Stripe Projects provisions the
+  `flyio/app` catalog resource and returns a Stripe-managed, app-scoped
+  deploy token; the Fly Machines REST API uses that token to allocate the
+  app's public IPs, create the machine, and poll it to `started`. No
+  operator API token is needed — the credential comes from provisioning,
+  and `observe`/`down` use the Stripe resource registration.
+- `stackless logs` is not wired for Fly in v0 — use the Fly dashboard.
+
 ## The interpolation namespace
 
 Env values (common `env`, substrate `env` overlays, and
@@ -351,7 +392,7 @@ Env values (common `env`, substrate `env` overlays, and
 |---|---|
 | `${stack.name}` | the stack's declared name |
 | `${instance.name}` | the instance's name — the one identity everything derives from |
-| `${services.X.origin}` | service X's substrate-appropriate origin. Local: `http://x.{instance}.localhost:4444` (the root-origin service resolves to `http://{instance}.localhost:4444` — what browsers actually use). Render: `https://{stack}-{instance}-x.onrender.com`. Vercel: the deployment URL after `start` (best-effort `https://{stack}-{instance}-x.vercel.app` before deploy) |
+| `${services.X.origin}` | service X's substrate-appropriate origin. Local: `http://x.{instance}.localhost:4444` (the root-origin service resolves to `http://{instance}.localhost:4444` — what browsers actually use). Render: `https://{stack}-{instance}-x.onrender.com`. Vercel: the deployment URL after `start` (best-effort `https://{stack}-{instance}-x.vercel.app` before deploy). Fly: `https://{stack}-{instance}-x.fly.dev` |
 | `${datastores.X.url}` | X's connection string. Local: `postgres://...@127.0.0.1:{mapped-port}/postgres`. Render: the internal URL for services, the external one for `prepare` hooks |
 | `${secrets.KEY}` | the resolved secret value (KEY must be in `[secrets].required`) — for renaming; the `secrets = [...]` list already injects same-named vars |
 | `${integrations.clerk.secret_key}` | the Clerk secret key selected from Stripe Projects' Clerk environments JSON (`CLERK_AUTH_ENVIRONMENTS` or `CLERK_ENVIRONMENTS`) |

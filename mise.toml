@@ -34,10 +34,16 @@ ci    = { depends = ["check", "test", "supply-chain"] }
 # unique per-run instance name; the task fails if up (health) or down (verified-
 # gone) fails. Cloudflare is a catalog integration, so it provisions R2+KV under
 # `--on local` (needs `stripe projects link cloudflare`, account-level).
-smoke-vercel     = "bash fixtures/smoke/run.sh vercel fixtures/smoke/vercel/stackless.toml smoke-v"
-smoke-render     = "bash fixtures/smoke/run.sh render fixtures/smoke/render/stackless.toml smoke-r"
+smoke-vercel = "bash fixtures/smoke/run.sh vercel fixtures/smoke/vercel/stackless.toml smoke-v"
+smoke-render = "bash fixtures/smoke/run.sh render fixtures/smoke/render/stackless.toml smoke-r"
 smoke-cloudflare = "bash fixtures/smoke/run.sh local fixtures/smoke/cloudflare/stackless.toml smoke-c"
-smoke            = { depends = ["smoke-vercel", "smoke-render", "smoke-cloudflare"] }
+smoke-fly = "bash fixtures/smoke/run.sh fly fixtures/smoke/flyio/stackless.toml smoke-f --confirm-paid"
+smoke = { depends = [
+    "smoke-vercel",
+    "smoke-render",
+    "smoke-cloudflare",
+    "smoke-fly",
+] }
 
 # Stripe Projects plugin snapshots. `stripe-refresh` is the bless path (writes
 # the committed fixtures from the locally installed plugin); it needs the real

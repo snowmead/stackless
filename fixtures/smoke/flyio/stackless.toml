@@ -1,0 +1,32 @@
+# Live smoke stack: deploys a public `http-echo` image to Fly.io that serves the
+# health probe string. Fly v0 is image-only (no build-from-source), so unlike the
+# render/vercel smokes this does not deploy fixtures/smoke/site — it runs a
+# prebuilt image whose response body is the probe.
+#
+# Run: stackless up --on fly --file fixtures/smoke/flyio/stackless.toml --name <inst>
+# One-time human setup (from THIS dir — see docs/ADDING-A-PROVIDER.md "One-time setup"):
+#   cd fixtures/smoke/flyio
+#   stripe projects init smoke-fly --skip-skills --accept-tos   # creates .projects/
+#   stripe projects link flyio                                  # interactive Fly OAuth (account-level)
+# The project anchor ([stack.projects.stripe].project) is recorded here on first up.
+[stack]
+name = "smoke-fly"
+
+[stack.fly]
+region = "iad"
+
+[stack.projects]
+[stack.projects.stripe]
+project = "project_61Ushn8q0y2ueHMwV16UhtGl9aA8OIk3xIw9EFWsKEK0"
+
+# A trivial always-on service: http-echo serves its `-text` on every path, so the
+# health probe at `/` returns `stackless-smoke-ok`.
+[services.web]
+source      = { repo = "https://github.com/snowmead/stackless", ref = "main" }
+root_origin = true
+health      = { path = "/", contains = "stackless-smoke-ok" }
+
+[services.web.fly]
+image         = "hashicorp/http-echo"
+internal_port = 5678
+cmd           = ["-text=stackless-smoke-ok", "-listen=:5678"]
