@@ -365,7 +365,16 @@ impl<R: CommandRunner> FlySubstrate<R> {
             cpus: fly_cfg.guest.cpus,
             memory_mb: fly_cfg.guest.memory_mb,
         };
-        let machine_id = fly.create_machine(&app_name, &spec).await.map_err(fault)?;
+        // Resume idempotency: reuse a machine a prior partial run already created
+        // (create_machine is not idempotent), so a re-run never duplicates compute.
+        let machine_id = match fly
+            .find_machine(&app_name, &app_name)
+            .await
+            .map_err(fault)?
+        {
+            Some(existing) => existing,
+            None => fly.create_machine(&app_name, &spec).await.map_err(fault)?,
+        };
         fly.wait_for_started(&app_name, &machine_id, service, FLY_DEPLOY_BUDGET)
             .await
             .map_err(fault)?;

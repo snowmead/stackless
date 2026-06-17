@@ -224,6 +224,25 @@ impl FlyApi {
         Ok(())
     }
 
+    /// An existing machine's id by name, for resume idempotency (a re-run after
+    /// `create_machine` succeeded but the wait failed must not make a duplicate).
+    pub async fn find_machine(&self, app: &str, name: &str) -> Result<Option<String>, FlyError> {
+        let path = format!("/apps/{app}/machines");
+        let listed = self.send_ok(Method::GET, &path, None).await?;
+        let machines = listed
+            .as_array()
+            .cloned()
+            .or_else(|| listed.get("machines").and_then(Value::as_array).cloned())
+            .unwrap_or_default();
+        Ok(machines.into_iter().find_map(|m| {
+            if m.get("name").and_then(Value::as_str) == Some(name) {
+                m.get("id").and_then(Value::as_str).map(str::to_owned)
+            } else {
+                None
+            }
+        }))
+    }
+
     /// Create the machine that runs the service image; returns its id.
     pub async fn create_machine(
         &self,
@@ -461,6 +480,25 @@ mod tests {
         api.wait_for_started("app1", &id, "web", Duration::from_secs(5))
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn find_machine_matches_by_name() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/apps/app1/machines"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                { "id": "m_other", "name": "other" },
+                { "id": "m_9", "name": "app1" }
+            ])))
+            .mount(&server)
+            .await;
+        let api = FlyApi::with_base("tok", server.uri());
+        assert_eq!(
+            api.find_machine("app1", "app1").await.unwrap().as_deref(),
+            Some("m_9")
+        );
+        assert_eq!(api.find_machine("app1", "absent").await.unwrap(), None);
     }
 
     #[tokio::test]
