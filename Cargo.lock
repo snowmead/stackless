@@ -2749,9 +2749,13 @@ dependencies = [
 name = "stackless-cloud"
 version = "0.1.0"
 dependencies = [
+ "reqwest",
  "stackless-core",
  "stackless-git",
+ "stackless-stripe-projects",
  "tempfile",
+ "tokio",
+ "wiremock",
 ]
 
 [[package]]

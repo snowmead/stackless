@@ -27,3 +27,23 @@ pub(crate) use crate::resource::{
     CatalogResource as CloudflareResource, int_required, integration_config, interp_optional,
     interp_required,
 };
+
+/// The Workers family (Workers, Workers AI, Browser Run) provisions the same
+/// account-level Workers enablement and so shares one output envelope, confirmed
+/// by live discovery 2026-06-16. The three stay distinct types (each has its own
+/// `provider` / `RESOURCE_KIND` / catalog reference) but reference these.
+pub(crate) const WORKERS_FAMILY_OUTPUT_FIELDS: &[(&str, &str, bool)] = &[
+    ("ACCOUNT_ID", "account_id", true),
+    ("WORKERS_DEV_SUBDOMAIN", "workers_dev_subdomain", true),
+    ("API_BASE_URL", "api_base_url", false),
+    ("DASHBOARD_URL", "dashboard_url", false),
+    ("PLAN_SERVICE_ID", "plan_service_id", false),
+];
+
+pub(crate) const WORKERS_FAMILY_OUTPUTS: &[&str] = &[
+    "account_id",
+    "workers_dev_subdomain",
+    "api_base_url",
+    "dashboard_url",
+    "plan_service_id",
+];

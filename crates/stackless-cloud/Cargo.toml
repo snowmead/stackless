@@ -9,9 +9,18 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+reqwest = { version = "0.13.4", default-features = false, features = [
+    "rustls",
+    "charset",
+    "http2",
+    "json",
+] }
 stackless-core.workspace = true
-stackless-git.workspace  = true
-tempfile                 = "3.27.0"
+stackless-git.workspace = true
+stackless-stripe-projects.workspace = true
+tempfile = "3.27.0"
+tokio = { version = "1.52.3", features = ["rt", "time", "macros"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"
+wiremock = "0.6.5"
