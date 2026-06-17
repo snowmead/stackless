@@ -441,50 +441,21 @@ impl<R: CommandRunner> FlySubstrate<R> {
         })?;
         let origin = Self::origin(def, instance, service);
         let url = format!("{origin}{}", spec.health.path);
-        let client = reqwest::Client::new();
-        let deadline = tokio::time::Instant::now() + HEALTH_BUDGET;
-        let mut last_detail;
-        loop {
-            match client
-                .get(&url)
-                .timeout(Duration::from_secs(10))
-                .send()
-                .await
-            {
-                Ok(response) => {
-                    let status = response.status().as_u16();
-                    let body = response.text().await.unwrap_or_default();
-                    let status_ok = status == spec.health.status.get();
-                    let contains_ok = spec
-                        .health
-                        .contains
-                        .as_ref()
-                        .is_none_or(|needle| body.contains(needle));
-                    if status_ok && contains_ok {
-                        return Ok(());
-                    }
-                    last_detail = format!(
-                        "got {status}, expected {}{}",
-                        spec.health.status,
-                        spec.health
-                            .contains
-                            .as_ref()
-                            .map(|n| format!(" containing {n:?}"))
-                            .unwrap_or_default()
-                    );
-                }
-                Err(err) => last_detail = err.to_string(),
-            }
-            if tokio::time::Instant::now() >= deadline {
-                return Err(fault(FlyError::HealthFailed {
-                    service: service.to_owned(),
-                    url,
-                    detail: last_detail,
-                    budget_secs: HEALTH_BUDGET.as_secs(),
-                }));
-            }
-            tokio::time::sleep(Duration::from_secs(5)).await;
-        }
+        stackless_cloud::health::poll(
+            &url,
+            spec.health.status.get(),
+            spec.health.contains.as_deref(),
+            HEALTH_BUDGET,
+        )
+        .await
+        .map_err(|f| {
+            fault(FlyError::HealthFailed {
+                service: service.to_owned(),
+                url: f.url,
+                detail: f.detail,
+                budget_secs: f.budget_secs,
+            })
+        })
     }
 }
 
@@ -685,14 +656,16 @@ impl<R: CommandRunner> Substrate for FlySubstrate<R> {
     }
 
     async fn spend_line(&self) -> Option<String> {
-        let stripe = StripeProjects::new(TokioRunner, self.definition_dir.clone());
-        Some(match project::spend_summary(&stripe).await {
-            Some(data) => format!("spend: {data}"),
-            None => format!(
-                "spend: unavailable from the plugin; hard cap is ${SPEND_CAP_USD}/mo \
-                 (provider flyio) — see fly.io/dashboard"
-            ),
-        })
+        // Fly's Stripe provider is `flyio`, not the substrate name.
+        Some(
+            stackless_cloud::spend::line(
+                &self.definition_dir,
+                "flyio",
+                SPEND_CAP_USD,
+                "fly.io/dashboard",
+            )
+            .await,
+        )
     }
 }
 

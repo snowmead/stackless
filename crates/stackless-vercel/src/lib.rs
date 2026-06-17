@@ -9,7 +9,6 @@ pub mod codes;
 pub mod config;
 pub mod error;
 pub mod git;
-pub mod prepare;
 pub mod vercel_api;
 
 use std::collections::BTreeMap;
@@ -76,6 +75,17 @@ fn projects_fault(err: ProjectsError) -> SubstrateFault {
 
 fn integration_fault(err: stackless_integrations::IntegrationError) -> SubstrateFault {
     SubstrateFault::from_fault(&err)
+}
+
+/// Map the shared prepare helper's neutral failure to Vercel's fault so its
+/// `vercel.*` code and remediation hold (§2).
+fn prepare_fault(f: stackless_cloud::prepare::PrepareFailure) -> SubstrateFault {
+    fault(VercelError::PrepareFailed {
+        service: f.service,
+        command: f.command,
+        message: f.message,
+        log_tail: f.log_tail,
+    })
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -422,60 +432,19 @@ impl<R: CommandRunner> VercelSubstrate<R> {
         service: &str,
         prior: &[Checkpoint],
     ) -> Result<(), SubstrateFault> {
-        let spec = def.services.get(service);
-        let Some(command) = spec.and_then(|s| s.prepare.clone()) else {
+        let Some(spec) = def.services.get(service) else {
             return Ok(());
         };
-        let Some(spec) = spec else {
-            return Ok(());
-        };
-
         let namespace = self.namespace(def, instance, prior);
-        let raw = spec.effective_env(service, SUBSTRATE_NAME).map_err(|err| {
-            fault(VercelError::PrepareFailed {
-                service: service.to_owned(),
-                command: Some(command.clone()),
-                message: err.to_string(),
-                log_tail: None,
-            })
-        })?;
-        let mut env: Vec<(String, String)> = Vec::new();
-        for (key, value) in &raw {
-            let location = format!("services.{service}.env.{key}");
-            let value = stackless_core::def::interp::resolve(value, &namespace, &location)
-                .map_err(|err| {
-                    fault(VercelError::PrepareFailed {
-                        service: service.to_owned(),
-                        command: Some(command.clone()),
-                        message: err.to_string(),
-                        log_tail: None,
-                    })
-                })?;
-            env.push((key.clone(), value));
-        }
-        for key in &spec.secrets {
-            if let Some(value) = self.secrets.get(key) {
-                env.push((key.clone(), value.clone()));
-            }
-        }
-
-        let repo = spec.source.repo.clone();
-        let reference = spec.source.reference.clone();
-        let service_owned = service.to_owned();
-        let command_for_task = command.clone();
-        tokio::task::spawn_blocking(move || {
-            prepare::run_prepare_command(&service_owned, &repo, &reference, &command_for_task, &env)
-        })
+        stackless_cloud::prepare::run_service_prepare(
+            &namespace,
+            &self.secrets,
+            service,
+            SUBSTRATE_NAME,
+            spec,
+        )
         .await
-        .map_err(|err| {
-            fault(VercelError::PrepareFailed {
-                service: service.to_owned(),
-                command: Some(command),
-                message: format!("prepare task panicked: {err}"),
-                log_tail: None,
-            })
-        })?
-        .map_err(fault)
+        .map_err(prepare_fault)
     }
 
     async fn health_gate(
@@ -501,50 +470,21 @@ impl<R: CommandRunner> VercelSubstrate<R> {
             })
             .unwrap_or_else(|| Self::origin(def, instance, service));
         let url = format!("{origin}{}", spec.health.path);
-        let client = reqwest::Client::new();
-        let deadline = tokio::time::Instant::now() + HEALTH_BUDGET;
-        let mut last_detail: String;
-        loop {
-            match client
-                .get(&url)
-                .timeout(Duration::from_secs(10))
-                .send()
-                .await
-            {
-                Ok(response) => {
-                    let status = response.status().as_u16();
-                    let body = response.text().await.unwrap_or_default();
-                    let status_ok = status == spec.health.status.get();
-                    let contains_ok = spec
-                        .health
-                        .contains
-                        .as_ref()
-                        .is_none_or(|needle| body.contains(needle));
-                    if status_ok && contains_ok {
-                        return Ok(());
-                    }
-                    last_detail = format!(
-                        "got {status}, expected {}{}",
-                        spec.health.status,
-                        spec.health
-                            .contains
-                            .as_ref()
-                            .map(|n| format!(" containing {n:?}"))
-                            .unwrap_or_default()
-                    );
-                }
-                Err(err) => last_detail = err.to_string(),
-            }
-            if tokio::time::Instant::now() >= deadline {
-                return Err(fault(VercelError::HealthFailed {
-                    service: service.to_owned(),
-                    url,
-                    detail: last_detail,
-                    budget_secs: HEALTH_BUDGET.as_secs(),
-                }));
-            }
-            tokio::time::sleep(Duration::from_secs(5)).await;
-        }
+        stackless_cloud::health::poll(
+            &url,
+            spec.health.status.get(),
+            spec.health.contains.as_deref(),
+            HEALTH_BUDGET,
+        )
+        .await
+        .map_err(|f| {
+            fault(VercelError::HealthFailed {
+                service: service.to_owned(),
+                url: f.url,
+                detail: f.detail,
+                budget_secs: f.budget_secs,
+            })
+        })
     }
 }
 
@@ -661,18 +601,6 @@ fn destroy_source_ref(path: &str) -> Result<(), SubstrateFault> {
             remediation: format!("remove {path} by hand, then re-run `stackless down`"),
             context: Box::default(),
         }),
-    }
-}
-
-/// A spend line to print after `up`/`down` (§4).
-pub async fn spend_line(definition_dir: &Path) -> String {
-    let stripe = StripeProjects::new(TokioRunner, definition_dir.to_path_buf());
-    match project::spend_summary(&stripe).await {
-        Some(data) => format!("spend: {data}"),
-        None => format!(
-            "spend: unavailable from the plugin; hard cap is ${SPEND_CAP_USD}/mo \
-             (provider vercel) — see vercel.com/dashboard"
-        ),
     }
 }
 
@@ -869,7 +797,15 @@ impl<R: CommandRunner> Substrate for VercelSubstrate<R> {
     }
 
     async fn spend_line(&self) -> Option<String> {
-        Some(spend_line(&self.definition_dir).await)
+        Some(
+            stackless_cloud::spend::line(
+                &self.definition_dir,
+                SUBSTRATE_NAME,
+                SPEND_CAP_USD,
+                "vercel.com/dashboard",
+            )
+            .await,
+        )
     }
 }
 
