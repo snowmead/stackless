@@ -1,0 +1,23 @@
+# Live smoke stack: deploys fixtures/smoke/site to Netlify via the file-digest
+# upload API (clone the ref, upload the static files, poll to `ready`).
+#
+# Run: stackless up --on netlify --file fixtures/smoke/netlify/stackless.toml --name <inst>
+# One-time human setup (from THIS dir — see docs/ADDING-A-PROVIDER.md "One-time setup"):
+#   cd fixtures/smoke/netlify
+#   stripe projects init smoke-netlify --skip-skills --accept-tos   # creates .projects/
+#   stripe projects link netlify                                    # interactive Netlify OAuth (free tier)
+# The project anchor ([stack.projects.stripe].project) is recorded here on first up.
+[stack]
+name = "smoke-netlify"
+
+[stack.projects]
+[stack.projects.stripe]
+project = "project_61UsjMitlMsBzz16g16UhtGl9aA8OIk3xIw9EFWsKVTU"
+
+[services.web]
+source      = { repo = "https://github.com/snowmead/stackless", ref = "main" }
+root_origin = true
+health      = { path = "/", contains = "stackless-smoke-ok" }
+
+[services.web.netlify]
+root = "fixtures/smoke/site"

@@ -32,7 +32,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        provider: [vercel, render, cloudflare, fly]
+        provider: [vercel, render, cloudflare, fly, netlify]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
