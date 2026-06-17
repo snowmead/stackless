@@ -3,8 +3,8 @@
 This document is sufficient on its own to write a valid stack
 definition. It describes what the implementation actually enforces;
 every rule here is checked by `stackless check <file>` (add
-`--on local` / `--on render` / `--on vercel` / `--on fly` for
-substrate-specific completeness)
+`--on local` / `--on render` / `--on vercel` / `--on fly` / `--on netlify`
+for substrate-specific completeness)
 before anything provisions. Validation failures carry stable
 machine-readable codes (listed throughout) plus a remediation.
 
@@ -111,7 +111,7 @@ region = "iad"           # Fly region (default iad)
   cloud resources (Render, Vercel, Clerk, …) share this anchor;
   re-link a fresh checkout with `stripe projects pull <id>`.
 - Any other key under `[stack]` must be the name of a registered
-  substrate (`local`, `render`, `vercel`, `fly`) and must be a table
+  substrate (`local`, `render`, `vercel`, `fly`, `netlify`) and must be a table
   (`def.validate.unknown_key`, `def.validate.substrate_block_invalid`).
 - `[stack.render]` — optional. `region` defaults to `"oregon"` (Render
   substrate only).
@@ -383,6 +383,34 @@ and the substrate runs it as a Fly machine.
   and `observe`/`down` use the Stripe resource registration.
 - `stackless logs` is not wired for Fly in v0 — use the Fly dashboard.
 
+### `[services.<name>.netlify]` — how Netlify runs it
+
+Netlify v0 is **static upload**: the substrate clones the pinned ref and
+uploads the files under `root` (or the repo root) as a Netlify deploy. The
+block is optional.
+
+```toml
+  [services.web.netlify]
+  root = "dist"                         # optional: subdir to publish (default: repo root)
+```
+
+- Cloud resource names are `{stack}-{instance}-{service}` — also the Netlify
+  site name; origins are `https://{stack}-{instance}-{service}.netlify.app`
+  (the real URL is recorded from the deploy's `ssl_url`).
+- `up --on netlify` refuses `--source` pins
+  (`engine.source_override.unsupported`). `netlify/project` is **free**, so no
+  `--confirm-paid` is required.
+- Datastores are not supported on Netlify in v0 (`up --on netlify` with any
+  `[datastores.*]` block is rejected).
+- Setup is skipped on cloud; prepare runs on the operator's machine from a
+  shallow `git clone` of the pinned ref.
+- **Two layers (same as Render):** Stripe Projects provisions the
+  `netlify/project` catalog resource and returns a Stripe-managed token + site
+  id; the Netlify REST API runs the file-digest deploy (SHA1 per file, PUT only
+  the files Netlify still needs) and polls to `ready`. No operator API token is
+  needed; `observe`/`down` use the Stripe resource registration.
+- `stackless logs` is not wired for Netlify in v0 — use the Netlify dashboard.
+
 ## The interpolation namespace
 
 Env values (common `env`, substrate `env` overlays, and
@@ -392,7 +420,7 @@ Env values (common `env`, substrate `env` overlays, and
 |---|---|
 | `${stack.name}` | the stack's declared name |
 | `${instance.name}` | the instance's name — the one identity everything derives from |
-| `${services.X.origin}` | service X's substrate-appropriate origin. Local: `http://x.{instance}.localhost:4444` (the root-origin service resolves to `http://{instance}.localhost:4444` — what browsers actually use). Render: `https://{stack}-{instance}-x.onrender.com`. Vercel: the deployment URL after `start` (best-effort `https://{stack}-{instance}-x.vercel.app` before deploy). Fly: `https://{stack}-{instance}-x.fly.dev` |
+| `${services.X.origin}` | service X's substrate-appropriate origin. Local: `http://x.{instance}.localhost:4444` (the root-origin service resolves to `http://{instance}.localhost:4444` — what browsers actually use). Render: `https://{stack}-{instance}-x.onrender.com`. Vercel: the deployment URL after `start` (best-effort `https://{stack}-{instance}-x.vercel.app` before deploy). Fly: `https://{stack}-{instance}-x.fly.dev`. Netlify: the deploy's `ssl_url` recorded at `start` (`https://{stack}-{instance}-x.netlify.app`) |
 | `${datastores.X.url}` | X's connection string. Local: `postgres://...@127.0.0.1:{mapped-port}/postgres`. Render: the internal URL for services, the external one for `prepare` hooks |
 | `${secrets.KEY}` | the resolved secret value (KEY must be in `[secrets].required`) — for renaming; the `secrets = [...]` list already injects same-named vars |
 | `${integrations.clerk.secret_key}` | the Clerk secret key selected from Stripe Projects' Clerk environments JSON (`CLERK_AUTH_ENVIRONMENTS` or `CLERK_ENVIRONMENTS`) |

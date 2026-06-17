@@ -64,8 +64,8 @@ verifiably. No wiki page, no teammate, no manual cleanup.
   the name. Any number of instances coexist without colliding on ports,
   names, data, or credentials.
 - **Substrates** (stack hosts) decide where instances live. Pass
-  `--on local`, `--on render`, `--on vercel`, or `--on fly` at creation
-  (required); resume uses the recorded substrate and never asks again:
+  `--on local`, `--on render`, `--on vercel`, `--on fly`, or `--on netlify`
+  at creation (required); resume uses the recorded substrate and never asks again:
   - **local** — services run as host processes from your declared
     commands; datastores run as labeled Docker containers with
     per-instance volumes; everything meets at a built-in reverse proxy,
@@ -96,6 +96,14 @@ verifiably. No wiki page, no teammate, no manual cleanup.
     Stripe resource and confirms via its registration (no operator API
     token needed). v0 is image-only (no build-from-source) and has no
     managed datastore.
+  - **netlify** — static sites on [Netlify](https://netlify.com) via Stripe
+    `netlify/project` (free). Stripe creates the site and returns a scoped
+    token; the substrate clones the pinned ref and runs the Netlify
+    file-digest deploy (SHA1 per file, upload only what's missing), polls to
+    `ready`, and health-gates on
+    `https://{stack}-{instance}-{service}.netlify.app`. Teardown removes the
+    Stripe resource and confirms via its registration. v0 is static-upload
+    (no build step) and has no managed datastore.
 - **Sources are git references** (`repo` + `ref`), materialized per
   instance from a shared object cache. For the edit loop,
   `--source service=/path/to/checkout` pins a service to your dirty
@@ -110,7 +118,7 @@ verifiably. No wiki page, no teammate, no manual cleanup.
   origin. `stackless verify` runs the stack's own proof command (the
   smoke tier) with the instance's origins and env exported.
 - **Every instance carries a lease** (local default 24h; render,
-  vercel, and fly default 8h).
+  vercel, fly, and netlify default 8h).
   Mutating verbs and successful `verify` renew it; when it expires, a
   reaper sends the instance through the same verified teardown as
   `down`. Teardown refuses to report success while anything that bills
@@ -211,7 +219,7 @@ Common commands (also wired as `mise run <task>`):
 - Tests: `cargo nextest run --workspace` (or `mise run test`)
 - Hygiene ("cargo crap"): `mise run ci` (fmt + clippy + taplo + nextest + audit + deny + vet)
 - Individual: `cargo audit`, `cargo deny check`, `cargo vet`, `taplo fmt --check`
-- Live smoke tests against real providers: `mise run smoke-vercel` / `mise run smoke-render` / `mise run smoke-fly` / `mise run smoke` (creds from `.stackless.env`) — see [docs/SELFTEST.md](docs/SELFTEST.md)
+- Live smoke tests against real providers: `mise run smoke-vercel` / `mise run smoke-render` / `mise run smoke-fly` / `mise run smoke-netlify` / `mise run smoke` (creds from `.stackless.env`) — see [docs/SELFTEST.md](docs/SELFTEST.md)
 
 Releases use `cargo-dist` (see generated `.github/workflows/release.yml`).
 

@@ -2737,6 +2737,7 @@ dependencies = [
  "stackless-fly",
  "stackless-integrations",
  "stackless-local",
+ "stackless-netlify",
  "stackless-render",
  "stackless-vercel",
  "tempfile",
@@ -2852,6 +2853,27 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+]
+
+[[package]]
+name = "stackless-netlify"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha1",
+ "stackless-cloud",
+ "stackless-core",
+ "stackless-git",
+ "stackless-integrations",
+ "stackless-stripe-projects",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
+ "wiremock",
 ]
 
 [[package]]

@@ -38,11 +38,13 @@ smoke-vercel = "bash fixtures/smoke/run.sh vercel fixtures/smoke/vercel/stackles
 smoke-render = "bash fixtures/smoke/run.sh render fixtures/smoke/render/stackless.toml smoke-r"
 smoke-cloudflare = "bash fixtures/smoke/run.sh local fixtures/smoke/cloudflare/stackless.toml smoke-c"
 smoke-fly = "bash fixtures/smoke/run.sh fly fixtures/smoke/flyio/stackless.toml smoke-f --confirm-paid"
+smoke-netlify = "bash fixtures/smoke/run.sh netlify fixtures/smoke/netlify/stackless.toml smoke-n"
 smoke = { depends = [
     "smoke-vercel",
     "smoke-render",
     "smoke-cloudflare",
     "smoke-fly",
+    "smoke-netlify",
 ] }
 
 # Stripe Projects plugin snapshots. `stripe-refresh` is the bless path (writes
