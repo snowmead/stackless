@@ -28,26 +28,15 @@ impl Hostable for CloudflareWorkersAi {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &[
-        "account_id",
-        "workers_dev_subdomain",
-        "api_base_url",
-        "dashboard_url",
-        "plan_service_id",
-    ];
+    const OUTPUTS: &'static [&'static str] = super::WORKERS_FAMILY_OUTPUTS;
 }
 
 impl CloudflareResource for CloudflareWorkersAi {
     type Config = WorkersAiConfig;
     const PROVIDER_PREFIX: &'static str = "CLOUDFLARE";
-    // Confirmed by live discovery 2026-06-16 (Worker-family shape).
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
-        ("ACCOUNT_ID", "account_id", true),
-        ("WORKERS_DEV_SUBDOMAIN", "workers_dev_subdomain", true),
-        ("API_BASE_URL", "api_base_url", false),
-        ("DASHBOARD_URL", "dashboard_url", false),
-        ("PLAN_SERVICE_ID", "plan_service_id", false),
-    ];
+    // Shared across the Workers family; confirmed by live discovery 2026-06-16.
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
+        super::WORKERS_FAMILY_OUTPUT_FIELDS;
 
     fn build_config(_ctx: &ProvisionContext<'_>) -> Result<WorkersAiConfig, IntegrationError> {
         Ok(WorkersAiConfig {})
