@@ -3,7 +3,9 @@
 //! only seam). Adding a hosting provider is one row here plus its own crate.
 
 use stackless_core::substrate::Substrate;
+use stackless_fly::{FlySubstrate, SUBSTRATE_NAME as FLY};
 use stackless_local::{LocalSubstrate, SUBSTRATE_NAME as LOCAL};
+use stackless_netlify::{NetlifySubstrate, SUBSTRATE_NAME as NETLIFY};
 use stackless_render::{RenderSubstrate, SUBSTRATE_NAME as RENDER};
 use stackless_vercel::{SUBSTRATE_NAME as VERCEL, VercelSubstrate};
 
@@ -29,6 +31,14 @@ static SUBSTRATES: &[SubstrateInfo] = &[
     SubstrateInfo {
         name: VERCEL,
         build: build_vercel,
+    },
+    SubstrateInfo {
+        name: FLY,
+        build: build_fly,
+    },
+    SubstrateInfo {
+        name: NETLIFY,
+        build: build_netlify,
     },
 ];
 
@@ -86,6 +96,22 @@ fn build_vercel(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliError> {
     )))
 }
 
+fn build_fly(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliError> {
+    Ok(Box::new(FlySubstrate::new(
+        ctx.definition_dir,
+        ctx.secrets,
+        ctx.confirm_paid,
+    )))
+}
+
+fn build_netlify(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliError> {
+    Ok(Box::new(NetlifySubstrate::new(
+        ctx.definition_dir,
+        ctx.secrets,
+        ctx.confirm_paid,
+    )))
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
@@ -99,6 +125,8 @@ mod tests {
         all.extend(stackless_core::fault::codes::ALL);
         all.extend(stackless_render::codes::ALL);
         all.extend(stackless_vercel::codes::ALL);
+        all.extend(stackless_fly::codes::ALL);
+        all.extend(stackless_netlify::codes::ALL);
         let unique: BTreeSet<&str> = all.iter().copied().collect();
         assert_eq!(
             unique.len(),

@@ -321,7 +321,7 @@ mod tests {
 
     use super::*;
 
-    const KNOWN: &[&str] = &["local", "render", "vercel"];
+    const KNOWN: &[&str] = &["local", "render", "vercel", "fly", "netlify"];
 
     /// Registry hygiene: every provider string and resource kind is unique, so a
     /// new `PROVIDERS` row can't silently shadow another's dispatch.

@@ -94,7 +94,7 @@ Decided:
   adapter (`clerk` → `clerk/auth`, provisioned via Stripe Projects
   internally). Each provider declares **managed** (Clerk — global config
   only, runs on provider cloud) or **host-bound** (future — explicit
-  `local`/`render`/`vercel` support, optional per-host overrides).
+  `local`/`render`/`vercel`/`fly`/`netlify` support, optional per-host overrides).
   Provider-specific config is validated by `stackless-integrations`;
   `${integrations.*}` references are ordering edges in the derived graph.
 
@@ -228,7 +228,7 @@ vision's invariants; flag anything to veto):
   instance resumes it (invariant 3) — there is no separate resume
   verb. **`--name` is optional at creation** (`{stack.name}-{uuid}`
   when omitted); resume needs only `--name`. **The substrate is chosen
-  at creation only** (`--on local|render|vercel`, required on first
+  at creation only** (`--on local|render|vercel|fly|netlify`, required on first
   `up` for
   a name), becomes part of the instance's
   identity in the state store, and is never asked for again —
@@ -533,6 +533,66 @@ Mirrors §4's Stripe + provider-API split for
   vercel`; spend line printed after cloud `up`/`down`).
 - **`stackless logs` is not wired for Vercel in v0** — use the Vercel
   dashboard; Render and local substrates support the `logs` verb.
+
+## 4c. Fly substrate
+
+Mirrors §4's Stripe + provider-API split for [Fly.io](https://fly.io)
+container apps. v0 is **image-only**.
+
+- **Same Stripe project per stack** as Render/Vercel and hosted
+  integrations (§4); cloud resource names remain
+  `{stack}-{instance}-{service}` — which is also the Fly app name, so it
+  must be a legal Fly app name (`^[a-z][a-z0-9-]{2,62}$`).
+- **Catalog resource:** services → `flyio/app` with
+  `{"app_name": "<resource-name>"}` at provision time. `flyio/app` is
+  usage-billed (freeform pricing) → always `--confirm-paid`.
+- **Stripe Projects provisions; the Fly Machines REST API operates:**
+  after Stripe creates the app, stackless allocates its public IPs
+  (shared IPv4 + IPv6), creates a machine running the service's prebuilt
+  `image` with the interpolated env and an always-on HTTP service
+  (443/80 → the container's `internal_port`), polls the machine to
+  `started`, health-gates on `https://{app}.fly.dev`, and on `down`
+  removes the Stripe resource (Stripe tears down the app). The deploy token
+  is **Stripe-managed and returned by provisioning** (pinned by
+  `mise run discover flyio/app`); because it is app-scoped and ephemeral,
+  `observe`/`down` key off the Stripe resource registration and the Fly API
+  is touched only at deploy time.
+  The client (`stackless-fly::fly_api`) is hand-written reqwest/serde
+  rather than a generated client — the Machines surface we use is a
+  handful of endpoints and the published spec is Swagger 2.0.
+- **No build-from-source and no datastore in v0** — a service supplies a
+  prebuilt `image`; `flyio/mpg` (managed Postgres) is a separate catalog
+  integration, and a `[datastores.*]` block is rejected.
+- **No root-origin alias on cloud** (same as Render/Vercel); setup is
+  skipped; prepare runs on the operator's machine from a shallow clone.
+- **Spend caps and summaries** follow §4 (`billing update --provider
+  flyio`; spend line printed after cloud `up`/`down`).
+- **`stackless logs` is not wired for Fly in v0** — use the Fly dashboard.
+
+## 4d. Netlify substrate
+
+Mirrors §4's Stripe + provider-API split for
+[Netlify](https://netlify.com) static sites. v0 is **static upload**.
+
+- **Same Stripe project per stack** as the other cloud substrates; cloud
+  resource names remain `{stack}-{instance}-{service}` — also the Netlify
+  site name.
+- **Catalog resource:** services → `netlify/project` with `{"name": "<site>"}`.
+  `netlify/project` is **free**, so no `--confirm-paid`.
+- **Stripe Projects provisions; the Netlify REST API operates:** provisioning
+  creates the site and returns a Stripe-managed token + site id (pinned by
+  `mise run discover netlify/project`; the token only surfaces on a refreshed
+  env read). stackless clones the pinned ref, then runs the **file-digest
+  deploy** — POST the per-file SHA1 map, PUT only the files Netlify reports as
+  `required`, poll the deploy to `ready` — and health-gates on the deploy's
+  `ssl_url`. The client (`stackless-netlify::netlify_api`) is hand-written
+  reqwest/serde (Swagger-2.0 source, ~5 endpoints).
+- **No build step and no datastore in v0** — pre-built static files only; a
+  `[datastores.*]` block is rejected.
+- **No root-origin alias on cloud**; setup is skipped; prepare runs on the
+  operator's machine. The token is ephemeral, so `observe`/`down` key off the
+  Stripe resource registration.
+- **`stackless logs` is not wired for Netlify in v0** — use the Netlify dashboard.
 
 ## 5. Trust boundary (phased, post-v0) — TBD
 

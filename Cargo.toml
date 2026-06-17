@@ -9,6 +9,8 @@ members = [
     "crates/stackless-git",
     "crates/stackless-render",
     "crates/stackless-vercel",
+    "crates/stackless-fly",
+    "crates/stackless-netlify",
     "crates/stackless-stripe-projects",
     "crates/stackless",
     "crates/render-client",
@@ -40,6 +42,8 @@ stackless-local           = { path = "crates/stackless-local" }
 stackless-git             = { path = "crates/stackless-git" }
 stackless-render          = { path = "crates/stackless-render" }
 stackless-vercel          = { path = "crates/stackless-vercel" }
+stackless-fly             = { path = "crates/stackless-fly" }
+stackless-netlify         = { path = "crates/stackless-netlify" }
 stackless-integrations    = { path = "crates/stackless-integrations" }
 stackless-stripe-projects = { path = "crates/stackless-stripe-projects" }
 

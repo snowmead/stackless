@@ -113,7 +113,7 @@ impl Fault for CliError {
             }
             Self::SubstrateRequired { name } => format!(
                 "pass a substrate at creation: `stackless up --name {name} --on local`, \
-                 `--on render`, or `--on vercel`"
+                 `--on render`, `--on vercel`, `--on fly`, or `--on netlify`"
             ),
             Self::SecretsUnresolved { missing, .. } => format!(
                 "add {missing:?} to the {} file next to stackless.toml (KEY=value lines), or \
