@@ -13,16 +13,18 @@ use std::path::Path;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use stackless_core::def::{Namespace, StackDef};
-use stackless_core::substrate::{Observation, StepResource};
+use stackless_core::substrate::StepResource;
 use stackless_core::types::DnsName;
 use stackless_stripe_projects::catalog::verify::CatalogService;
 use stackless_stripe_projects::project;
 use stackless_stripe_projects::provision::{ProvisionContext, provision_outputs};
 use stackless_stripe_projects::stripe::{CommandRunner, StripeProjects};
 
+use crate::ProviderOps;
+use crate::config;
 use crate::error::IntegrationError;
 use crate::hostable::Hostable;
-use crate::registry;
+use crate::observation::IntegrationObservation;
 
 /// A catalog resource: a typed config + the credential fields it exposes. The
 /// `ProviderOps` lifecycle is derived (blanket impl below), so a new resource is
@@ -53,7 +55,7 @@ pub struct ResourcePayload {
 /// identical, so a per-resource impl would be pure boilerplate. (Does not
 /// conflict with Clerk: `ClerkAuth` is not a `CatalogResource`.)
 #[async_trait]
-impl<T: CatalogResource + Send + Sync> crate::ProviderOps for T {
+impl<T: CatalogResource + Send + Sync> ProviderOps for T {
     #[allow(clippy::too_many_arguments)]
     async fn provision(
         &self,
@@ -82,7 +84,7 @@ impl<T: CatalogResource + Send + Sync> crate::ProviderOps for T {
         stripe: &StripeProjects<&dyn CommandRunner>,
         checkpoint_payload: &str,
         fallback_resource: &str,
-    ) -> Result<Observation, IntegrationError> {
+    ) -> Result<IntegrationObservation, IntegrationError> {
         observe_resource(stripe, checkpoint_payload, fallback_resource).await
     }
 
@@ -150,13 +152,13 @@ pub async fn observe_resource(
     stripe: &StripeProjects<&dyn CommandRunner>,
     checkpoint_payload: &str,
     fallback_resource: &str,
-) -> Result<Observation, IntegrationError> {
+) -> Result<IntegrationObservation, IntegrationError> {
     let resource = stripe_resource(checkpoint_payload).unwrap_or_else(|| fallback_resource.into());
     let present = project::resource_registered(stripe, &resource).await?;
     Ok(if present {
-        Observation::Present
+        IntegrationObservation::Present { drift: vec![] }
     } else {
-        Observation::Gone
+        IntegrationObservation::Gone
     })
 }
 
@@ -179,7 +181,7 @@ fn stripe_resource(payload: &str) -> Option<String> {
 
 /// The integration's effective config. Resource integrations are `Managed`
 /// (`GlobalOnly`), so there are no per-host override blocks to strip.
-pub(crate) fn integration_config(
+pub fn integration_config(
     ctx: &ProvisionContext<'_>,
 ) -> Result<BTreeMap<String, toml::Value>, IntegrationError> {
     let spec = ctx.def.integrations.get(ctx.logical_name).ok_or_else(|| {
@@ -192,23 +194,23 @@ pub(crate) fn integration_config(
 }
 
 /// Read a required string field and interpolate `${...}` references.
-pub(crate) fn interp_required(
+pub fn interp_required(
     ctx: &ProvisionContext<'_>,
     config: &BTreeMap<String, toml::Value>,
     key: &str,
 ) -> Result<String, IntegrationError> {
-    let raw = registry::config_string(config, key)
-        .map_err(|err| cfg_invalid(ctx, key, err.to_string()))?;
+    let raw =
+        config::config_string(config, key).map_err(|err| cfg_invalid(ctx, key, err.to_string()))?;
     interp_value(ctx, key, &raw)
 }
 
 /// Read an optional string field and interpolate it when present.
-pub(crate) fn interp_optional(
+pub fn interp_optional(
     ctx: &ProvisionContext<'_>,
     config: &BTreeMap<String, toml::Value>,
     key: &str,
 ) -> Result<Option<String>, IntegrationError> {
-    match registry::config_optional_string(config, key) {
+    match config::config_optional_string(config, key) {
         None => Ok(None),
         Some(raw) => Ok(Some(interp_value(ctx, key, &raw)?)),
     }
@@ -230,7 +232,7 @@ fn interp_value(
 }
 
 /// Read a required integer field (e.g. a port) from the effective config.
-pub(crate) fn int_required(
+pub fn int_required(
     ctx: &ProvisionContext<'_>,
     config: &BTreeMap<String, toml::Value>,
     key: &str,
@@ -251,40 +253,5 @@ fn cfg_invalid(ctx: &ProvisionContext<'_>, key: &str, detail: String) -> Integra
     IntegrationError::ConfigInvalid {
         location: format!("integrations.{}.{key}", ctx.logical_name),
         detail,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::CatalogResource;
-    use crate::hostable::Hostable;
-    use crate::providers::cloudflare;
-
-    /// `Hostable::OUTPUTS` (the names referenceable as `${integrations.*.<out>}`)
-    /// must stay in lockstep with the names column of `OUTPUT_FIELDS` — the two
-    /// are co-located but hand-written, so this makes drift a test failure rather
-    /// than a silent validation bug. Bespoke providers (Clerk) aren't
-    /// `CatalogResource`, so they're out of scope here by construction.
-    fn assert_outputs_match<T: CatalogResource>() {
-        let fields: Vec<&str> = T::OUTPUT_FIELDS.iter().map(|(_, name, _)| *name).collect();
-        let outputs: Vec<&str> = <T as Hostable>::OUTPUTS.to_vec();
-        assert_eq!(
-            outputs,
-            fields,
-            "{}: Hostable::OUTPUTS drifted from CatalogResource::OUTPUT_FIELDS names",
-            T::PROVIDER
-        );
-    }
-
-    #[test]
-    fn catalog_outputs_match_output_fields() {
-        assert_outputs_match::<cloudflare::r2::CloudflareR2>();
-        assert_outputs_match::<cloudflare::kv::CloudflareKv>();
-        assert_outputs_match::<cloudflare::d1::CloudflareD1>();
-        assert_outputs_match::<cloudflare::queues::CloudflareQueues>();
-        assert_outputs_match::<cloudflare::hyperdrive::CloudflareHyperdrive>();
-        assert_outputs_match::<cloudflare::workers::CloudflareWorkers>();
-        assert_outputs_match::<cloudflare::workers_ai::CloudflareWorkersAi>();
-        assert_outputs_match::<cloudflare::browser_run::CloudflareBrowserRun>();
     }
 }

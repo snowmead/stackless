@@ -14,6 +14,10 @@ gets config-schema validation, paid-confirmation, project-environment isolation,
 and spend-cap semantics for free. A service **not** in the catalog is out of
 scope (it would need a separate provisioning authority).
 
+Provider-facing traits and helpers live in **`stackless-provider-sdk`**
+(`crates/stackless-provider-sdk`). Implementors depend on that crate (or use the
+re-exports from `stackless-integrations` when adding an in-tree provider).
+
 ---
 
 ## Tooling: start here
@@ -67,22 +71,28 @@ stripe projects link <provider>
 A resource whose credentials come back as flat env vars (Cloudflare R2/KV/D1/…)
 is a `CatalogResource`. The provision/observe/destroy lifecycle and credential
 resolution are shared — you only declare config + fields. One file under
-`crates/stackless-integrations/src/providers/<provider>/<service>.rs`:
+`crates/stackless-integrations/src/providers/<provider>/<service>.rs` (using
+traits from `stackless-provider-sdk`):
 
 1. **Config** + `impl CatalogService { const REFERENCE = "<provider>/<service>" }`
    — the `stripe projects add` key (note: `provider_name.lowercase()/service_id`).
    The `Serialize` shape is validated against the catalog schema at provision.
 2. **`impl Hostable`** — `PROVIDER` (the `provider = "..."` key, **distinct per
    service**, e.g. `"cloudflare-r2"`), `HOSTING` (`Managed`), `CONFIG_SCOPE`
-   (`GlobalOnly`), `RESOURCE_KIND` (unique), `OUTPUTS`.
-3. **`impl crate::resource::CatalogResource`** — `type Config`, `PROVIDER_PREFIX`
+   (`GlobalOnly`), `RESOURCE_KIND` (unique), `OUTPUTS`. *Optional:*
+   `BLOCKED_SETTINGS` — config keys the credentials can't toggle (no secret-key
+   endpoint); each `(key, remediation)` fails `check`/`up` loudly instead of
+   being silently ignored. Defaults to empty; see `providers/clerk.rs` and
+   docs/DECISIONS.md.
+3. **`impl CatalogResource`** — `type Config`, `PROVIDER_PREFIX`
    (the unambiguous env-var prefix, e.g. `"CLOUDFLARE"`), `OUTPUT_FIELDS`
    (`(env-suffix, output, required)` — get the real suffixes from `discover`),
    and `build_config`. **`ProviderOps` is derived** by a blanket impl — no
-   per-service lifecycle code.
+   per-service lifecycle code. Post-provision vendor glue (if any) goes in
+   `ProviderOps::apply` (default no-op).
 4. **`validate_config`** — provider-specific config checks beyond the schema.
 
-Then the **one registration site** — a row in `PROVIDERS`
+Then the **one registration site** — one row in `register_providers!`
 (`crates/stackless-integrations/src/registry.rs`) + a `pub mod` in the provider's
 `mod.rs`. Dispatch is automatic (`ops_for` / `ops_for_resource_kind`); never a
 provider string. (See `providers/cloudflare/r2.rs` for a worked example.)
@@ -97,8 +107,12 @@ provider string. (See `providers/cloudflare/r2.rs` for a worked example.)
 
 If credentials arrive as one provider-specific JSON blob (Clerk), implement
 `ProviderOps` directly and parse the blob yourself — see `providers/clerk.rs`
-(`provision_with_credentials` + `parse_clerk_credentials`). Everything else
-(registry row, gap test, hermetic test) is the same.
+(`provision_with_credentials` + `parse_clerk_credentials`). Post-provision vendor
+API toggles belong in `ProviderOps::apply` (see Clerk's `organizations` toggle).
+`observe()` returns `IntegrationObservation` (Stripe registration plus optional
+`Drift` entries); the dispatch layer reduces it to `Present`/`Gone` for the
+engine today. Everything else (registry row, gap test, hermetic test) is the
+same.
 
 ## Cloud substrate
 

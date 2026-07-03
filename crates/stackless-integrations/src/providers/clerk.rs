@@ -7,8 +7,13 @@ use std::time::Duration;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use stackless_core::def::{Namespace, StackDef};
-use stackless_core::substrate::{Observation, StepResource};
+use stackless_core::substrate::StepResource;
 use stackless_core::types::DnsName;
+use stackless_provider_sdk::{
+    BlockedSetting, ConfigScope, Hostable, IntegrationError, IntegrationHosting,
+    IntegrationObservation, config_bool, config_optional_string, config_string, host_bound_hosts,
+};
+
 use stackless_stripe_projects::ProjectsError;
 use stackless_stripe_projects::catalog::verify::CatalogService;
 use stackless_stripe_projects::project;
@@ -16,10 +21,6 @@ use stackless_stripe_projects::provision::{
     ProvisionContext, ProvisionedCredentials, provision_with_credentials,
 };
 use stackless_stripe_projects::stripe::{CommandRunner, StripeProjects};
-
-use crate::error::IntegrationError;
-use crate::hostable::{ConfigScope, Hostable, IntegrationHosting, host_bound_hosts};
-use crate::registry;
 
 pub const RESOURCE_KIND: &str = "integration-clerk";
 const CLERK_API_BASE: &str = "https://api.clerk.com/v1";
@@ -69,6 +70,30 @@ impl Hostable for ClerkAuth {
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
     /// Keys exposed via `${integrations.<name>.<output>}`.
     const OUTPUTS: &'static [&'static str] = &["secret_key", "publishable_key"];
+    /// Sign-in identifiers have no Clerk secret-key Backend API endpoint (only
+    /// `organizations` does), so they cannot be toggled during provisioning —
+    /// fail loud with the Dashboard remediation instead of silently ignoring the
+    /// key. See docs/DECISIONS.md.
+    const BLOCKED_SETTINGS: &'static [BlockedSetting] = &[
+        BlockedSetting {
+            key: "username",
+            remediation: "Clerk's secret-key Backend API cannot toggle sign-in identifiers. \
+                Enable username in the Clerk Dashboard \u{2192} User & authentication \u{2192} \
+                Username (Sign-in with username), or via `clerk config patch`.",
+        },
+        BlockedSetting {
+            key: "email",
+            remediation: "Clerk's secret-key Backend API cannot toggle sign-in identifiers. \
+                Configure the email identifier in the Clerk Dashboard \u{2192} User & \
+                authentication \u{2192} Email, or via `clerk config patch`.",
+        },
+        BlockedSetting {
+            key: "phone",
+            remediation: "Clerk's secret-key Backend API cannot toggle sign-in identifiers. \
+                Configure the phone identifier in the Clerk Dashboard \u{2192} User & \
+                authentication \u{2192} Phone, or via `clerk config patch`.",
+        },
+    ];
 }
 
 #[async_trait]
@@ -96,12 +121,38 @@ impl crate::ProviderOps for ClerkAuth {
         .await
     }
 
+    async fn apply(
+        &self,
+        _stripe: &StripeProjects<&dyn CommandRunner>,
+        _def: &StackDef,
+        _name: &str,
+        _substrate: &str,
+        provisioned: &StepResource,
+    ) -> Result<(), IntegrationError> {
+        let payload: ClerkPayload = serde_json::from_str(&provisioned.payload).map_err(|err| {
+            IntegrationError::ProvisionFailed {
+                integration: provisioned.resource_id.clone(),
+                detail: format!("Clerk checkpoint payload is invalid: {err}"),
+            }
+        })?;
+        if payload.organizations {
+            let secret_key = payload.outputs.get("secret_key").ok_or_else(|| {
+                IntegrationError::ProvisionFailed {
+                    integration: payload.stripe_resource.clone(),
+                    detail: "Clerk checkpoint missing secret_key output".into(),
+                }
+            })?;
+            enable_clerk_organizations(secret_key, &payload.stripe_resource).await?;
+        }
+        Ok(())
+    }
+
     async fn observe(
         &self,
         stripe: &StripeProjects<&dyn CommandRunner>,
         checkpoint_payload: &str,
         fallback_resource: &str,
-    ) -> Result<Observation, IntegrationError> {
+    ) -> Result<IntegrationObservation, IntegrationError> {
         observe(stripe, checkpoint_payload, fallback_resource).await
     }
 
@@ -128,8 +179,7 @@ fn build_clerk_config(ctx: &ProvisionContext<'_>) -> Result<ClerkAuthConfig, Pro
         .get(ctx.logical_name)
         .ok_or_else(|| fail("integration not in definition".into()))?;
     let config = spec.effective_config(ctx.substrate, host_bound_hosts(ClerkAuth::HOSTING));
-    let app_name_raw =
-        registry::config_string(&config, "app_name").map_err(|err| fail(err.to_string()))?;
+    let app_name_raw = config_string(&config, "app_name").map_err(|err| fail(err.to_string()))?;
     let namespace = Namespace {
         stack_name: ctx.def.stack.name.clone(),
         instance_name: DnsName::from_stored(ctx.instance),
@@ -138,7 +188,7 @@ fn build_clerk_config(ctx: &ProvisionContext<'_>) -> Result<ClerkAuthConfig, Pro
     let location = format!("integrations.{}.app_name", ctx.logical_name);
     let app_name = stackless_core::def::interp::resolve(&app_name_raw, &namespace, &location)
         .map_err(|err| fail(err.to_string()))?;
-    let production_domain = match registry::config_optional_string(&config, "production_domain") {
+    let production_domain = match config_optional_string(&config, "production_domain") {
         None => None,
         Some(domain) => {
             let location = format!("integrations.{}.production_domain", ctx.logical_name);
@@ -201,20 +251,19 @@ pub fn validate_config(
     name: &str,
     config: &std::collections::BTreeMap<String, toml::Value>,
 ) -> Result<(), IntegrationError> {
-    registry::config_string(config, "app_name").map_err(|err| IntegrationError::ConfigInvalid {
+    config_string(config, "app_name").map_err(|err| IntegrationError::ConfigInvalid {
         location: format!("integrations.{name}.app_name"),
         detail: err.to_string(),
     })?;
-    let credential_set = registry::config_string(config, "credential_set").map_err(|err| {
-        IntegrationError::ConfigInvalid {
+    let credential_set =
+        config_string(config, "credential_set").map_err(|err| IntegrationError::ConfigInvalid {
             location: format!("integrations.{name}.credential_set"),
             detail: err.to_string(),
-        }
-    })?;
+        })?;
     match credential_set.as_str() {
         "development" => Ok(()),
         "production" => {
-            if registry::config_optional_string(config, "production_domain").is_none() {
+            if config_optional_string(config, "production_domain").is_none() {
                 Err(IntegrationError::ConfigInvalid {
                     location: format!("integrations.{name}.production_domain"),
                     detail: "credential_set = \"production\" requires production_domain".into(),
@@ -263,7 +312,7 @@ pub async fn provision_stripe<R: CommandRunner>(
 
     let spec = &def.integrations[name];
     let effective = spec.effective_config(substrate, host_bound_hosts(ClerkAuth::HOSTING));
-    let credential_set = registry::config_string(&effective, "credential_set").map_err(|err| {
+    let credential_set = config_string(&effective, "credential_set").map_err(|err| {
         IntegrationError::ConfigInvalid {
             location: format!("integrations.{name}.credential_set"),
             detail: err.to_string(),
@@ -271,10 +320,7 @@ pub async fn provision_stripe<R: CommandRunner>(
     })?;
     let outputs = parse_clerk_credentials(&raw, &credential_set, &resource_name)?;
 
-    let organizations = registry::config_bool(&effective, "organizations");
-    if organizations {
-        enable_clerk_organizations(&outputs.secret_key, &resource_name).await?;
-    }
+    let organizations = config_bool(&effective, "organizations");
 
     let mut output_map = BTreeMap::new();
     output_map.insert("publishable_key".to_owned(), outputs.publishable_key);
@@ -298,13 +344,13 @@ pub async fn observe<R: CommandRunner>(
     stripe: &StripeProjects<R>,
     checkpoint_payload: &str,
     fallback_resource: &str,
-) -> Result<Observation, IntegrationError> {
+) -> Result<IntegrationObservation, IntegrationError> {
     let resource = stripe_resource(checkpoint_payload).unwrap_or_else(|| fallback_resource.into());
     let present = project::resource_registered(stripe, &resource).await?;
     Ok(if present {
-        Observation::Present
+        IntegrationObservation::Present { drift: vec![] }
     } else {
-        Observation::Gone
+        IntegrationObservation::Gone
     })
 }
 
@@ -537,7 +583,7 @@ run = "true"
 
         assert_eq!(
             observe(&stripe, &payload, "fallback").await.unwrap(),
-            Observation::Present
+            IntegrationObservation::Present { drift: vec![] }
         );
         destroy(&stripe, &payload, "fallback").await.unwrap();
         let calls = runner.calls();
@@ -546,6 +592,52 @@ run = "true"
                 .iter()
                 .any(|call| call.starts_with(&["remove".to_owned(), "demo-clerk".to_owned()]))
         );
+    }
+
+    /// `apply` is a no-op when the checkpoint records `organizations = false`
+    /// (no Clerk API call, no Stripe call), and fails loudly on a corrupt
+    /// payload instead of silently skipping the toggle.
+    #[tokio::test]
+    async fn apply_skips_toggle_when_organizations_disabled() {
+        use crate::ProviderOps;
+
+        let payload = serde_json::to_string(&ClerkPayload {
+            stripe_resource: "demo-clerk".into(),
+            app_name: "atto-demo".into(),
+            credential_set: "development".into(),
+            organizations: false,
+            outputs: BTreeMap::new(),
+        })
+        .unwrap();
+        let provisioned = StepResource {
+            resource_kind: RESOURCE_KIND.into(),
+            resource_id: "demo-clerk".into(),
+            payload,
+        };
+        let runner = ScriptedRunner::new(vec![]);
+        let stripe = StripeProjects::new(&runner, std::env::temp_dir());
+        ClerkAuth
+            .apply(
+                &stripe.as_dyn(),
+                &test_def(),
+                "clerk",
+                "local",
+                &provisioned,
+            )
+            .await
+            .unwrap();
+        assert!(runner.calls().is_empty(), "apply must not touch Stripe");
+
+        let corrupt = StepResource {
+            resource_kind: RESOURCE_KIND.into(),
+            resource_id: "demo-clerk".into(),
+            payload: "not-json".into(),
+        };
+        let err = ClerkAuth
+            .apply(&stripe.as_dyn(), &test_def(), "clerk", "local", &corrupt)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("payload is invalid"));
     }
 
     #[tokio::test]

@@ -79,7 +79,7 @@ mod tests {
     use crate::ProviderOps;
     use crate::resource::ResourcePayload as CloudflarePayload;
     use stackless_core::def::StackDef;
-    use stackless_core::substrate::Observation;
+    use stackless_provider_sdk::IntegrationObservation;
     use stackless_stripe_projects::stripe::{CommandOutput, StripeProjects};
     use stackless_stripe_projects::test_support::ScriptedRunner;
 
@@ -235,7 +235,7 @@ run = "true"
             crate::resource::observe_resource(&stripe.as_dyn(), &payload, "fallback")
                 .await
                 .unwrap(),
-            Observation::Present
+            IntegrationObservation::Present { drift: vec![] }
         );
         crate::resource::destroy_resource(&stripe.as_dyn(), &payload, "fallback")
             .await

@@ -22,6 +22,19 @@ pub enum IntegrationHosting {
     HostBound(&'static [&'static str]),
 }
 
+/// A setting that cannot be applied with the credentials stackless holds and
+/// must be enabled out-of-band (Dashboard, vendor CLI, …). Declared per provider
+/// via [`Hostable::BLOCKED_SETTINGS`]; the registry fails validation with the
+/// remediation when a blocked key is set truthy, instead of silently ignoring
+/// it.
+#[derive(Debug, Clone, Copy)]
+pub struct BlockedSetting {
+    /// Config key under `[integrations.<name>]`.
+    pub key: &'static str,
+    /// Exact out-of-band remediation (Dashboard path, CLI command, …).
+    pub remediation: &'static str,
+}
+
 /// Metadata and compile-time constraints for one integration provider.
 ///
 /// Implementors are registered in the integrations registry; validation and
@@ -37,6 +50,10 @@ pub trait Hostable {
     const RESOURCE_KIND: &'static str;
     /// Outputs available in `${integrations.<name>.<output>}` references.
     const OUTPUTS: &'static [&'static str];
+    /// Settings stackless cannot apply with the credentials it holds; setting one
+    /// truthy fails validation with its remediation. Default empty — most
+    /// providers have none.
+    const BLOCKED_SETTINGS: &'static [BlockedSetting] = &[];
 
     /// Compile-time guard: managed providers cannot accept per-host config.
     const VALIDATED: () = validate_hostable_pair(Self::HOSTING, Self::CONFIG_SCOPE);
