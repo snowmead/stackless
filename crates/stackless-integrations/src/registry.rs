@@ -13,11 +13,12 @@ use std::collections::BTreeMap;
 
 use stackless_core::def::interp::{self, Reference};
 use stackless_core::def::{Integration, StackDef};
-
-use crate::error::IntegrationError;
-use crate::hostable::{
-    ConfigScope, Hostable, IntegrationHosting, host_bound_hosts, host_bound_supports,
+use stackless_provider_sdk::{
+    BlockedSetting, ConfigScope, Hostable, IntegrationError, IntegrationHosting, ProviderOps,
+    host_bound_hosts, host_bound_supports,
 };
+pub use stackless_provider_sdk::{config_bool, config_optional_string, config_string};
+
 use crate::providers;
 
 type ValidateFn = fn(&str, &BTreeMap<String, toml::Value>) -> Result<(), IntegrationError>;
@@ -31,13 +32,14 @@ struct ProviderEntry {
     config_scope: ConfigScope,
     resource_kind: &'static str,
     outputs: &'static [&'static str],
+    blocked_settings: &'static [BlockedSetting],
     validate_config: ValidateFn,
-    ops: &'static dyn crate::ProviderOps,
+    ops: &'static dyn ProviderOps,
 }
 
 const fn provider_entry<T: Hostable>(
     validate_config: ValidateFn,
-    ops: &'static dyn crate::ProviderOps,
+    ops: &'static dyn ProviderOps,
 ) -> ProviderEntry {
     ProviderEntry {
         provider: T::PROVIDER,
@@ -45,49 +47,36 @@ const fn provider_entry<T: Hostable>(
         config_scope: T::CONFIG_SCOPE,
         resource_kind: T::RESOURCE_KIND,
         outputs: T::OUTPUTS,
+        blocked_settings: T::BLOCKED_SETTINGS,
         validate_config,
         ops,
     }
 }
 
-const PROVIDERS: &[ProviderEntry] = &[
-    provider_entry::<providers::clerk::ClerkAuth>(
-        providers::clerk::validate_config,
-        &providers::clerk::ClerkAuth,
-    ),
-    provider_entry::<providers::cloudflare::r2::CloudflareR2>(
-        providers::cloudflare::r2::validate_config,
-        &providers::cloudflare::r2::CloudflareR2,
-    ),
-    provider_entry::<providers::cloudflare::kv::CloudflareKv>(
-        providers::cloudflare::kv::validate_config,
-        &providers::cloudflare::kv::CloudflareKv,
-    ),
-    provider_entry::<providers::cloudflare::d1::CloudflareD1>(
-        providers::cloudflare::d1::validate_config,
-        &providers::cloudflare::d1::CloudflareD1,
-    ),
-    provider_entry::<providers::cloudflare::queues::CloudflareQueues>(
-        providers::cloudflare::queues::validate_config,
-        &providers::cloudflare::queues::CloudflareQueues,
-    ),
-    provider_entry::<providers::cloudflare::hyperdrive::CloudflareHyperdrive>(
-        providers::cloudflare::hyperdrive::validate_config,
-        &providers::cloudflare::hyperdrive::CloudflareHyperdrive,
-    ),
-    provider_entry::<providers::cloudflare::workers::CloudflareWorkers>(
-        providers::cloudflare::workers::validate_config,
-        &providers::cloudflare::workers::CloudflareWorkers,
-    ),
-    provider_entry::<providers::cloudflare::workers_ai::CloudflareWorkersAi>(
-        providers::cloudflare::workers_ai::validate_config,
-        &providers::cloudflare::workers_ai::CloudflareWorkersAi,
-    ),
-    provider_entry::<providers::cloudflare::browser_run::CloudflareBrowserRun>(
-        providers::cloudflare::browser_run::validate_config,
-        &providers::cloudflare::browser_run::CloudflareBrowserRun,
-    ),
-];
+macro_rules! register_providers {
+    ( $( ( $($m:ident)::+ , $T:ident ) ),+ $(,)? ) => {
+        const PROVIDERS: &[ProviderEntry] = &[
+            $(
+                provider_entry::<providers::$($m)::+::$T>(
+                    providers::$($m)::+::validate_config,
+                    &providers::$($m)::+::$T,
+                ),
+            )+
+        ];
+    };
+}
+
+register_providers! {
+    (clerk, ClerkAuth),
+    (cloudflare::r2, CloudflareR2),
+    (cloudflare::kv, CloudflareKv),
+    (cloudflare::d1, CloudflareD1),
+    (cloudflare::queues, CloudflareQueues),
+    (cloudflare::hyperdrive, CloudflareHyperdrive),
+    (cloudflare::workers, CloudflareWorkers),
+    (cloudflare::workers_ai, CloudflareWorkersAi),
+    (cloudflare::browser_run, CloudflareBrowserRun),
+}
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
     PROVIDERS.iter().find(|entry| entry.provider == provider)
@@ -134,7 +123,17 @@ pub fn validate_integration(
         (ConfigScope::PerHost, Some(host)) => integration.effective_config(host, known_substrates),
         _ => integration.config_fields(known_substrates),
     };
-    (entry.validate_config)(name, &config)
+    (entry.validate_config)(name, &config)?;
+
+    for setting in entry.blocked_settings {
+        if config_bool(&config, setting.key) {
+            return Err(IntegrationError::ConfigInvalid {
+                location: format!("integrations.{name}.{}", setting.key),
+                detail: setting.remediation.to_owned(),
+            });
+        }
+    }
+    Ok(())
 }
 
 pub fn validate_all(
@@ -264,12 +263,12 @@ pub fn dispatch_resource_kind(provider: &str) -> Option<&'static str> {
 }
 
 /// The lifecycle ops for `provider`, for provisioning dispatch.
-pub fn ops_for(provider: &str) -> Option<&'static dyn crate::ProviderOps> {
+pub fn ops_for(provider: &str) -> Option<&'static dyn ProviderOps> {
     lookup(provider).map(|entry| entry.ops)
 }
 
 /// The lifecycle ops owning resources of `kind`, for observe/destroy dispatch.
-pub fn ops_for_resource_kind(kind: &str) -> Option<&'static dyn crate::ProviderOps> {
+pub fn ops_for_resource_kind(kind: &str) -> Option<&'static dyn ProviderOps> {
     PROVIDERS
         .iter()
         .find(|entry| entry.resource_kind == kind)
@@ -284,34 +283,6 @@ pub fn provider_host_keys(provider: &str) -> &'static [&'static str] {
     lookup(provider)
         .map(|entry| host_bound_hosts(entry.hosting))
         .unwrap_or(&[])
-}
-
-pub fn config_string(
-    config: &BTreeMap<String, toml::Value>,
-    key: &str,
-) -> Result<String, IntegrationError> {
-    config
-        .get(key)
-        .and_then(toml::Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| IntegrationError::ConfigInvalid {
-            location: format!("integrations.*.{key}"),
-            detail: format!("{key} is required"),
-        })
-}
-
-pub fn config_bool(config: &BTreeMap<String, toml::Value>, key: &str) -> bool {
-    config
-        .get(key)
-        .and_then(toml::Value::as_bool)
-        .unwrap_or(false)
-}
-
-pub fn config_optional_string(config: &BTreeMap<String, toml::Value>, key: &str) -> Option<String> {
-    config
-        .get(key)
-        .and_then(toml::Value::as_str)
-        .map(str::to_owned)
 }
 
 #[cfg(test)]
@@ -387,5 +358,33 @@ run = "true"
         };
         let err = validate_integration("clerk", &integration, None, KNOWN).unwrap_err();
         assert_eq!(err.code(), codes::INTEGRATION_CONFIG_INVALID);
+    }
+
+    /// A provider's [`Hostable::BLOCKED_SETTINGS`] fail validation loudly (with
+    /// the remediation) instead of being silently ignored. Exercises the generic
+    /// `entry.blocked_settings` path, so it covers any future provider too.
+    #[test]
+    fn provider_rejects_blocked_setting() {
+        let def = StackDef::parse(
+            r#"
+[stack]
+name = "demo"
+[integrations.clerk]
+provider = "clerk"
+app_name = "demo"
+credential_set = "development"
+username = true
+[services.web]
+source = { repo = "https://example.invalid/web", ref = "main" }
+health = { path = "/" }
+[services.web.local]
+run = "true"
+"#,
+        )
+        .unwrap();
+        let err =
+            validate_integration("clerk", &def.integrations["clerk"], None, KNOWN).unwrap_err();
+        assert_eq!(err.code(), codes::INTEGRATION_CONFIG_INVALID);
+        assert!(err.to_string().contains("Sign-in with username"));
     }
 }

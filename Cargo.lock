@@ -2829,6 +2829,7 @@ dependencies = [
  "serde",
  "serde_json",
  "stackless-core",
+ "stackless-provider-sdk",
  "stackless-stripe-projects",
  "tempfile",
  "thiserror 2.0.18",
@@ -2878,6 +2879,19 @@ dependencies = [
  "tokio",
  "toml",
  "wiremock",
+]
+
+[[package]]
+name = "stackless-provider-sdk"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "stackless-core",
+ "stackless-stripe-projects",
+ "thiserror 2.0.18",
+ "toml",
 ]
 
 [[package]]

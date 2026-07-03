@@ -5,6 +5,7 @@ members = [
     "crates/stackless-cloud",
     "crates/stackless-daemon",
     "crates/stackless-integrations",
+    "crates/stackless-provider-sdk",
     "crates/stackless-local",
     "crates/stackless-git",
     "crates/stackless-render",
@@ -45,6 +46,7 @@ stackless-vercel          = { path = "crates/stackless-vercel" }
 stackless-fly             = { path = "crates/stackless-fly" }
 stackless-netlify         = { path = "crates/stackless-netlify" }
 stackless-integrations    = { path = "crates/stackless-integrations" }
+stackless-provider-sdk    = { path = "crates/stackless-provider-sdk" }
 stackless-stripe-projects = { path = "crates/stackless-stripe-projects" }
 
 # The profile that 'dist' will build with

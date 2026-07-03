@@ -3,59 +3,22 @@
 //! Substrates call into this crate for `ProvisionIntegration` steps.
 //! Stripe-backed provisioning delegates to `stackless-stripe-projects`.
 
-pub mod error;
-pub mod hostable;
 pub mod providers;
 pub mod registry;
-pub mod resource;
 
 use std::path::Path;
 
-use async_trait::async_trait;
 use stackless_core::def::StackDef;
 use stackless_core::substrate::{Observation, StepResource};
 use stackless_stripe_projects::project;
 use stackless_stripe_projects::stripe::{CommandRunner, StripeProjects};
 
-pub use error::IntegrationError;
+pub use stackless_provider_sdk::{
+    self, CatalogResource, IntegrationError, IntegrationObservation, ProviderOps, ResourcePayload,
+    config, error, hostable, observation, resource,
+};
+
 pub use registry::validate_all;
-
-/// One integration provider's lifecycle behaviour. The registry stores a
-/// `&'static dyn ProviderOps` per provider, so adding a provider is one
-/// registry row + this impl — dispatch never matches on provider strings.
-///
-/// The runner is erased to `&dyn CommandRunner` (sound via
-/// `impl CommandRunner for &T`) so the registry table is not generic.
-#[async_trait]
-pub trait ProviderOps: Send + Sync {
-    // The provision params mirror the established provisioning call; `&self`
-    // for dispatch tips it one over the lint's limit.
-    #[allow(clippy::too_many_arguments)]
-    async fn provision(
-        &self,
-        stripe: &StripeProjects<&dyn CommandRunner>,
-        def: &StackDef,
-        definition_dir: &Path,
-        instance: &str,
-        name: &str,
-        substrate: &str,
-        skip_stripe_instance_context: bool,
-    ) -> Result<StepResource, IntegrationError>;
-
-    async fn observe(
-        &self,
-        stripe: &StripeProjects<&dyn CommandRunner>,
-        checkpoint_payload: &str,
-        fallback_resource: &str,
-    ) -> Result<Observation, IntegrationError>;
-
-    async fn destroy(
-        &self,
-        stripe: &StripeProjects<&dyn CommandRunner>,
-        checkpoint_payload: &str,
-        fallback_resource: &str,
-    ) -> Result<(), IntegrationError>;
-}
 
 pub async fn provision<R: CommandRunner>(
     substrate: &str,
@@ -84,16 +47,19 @@ pub async fn provision<R: CommandRunner>(
         detail: format!("no adapter for provider {:?}", spec.provider),
     })?;
     let stripe = stripe.as_dyn();
-    ops.provision(
-        &stripe,
-        def,
-        definition_dir,
-        instance,
-        name,
-        substrate,
-        skip_stripe_instance_context,
-    )
-    .await
+    let resource = ops
+        .provision(
+            &stripe,
+            def,
+            definition_dir,
+            instance,
+            name,
+            substrate,
+            skip_stripe_instance_context,
+        )
+        .await?;
+    ops.apply(&stripe, def, name, substrate, &resource).await?;
+    Ok(resource)
 }
 
 pub async fn observe<R: CommandRunner>(
@@ -105,10 +71,10 @@ pub async fn observe<R: CommandRunner>(
 ) -> Result<Observation, IntegrationError> {
     let _ = substrate;
     match registry::ops_for_resource_kind(resource_kind) {
-        Some(ops) => {
-            ops.observe(&stripe.as_dyn(), checkpoint_payload, fallback_resource)
-                .await
-        }
+        Some(ops) => ops
+            .observe(&stripe.as_dyn(), checkpoint_payload, fallback_resource)
+            .await
+            .map(IntegrationObservation::into_substrate),
         None => Ok(Observation::Gone),
     }
 }
