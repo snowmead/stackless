@@ -15,10 +15,10 @@ install, authoring, lifecycle, machine output, and error branching.
 
 ## Install
 
-**Release (when published):**
+**Release:**
 
 ```bash
-curl -fsSL https://github.com/haaku-co/stackless/releases/latest/download/install.sh | bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/download/v0.1.0/stackless-installer.sh | sh
 ```
 
 **From source (this repo):**

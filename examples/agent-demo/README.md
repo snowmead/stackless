@@ -22,6 +22,12 @@ Bring the stack up (creates instance `demo`):
 stackless up --name demo --on local --file examples/agent-demo/stackless.toml
 ```
 
+If `examples/agent-demo` is not yet on the pinned `main` ref (e.g. testing before merge), pin the site in place:
+
+```console
+stackless up --name demo --on local --file examples/agent-demo/stackless.toml --source web=examples/agent-demo/site
+```
+
 Expected human output ends with origins, e.g. `web: http://demo.localhost:4444`.
 
 Prove health and renew the lease:

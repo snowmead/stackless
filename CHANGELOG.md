@@ -14,6 +14,7 @@ First public release of the stackless CLI for agents and automation.
 ### Added
 
 - Lifecycle verbs: `up`, `down`, `verify`, `status`, `list`, `logs`, `check`
+- Authoring and preflight: `init`, `adopt`, `doctor`
 - Global `--json` with stable `error.code`, `remediation`, and optional `context`
 - NDJSON progress on stderr during `up --json`
 - Substrates: `local`, `render`, `vercel`, `fly`, `netlify`
