@@ -33,6 +33,8 @@ pub struct UpRequest<'a> {
     pub definition_text: &'a str,
     pub def: &'a StackDef,
     pub source_overrides: BTreeMap<String, String>,
+    /// `--dirty`: snapshot `--source` pins into instance-owned space.
+    pub dirty: bool,
     /// Where the definition file lives (sibling secrets resolve here).
     pub definition_dir: String,
     /// `--lease`; defaults to the substrate's (§6).
@@ -90,12 +92,17 @@ impl Engine<'_> {
             });
         }
         if !request.source_overrides.is_empty() {
-            self.check_source_override_collisions(request.instance, &request.source_overrides)?;
+            self.check_source_override_collisions(
+                request.instance,
+                &request.source_overrides,
+                request.dirty,
+            )?;
         }
 
         // Resolve or create the record; the substrate is part of the
         // instance's identity and is never asked for again (§2).
         let mut source_overrides = request.source_overrides.clone();
+        let mut dirty = request.dirty;
         match self.store.instance(request.instance)? {
             Some(existing) if existing.substrate.as_str() != self.substrate.name() => {
                 return Err(EngineError::SubstrateMismatch {
@@ -113,13 +120,21 @@ impl Engine<'_> {
                     // honors it rather than re-deriving anything.
                     source_overrides = existing.source_overrides.clone();
                 }
+                if request.dirty {
+                    self.store.update_dirty(request.instance, true)?;
+                    dirty = true;
+                } else if existing.status == InstanceStatus::Active {
+                    dirty = existing.dirty;
+                }
                 // `up` on a tombstone is a fresh birth under the old name.
                 if existing.status == InstanceStatus::Tombstoned {
                     self.store.revive_instance(
                         request.instance,
                         request.definition_text,
                         &request.source_overrides,
+                        request.dirty,
                     )?;
+                    dirty = request.dirty;
                 }
             }
             None => {
@@ -129,6 +144,7 @@ impl Engine<'_> {
                     request.definition_text,
                     &request.source_overrides,
                     &request.definition_dir,
+                    request.dirty,
                 ) {
                     Ok(_) => {}
                     // A concurrent up created it first; the lock claim
@@ -148,7 +164,7 @@ impl Engine<'_> {
         self.store.renew_lease(request.instance, lease)?;
 
         let mut request = request;
-        let result = self.run_steps(&mut request, &source_overrides).await;
+        let result = self.run_steps(&mut request, &source_overrides, dirty).await;
         self.store.release_lock(&claim)?;
         let outcome = result?;
         // A successful `up` renews again (§6).
@@ -161,6 +177,7 @@ impl Engine<'_> {
         &self,
         request: &mut UpRequest<'_>,
         source_overrides: &std::collections::BTreeMap<String, String>,
+        dirty: bool,
     ) -> Result<UpOutcome, EngineError> {
         let steps = request.def.plan()?;
         let total = steps.len();
@@ -217,6 +234,7 @@ impl Engine<'_> {
                     def: request.def,
                     step,
                     source_overrides,
+                    dirty,
                     prior: &prior,
                 })
                 .await
@@ -326,7 +344,11 @@ impl Engine<'_> {
         &self,
         instance: &str,
         source_overrides: &BTreeMap<String, String>,
+        request_dirty: bool,
     ) -> Result<(), EngineError> {
+        if request_dirty {
+            return Ok(());
+        }
         let canonical_new: BTreeMap<String, PathBuf> = source_overrides
             .iter()
             .filter_map(|(service, path)| {
@@ -337,6 +359,9 @@ impl Engine<'_> {
             .collect();
         for record in self.store.instances()? {
             if record.status != InstanceStatus::Active || record.name.as_str() == instance {
+                continue;
+            }
+            if record.dirty {
                 continue;
             }
             for (service, path) in &record.source_overrides {

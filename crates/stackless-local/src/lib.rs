@@ -367,6 +367,44 @@ impl Substrate for LocalSubstrate {
                             detail: "not a directory".into(),
                         }));
                     }
+                    if ctx.dirty {
+                        let instance = ctx.instance.to_owned();
+                        let service_owned = service.to_owned();
+                        let dest = materialize::Materializer::new(
+                            &stackless_core::state::Store::state_dir(),
+                        )
+                        .source_dir(&instance, &service_owned);
+                        let source_path = canonical.clone();
+                        let snapshot_path = dest.display().to_string();
+                        let commit = tokio::task::spawn_blocking(move || {
+                            stackless_git::snapshot_worktree(&dest, &source_path)
+                        })
+                        .await
+                        .map_err(|err| SubstrateFault {
+                            code: stackless_core::fault::codes::LOCAL_GIT_CHECKOUT_FAILED,
+                            message: format!("dirty snapshot task panicked: {err}"),
+                            remediation: "re-run `up`".into(),
+                            context: Box::default(),
+                        })?
+                        .map_err(|err| {
+                            fault(LocalError::GitCheckoutFailed {
+                                service: service_owned.clone(),
+                                commit: canonical.display().to_string(),
+                                dest: snapshot_path.clone(),
+                                detail: err.to_string(),
+                            })
+                        })?;
+                        let payload = MaterializePayload {
+                            path: snapshot_path,
+                            overridden: true,
+                            commit: Some(commit),
+                        };
+                        return Ok(StepResource {
+                            resource_kind: "source-dirty".into(),
+                            resource_id: payload.path.clone(),
+                            payload: serde_json::to_string(&payload).unwrap_or_default(),
+                        });
+                    }
                     let payload = MaterializePayload {
                         path: canonical.display().to_string(),
                         overridden: true,
@@ -700,6 +738,20 @@ impl Substrate for LocalSubstrate {
                         SubstrateFault {
                             code: stackless_core::fault::codes::LOCAL_GIT_CHECKOUT_FAILED,
                             message: format!("cannot remove source checkout {path}: {err}"),
+                            remediation: format!("remove {path} by hand and re-run `down`"),
+                            context: Box::default(),
+                        }
+                    })?;
+                }
+                Ok(())
+            }
+            "source-dirty" => {
+                let payload = serde_json::from_str::<MaterializePayload>(&checkpoint.payload).ok();
+                if let Some(path) = payload.map(|p| p.path) {
+                    materialize::destroy(std::path::Path::new(&path)).map_err(|err| {
+                        SubstrateFault {
+                            code: stackless_core::fault::codes::LOCAL_GIT_CHECKOUT_FAILED,
+                            message: format!("cannot remove dirty snapshot {path}: {err}"),
                             remediation: format!("remove {path} by hand and re-run `down`"),
                             context: Box::default(),
                         }

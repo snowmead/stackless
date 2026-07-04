@@ -18,7 +18,7 @@ fn store() -> (tempfile::TempDir, Store) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(&dir.path().join("state.db")).unwrap();
     store
-        .create_instance("demo", "mock", "def", &BTreeMap::new(), "")
+        .create_instance("demo", "mock", "def", &BTreeMap::new(), "", false)
         .unwrap();
     (dir, store)
 }

@@ -27,3 +27,7 @@ tempfile = "3.27.0"
 [[test]]
 name              = "flow"
 required-features = ["test-support"]
+
+[[test]]
+name              = "snapshot"
+required-features = ["test-support"]

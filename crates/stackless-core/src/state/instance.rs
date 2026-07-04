@@ -30,6 +30,9 @@ pub struct InstanceRecord {
     pub definition: String,
     /// Recorded per-invocation `--source` pins (service → path).
     pub source_overrides: BTreeMap<String, String>,
+    /// Whether `--dirty` was passed: snapshot source pins instead of using
+    /// them in place.
+    pub dirty: bool,
     /// The directory the definition file came from at creation; the
     /// sibling secrets env file resolves from here on resume.
     pub definition_dir: String,
@@ -37,7 +40,7 @@ pub struct InstanceRecord {
     pub tombstoned_at: Option<i64>,
 }
 
-const SELECT_COLUMNS: &str = "name, substrate, status, definition, source_overrides, created_at, tombstoned_at, definition_dir";
+const SELECT_COLUMNS: &str = "name, substrate, status, definition, source_overrides, created_at, tombstoned_at, definition_dir, dirty";
 
 impl TryFrom<&Row> for InstanceRecord {
     type Error = StateError;
@@ -62,6 +65,7 @@ impl TryFrom<&Row> for InstanceRecord {
             created_at: row.get_i64(5)?,
             tombstoned_at: row.get_opt_i64(6)?,
             definition_dir: row.get_string(7)?,
+            dirty: row.get_i64(8)? != 0,
         })
     }
 }
@@ -78,12 +82,13 @@ impl Store {
         definition: &str,
         source_overrides: &BTreeMap<String, String>,
         definition_dir: &str,
+        dirty: bool,
     ) -> Result<InstanceRecord, StateError> {
         let overrides_json =
             serde_json::to_string(source_overrides).unwrap_or_else(|_| "{}".into());
         let result = self.execute(
-            "INSERT INTO instances (name, substrate, status, definition, source_overrides, created_at, definition_dir)
-             VALUES (?1, ?2, 'active', ?3, ?4, ?5, ?6)",
+            "INSERT INTO instances (name, substrate, status, definition, source_overrides, created_at, definition_dir, dirty)
+             VALUES (?1, ?2, 'active', ?3, ?4, ?5, ?6, ?7)",
             &[
                 name.into(),
                 substrate.into(),
@@ -91,6 +96,7 @@ impl Store {
                 overrides_json.into(),
                 Self::now().into(),
                 definition_dir.into(),
+                i64::from(dirty).into(),
             ],
         );
         match result {
@@ -149,17 +155,19 @@ impl Store {
         name: &str,
         definition: &str,
         source_overrides: &BTreeMap<String, String>,
+        dirty: bool,
     ) -> Result<(), StateError> {
         let overrides_json =
             serde_json::to_string(source_overrides).unwrap_or_else(|_| "{}".into());
         let changed = self.execute(
             "UPDATE instances SET status = 'active', definition = ?2, source_overrides = ?3,
-             created_at = ?4, tombstoned_at = NULL WHERE name = ?1",
+             created_at = ?4, tombstoned_at = NULL, dirty = ?5 WHERE name = ?1",
             &[
                 name.into(),
                 definition.into(),
                 overrides_json.into(),
                 Self::now().into(),
+                i64::from(dirty).into(),
             ],
         )?;
         if changed == 0 {
@@ -184,6 +192,15 @@ impl Store {
         self.execute(
             "UPDATE instances SET source_overrides = ?2 WHERE name = ?1",
             &[name.into(), overrides_json.into()],
+        )?;
+        Ok(())
+    }
+
+    /// Record per-invocation dirty mode on resume.
+    pub fn update_dirty(&self, name: &str, dirty: bool) -> Result<(), StateError> {
+        self.execute(
+            "UPDATE instances SET dirty = ?2 WHERE name = ?1",
+            &[name.into(), i64::from(dirty).into()],
         )?;
         Ok(())
     }

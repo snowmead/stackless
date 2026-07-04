@@ -451,7 +451,8 @@ mutual references (api ↔ web CORS) are legal and are not cycles.
 
 Per instance: provision hosted integrations → provision datastores in
 dependency order → materialize each service's source (shared git cache;
-or your `--source` pin) → `setup` (once) → `prepare` (every up, deps
+or your `--source` pin; with `--dirty`, snapshot the pin's working tree
+into instance-owned space) → `setup` (once) → `prepare` (every up, deps
 ready) → start → health-gate. Every step checkpoints before proceeding,
 so interrupted runs **resume** — re-running `up` re-checks recorded
 resources against reality and re-executes only what is missing;
@@ -485,7 +486,7 @@ most:
 | `def.validate.root_origin_conflict` | more than one `root_origin = true` |
 | `secrets.unresolved` | a required secret resolved from no source |
 | `state.lock.held` | another operation is running on this instance — wait and retry |
-| `engine.source_override.unsupported` | `--source` on a cloud substrate |
+| `engine.source_override.unsupported` | `--source` or `--dirty` on a cloud substrate |
 | `verify.source_unavailable` | `stackless verify` could not find or materialize the command cwd |
 | `render.payment.not_confirmed` | re-run with `--confirm-paid` |
 | `vercel.payment.not_confirmed` | re-run with `--confirm-paid` (required for `plan = "pro"`) |
