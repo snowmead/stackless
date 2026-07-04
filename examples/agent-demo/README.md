@@ -6,7 +6,7 @@ Minimal stack for agents: one static web service on the **local** substrate. No 
 
 - [stackless](https://github.com/snowmead/stackless) installed (`cargo install --path crates/stackless` from a clone, or a release binary once published)
 - `python3` on `PATH`
-- Run commands from the **repository root** (this example uses `source.repo = "."` so materialization reads the checkout you are in)
+- Run commands from the **repository root** (clone [github.com/snowmead/stackless](https://github.com/snowmead/stackless); the definition materializes `examples/agent-demo/site` from the `main` ref)
 
 ## Commands
 

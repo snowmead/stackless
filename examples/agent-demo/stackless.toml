@@ -2,13 +2,12 @@
 # Run from the stackless repo root:
 #   stackless up --name demo --on local --file examples/agent-demo/stackless.toml
 #
-# Source is this repository checkout (`.`); no network fetch when run from a clone.
-# Cloud substrates are not used here — see fixtures/smoke/ for live provider examples.
+# Materializes examples/agent-demo/site from this repository (public GitHub ref).
 [stack]
 name = "agent-demo"
 
 [services.web]
-source      = { repo = ".", ref = "HEAD" }
+source      = { repo = "https://github.com/snowmead/stackless", ref = "main" }
 root_origin = true
 health      = { path = "/", contains = "stackless-agent-demo-ok" }
 

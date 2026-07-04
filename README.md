@@ -275,9 +275,9 @@ implemented yet.
 - [x] local
 - [x] render
 - [x] vercel
-- [ ] fly.io
+- [x] fly.io
 - [ ] railway
-- [ ] netlify
+- [x] netlify
 - [ ] cloudflare workers
 - [ ] gitlab
 - [ ] laravel cloud
