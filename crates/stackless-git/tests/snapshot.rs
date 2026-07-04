@@ -58,6 +58,35 @@ fn snapshot_is_deterministic_for_same_content() {
 }
 
 #[test]
+fn snapshot_works_on_linked_worktree() {
+    let main = tempfile::tempdir().unwrap();
+    stackless_git::build_repo(main.path(), &[COMMIT_1]).expect("fixture repo");
+
+    let wt = tempfile::tempdir().unwrap();
+    let status = std::process::Command::new("git")
+        .args([
+            "worktree",
+            "add",
+            "-b",
+            "linked",
+            wt.path().to_str().unwrap(),
+        ])
+        .current_dir(main.path())
+        .status()
+        .expect("git worktree add");
+    assert!(status.success(), "git worktree add failed");
+
+    std::fs::write(wt.path().join("README.md"), "worktree dirty\n").unwrap();
+
+    let dest = tempfile::tempdir().unwrap();
+    snapshot_worktree(dest.path(), wt.path()).expect("snapshot linked worktree");
+    assert_eq!(
+        std::fs::read_to_string(dest.path().join("README.md")).unwrap(),
+        "worktree dirty\n"
+    );
+}
+
+#[test]
 fn snapshot_rejects_non_repo() {
     let src = tempfile::tempdir().unwrap();
     std::fs::write(src.path().join("README.md"), "nope\n").unwrap();

@@ -202,14 +202,13 @@ pub fn snapshot_worktree(dest: &Path, work_tree: &Path) -> Result<String, GitErr
     use grit_lib::write_tree::write_tree_from_index;
 
     let work_tree = work_tree.canonicalize()?;
-    if !work_tree.join(".git").is_dir() {
+    if !work_tree.join(".git").exists() {
         return Err(GitError::InvalidWorkTree {
             path: work_tree.clone(),
         });
     }
 
-    let src_git = work_tree.join(".git");
-    let src_repo = Repository::open(&src_git, Some(&work_tree))?;
+    let src_repo = Repository::discover(Some(&work_tree))?;
     let src_index = match Index::load(&src_repo.index_path()) {
         Ok(index) => index,
         Err(grit_lib::error::Error::Io(err)) if err.kind() == std::io::ErrorKind::NotFound => {

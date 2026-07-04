@@ -119,14 +119,26 @@ fn parse_sources(sources: &[String]) -> Result<BTreeMap<String, String>, CliErro
     Ok(map)
 }
 
-fn validate_dirty_flag(dirty: bool, sources: &BTreeMap<String, String>) -> Result<(), CliError> {
-    if dirty && sources.is_empty() {
-        return Err(CliError::BadArgument {
-            argument: "--dirty".into(),
-            detail: "`--dirty` requires at least one `--source` pin".into(),
-        });
+fn validate_dirty_flag(
+    dirty: bool,
+    sources: &BTreeMap<String, String>,
+    existing: Option<&InstanceRecord>,
+) -> Result<(), CliError> {
+    if !dirty {
+        return Ok(());
     }
-    Ok(())
+    if !sources.is_empty() {
+        return Ok(());
+    }
+    if existing.is_some_and(|record| {
+        record.status == InstanceStatus::Active && !record.source_overrides.is_empty()
+    }) {
+        return Ok(());
+    }
+    Err(CliError::BadArgument {
+        argument: "--dirty".into(),
+        detail: "`--dirty` requires at least one `--source` pin".into(),
+    })
 }
 
 fn parse_lease(lease: Option<&str>) -> Result<Option<std::time::Duration>, CliError> {
@@ -235,7 +247,7 @@ pub fn up(args: UpArgs, output: &mut Output) -> Result<(), CliError> {
         },
     )?;
     let overrides = parse_sources(&args.sources)?;
-    validate_dirty_flag(args.dirty, &overrides)?;
+    validate_dirty_flag(args.dirty, &overrides, existing.as_ref())?;
     let lease = parse_lease(args.lease.as_deref())?;
 
     let engine = Engine {
@@ -574,7 +586,7 @@ mod tests {
 
     #[test]
     fn validate_dirty_flag_requires_source_pins() {
-        let err = validate_dirty_flag(true, &BTreeMap::new()).unwrap_err();
+        let err = validate_dirty_flag(true, &BTreeMap::new(), None).unwrap_err();
         assert!(matches!(err, CliError::BadArgument { argument, .. } if argument == "--dirty"));
     }
 
@@ -582,6 +594,26 @@ mod tests {
     fn validate_dirty_flag_accepts_source_pins() {
         let mut sources = BTreeMap::new();
         sources.insert("web".into(), "/tmp/web".into());
-        validate_dirty_flag(true, &sources).unwrap();
+        validate_dirty_flag(true, &sources, None).unwrap();
+    }
+
+    #[test]
+    fn validate_dirty_flag_accepts_resume_with_stored_pins() {
+        use stackless_core::types::DnsName;
+
+        let mut overrides = BTreeMap::new();
+        overrides.insert("web".into(), "/tmp/web".into());
+        let existing = InstanceRecord {
+            name: DnsName::try_new("demo").unwrap(),
+            substrate: DnsName::try_new("local").unwrap(),
+            status: InstanceStatus::Active,
+            definition: String::new(),
+            source_overrides: overrides,
+            dirty: false,
+            definition_dir: String::new(),
+            created_at: 0,
+            tombstoned_at: None,
+        };
+        validate_dirty_flag(true, &BTreeMap::new(), Some(&existing)).unwrap();
     }
 }
