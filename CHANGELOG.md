@@ -18,7 +18,7 @@ First public release of the stackless CLI for agents and automation.
 - Global `--json` with stable `error.code`, `remediation`, and optional `context`
 - NDJSON progress on stderr during `up --json`
 - Substrates: `local`, `render`, `vercel`, `fly`, `netlify`
-- Prebuilt binaries for macOS (Apple Silicon + Intel), Linux (x64 + ARM64), and Windows (x64)
+- Prebuilt binaries for macOS (Apple Silicon + Intel) and Linux (x64 + ARM64) (Windows deferred — daemon uses Unix sockets)
 - Shell installer: `curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/download/v0.1.0/stackless-installer.sh | sh`
 
 ### Install
