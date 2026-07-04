@@ -59,7 +59,7 @@ fn migrations_run_and_are_idempotent_on_libsql() {
 fn instance_records_round_trip() {
     let store = store();
     let rec = store
-        .create_instance("demo", "local", "deftext", &BTreeMap::new(), "/defs")
+        .create_instance("demo", "local", "deftext", &BTreeMap::new(), "/defs", false)
         .unwrap();
     assert_eq!(rec.name.as_str(), "demo");
     assert_eq!(rec.substrate.as_str(), "local");
@@ -77,10 +77,10 @@ fn instance_records_round_trip() {
 fn names_are_unique_across_substrates() {
     let store = store();
     store
-        .create_instance("demo", "local", "d", &BTreeMap::new(), "")
+        .create_instance("demo", "local", "d", &BTreeMap::new(), "", false)
         .unwrap();
     let err = store
-        .create_instance("demo", "render", "d", &BTreeMap::new(), "")
+        .create_instance("demo", "render", "d", &BTreeMap::new(), "", false)
         .unwrap_err();
     assert_eq!(err.code(), codes::STATE_INSTANCE_EXISTS);
     assert!(err.to_string().contains("local"));
@@ -90,7 +90,7 @@ fn names_are_unique_across_substrates() {
 fn tombstone_and_revive() {
     let store = store();
     store
-        .create_instance("demo", "local", "v1", &BTreeMap::new(), "")
+        .create_instance("demo", "local", "v1", &BTreeMap::new(), "", false)
         .unwrap();
     store
         .record_checkpoint("demo", "s1", "process", "111", "{}")
@@ -102,7 +102,7 @@ fn tombstone_and_revive() {
 
     // Revive clears the journal and reactivates.
     store
-        .revive_instance("demo", "v2", &BTreeMap::new())
+        .revive_instance("demo", "v2", &BTreeMap::new(), false)
         .unwrap();
     let rec = store.instance("demo").unwrap().unwrap();
     assert_eq!(rec.status, InstanceStatus::Active);
@@ -114,10 +114,10 @@ fn tombstone_and_revive() {
 fn leases_set_renew_and_expire() {
     let store = store();
     store
-        .create_instance("fresh", "local", "d", &BTreeMap::new(), "")
+        .create_instance("fresh", "local", "d", &BTreeMap::new(), "", false)
         .unwrap();
     store
-        .create_instance("stale", "local", "d", &BTreeMap::new(), "")
+        .create_instance("stale", "local", "d", &BTreeMap::new(), "", false)
         .unwrap();
     let lease = store
         .renew_lease("fresh", Duration::from_secs(3600))
@@ -139,7 +139,7 @@ fn leases_set_renew_and_expire() {
 fn journal_round_trips_payloads() {
     let store = store();
     store
-        .create_instance("demo", "local", "d", &BTreeMap::new(), "")
+        .create_instance("demo", "local", "d", &BTreeMap::new(), "", false)
         .unwrap();
     store
         .record_checkpoint("demo", "start:api", "process", "12345", r#"{"port":8080}"#)
@@ -157,7 +157,7 @@ fn journal_round_trips_payloads() {
 fn lock_claim_release_and_liveness() {
     let store = store();
     store
-        .create_instance("demo", "local", "d", &BTreeMap::new(), "")
+        .create_instance("demo", "local", "d", &BTreeMap::new(), "", false)
         .unwrap();
     let claim = store.claim_lock("demo", "up").unwrap();
     // Live holder reads as alive (same-host current process).
@@ -173,7 +173,7 @@ fn lock_claim_release_and_liveness() {
 fn libsql_self_reclaim_succeeds() {
     let store = store();
     store
-        .create_instance("demo", "local", "d", &BTreeMap::new(), "")
+        .create_instance("demo", "local", "d", &BTreeMap::new(), "", false)
         .unwrap();
     let claim = store.claim_lock("demo", "up").unwrap();
     store.claim_lock("demo", "verify").unwrap();
@@ -184,7 +184,7 @@ fn libsql_self_reclaim_succeeds() {
 fn libsql_dead_same_host_holder_is_taken_over() {
     let store = store();
     store
-        .create_instance("demo", "local", "d", &BTreeMap::new(), "")
+        .create_instance("demo", "local", "d", &BTreeMap::new(), "", false)
         .unwrap();
     inject_holder(
         &store,
@@ -205,7 +205,7 @@ fn libsql_dead_same_host_holder_is_taken_over() {
 fn libsql_fresh_foreign_holder_is_respected() {
     let store = store();
     store
-        .create_instance("demo", "local", "d", &BTreeMap::new(), "")
+        .create_instance("demo", "local", "d", &BTreeMap::new(), "", false)
         .unwrap();
     inject_holder(&store, "other-machine", 4242, 7, Store::now_secs());
     let err = store.claim_lock("demo", "up").unwrap_err();
@@ -216,7 +216,7 @@ fn libsql_fresh_foreign_holder_is_respected() {
 fn libsql_stale_foreign_holder_is_taken_over() {
     let store = store();
     store
-        .create_instance("demo", "local", "d", &BTreeMap::new(), "")
+        .create_instance("demo", "local", "d", &BTreeMap::new(), "", false)
         .unwrap();
     inject_holder(
         &store,
@@ -232,7 +232,7 @@ fn libsql_stale_foreign_holder_is_taken_over() {
 fn reaper_failure_bookkeeping_and_gc() {
     let store = store();
     store
-        .create_instance("demo", "local", "d", &BTreeMap::new(), "")
+        .create_instance("demo", "local", "d", &BTreeMap::new(), "", false)
         .unwrap();
     store.record_reap_failure("demo", "boom").unwrap();
     let attempt = store.reap_attempt("demo").unwrap().unwrap();

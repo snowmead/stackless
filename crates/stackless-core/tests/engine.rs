@@ -187,6 +187,7 @@ fn request<'a>(def: &'a StackDef) -> UpRequest<'a> {
         definition_text: DEF_TEXT,
         def,
         source_overrides: BTreeMap::new(),
+        dirty: false,
         definition_dir: String::new(),
         lease: None,
         progress: None,
@@ -337,7 +338,7 @@ async fn up_after_down_is_a_fresh_birth() {
 fn lock_contention_fails_fast_and_dead_holder_is_taken_over() {
     let (_dir, store) = temp_store();
     store
-        .create_instance("demo", "mock", DEF_TEXT, &BTreeMap::new(), "")
+        .create_instance("demo", "mock", DEF_TEXT, &BTreeMap::new(), "", false)
         .unwrap();
     let claim = store.claim_lock("demo", "up").unwrap();
     // Same store, same (live) process: a *different* live process is
@@ -366,10 +367,10 @@ fn lock_contention_fails_fast_and_dead_holder_is_taken_over() {
 fn instance_names_are_unique_across_substrates() {
     let (_dir, store) = temp_store();
     store
-        .create_instance("demo", "local", DEF_TEXT, &BTreeMap::new(), "")
+        .create_instance("demo", "local", DEF_TEXT, &BTreeMap::new(), "", false)
         .unwrap();
     let err = store
-        .create_instance("demo", "render", DEF_TEXT, &BTreeMap::new(), "")
+        .create_instance("demo", "render", DEF_TEXT, &BTreeMap::new(), "", false)
         .unwrap_err();
     assert_eq!(err.code(), codes::STATE_INSTANCE_EXISTS);
     assert!(err.to_string().contains("local"));
@@ -379,7 +380,7 @@ fn instance_names_are_unique_across_substrates() {
 fn journal_round_trips_payloads() {
     let (_dir, store) = temp_store();
     store
-        .create_instance("demo", "mock", DEF_TEXT, &BTreeMap::new(), "")
+        .create_instance("demo", "mock", DEF_TEXT, &BTreeMap::new(), "", false)
         .unwrap();
     store
         .record_checkpoint("demo", "start:api", "process", "12345", r#"{"port":8080}"#)
@@ -396,7 +397,7 @@ fn journal_round_trips_payloads() {
 async fn substrate_mismatch_is_refused() {
     let (_dir, store) = temp_store();
     store
-        .create_instance("demo", "other", DEF_TEXT, &BTreeMap::new(), "")
+        .create_instance("demo", "other", DEF_TEXT, &BTreeMap::new(), "", false)
         .unwrap();
     let mock = MockSubstrate::default();
     let engine = Engine {
@@ -416,7 +417,7 @@ async fn source_override_shared_by_active_instance_is_refused() {
     let mut first = BTreeMap::new();
     first.insert("api".to_owned(), path.clone());
     store
-        .create_instance("first", "mock", DEF_TEXT, &first, "")
+        .create_instance("first", "mock", DEF_TEXT, &first, "", false)
         .unwrap();
     let mock = MockSubstrate::default();
     let engine = Engine {
@@ -432,6 +433,7 @@ async fn source_override_shared_by_active_instance_is_refused() {
             definition_text: DEF_TEXT,
             def: &def,
             source_overrides: second,
+            dirty: false,
             definition_dir: String::new(),
             lease: None,
             progress: None,
@@ -439,6 +441,49 @@ async fn source_override_shared_by_active_instance_is_refused() {
         .await
         .unwrap_err();
     assert_eq!(err.code(), codes::ENGINE_SOURCE_OVERRIDE_SHARED);
+}
+
+#[tokio::test]
+async fn dirty_source_override_allows_shared_checkout() {
+    let (_dir, store) = temp_store();
+    let checkout = tempfile::tempdir().unwrap();
+    let path = checkout.path().display().to_string();
+    let mut first = BTreeMap::new();
+    first.insert("api".to_owned(), path.clone());
+    store
+        .create_instance("first", "mock", DEF_TEXT, &first, "", true)
+        .unwrap();
+    let mock = MockSubstrate::default();
+    let engine = Engine {
+        store: &store,
+        substrate: &mock,
+    };
+    let def = parse_def();
+    let mut second = BTreeMap::new();
+    second.insert("api".to_owned(), path);
+    engine
+        .up(UpRequest {
+            instance: "second",
+            definition_text: DEF_TEXT,
+            def: &def,
+            source_overrides: second,
+            dirty: true,
+            definition_dir: String::new(),
+            lease: None,
+            progress: None,
+        })
+        .await
+        .unwrap();
+}
+
+#[test]
+fn dirty_flag_persists_on_instance_record() {
+    let (_dir, store) = temp_store();
+    store
+        .create_instance("demo", "mock", DEF_TEXT, &BTreeMap::new(), "", true)
+        .unwrap();
+    let record = store.instance("demo").unwrap().unwrap();
+    assert!(record.dirty);
 }
 
 struct RecordingProgress(Mutex<Vec<StepProgressEvent>>);
@@ -478,10 +523,10 @@ async fn progress_emits_lifecycle_events() {
 fn expired_instances_lists_only_overdue_active() {
     let (_dir, store) = temp_store();
     store
-        .create_instance("fresh", "mock", DEF_TEXT, &BTreeMap::new(), "")
+        .create_instance("fresh", "mock", DEF_TEXT, &BTreeMap::new(), "", false)
         .unwrap();
     store
-        .create_instance("stale", "mock", DEF_TEXT, &BTreeMap::new(), "")
+        .create_instance("stale", "mock", DEF_TEXT, &BTreeMap::new(), "", false)
         .unwrap();
     store
         .renew_lease("fresh", Duration::from_secs(3600))

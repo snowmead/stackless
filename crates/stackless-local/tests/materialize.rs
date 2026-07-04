@@ -112,6 +112,26 @@ fn materialize_cache_checkout_reuse_and_refresh() {
     assert_eq!(err.code(), "local.git.ref_not_found");
 }
 
+#[test]
+fn dirty_snapshot_writes_instance_owned_tree_and_teardown_removes_it() {
+    let state = tempfile::tempdir().unwrap();
+    let src = tempfile::tempdir().unwrap();
+    let head = stackless_git::build_repo(src.path(), &[COMMIT_1]).expect("fixture repo");
+    std::fs::write(src.path().join("README.md"), "dirty\n").unwrap();
+
+    let dest = state.path().join("sources/inst-a/api");
+    let commit = stackless_git::snapshot_worktree(&dest, src.path()).expect("snapshot");
+    assert_ne!(commit, head);
+    assert_eq!(
+        std::fs::read_to_string(dest.join("README.md")).unwrap(),
+        "dirty\n"
+    );
+    assert!(materialize::observe(&dest, &commit));
+
+    materialize::destroy(&dest).unwrap();
+    assert!(!dest.exists());
+}
+
 /// HTTPS path against a small public repo. Ignored by default (network);
 /// run with `cargo test -p stackless-local -- --ignored`.
 #[test]

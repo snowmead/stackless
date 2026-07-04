@@ -40,12 +40,17 @@ const DEFAULT_BRANCH: &str = "main";
 
 /// Errors from the git primitives. Callers map these onto their own faults; the
 /// operation (clone/fetch/resolve/checkout) is known at the call site.
+/// Fixed author/committer for dirty snapshots — content-addressed, not time-based.
+const SNAPSHOT_IDENT: &str = "stackless-dirty <dirty@stackless.local> 1700000000 +0000";
+
 #[derive(Debug, thiserror::Error)]
 pub enum GitError {
     #[error(
         "unsupported repository URL scheme: {0} (only https/http and local/file paths are supported)"
     )]
     UnsupportedScheme(String),
+    #[error("{path} is not a git working tree")]
+    InvalidWorkTree { path: PathBuf },
     #[error(transparent)]
     Lib(#[from] grit_lib::error::Error),
     #[error(transparent)]
@@ -183,6 +188,85 @@ pub fn checkout_detached(dest: &Path, cache_git_dir: &Path, commit: &str) -> Res
 
 /// Shallow clone `url` at `reference` and check it out into `dest`. Self-
 /// contained (no shared cache), mirroring `git clone --depth 1 --branch <ref>`.
+/// Snapshot a dirty working tree into instance-owned space at `dest`.
+///
+/// Tracked files (including unstaged modifications), plus untracked
+/// non-ignored files, are written as a synthetic commit whose hash is a
+/// pure content address. Gitlinks (submodules) are omitted. If `dest`
+/// already holds a snapshot at the same content hash, the working tree is
+/// left unchanged.
+pub fn snapshot_worktree(dest: &Path, work_tree: &Path) -> Result<String, GitError> {
+    use grit_lib::index::{Index, entry_from_stat};
+    use grit_lib::objects::{CommitData, ObjectKind, serialize_commit};
+    use grit_lib::odb::Odb;
+    use grit_lib::write_tree::write_tree_from_index;
+
+    let work_tree = work_tree.canonicalize()?;
+    if !work_tree.join(".git").is_dir() {
+        return Err(GitError::InvalidWorkTree {
+            path: work_tree.clone(),
+        });
+    }
+
+    let src_git = work_tree.join(".git");
+    let src_repo = Repository::open(&src_git, Some(&work_tree))?;
+    let src_index = match Index::load(&src_repo.index_path()) {
+        Ok(index) => index,
+        Err(grit_lib::error::Error::Io(err)) if err.kind() == std::io::ErrorKind::NotFound => {
+            Index::new()
+        }
+        Err(err) => return Err(GitError::Lib(err)),
+    };
+
+    let files = collect_dirty_files(&src_repo, &src_index, &work_tree)?;
+
+    if !dest.join(".git").is_dir() {
+        repo::init_repository(dest, false, DEFAULT_BRANCH, None, "files")?;
+    }
+    let dest_git = dest.join(".git");
+    let dest_repo = Repository::open(&dest_git, Some(dest))?;
+    let dest_odb = Odb::new(&dest_git.join("objects"));
+
+    let old_tree = read_head_tree(&dest_repo)?;
+
+    let mut snap_index = Index::new();
+    for file in &files {
+        let bytes = read_worktree_bytes(&file.abs, file.mode)?;
+        let oid = dest_odb.write(ObjectKind::Blob, &bytes)?;
+        snap_index.add_or_replace(entry_from_stat(
+            &file.abs,
+            file.rel.as_bytes(),
+            oid,
+            file.mode,
+        )?);
+    }
+    snap_index.sort();
+    let tree = write_tree_from_index(&dest_odb, &snap_index, "")?;
+
+    let commit = CommitData {
+        tree,
+        parents: Vec::new(),
+        author: SNAPSHOT_IDENT.to_owned(),
+        committer: SNAPSHOT_IDENT.to_owned(),
+        author_raw: Vec::new(),
+        committer_raw: Vec::new(),
+        encoding: None,
+        message: "stackless dirty snapshot\n".into(),
+        raw_message: None,
+    };
+    let commit_oid = dest_odb.write(ObjectKind::Commit, &serialize_commit(&commit))?;
+    let commit_hex = commit_oid.to_string();
+
+    if read_detached_head(&dest_git)? == Some(commit_hex.clone()) {
+        return Ok(commit_hex);
+    }
+
+    let dest_repo = Repository::open(&dest_git, Some(dest))?;
+    grit_lib::porcelain::checkout::checkout_between_trees(&dest_repo, old_tree.as_ref(), &tree)?;
+    std::fs::write(dest_git.join("HEAD"), format!("{commit_hex}\n"))?;
+    Ok(commit_hex)
+}
+
 pub fn clone_checkout(
     url: &str,
     reference: &str,
@@ -253,6 +337,110 @@ pub fn build_repo(path: &Path, commits: &[&[(&str, &str)]]) -> Result<String, Gi
     }
     grit_lib::refs::write_ref(&git_dir, "refs/heads/main", &head)?;
     Ok(head.to_string())
+}
+
+struct DirtyFile {
+    rel: String,
+    abs: PathBuf,
+    mode: u32,
+}
+
+fn collect_dirty_files(
+    repo: &Repository,
+    index: &grit_lib::index::Index,
+    work_tree: &Path,
+) -> Result<Vec<DirtyFile>, GitError> {
+    use grit_lib::index::{MODE_GITLINK, MODE_REGULAR};
+    use grit_lib::porcelain::status::{IgnoredMode, collect_untracked_and_ignored};
+    use std::collections::BTreeMap;
+
+    let mut files: BTreeMap<String, DirtyFile> = BTreeMap::new();
+
+    for entry in &index.entries {
+        if entry.stage() != 0 || entry.mode == MODE_GITLINK {
+            continue;
+        }
+        let rel = String::from_utf8_lossy(&entry.path).to_string();
+        let abs = work_tree.join(&rel);
+        if std::fs::symlink_metadata(&abs).is_err() {
+            continue;
+        }
+        let mode = mode_from_path(&abs, entry.mode)?;
+        files.insert(rel.clone(), DirtyFile { rel, abs, mode });
+    }
+
+    let (untracked, _) =
+        collect_untracked_and_ignored(repo, index, work_tree, IgnoredMode::No, true, &[])?;
+    for rel in untracked {
+        let abs = work_tree.join(&rel);
+        let Ok(meta) = std::fs::symlink_metadata(&abs) else {
+            continue;
+        };
+        if meta.is_dir() {
+            continue;
+        }
+        let mode = mode_from_path(&abs, MODE_REGULAR)?;
+        files.insert(rel.clone(), DirtyFile { rel, abs, mode });
+    }
+
+    Ok(files.into_values().collect())
+}
+
+fn mode_from_path(abs: &Path, index_mode: u32) -> Result<u32, GitError> {
+    use grit_lib::index::{MODE_SYMLINK, normalize_mode};
+
+    if index_mode == MODE_SYMLINK {
+        return Ok(MODE_SYMLINK);
+    }
+    let meta = std::fs::symlink_metadata(abs)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Ok(normalize_mode(meta.mode()))
+    }
+    #[cfg(not(unix))]
+    {
+        use grit_lib::index::{MODE_EXECUTABLE, MODE_REGULAR};
+        if meta.file_type().is_symlink() {
+            Ok(MODE_SYMLINK)
+        } else if meta.permissions().readonly() {
+            Ok(MODE_REGULAR)
+        } else {
+            Ok(MODE_EXECUTABLE)
+        }
+    }
+}
+
+fn read_worktree_bytes(abs: &Path, mode: u32) -> Result<Vec<u8>, GitError> {
+    use grit_lib::index::MODE_SYMLINK;
+
+    if mode == MODE_SYMLINK {
+        let target = std::fs::read_link(abs)?;
+        return Ok(target.as_os_str().as_encoded_bytes().to_vec());
+    }
+    Ok(std::fs::read(abs)?)
+}
+
+fn read_detached_head(git_dir: &Path) -> Result<Option<String>, GitError> {
+    let head = match std::fs::read_to_string(git_dir.join("HEAD")) {
+        Ok(text) => text,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(GitError::Io(err)),
+    };
+    let trimmed = head.trim();
+    if trimmed.len() == 40 && trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+        Ok(Some(trimmed.to_owned()))
+    } else {
+        Ok(None)
+    }
+}
+
+fn read_head_tree(repo: &Repository) -> Result<Option<grit_lib::objects::ObjectId>, GitError> {
+    let Some(head) = read_detached_head(&repo.git_dir)? else {
+        return Ok(None);
+    };
+    let commit = resolve_revision_as_commit_without_index_dwim(repo, &head)?;
+    Ok(Some(peel_to_tree(repo, commit)?))
 }
 
 /// Open the repo at `git_dir` (work tree `work_tree`), resolve `spec` to a

@@ -48,6 +48,10 @@ enum Command {
         /// defaults to cwd; local-only, recorded, repeatable).
         #[arg(long = "source", value_name = "SVC[=PATH]")]
         sources: Vec<String>,
+        /// Snapshot each `--source` pin's dirty working tree into
+        /// instance-owned space (local-only; requires `--source`).
+        #[arg(long)]
+        dirty: bool,
         /// Lease duration, e.g. 8h, 45m (default: substrate's).
         #[arg(long)]
         lease: Option<String>,
@@ -93,6 +97,7 @@ fn main() -> ExitCode {
             file,
             on,
             sources,
+            dirty,
             lease,
             confirm_paid,
         } => commands::up(
@@ -101,6 +106,7 @@ fn main() -> ExitCode {
                 file,
                 on,
                 sources,
+                dirty,
                 lease,
                 confirm_paid,
             },

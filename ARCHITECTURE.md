@@ -49,10 +49,15 @@ Decided:
   is first-class, but it is an explicit, recorded choice, never ambient
   discovery, and it is **local-only**: cloud substrates deploy committed
   refs, so `up --on render` or `up --on vercel` with `--source` fails
-  validation, remediation "commit and push, then pin the ref". Declared
-  sources are symmetric with cloud deploys (repo + ref) and pass the
-  stranger test: one repo with a `stackless.toml` is enough. On Vercel,
-  `source.repo` must be a public GitHub HTTPS remote
+  validation, remediation "commit and push, then pin the ref". With
+  `--source … --dirty`, each pin's working tree (tracked modifications
+  plus untracked non-ignored files) is snapshotted into instance-owned
+  space as a content-addressed synthetic commit; services run from the
+  snapshot, so parallel instances may share the same checkout path.
+  Bare `--source` uses the checkout in place (single active instance
+  per path). Declared sources are symmetric with cloud deploys (repo +
+  ref) and pass the stranger test: one repo with a `stackless.toml` is
+  enough. On Vercel, `source.repo` must be a public GitHub HTTPS remote
   (`https://github.com/org/repo`).
 - **Wiring is interpolation, and the dependency graph is derived from
   it.** Env values reference a namespace evaluated per instance per
@@ -258,8 +263,10 @@ vision's invariants; flag anything to veto):
   checkouts (`sources/<instance>/`), processes, proxy routes, and
   containers remain parallel. **Parallel agents should use one git
   worktree per agent** so each has a distinct `definition_dir` and
-  Stripe lock; reusing the same checkout with `--source` on multiple
-  active instances is refused (`engine.source_override.shared`).
+  Stripe lock; reusing the same checkout with bare `--source` on multiple
+  active instances is refused (`engine.source_override.shared`) — use
+  `--source … --dirty` to snapshot into instance-owned space instead, or
+  one git worktree per agent so each has a distinct checkout path.
 - **Errors are an agent-facing contract, not diagnostics.** The vision
   requires "every error stating what to do next"; agents are the
   primary users, so every error stackless emits carries three parts:
@@ -708,7 +715,9 @@ Workspace-wide conventions:
   (`fetch_bare`), then per instance a thin checkout
   (`checkout_detached`) whose `objects/info/alternates` points at the
   cache (object sharing without copies), HEAD set to the pinned commit.
-  grit-lib's `Odb` honors that alternates file, so instances duplicate
+  `--source … --dirty` uses `snapshot_worktree` instead: the operator's
+  dirty tree is written into the instance checkout as a synthetic commit
+  keyed by content hash, re-snapshotted on every `up`. grit-lib's `Odb` honors that alternates file, so instances duplicate
   no objects, and the checkout is real enough for builds that shell out
   to `git rev-parse`. Cloud prepare (`stackless-render` /
   `stackless-vercel`) uses a self-contained shallow `clone_checkout`.

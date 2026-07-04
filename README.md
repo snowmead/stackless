@@ -106,8 +106,10 @@ verifiably. No wiki page, no teammate, no manual cleanup.
     (no build step) and has no managed datastore.
 - **Sources are git references** (`repo` + `ref`), materialized per
   instance from a shared object cache. For the edit loop,
-  `--source service=/path/to/checkout` pins a service to your dirty
-  worktree — explicit, recorded, local-only.
+  `--source service=/path/to/checkout` pins a service to your working
+  copy in place (single active instance per checkout). Add `--dirty` to
+  snapshot each pin's uncommitted tree into instance-owned space instead
+  — explicit, recorded, local-only, parallel-instance safe.
 - **`setup` / `prepare` hooks** — optional per service. `setup` runs
   once after source materialization (toolchain, deps); `prepare` runs on
   every `up` after the service's dependencies are ready and before it
@@ -129,7 +131,7 @@ verifiably. No wiki page, no teammate, no manual cleanup.
 
 | Verb | Does |
 |---|---|
-| `up [--name <name>]` | Create **or resume** an instance (no separate resume verb). `--name` optional at creation (`{stack}-{uuid}`); `--on <substrate>` **required at creation**; `--file <path>`, `--source svc=path`, `--lease 8h`, `--confirm-paid` |
+| `up [--name <name>]` | Create **or resume** an instance (no separate resume verb). `--name` optional at creation (`{stack}-{uuid}`); `--on <substrate>` **required at creation**; `--file <path>`, `--source svc=path`, `--dirty` (requires `--source`), `--lease 8h`, `--confirm-paid` |
 | `down <name>` | Verified teardown; exits non-zero listing survivors if anything remains |
 | `verify <name>` | Run the stack's proof contract; renews the lease |
 | `status <name>` | Staged truth per service: provisioned → prepared → started → healthy, downgraded by observation |

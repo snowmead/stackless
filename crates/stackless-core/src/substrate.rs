@@ -124,6 +124,9 @@ pub struct StepContext<'a> {
     pub step: &'a Step,
     /// Recorded `--source` pins (service → path), local-only.
     pub source_overrides: &'a BTreeMap<String, String>,
+    /// Snapshot `--source` pins into instance-owned space instead of using
+    /// them in place.
+    pub dirty: bool,
     /// Checkpoints recorded so far, in order — earlier steps' resources
     /// (ports, paths, connection strings) live here.
     pub prior: &'a [Checkpoint],

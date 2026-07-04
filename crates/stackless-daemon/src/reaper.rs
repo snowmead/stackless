@@ -180,7 +180,7 @@ mod tests {
     fn reaper_skips_an_instance_holding_its_lock() {
         let (_dir, store) = temp_store();
         store
-            .create_instance("held", "mock", DEF, &BTreeMap::new(), "")
+            .create_instance("held", "mock", DEF, &BTreeMap::new(), "", false)
             .expect("create");
         store
             .renew_lease("held", Duration::from_secs(0))
@@ -201,10 +201,10 @@ mod tests {
     fn gc_removes_only_tombstones_past_the_window() {
         let (_dir, store) = temp_store();
         store
-            .create_instance("old", "mock", DEF, &BTreeMap::new(), "")
+            .create_instance("old", "mock", DEF, &BTreeMap::new(), "", false)
             .expect("create old");
         store
-            .create_instance("recent", "mock", DEF, &BTreeMap::new(), "")
+            .create_instance("recent", "mock", DEF, &BTreeMap::new(), "", false)
             .expect("create recent");
         store.tombstone_instance("old").expect("tombstone old");
         store

@@ -38,6 +38,7 @@ pub struct UpArgs {
     pub file: Option<PathBuf>,
     pub on: Option<String>,
     pub sources: Vec<String>,
+    pub dirty: bool,
     pub lease: Option<String>,
     pub confirm_paid: bool,
 }
@@ -116,6 +117,16 @@ fn parse_sources(sources: &[String]) -> Result<BTreeMap<String, String>, CliErro
         map.insert(service.to_owned(), path.to_owned());
     }
     Ok(map)
+}
+
+fn validate_dirty_flag(dirty: bool, sources: &BTreeMap<String, String>) -> Result<(), CliError> {
+    if dirty && sources.is_empty() {
+        return Err(CliError::BadArgument {
+            argument: "--dirty".into(),
+            detail: "`--dirty` requires at least one `--source` pin".into(),
+        });
+    }
+    Ok(())
 }
 
 fn parse_lease(lease: Option<&str>) -> Result<Option<std::time::Duration>, CliError> {
@@ -224,6 +235,7 @@ pub fn up(args: UpArgs, output: &mut Output) -> Result<(), CliError> {
         },
     )?;
     let overrides = parse_sources(&args.sources)?;
+    validate_dirty_flag(args.dirty, &overrides)?;
     let lease = parse_lease(args.lease.as_deref())?;
 
     let engine = Engine {
@@ -236,6 +248,7 @@ pub fn up(args: UpArgs, output: &mut Output) -> Result<(), CliError> {
         definition_text: &text,
         def: &def,
         source_overrides: overrides,
+        dirty: args.dirty,
         definition_dir: def_dir.display().to_string(),
         lease,
         progress: Some(output),
@@ -557,5 +570,18 @@ mod tests {
     fn parse_sources_rejects_empty_service() {
         let err = parse_sources(&["".into()]).unwrap_err();
         assert!(matches!(err, CliError::BadArgument { argument, .. } if argument == "--source"));
+    }
+
+    #[test]
+    fn validate_dirty_flag_requires_source_pins() {
+        let err = validate_dirty_flag(true, &BTreeMap::new()).unwrap_err();
+        assert!(matches!(err, CliError::BadArgument { argument, .. } if argument == "--dirty"));
+    }
+
+    #[test]
+    fn validate_dirty_flag_accepts_source_pins() {
+        let mut sources = BTreeMap::new();
+        sources.insert("web".into(), "/tmp/web".into());
+        validate_dirty_flag(true, &sources).unwrap();
     }
 }

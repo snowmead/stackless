@@ -39,6 +39,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/002_definition_dir.sql"),
     include_str!("migrations/003_reaper.sql"),
     include_str!("migrations/004_lock_host.sql"),
+    include_str!("migrations/005_dirty.sql"),
 ];
 
 /// A driver-agnostic SQL value for the helper layer. Bridges rusqlite
