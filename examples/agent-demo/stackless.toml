@@ -1,0 +1,16 @@
+# Minimal local stack for agents: one static web service, no Docker, no secrets.
+# Run from the stackless repo root:
+#   stackless up --name demo --on local --file examples/agent-demo/stackless.toml
+#
+# Source is this repository checkout (`.`); no network fetch when run from a clone.
+# Cloud substrates are not used here — see fixtures/smoke/ for live provider examples.
+[stack]
+name = "agent-demo"
+
+[services.web]
+source      = { repo = ".", ref = "HEAD" }
+root_origin = true
+health      = { path = "/", contains = "stackless-agent-demo-ok" }
+
+[services.web.local]
+run = "python3 -m http.server $PORT --bind 127.0.0.1 --directory examples/agent-demo/site"
