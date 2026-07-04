@@ -145,6 +145,10 @@
     {
       "at": "2026-07-04T03:53:22.769Z",
       "message": "bootstrap-discover: model \"composer-2.5\" not in MODEL_CATALOG (spawning anyway). Run `bun cli.ts models` to see known slugs."
+    },
+    {
+      "at": "2026-07-04T03:53:30.688Z",
+      "message": "bootstrap-discover: spawn failed after 3 transient sub-attempts: AuthenticationError: Invalid User API Key"
     }
   ]
 }
