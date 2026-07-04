@@ -2,9 +2,13 @@
 //! capable, exit codes an agent can branch on, every error carrying a
 //! stable code and a remediation.
 
+mod adopt;
+mod authoring;
 mod commands;
 mod daemon_cmd;
+mod doctor;
 mod error;
+mod init;
 mod output;
 mod secrets;
 mod substrates;
@@ -83,6 +87,42 @@ enum Command {
         #[arg(long = "on", value_name = "SUBSTRATE")]
         substrate: Option<String>,
     },
+    /// Scaffold a minimal valid stackless.toml (non-interactive).
+    Init {
+        /// Stack name (DNS-safe). Defaults to the current directory name.
+        #[arg(long)]
+        name: Option<String>,
+        /// Output path (default: ./stackless.toml).
+        #[arg(long)]
+        file: Option<PathBuf>,
+        /// Overwrite an existing file.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Inspect the repo and write or merge a draft stackless.toml.
+    Adopt {
+        /// Stack name when creating a new file. Defaults to the directory name.
+        #[arg(long)]
+        name: Option<String>,
+        /// Output path (default: ./stackless.toml).
+        #[arg(long)]
+        file: Option<PathBuf>,
+        /// Overwrite an existing file.
+        #[arg(long)]
+        force: bool,
+        /// Append detected services to an existing file.
+        #[arg(long)]
+        merge: bool,
+    },
+    /// Preflight checks: Docker, daemon, env keys, Stripe Projects.
+    Doctor {
+        /// Definition file for context-aware checks (default: ./stackless.toml).
+        #[arg(long)]
+        file: Option<PathBuf>,
+        /// Also check substrate-specific API keys and config.
+        #[arg(long = "on", value_name = "SUBSTRATE")]
+        substrate: Option<String>,
+    },
     /// Daemon internals (spawned on demand; rarely run by hand).
     #[command(subcommand, hide = true)]
     Daemon(daemon_cmd::DaemonCommand),
@@ -122,10 +162,31 @@ fn main() -> ExitCode {
             tail,
         } => commands::logs(&name, service.as_deref(), tail, &output),
         Command::Check { file, substrate } => check(&file, substrate.as_deref(), &output),
+        Command::Init { name, file, force } => {
+            init::init(init::InitArgs { name, file, force }, &output)
+        }
+        Command::Adopt {
+            name,
+            file,
+            force,
+            merge,
+        } => adopt::adopt(
+            adopt::AdoptArgs {
+                name,
+                file,
+                force,
+                merge,
+            },
+            &output,
+        ),
+        Command::Doctor { file, substrate } => {
+            doctor::doctor(doctor::DoctorArgs { file, substrate }, &output)
+        }
         Command::Daemon(command) => daemon_cmd::run(command, &output),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
+        Err(CliError::DoctorFailed { .. }) => ExitCode::FAILURE,
         Err(err) => {
             output.fault(&err);
             ExitCode::FAILURE

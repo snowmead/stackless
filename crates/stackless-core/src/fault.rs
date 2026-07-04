@@ -86,6 +86,12 @@ pub mod codes {
     pub const LOCAL_GIT_REF_NOT_FOUND: &str = "local.git.ref_not_found";
     pub const LOCAL_GIT_CHECKOUT_FAILED: &str = "local.git.checkout_failed";
     pub const CLI_BAD_ARGUMENT: &str = "cli.bad_argument";
+    pub const CLI_FILE_WRITE: &str = "cli.file.write";
+    pub const CLI_INIT_EXISTS: &str = "cli.init.exists";
+    pub const CLI_INIT_NAME_INVALID: &str = "cli.init.name_invalid";
+    pub const CLI_ADOPT_EXISTS: &str = "cli.adopt.exists";
+    pub const CLI_ADOPT_INSPECT: &str = "cli.adopt.inspect";
+    pub const DOCTOR_CHECKS_FAILED: &str = "doctor.checks.failed";
     pub const LOCAL_DOCKER_ENGINE: &str = "local.docker.engine";
     pub const LOCAL_DATASTORE_FAILED: &str = "local.datastore.failed";
     pub const LOCAL_DATASTORE_NOT_READY: &str = "local.datastore.not_ready";
@@ -164,6 +170,12 @@ pub mod codes {
         LOCAL_GIT_REF_NOT_FOUND,
         LOCAL_GIT_CHECKOUT_FAILED,
         CLI_BAD_ARGUMENT,
+        CLI_FILE_WRITE,
+        CLI_INIT_EXISTS,
+        CLI_INIT_NAME_INVALID,
+        CLI_ADOPT_EXISTS,
+        CLI_ADOPT_INSPECT,
+        DOCTOR_CHECKS_FAILED,
         LOCAL_DOCKER_ENGINE,
         LOCAL_DATASTORE_FAILED,
         LOCAL_DATASTORE_NOT_READY,

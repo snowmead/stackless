@@ -14,6 +14,27 @@ pub enum CliError {
         source: std::io::Error,
     },
 
+    #[error("cannot write {path}: {source}")]
+    FileWrite {
+        path: String,
+        source: std::io::Error,
+    },
+
+    #[error("{path} already exists (pass --force to overwrite)")]
+    InitExists { path: String },
+
+    #[error("stack name {name:?} is not DNS-safe: {detail}")]
+    InitNameInvalid { name: String, detail: String },
+
+    #[error("{path} already exists (pass --merge to extend or --force to overwrite)")]
+    AdoptExists { path: String },
+
+    #[error("cannot inspect {path}: {detail}")]
+    AdoptInspect { path: String, detail: String },
+
+    #[error("doctor: checks failed: {failed:?}")]
+    DoctorFailed { failed: Vec<String> },
+
     #[error("unknown substrate {substrate:?}")]
     SubstrateUnknown {
         substrate: String,
@@ -79,6 +100,12 @@ impl Fault for CliError {
     fn code(&self) -> &'static str {
         match self {
             Self::FileRead { .. } => codes::CLI_FILE_READ,
+            Self::FileWrite { .. } => codes::CLI_FILE_WRITE,
+            Self::InitExists { .. } => codes::CLI_INIT_EXISTS,
+            Self::InitNameInvalid { .. } => codes::CLI_INIT_NAME_INVALID,
+            Self::AdoptExists { .. } => codes::CLI_ADOPT_EXISTS,
+            Self::AdoptInspect { .. } => codes::CLI_ADOPT_INSPECT,
+            Self::DoctorFailed { .. } => codes::DOCTOR_CHECKS_FAILED,
             Self::SubstrateUnknown { .. } => codes::CLI_SUBSTRATE_UNKNOWN,
             Self::Def(err) => err.code(),
             Self::Daemon(err) => err.code(),
@@ -100,6 +127,27 @@ impl Fault for CliError {
         match self {
             Self::FileRead { path, .. } => {
                 format!("check that {path} exists and is readable, or pass the right path")
+            }
+            Self::FileWrite { path, .. } => {
+                format!("check that {path} is writable and re-run the command")
+            }
+            Self::InitExists { path } => {
+                format!("remove {path}, pass --force, or choose another --file path")
+            }
+            Self::InitNameInvalid { .. } => {
+                "pass --name with a DNS-safe stack name (lowercase letters, digits, hyphens)".into()
+            }
+            Self::AdoptExists { path } => {
+                format!(
+                    "run `stackless check {path}` on the existing file, pass --merge to add \
+                     detected services, or --force to replace"
+                )
+            }
+            Self::AdoptInspect { path, .. } => {
+                format!("fix {path} or remove it and re-run `stackless adopt`")
+            }
+            Self::DoctorFailed { failed } => {
+                format!("fix the failing checks ({failed:?}) and re-run `stackless doctor`")
             }
             Self::SubstrateUnknown { known, .. } => {
                 format!("pass one of the registered substrates: {known:?}")

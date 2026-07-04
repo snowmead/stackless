@@ -99,6 +99,81 @@ impl Output {
         }
     }
 
+    pub fn init_ok(&self, path: String, stack: &str) {
+        if self.json {
+            #[derive(Serialize)]
+            struct InitOk<'a> {
+                ok: bool,
+                path: String,
+                stack: &'a str,
+                next: &'static str,
+            }
+            self.emit(&InitOk {
+                ok: true,
+                path,
+                stack,
+                next: "stackless check stackless.toml --on local",
+            });
+            return;
+        }
+        println!("wrote {path} (stack {stack})");
+        println!("next: stackless check stackless.toml --on local");
+    }
+
+    pub fn adopt_ok(&self, path: String, services: &[&str], merged: bool, next: &str) {
+        if self.json {
+            #[derive(Serialize)]
+            struct AdoptOk<'a> {
+                ok: bool,
+                path: String,
+                services: &'a [&'a str],
+                merged: bool,
+                next: &'a str,
+            }
+            self.emit(&AdoptOk {
+                ok: true,
+                path,
+                services,
+                merged,
+                next,
+            });
+            return;
+        }
+        let action = if merged { "merged into" } else { "wrote" };
+        println!("{action} {path}");
+        if !services.is_empty() {
+            println!("  services: {}", services.join(", "));
+        }
+        println!("next: {next}");
+    }
+
+    pub fn doctor_ok(&self, all_ok: bool, checks: &[crate::doctor::DoctorCheck]) {
+        if self.json {
+            #[derive(Serialize)]
+            struct DoctorOk<'a> {
+                ok: bool,
+                checks: &'a [crate::doctor::DoctorCheck],
+            }
+            self.emit(&DoctorOk { ok: all_ok, checks });
+            return;
+        }
+        for check in checks {
+            let mark = if check.ok { "ok" } else { "FAIL" };
+            println!("{mark} {}", check.check);
+            if let Some(code) = check.code {
+                println!("  code: {code}");
+            }
+            if let Some(remediation) = &check.remediation {
+                println!("  remediation: {remediation}");
+            }
+        }
+        if all_ok {
+            println!("doctor: all checks passed");
+        } else {
+            println!("doctor: one or more checks failed");
+        }
+    }
+
     pub fn up_ok(
         &self,
         name: &str,
