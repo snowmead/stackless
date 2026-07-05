@@ -29,9 +29,6 @@ pub enum CliError {
     #[error("{path} already exists (pass --merge to extend or --force to overwrite)")]
     AdoptExists { path: String },
 
-    #[error("cannot inspect {path}: {detail}")]
-    AdoptInspect { path: String, detail: String },
-
     #[error("doctor: checks failed: {failed:?}")]
     DoctorFailed { failed: Vec<String> },
 
@@ -104,7 +101,6 @@ impl Fault for CliError {
             Self::InitExists { .. } => codes::CLI_INIT_EXISTS,
             Self::InitNameInvalid { .. } => codes::CLI_INIT_NAME_INVALID,
             Self::AdoptExists { .. } => codes::CLI_ADOPT_EXISTS,
-            Self::AdoptInspect { .. } => codes::CLI_ADOPT_INSPECT,
             Self::DoctorFailed { .. } => codes::DOCTOR_CHECKS_FAILED,
             Self::SubstrateUnknown { .. } => codes::CLI_SUBSTRATE_UNKNOWN,
             Self::Def(err) => err.code(),
@@ -142,9 +138,6 @@ impl Fault for CliError {
                     "run `stackless check {path}` on the existing file, pass --merge to add \
                      detected services, or --force to replace"
                 )
-            }
-            Self::AdoptInspect { path, .. } => {
-                format!("fix {path} or remove it and re-run `stackless adopt`")
             }
             Self::DoctorFailed { failed } => {
                 format!("fix the failing checks ({failed:?}) and re-run `stackless doctor`")

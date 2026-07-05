@@ -106,7 +106,7 @@ fn detect_services(
     let index = dir.join("index.html");
 
     if package.is_file()
-        && let Some(service) = detect_node_service(dir, stack, source)?
+        && let Some(service) = detect_node_service(dir, stack, source)
     {
         services.push(service);
     }
@@ -122,26 +122,15 @@ fn detect_services(
     Ok(services)
 }
 
-fn detect_node_service(
-    dir: &Path,
-    stack: &str,
-    source: &GitSource,
-) -> Result<Option<DetectedService>, CliError> {
-    let text =
-        std::fs::read_to_string(dir.join("package.json")).map_err(|source| CliError::FileRead {
-            path: dir.join("package.json").display().to_string(),
-            source,
-        })?;
-    let value: Value = serde_json::from_str(&text).map_err(|err| CliError::AdoptInspect {
-        path: "package.json".into(),
-        detail: err.to_string(),
-    })?;
+fn detect_node_service(dir: &Path, stack: &str, source: &GitSource) -> Option<DetectedService> {
+    let text = std::fs::read_to_string(dir.join("package.json")).ok()?;
+    let value: Value = serde_json::from_str(&text).ok()?;
     let uses_vite = value
         .pointer("/devDependencies/vite")
         .or_else(|| value.pointer("/dependencies/vite"))
         .is_some();
     if uses_vite {
-        return Ok(Some(DetectedService {
+        return Some(DetectedService {
             name: "web".into(),
             block: format!(
                 r#"[services.web]
@@ -156,12 +145,12 @@ health = {{ path = "/", contains = 'id="root"' }}
                 git_ref = source.git_ref,
             ),
             root_origin: true,
-        }));
+        });
     }
     if dir.join("index.html").is_file() {
-        return Ok(Some(static_web_service(stack, source, true)));
+        return Some(static_web_service(stack, source, true));
     }
-    Ok(None)
+    None
 }
 
 fn rust_api_service(stack: &str, source: &GitSource) -> DetectedService {
@@ -230,5 +219,18 @@ mod tests {
         };
         let services = detect_services(dir.path(), "demo", &source).unwrap();
         assert_eq!(services[0].name, "web");
+    }
+
+    #[test]
+    fn skips_invalid_package_json_and_detects_cargo() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("package.json"), "{not json").unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), "[package]\nname = \"api\"\n").unwrap();
+        let source = GitSource {
+            repo: "file:///tmp/repo".into(),
+            git_ref: "main".into(),
+        };
+        let services = detect_services(dir.path(), "demo", &source).unwrap();
+        assert!(services.iter().any(|s| s.name == "api"));
     }
 }
