@@ -12,4 +12,4 @@ root_origin = true
 health      = { path = "/", contains = "stackless-agent-demo-ok" }
 
 [services.web.local]
-run = "sh -c 'if [ -x serve.sh ]; then exec sh serve.sh; elif [ -x examples/agent-demo/serve.sh ]; then exec sh examples/agent-demo/serve.sh; elif [ -f index.html ]; then exec python3 -m http.server \"$PORT\" --bind 127.0.0.1; else echo \"agent-demo: no site found\" >&2; exit 1; fi'"
+run = "sh -c 'if [ -f serve.sh ]; then exec sh serve.sh; elif [ -f examples/agent-demo/serve.sh ]; then exec sh examples/agent-demo/serve.sh; elif [ -f index.html ]; then exec python3 -m http.server \"$PORT\" --bind 127.0.0.1; else echo \"agent-demo: no site found\" >&2; exit 1; fi'"

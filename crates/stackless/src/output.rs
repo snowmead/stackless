@@ -174,6 +174,29 @@ impl Output {
         }
     }
 
+    pub fn doctor_failed(
+        &self,
+        checks: &[crate::doctor::DoctorCheck],
+        err: &crate::error::CliError,
+    ) {
+        if self.json {
+            #[derive(Serialize)]
+            struct DoctorFailed<'a> {
+                ok: bool,
+                checks: &'a [crate::doctor::DoctorCheck],
+                error: Report,
+            }
+            self.emit(&DoctorFailed {
+                ok: false,
+                checks,
+                error: Report::from_fault(err),
+            });
+            return;
+        }
+        self.doctor_ok(false, checks);
+        self.fault(err);
+    }
+
     pub fn up_ok(
         &self,
         name: &str,

@@ -34,36 +34,50 @@ pub fn doctor(args: DoctorArgs, output: &Output) -> Result<(), CliError> {
     }
     let file = args.file.unwrap_or_else(default_output_path);
     let dir = definition_dir(&file);
-    let def = load_definition(&file)?;
     let substrate = args.substrate.as_deref();
     let secrets_overlay = secrets::load(&dir);
 
     let mut checks = Vec::new();
-    if let Some(def) = def.as_ref() {
-        checks.push(check_docker(def));
-        checks.extend(check_env_file(&dir, def, &secrets_overlay));
-        checks.extend(check_cloud_keys(&dir, def, substrate, &secrets_overlay));
-        if needs_stripe(def, substrate) {
-            checks.push(check_stripe_cli());
-            checks.push(check_stripe_projects());
-            checks.push(check_stripe_projects_linked(&dir));
+    if !file.is_file() {
+        checks.push(DoctorCheck {
+            check: "definition".into(),
+            ok: false,
+            code: Some(codes::CLI_FILE_READ),
+            remediation: Some(format!(
+                "create a definition with `stackless init` or pass --file to an existing \
+                 stackless.toml (missing {})",
+                file.display()
+            )),
+        });
+    } else {
+        let def = load_definition(&file)?;
+        if let Some(def) = def.as_ref() {
+            checks.push(check_docker(def));
+            checks.extend(check_env_file(&dir, def, &secrets_overlay));
+            checks.extend(check_cloud_keys(&dir, def, substrate, &secrets_overlay));
+            if needs_stripe(def, substrate) {
+                checks.push(check_stripe_cli());
+                checks.push(check_stripe_projects());
+                checks.push(check_stripe_projects_linked(&dir));
+            }
         }
     }
     checks.push(check_daemon());
     checks.push(check_persistence());
 
     let all_ok = checks.iter().all(|c| c.ok);
-    output.doctor_ok(all_ok, &checks);
     if all_ok {
+        output.doctor_ok(true, &checks);
         Ok(())
     } else {
-        Err(CliError::DoctorFailed {
-            failed: checks
-                .iter()
-                .filter(|c| !c.ok)
-                .map(|c| c.check.clone())
-                .collect(),
-        })
+        let failed: Vec<String> = checks
+            .iter()
+            .filter(|c| !c.ok)
+            .map(|c| c.check.clone())
+            .collect();
+        let err = CliError::DoctorFailed { failed };
+        output.doctor_failed(&checks, &err);
+        Err(err)
     }
 }
 
@@ -462,5 +476,22 @@ health = { path = "/" }
         }
         let check = check_persistence();
         assert!(check.ok);
+    }
+
+    #[test]
+    fn missing_definition_adds_check() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("stackless.toml");
+        let mut checks = Vec::new();
+        if !missing.is_file() {
+            checks.push(DoctorCheck {
+                check: "definition".into(),
+                ok: false,
+                code: Some(codes::CLI_FILE_READ),
+                remediation: Some("create stackless.toml".into()),
+            });
+        }
+        assert_eq!(checks.len(), 1);
+        assert!(!checks[0].ok);
     }
 }
