@@ -141,13 +141,18 @@ fn check_daemon() -> DoctorCheck {
 }
 
 fn needs_stripe(def: &StackDef, substrate: Option<&str>) -> bool {
-    def.integrations.values().any(|i| i.provider == "clerk")
-        || substrate.is_some_and(|s| s != "local")
-        || def.services.values().any(|svc| {
+    if def.integrations.values().any(|i| i.provider == "clerk") {
+        return true;
+    }
+    match substrate {
+        Some("local") => false,
+        Some(s) => matches!(s, "render" | "vercel" | "fly" | "netlify"),
+        None => def.services.values().any(|svc| {
             svc.substrates
                 .keys()
                 .any(|k| matches!(k.as_str(), "render" | "vercel" | "fly" | "netlify"))
-        })
+        }),
+    }
 }
 
 fn check_persistence() -> DoctorCheck {
@@ -225,10 +230,11 @@ fn check_cloud_keys(
     let mut targets = BTreeSet::new();
     if let Some(substrate) = substrate {
         targets.insert(substrate.to_owned());
-    }
-    for service in def.services.values() {
-        for key in service.substrates.keys() {
-            targets.insert(key.clone());
+    } else {
+        for service in def.services.values() {
+            for key in service.substrates.keys() {
+                targets.insert(key.clone());
+            }
         }
     }
     let mut checks = Vec::new();
@@ -473,6 +479,43 @@ health = { path = "/" }
         )
         .unwrap();
         assert!(needs_stripe(&def, None));
+        assert!(needs_stripe(&def, Some("render")));
+    }
+
+    #[test]
+    fn needs_stripe_false_for_local_on_multi_target_definition() {
+        let def = StackDef::parse(
+            r#"[stack]
+name = "demo"
+[services.web]
+source = { repo = "file:///tmp", ref = "main" }
+health = { path = "/" }
+[services.web.local]
+run = "true"
+[services.web.render]
+"#,
+        )
+        .unwrap();
+        assert!(!needs_stripe(&def, Some("local")));
+    }
+
+    #[test]
+    fn cloud_keys_scoped_to_on_local() {
+        let def = StackDef::parse(
+            r#"[stack]
+name = "demo"
+[services.web]
+source = { repo = "file:///tmp", ref = "main" }
+health = { path = "/" }
+[services.web.local]
+run = "true"
+[services.web.render]
+"#,
+        )
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let checks = check_cloud_keys(dir.path(), &def, Some("local"), &Default::default());
+        assert!(checks.is_empty());
     }
 
     #[test]
