@@ -6,10 +6,14 @@
 [stack]
 name = "agent-demo"
 
+[stack.verify]
+run = "python3 -c 'import os, urllib.request; assert b\"stackless-agent-demo-ok\" in urllib.request.urlopen(os.environ[\"WEB_ORIGIN\"]).read()'"
+env = { WEB_ORIGIN = "${services.web.origin}" }
+
 [services.web]
 source      = { repo = "https://github.com/snowmead/stackless", ref = "main" }
 root_origin = true
 health      = { path = "/", contains = "stackless-agent-demo-ok" }
 
 [services.web.local]
-run = "sh -c 'if [ -f serve.sh ]; then exec sh serve.sh; elif [ -f examples/agent-demo/serve.sh ]; then exec sh examples/agent-demo/serve.sh; elif [ -f index.html ]; then exec python3 -m http.server \"$PORT\" --bind 127.0.0.1; else echo \"agent-demo: no site found\" >&2; exit 1; fi'"
+run = "sh -c \"if [ -f serve.sh ]; then exec sh serve.sh; elif [ -f examples/agent-demo/serve.sh ]; then exec sh examples/agent-demo/serve.sh; elif [ -f index.html ]; then exec python3 -m http.server \\\"$PORT\\\" --bind 127.0.0.1; else echo 'agent-demo: no site found' >&2; exit 1; fi\""
