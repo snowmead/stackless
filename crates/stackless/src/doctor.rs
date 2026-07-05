@@ -50,15 +50,24 @@ pub fn doctor(args: DoctorArgs, output: &Output) -> Result<(), CliError> {
             )),
         });
     } else {
-        let def = load_definition(&file)?;
-        if let Some(def) = def.as_ref() {
-            checks.push(check_docker(def));
-            checks.extend(check_env_file(&dir, def, &secrets_overlay));
-            checks.extend(check_cloud_keys(&dir, def, substrate, &secrets_overlay));
-            if needs_stripe(def, substrate) {
-                checks.push(check_stripe_cli());
-                checks.push(check_stripe_projects());
-                checks.push(check_stripe_projects_linked(&dir));
+        match parse_definition_file(&file) {
+            Ok(def) => {
+                checks.push(check_docker(&def));
+                checks.extend(check_env_file(&dir, &def, &secrets_overlay));
+                checks.extend(check_cloud_keys(&dir, &def, substrate, &secrets_overlay));
+                if needs_stripe(&def, substrate) {
+                    checks.push(check_stripe_cli());
+                    checks.push(check_stripe_projects());
+                    checks.push(check_stripe_projects_linked(&dir));
+                }
+            }
+            Err(err) => {
+                checks.push(DoctorCheck {
+                    check: "definition".into(),
+                    ok: false,
+                    code: Some(err.code()),
+                    remediation: Some(err.remediation()),
+                });
             }
         }
     }
@@ -81,15 +90,12 @@ pub fn doctor(args: DoctorArgs, output: &Output) -> Result<(), CliError> {
     }
 }
 
-fn load_definition(file: &Path) -> Result<Option<StackDef>, CliError> {
-    if !file.is_file() {
-        return Ok(None);
-    }
+fn parse_definition_file(file: &Path) -> Result<StackDef, CliError> {
     let text = std::fs::read_to_string(file).map_err(|source| CliError::FileRead {
         path: file.display().to_string(),
         source,
     })?;
-    StackDef::parse(&text).map(Some).map_err(CliError::Def)
+    StackDef::parse(&text).map_err(CliError::Def)
 }
 
 fn check_docker(def: &StackDef) -> DoctorCheck {

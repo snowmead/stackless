@@ -100,24 +100,25 @@ impl Output {
     }
 
     pub fn init_ok(&self, path: String, stack: &str) {
+        let next = format!("stackless check {path} --on local");
         if self.json {
             #[derive(Serialize)]
             struct InitOk<'a> {
                 ok: bool,
                 path: String,
                 stack: &'a str,
-                next: &'static str,
+                next: String,
             }
             self.emit(&InitOk {
                 ok: true,
                 path,
                 stack,
-                next: "stackless check stackless.toml --on local",
+                next,
             });
             return;
         }
         println!("wrote {path} (stack {stack})");
-        println!("next: stackless check stackless.toml --on local");
+        println!("next: {next}");
     }
 
     pub fn adopt_ok(&self, path: String, services: &[&str], merged: bool, next: &str) {

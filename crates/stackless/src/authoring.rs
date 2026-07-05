@@ -83,9 +83,10 @@ pub struct GitSource {
 
 pub fn detect_git_source(dir: &Path) -> Option<GitSource> {
     let repo = git_output(dir, &["remote", "get-url", "origin"])?;
-    let git_ref = git_output(dir, &["rev-parse", "--abbrev-ref", "HEAD"])
-        .filter(|r| r != "HEAD")
-        .unwrap_or_else(|| "main".into());
+    let git_ref = match git_output(dir, &["rev-parse", "--abbrev-ref", "HEAD"]) {
+        Some(r) if r != "HEAD" => r,
+        _ => git_output(dir, &["rev-parse", "HEAD"]).unwrap_or_else(|| "main".into()),
+    };
     Some(GitSource { repo, git_ref })
 }
 

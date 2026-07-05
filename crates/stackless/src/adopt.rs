@@ -69,12 +69,8 @@ pub fn adopt(args: AdoptArgs, output: &Output) -> Result<(), CliError> {
         source,
     })?;
     let services: Vec<&str> = detected.iter().map(|s| s.name.as_str()).collect();
-    output.adopt_ok(
-        file.display().to_string(),
-        &services,
-        merged,
-        "stackless check stackless.toml --on local",
-    );
+    let next = format!("stackless check {} --on local", file.display());
+    output.adopt_ok(file.display().to_string(), &services, merged, &next);
     Ok(())
 }
 
