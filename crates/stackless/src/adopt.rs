@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use crate::authoring::{
     GitSource, append_service_block, default_output_path, default_source, definition_dir,
-    ensure_trailing_newline, resolve_stack_name, service_block_present,
+    ensure_trailing_newline, resolve_stack_name, service_block_present, stack_section_present,
 };
 use crate::error::CliError;
 use crate::output::Output;
@@ -49,7 +49,7 @@ pub fn adopt(args: AdoptArgs, output: &Output) -> Result<(), CliError> {
                 text = append_service_block(&text, &service.block);
                 merged = true;
             }
-            if !text.contains("[stack]") {
+            if !stack_section_present(&text) {
                 let header = format!("[stack]\nname = \"{stack}\"\n\n");
                 text = format!("{header}{text}");
                 merged = true;
@@ -196,6 +196,7 @@ health = {{ path = "/", contains = "html" }}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::authoring::{append_service_block, service_block_present, stack_section_present};
 
     #[test]
     fn detects_rust_api_from_cargo_toml() {
@@ -232,5 +233,30 @@ mod tests {
         };
         let services = detect_services(dir.path(), "demo", &source).unwrap();
         assert!(services.iter().any(|s| s.name == "api"));
+    }
+
+    #[test]
+    fn merge_prepends_stack_header_when_only_nested_stack_tables() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("index.html"), "<html></html>").unwrap();
+        let file = dir.path().join("stackless.toml");
+        std::fs::write(&file, "[stack.verify]\nrun = \"true\"\n").unwrap();
+        let source = GitSource {
+            repo: "file:///tmp/repo".into(),
+            git_ref: "main".into(),
+        };
+        let detected = detect_services(dir.path(), "demo", &source).unwrap();
+        let mut text = std::fs::read_to_string(&file).unwrap();
+        assert!(!stack_section_present(&text));
+        if !stack_section_present(&text) {
+            let header = "[stack]\nname = \"demo\"\n\n";
+            text = format!("{header}{text}");
+        }
+        for service in &detected {
+            if !service_block_present(&text, &service.name) {
+                text = append_service_block(&text, &service.block);
+            }
+        }
+        stackless_core::def::StackDef::parse(&text).unwrap();
     }
 }

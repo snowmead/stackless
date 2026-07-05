@@ -136,6 +136,10 @@ pub fn service_block_present(text: &str, service: &str) -> bool {
     text.contains(&format!("[services.{service}]"))
 }
 
+pub fn stack_section_present(text: &str) -> bool {
+    text.lines().any(|line| line.trim() == "[stack]")
+}
+
 pub fn append_service_block(existing: &str, block: &str) -> String {
     let mut out = existing.trim_end().to_owned();
     if !out.is_empty() && !out.ends_with('\n') {
