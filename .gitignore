@@ -22,3 +22,6 @@ fixtures/smoke/*/.projects/
 # cargo-dist may write temporary plan/build state outside target/ in some modes
 # (normally everything lands under target/dist or the dist dir configured by metadata)
 .dist/
+
+# Cursor /orchestrate run state (plan.json, state.json, handoffs — local to a planner session)
+.orchestrate/
