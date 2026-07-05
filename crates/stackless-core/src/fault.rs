@@ -47,6 +47,7 @@ pub mod codes {
     pub const DEF_WIRING_CYCLE: &str = "def.validate.wiring_cycle";
     pub const DEF_ENV_NOT_STRINGS: &str = "def.validate.env_not_strings";
     pub const CLI_FILE_READ: &str = "cli.file.read";
+    pub const CLI_FILE_MISSING: &str = "cli.file.missing";
     pub const CLI_SUBSTRATE_UNKNOWN: &str = "cli.substrate.unknown";
     pub const STATE_OPEN: &str = "state.open_failed";
     pub const STATE_MIGRATE: &str = "state.migrate_failed";
@@ -131,6 +132,7 @@ pub mod codes {
         DEF_WIRING_CYCLE,
         DEF_ENV_NOT_STRINGS,
         CLI_FILE_READ,
+        CLI_FILE_MISSING,
         CLI_SUBSTRATE_UNKNOWN,
         STATE_OPEN,
         STATE_MIGRATE,

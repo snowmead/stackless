@@ -42,7 +42,7 @@ pub fn doctor(args: DoctorArgs, output: &Output) -> Result<(), CliError> {
         checks.push(DoctorCheck {
             check: "definition".into(),
             ok: false,
-            code: Some(codes::CLI_FILE_READ),
+            code: Some(codes::CLI_FILE_MISSING),
             remediation: Some(format!(
                 "create a definition with `stackless init` or pass --file to an existing \
                  stackless.toml (missing {})",
@@ -536,7 +536,7 @@ run = "true"
             checks.push(DoctorCheck {
                 check: "definition".into(),
                 ok: false,
-                code: Some(codes::CLI_FILE_READ),
+                code: Some(codes::CLI_FILE_MISSING),
                 remediation: Some("create stackless.toml".into()),
             });
         }
