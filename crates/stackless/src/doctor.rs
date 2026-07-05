@@ -43,21 +43,14 @@ pub fn doctor(args: DoctorArgs, output: &Output) -> Result<(), CliError> {
         checks.push(check_docker(def));
         checks.extend(check_env_file(&dir, def, &secrets_overlay));
         checks.extend(check_cloud_keys(&dir, def, substrate, &secrets_overlay));
-        let needs_stripe = def.integrations.values().any(|i| i.provider == "clerk")
-            || substrate.is_some_and(|s| s != "local")
-            || def.services.values().any(|svc| {
-                svc.substrates
-                    .keys()
-                    .any(|k| matches!(k.as_str(), "render" | "vercel" | "fly" | "netlify"))
-            });
-        if needs_stripe {
+        if needs_stripe(def, substrate) {
+            checks.push(check_stripe_cli());
+            checks.push(check_stripe_projects());
             checks.push(check_stripe_projects_linked(&dir));
         }
     }
     checks.push(check_daemon());
     checks.push(check_persistence());
-    checks.push(check_stripe_cli());
-    checks.push(check_stripe_projects());
 
     let all_ok = checks.iter().all(|c| c.ok);
     output.doctor_ok(all_ok, &checks);
@@ -127,7 +120,27 @@ fn check_daemon() -> DoctorCheck {
     }
 }
 
+fn needs_stripe(def: &StackDef, substrate: Option<&str>) -> bool {
+    def.integrations.values().any(|i| i.provider == "clerk")
+        || substrate.is_some_and(|s| s != "local")
+        || def.services.values().any(|svc| {
+            svc.substrates
+                .keys()
+                .any(|k| matches!(k.as_str(), "render" | "vercel" | "fly" | "netlify"))
+        })
+}
+
 fn check_persistence() -> DoctorCheck {
+    // Boot persistence is macOS launchd today (§3). Elsewhere `status`/`list`
+    // warn but do not fail — doctor matches that posture.
+    if !cfg!(target_os = "macos") {
+        return DoctorCheck {
+            check: "persistence".into(),
+            ok: true,
+            code: None,
+            remediation: None,
+        };
+    }
     match stackless_daemon::launchd::degradation_warning() {
         None => DoctorCheck {
             check: "persistence".into(),
@@ -408,5 +421,46 @@ health = { path = "/" }
         assert_eq!(json["ok"], false);
         assert_eq!(json["code"], codes::DAEMON_UNREACHABLE);
         assert_eq!(json["remediation"], "start daemon");
+    }
+
+    #[test]
+    fn needs_stripe_false_for_local_only_stack() {
+        let def = StackDef::parse(
+            r#"[stack]
+name = "demo"
+[services.web]
+source = { repo = "file:///tmp", ref = "main" }
+health = { path = "/" }
+[services.web.local]
+run = "true"
+"#,
+        )
+        .unwrap();
+        assert!(!needs_stripe(&def, Some("local")));
+        assert!(!needs_stripe(&def, None));
+    }
+
+    #[test]
+    fn needs_stripe_true_for_cloud_substrate_block() {
+        let def = StackDef::parse(
+            r#"[stack]
+name = "demo"
+[services.web]
+source = { repo = "file:///tmp", ref = "main" }
+health = { path = "/" }
+[services.web.render]
+"#,
+        )
+        .unwrap();
+        assert!(needs_stripe(&def, None));
+    }
+
+    #[test]
+    fn persistence_skipped_off_macos() {
+        if cfg!(target_os = "macos") {
+            return;
+        }
+        let check = check_persistence();
+        assert!(check.ok);
     }
 }
