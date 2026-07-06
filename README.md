@@ -193,13 +193,14 @@ never on prose.
 
 ### Install
 
-Prebuilt binaries (macOS, Linux, Windows) ship on GitHub Releases via
-[cargo-dist](https://github.com/axodotdev/cargo-dist):
+Prebuilt binaries (macOS and Linux) ship on GitHub Releases via
+[cargo-dist](https://github.com/axodotdev/cargo-dist). Release notes come from
+[CHANGELOG.md](CHANGELOG.md).
 
 ```console
-$ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/download/v0.1.0/stackless-installer.sh | sh
+$ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/latest/download/stackless-installer.sh | sh
 $ stackless --version
-stackless 0.1.0
+stackless 0.1.1
 ```
 
 The installer places `stackless` on your `PATH` (under `$CARGO_HOME/bin` by

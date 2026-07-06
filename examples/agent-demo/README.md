@@ -4,7 +4,13 @@ Minimal stack for agents: one static web service on the **local** substrate. No 
 
 ## Prerequisites
 
-- [stackless](https://github.com/snowmead/stackless) installed (`cargo install --path crates/stackless` from a clone, or a release binary once published)
+- [stackless](https://github.com/snowmead/stackless) installed:
+
+  ```console
+  curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/latest/download/stackless-installer.sh | sh
+  stackless doctor --json
+  ```
+
 - `python3` on `PATH`
 - Run commands from the **repository root** (clone [github.com/snowmead/stackless](https://github.com/snowmead/stackless); the definition materializes `examples/agent-demo/site` from the `main` ref)
 

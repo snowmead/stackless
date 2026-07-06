@@ -18,7 +18,8 @@ install, authoring, lifecycle, machine output, and error branching.
 **Release:**
 
 ```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/download/v0.1.0/stackless-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/latest/download/stackless-installer.sh | sh
+stackless --version   # expect 0.1.1 or newer
 ```
 
 **From source (this repo):**
