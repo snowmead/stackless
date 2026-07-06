@@ -24,6 +24,9 @@ fixtures/smoke/
   site/index.html        # deployable static page (marker: stackless-smoke-ok)
   vercel/stackless.toml   # deploy = "upload" (uploads fixtures/smoke/site)
   render/stackless.toml   # render static site publishing fixtures/smoke/site
+  flyio/stackless.toml    # Fly Machines image deploy (paid; --confirm-paid)
+  netlify/stackless.toml  # Netlify file-digest static upload
+  cloudflare/stackless.toml  # integrations on --on local
 ```
 
 Run locally (reads creds from `.stackless.env`):
@@ -31,16 +34,19 @@ Run locally (reads creds from `.stackless.env`):
 ```
 mise run smoke-vercel     # up smoke-v --on vercel, then down, fail if either fails
 mise run smoke-render
-mise run smoke            # both
+mise run smoke-fly        # paid Fly app — needs --confirm-paid in the fixture runner
+mise run smoke-netlify
+mise run smoke            # vercel + render (see mise.toml for the full set)
 ```
 
 In CI: `.github/workflows/smoke.yml` (`workflow_dispatch` + nightly), one gated
-job per provider, secrets `STRIPE_API_KEY` / `VERCEL_TOKEN` / `RENDER_API_KEY`.
+job per provider, secrets `STRIPE_API_KEY` / `VERCEL_TOKEN` / `RENDER_API_KEY`
+(and `FLY_API_TOKEN` where applicable).
 
 ### Prerequisites (one-time, human)
 
 - The Stripe Project must have the provider **linked**: `stripe projects link
-  vercel` / `render` / `cloudflare` (account-level; new projects inherit it).
+  vercel` / `render` / `cloudflare` / `fly` / `netlify` (account-level; new projects inherit it).
   Check with `stripe projects status`.
 - The provider API token must belong to the **linked** account/team. For Vercel,
   the substrate already reads the Stripe-managed token + `VERCEL_ORG_ID` from the

@@ -191,6 +191,24 @@ never on prose.
 
 ## Quick start
 
+### Install
+
+Prebuilt binaries (macOS, Linux, Windows) ship on GitHub Releases via
+[cargo-dist](https://github.com/axodotdev/cargo-dist):
+
+```console
+$ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/download/v0.1.0/stackless-installer.sh | sh
+$ stackless --version
+stackless 0.1.0
+```
+
+The installer places `stackless` on your `PATH` (under `$CARGO_HOME/bin` by
+default). Override the download host with `STACKLESS_INSTALLER_GITHUB_BASE_URL`
+or pin a direct artifact URL with `STACKLESS_DOWNLOAD_URL` (see the generated
+installer script).
+
+### Build from source
+
 ```console
 $ cargo build --release            # one binary: target/release/stackless
 $ cd your-repo                     # containing a stackless.toml
@@ -257,9 +275,9 @@ implemented yet.
 - [x] local
 - [x] render
 - [x] vercel
-- [ ] fly.io
+- [x] fly.io
 - [ ] railway
-- [ ] netlify
+- [x] netlify
 - [ ] cloudflare workers
 - [ ] gitlab
 - [ ] laravel cloud

@@ -47,6 +47,7 @@ pub mod codes {
     pub const DEF_WIRING_CYCLE: &str = "def.validate.wiring_cycle";
     pub const DEF_ENV_NOT_STRINGS: &str = "def.validate.env_not_strings";
     pub const CLI_FILE_READ: &str = "cli.file.read";
+    pub const CLI_FILE_MISSING: &str = "cli.file.missing";
     pub const CLI_SUBSTRATE_UNKNOWN: &str = "cli.substrate.unknown";
     pub const STATE_OPEN: &str = "state.open_failed";
     pub const STATE_MIGRATE: &str = "state.migrate_failed";
@@ -86,6 +87,12 @@ pub mod codes {
     pub const LOCAL_GIT_REF_NOT_FOUND: &str = "local.git.ref_not_found";
     pub const LOCAL_GIT_CHECKOUT_FAILED: &str = "local.git.checkout_failed";
     pub const CLI_BAD_ARGUMENT: &str = "cli.bad_argument";
+    pub const CLI_FILE_WRITE: &str = "cli.file.write";
+    pub const CLI_INIT_EXISTS: &str = "cli.init.exists";
+    pub const CLI_INIT_NAME_INVALID: &str = "cli.init.name_invalid";
+    pub const CLI_ADOPT_EXISTS: &str = "cli.adopt.exists";
+    pub const CLI_ADOPT_INSPECT: &str = "cli.adopt.inspect";
+    pub const DOCTOR_CHECKS_FAILED: &str = "doctor.checks.failed";
     pub const LOCAL_DOCKER_ENGINE: &str = "local.docker.engine";
     pub const LOCAL_DATASTORE_FAILED: &str = "local.datastore.failed";
     pub const LOCAL_DATASTORE_NOT_READY: &str = "local.datastore.not_ready";
@@ -125,6 +132,7 @@ pub mod codes {
         DEF_WIRING_CYCLE,
         DEF_ENV_NOT_STRINGS,
         CLI_FILE_READ,
+        CLI_FILE_MISSING,
         CLI_SUBSTRATE_UNKNOWN,
         STATE_OPEN,
         STATE_MIGRATE,
@@ -164,6 +172,12 @@ pub mod codes {
         LOCAL_GIT_REF_NOT_FOUND,
         LOCAL_GIT_CHECKOUT_FAILED,
         CLI_BAD_ARGUMENT,
+        CLI_FILE_WRITE,
+        CLI_INIT_EXISTS,
+        CLI_INIT_NAME_INVALID,
+        CLI_ADOPT_EXISTS,
+        CLI_ADOPT_INSPECT,
+        DOCTOR_CHECKS_FAILED,
         LOCAL_DOCKER_ENGINE,
         LOCAL_DATASTORE_FAILED,
         LOCAL_DATASTORE_NOT_READY,
