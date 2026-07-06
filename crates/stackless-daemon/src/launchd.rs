@@ -112,19 +112,64 @@ fn register() -> Result<(), String> {
     if service_loaded(&domain) {
         return Ok(());
     }
-    let output = Command::new("launchctl")
-        .args(["bootstrap", &domain])
-        .arg(&plist)
-        .output()
-        .map_err(|err| format!("cannot run launchctl: {err}"))?;
+    let output = bootstrap(&domain, &plist)?;
     if output.status.success() || service_loaded(&domain) {
         return Ok(());
+    }
+    // A lingering disable record (from a past `launchctl bootout` or
+    // `disable`) makes bootstrap fail with an opaque "5: Input/output
+    // error". Enable and retry once before giving up.
+    if service_disabled(&domain) {
+        let _ = Command::new("launchctl")
+            .args(["enable", &format!("{domain}/{LABEL}")])
+            .output();
+        let retry = bootstrap(&domain, &plist)?;
+        if retry.status.success() || service_loaded(&domain) {
+            return Ok(());
+        }
+        let stderr = String::from_utf8_lossy(&retry.stderr);
+        return Err(format!(
+            "launchctl bootstrap {domain} failed after enabling the disabled service {LABEL}: {}",
+            stderr.trim()
+        ));
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
     Err(format!(
         "launchctl bootstrap {domain} failed: {}",
         stderr.trim()
     ))
+}
+
+fn bootstrap(domain: &str, plist: &PathBuf) -> Result<std::process::Output, String> {
+    Command::new("launchctl")
+        .args(["bootstrap", domain])
+        .arg(plist)
+        .output()
+        .map_err(|err| format!("cannot run launchctl: {err}"))
+}
+
+/// Whether launchd holds a disable record for our label in `domain`.
+/// `print-disabled` lists one entry per line; the value reads `disabled`
+/// on current macOS and `true` on older releases.
+fn service_disabled(domain: &str) -> bool {
+    Command::new("launchctl")
+        .args(["print-disabled", domain])
+        .output()
+        .ok()
+        .map(|out| parse_disabled(&String::from_utf8_lossy(&out.stdout)))
+        .unwrap_or(false)
+}
+
+fn parse_disabled(print_disabled: &str) -> bool {
+    print_disabled.lines().any(|line| {
+        let Some(rest) = line.trim().strip_prefix(&format!("\"{LABEL}\"")) else {
+            return false;
+        };
+        let Some(value) = rest.trim().strip_prefix("=>") else {
+            return false;
+        };
+        matches!(value.trim().trim_end_matches(';'), "disabled" | "true")
+    })
 }
 
 /// Whether launchd already knows our service in `domain`. `print`
@@ -218,6 +263,13 @@ fn nix_getuid() -> u32 {
         .unwrap_or(0)
 }
 
+/// Whether launchd currently knows our service in the caller's gui
+/// domain — the live fact, unlike the `daemon.persistence` file, which
+/// only records the outcome of the last daemon startup.
+pub fn service_registered() -> bool {
+    service_loaded(&format!("gui/{}", nix_getuid()))
+}
+
 /// The degradation warning for `status`/`list` — `None` when persistence
 /// is registered (the steady state), `Some(line)` when it is degraded.
 pub fn degradation_warning() -> Option<String> {
@@ -229,4 +281,28 @@ pub fn degradation_warning() -> Option<String> {
     Some(format!(
         "leases enforced only while the daemon happens to be running: {status}"
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_disabled;
+
+    #[test]
+    fn disable_record_current_macos() {
+        let out = "disabled services = {\n\t\t\"com.example.other\" => enabled\n\t\t\"dev.stackless.daemon\" => disabled\n\t}";
+        assert!(parse_disabled(out));
+    }
+
+    #[test]
+    fn disable_record_legacy_bool() {
+        let out = "\t\"dev.stackless.daemon\" => true;";
+        assert!(parse_disabled(out));
+    }
+
+    #[test]
+    fn enabled_or_absent_is_not_disabled() {
+        assert!(!parse_disabled("\t\"dev.stackless.daemon\" => enabled"));
+        assert!(!parse_disabled("\t\"com.example.other\" => disabled"));
+        assert!(!parse_disabled(""));
+    }
 }
