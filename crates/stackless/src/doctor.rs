@@ -166,6 +166,17 @@ fn check_persistence() -> DoctorCheck {
             remediation: None,
         };
     }
+    // Observe launchd itself (invariant 4): the `daemon.persistence`
+    // file only records the last daemon startup's outcome and can be
+    // stale in both directions.
+    if stackless_daemon::launchd::service_registered() {
+        return DoctorCheck {
+            check: "persistence".into(),
+            ok: true,
+            code: None,
+            remediation: None,
+        };
+    }
     match stackless_daemon::launchd::degradation_warning() {
         None => DoctorCheck {
             check: "persistence".into(),
