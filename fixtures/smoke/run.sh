@@ -26,13 +26,32 @@ extra="$*"
 
 inst="${prefix}-$(date +%s)"
 
+# Assert a verb's --json stdout parses and carries ok: true. Non-fatal input
+# handling stays in the caller (each callsite decides whether failure gates).
+assert_json_ok() {
+  python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+assert doc.get("ok") is True, doc
+'
+}
+
 up=0
 # shellcheck disable=SC2086  # $extra is intentionally word-split
-cargo run -q -p stackless -- up --name "$inst" --on "$substrate" --file "$fixture" $extra || up=$?
+cargo run -q -p stackless -- up --name "$inst" --on "$substrate" --file "$fixture" $extra --json | assert_json_ok || up=$?
+
+# Live coverage for the machine contract on a real substrate: status and logs
+# must emit ok:true envelopes (logs may report per-service source:"unavailable"
+# but the envelope itself must be well-formed). Only gated when up succeeded.
+post=0
+if [ "$up" -eq 0 ]; then
+  cargo run -q -p stackless -- status "$inst" --json | assert_json_ok || post=$?
+  cargo run -q -p stackless -- logs "$inst" --tail 20 --json | assert_json_ok || post=$?
+fi
 
 # Teardown always runs; verified-gone is part of `down`. Exit non-zero if either
-# the up (health gate) or the down (teardown) failed.
+# the up (health gate), the JSON contract checks, or the down (teardown) failed.
 down=0
-cargo run -q -p stackless -- down "$inst" || down=$?
+cargo run -q -p stackless -- down "$inst" --json | assert_json_ok || down=$?
 
-exit $(( up != 0 || down != 0 ))
+exit $(( up != 0 || post != 0 || down != 0 ))

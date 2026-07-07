@@ -16,8 +16,12 @@ protection), `…/lib.rs` (`observe`), `crates/stackless-integrations/src/provid
 
 ## Tier 2 — live smoke (gated; nightly / on-demand)
 
-A real `up` → health → `down` → verified-gone against the actual cloud, with **no
-second repo**: the smoke fixtures deploy *this repo's own source*.
+A real `up` → health → `status`/`logs` → `down` → verified-gone against the
+actual cloud, with **no second repo**: the smoke fixtures deploy *this repo's
+own source*. Every verb runs `--json` and the runner asserts each stdout
+envelope parses with `ok: true`, so the machine contract (including the
+per-substrate `logs` sources and `spend` fields) gets live coverage, not just
+the hermetic wiremock tier.
 
 ```
 fixtures/smoke/
@@ -41,7 +45,10 @@ mise run smoke            # vercel + render (see mise.toml for the full set)
 
 In CI: `.github/workflows/smoke.yml` (`workflow_dispatch` + nightly), one gated
 job per provider, secrets `STRIPE_API_KEY` / `VERCEL_TOKEN` / `RENDER_API_KEY`
-(and `FLY_API_TOKEN` where applicable).
+(and `FLY_API_TOKEN` where applicable). The same workflow runs a `fleet` job
+driving the CAS fleet-lock tests against a live Turso database
+(`mise run smoke-fleet`; secrets `STACKLESS_STATE_URL` / `STACKLESS_STATE_TOKEN`,
+self-skipping when absent).
 
 ### Prerequisites (one-time, human)
 

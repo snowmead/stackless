@@ -93,3 +93,33 @@ jobs:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: mise run smoke-${{ matrix.provider }}
+
+  # Fleet state plane: run the CAS claim/lock tests against a live Turso
+  # database. `mise run smoke-fleet` self-skips (exit 0) when the secrets are
+  # absent, so this stays green on forks without them.
+  fleet:
+    name: smoke (fleet plane)
+    if: ${{ github.repository_owner == 'snowmead' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mise
+        uses: jdx/mise-action@v2
+        with:
+          install: false
+          cache: false
+      - name: Install tools (serial, retried)
+        env:
+          MISE_JOBS: "1"
+        shell: bash
+        run: |
+          mise install && exit 0
+          for i in 1 2; do echo "retry $i (force)"; sleep 10; mise install --force && exit 0; done
+          exit 1
+      - name: Rust / Cargo cache
+        uses: Swatinem/rust-cache@v2
+      - name: Live Turso fleet-lock tests
+        env:
+          STACKLESS_STATE_URL: ${{ secrets.STACKLESS_STATE_URL }}
+          STACKLESS_STATE_TOKEN: ${{ secrets.STACKLESS_STATE_TOKEN }}
+        run: mise run smoke-fleet
