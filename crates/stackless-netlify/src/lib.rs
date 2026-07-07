@@ -41,7 +41,7 @@ use stackless_core::def::{Namespace, StackDef};
 use stackless_core::engine::StepKind;
 use stackless_core::state::Checkpoint;
 use stackless_core::substrate::{
-    NamespacePurpose, Observation, StepContext, StepResource, Substrate, SubstrateFault,
+    NamespacePurpose, Observation, ServiceLog, StepContext, StepResource, Substrate, SubstrateFault,
 };
 use tokio::sync::Mutex;
 
@@ -92,6 +92,8 @@ struct NetlifyPayload {
     stripe_resource: String,
     site_id: String,
     site_name: String,
+    #[serde(default)]
+    deploy_id: String,
     origin: String,
 }
 
@@ -323,7 +325,7 @@ impl<R: CommandRunner> NetlifySubstrate<R> {
         })?
         .map_err(fault)?;
 
-        let deployed_url = netlify
+        let (deployed_url, deploy_id) = netlify
             .deploy(&site_id, &files, service, NETLIFY_DEPLOY_BUDGET)
             .await
             .map_err(fault)?;
@@ -336,6 +338,7 @@ impl<R: CommandRunner> NetlifySubstrate<R> {
             stripe_resource: resource,
             site_id,
             site_name: site_name.clone(),
+            deploy_id,
             origin,
         };
         Ok(StepResource {
@@ -645,9 +648,9 @@ impl<R: CommandRunner> Substrate for NetlifySubstrate<R> {
         Ok(())
     }
 
-    async fn spend_line(&self) -> Option<String> {
+    async fn spend(&self) -> Option<stackless_core::substrate::SpendInfo> {
         Some(
-            stackless_cloud::spend::line(
+            stackless_cloud::spend::fetch(
                 &self.definition_dir,
                 SUBSTRATE_NAME,
                 SPEND_CAP_USD,
@@ -655,6 +658,101 @@ impl<R: CommandRunner> Substrate for NetlifySubstrate<R> {
             )
             .await,
         )
+    }
+
+    async fn fetch_logs(
+        &self,
+        _def: &StackDef,
+        instance: &str,
+        services: &[String],
+        tail: usize,
+    ) -> Result<Option<Vec<ServiceLog>>, SubstrateFault> {
+        let mut out = Vec::with_capacity(services.len());
+        for service in services {
+            let lines = self.fetch_service_logs(instance, service, tail).await?;
+            out.push(ServiceLog {
+                service: service.clone(),
+                source: "netlify_api",
+                log_path: None,
+                lines,
+            });
+        }
+        Ok(Some(out))
+    }
+}
+
+fn start_service_payload(instance: &str, service: &str) -> Option<NetlifyPayload> {
+    let store = stackless_core::state::Store::open_configured().ok()?;
+    let checkpoints = store.checkpoints(instance).ok()?;
+    checkpoints.into_iter().find_map(|checkpoint| {
+        if checkpoint.step_id == format!("start:{service}")
+            && checkpoint.resource_kind == "netlify-site"
+        {
+            serde_json::from_str::<NetlifyPayload>(&checkpoint.payload).ok()
+        } else {
+            None
+        }
+    })
+}
+
+impl<R: CommandRunner> NetlifySubstrate<R> {
+    async fn fetch_service_logs(
+        &self,
+        instance: &str,
+        service: &str,
+        tail: usize,
+    ) -> Result<Vec<String>, SubstrateFault> {
+        let Some(payload) = start_service_payload(instance, service) else {
+            return Ok(vec![format!(
+                "(no start checkpoint for service {service}; run `stackless up` first)"
+            )]);
+        };
+        let token = self
+            .netlify_token(instance, &payload.stripe_resource)
+            .await?;
+        let netlify = self.netlify_with_token(&token);
+        let deploy_id = if payload.deploy_id.trim().is_empty() {
+            netlify
+                .latest_deploy_id(&payload.site_id)
+                .await
+                .map_err(fault)?
+        } else {
+            payload.deploy_id.clone()
+        };
+        netlify
+            .recent_deploy_log(&payload.site_id, &deploy_id, tail)
+            .await
+            .map_err(fault)
+    }
+
+    async fn netlify_token(
+        &self,
+        instance: &str,
+        stripe_resource: &str,
+    ) -> Result<String, SubstrateFault> {
+        let resource_prefix = stripe_resource.to_ascii_uppercase().replace('-', "_");
+        let resource_key = format!("{resource_prefix}_NETLIFY_AUTH_TOKEN");
+        let keys = [resource_key.as_str(), "NETLIFY_AUTH_TOKEN"];
+        let pulled = project::pull_env_values(&self.stripe(), instance, &keys)
+            .await
+            .map_err(projects_fault)?;
+        if let Some(token) = pulled
+            .into_iter()
+            .flatten()
+            .find(|value| !value.trim().is_empty())
+        {
+            return Ok(token);
+        }
+        if let Some(token) = self.secrets.get("NETLIFY_AUTH_TOKEN")
+            && !token.trim().is_empty()
+        {
+            return Ok(token.clone());
+        }
+        Err(fault(NetlifyError::ApiFailed {
+            method: "GET".into(),
+            path: "/deploys/{id}".into(),
+            detail: "no Netlify auth token in Stripe instance env or secrets".into(),
+        }))
     }
 }
 
@@ -703,7 +801,7 @@ mod tests {
         (dir, s)
     }
 
-    const PAYLOAD: &str = r#"{"stripe_resource":"demo-web","site_id":"site_1","site_name":"atto-demo-web","origin":"https://atto-demo-web.netlify.app"}"#;
+    const PAYLOAD: &str = r#"{"stripe_resource":"demo-web","site_id":"site_1","site_name":"atto-demo-web","deploy_id":"dep_1","origin":"https://atto-demo-web.netlify.app"}"#;
 
     #[test]
     fn resource_name_and_origin_are_dns_safe() {

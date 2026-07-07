@@ -21,7 +21,7 @@ use stackless_core::def::{Namespace, StackDef};
 use stackless_core::engine::StepKind;
 use stackless_core::state::Checkpoint;
 use stackless_core::substrate::{
-    Observation, StepContext, StepResource, Substrate, SubstrateFault,
+    Observation, ServiceLog, StepContext, StepResource, Substrate, SubstrateFault,
 };
 use stackless_stripe_projects::ProjectsError;
 use stackless_stripe_projects::stripe::{CommandRunner, StripeProjects, TokioRunner};
@@ -796,9 +796,9 @@ impl<R: CommandRunner> Substrate for VercelSubstrate<R> {
         Ok(())
     }
 
-    async fn spend_line(&self) -> Option<String> {
+    async fn spend(&self) -> Option<stackless_core::substrate::SpendInfo> {
         Some(
-            stackless_cloud::spend::line(
+            stackless_cloud::spend::fetch(
                 &self.definition_dir,
                 SUBSTRATE_NAME,
                 SPEND_CAP_USD,
@@ -807,9 +807,61 @@ impl<R: CommandRunner> Substrate for VercelSubstrate<R> {
             .await,
         )
     }
+
+    async fn fetch_logs(
+        &self,
+        _def: &StackDef,
+        instance: &str,
+        services: &[String],
+        tail: usize,
+    ) -> Result<Option<Vec<ServiceLog>>, SubstrateFault> {
+        let mut out = Vec::with_capacity(services.len());
+        for service in services {
+            let lines = self.fetch_service_logs(instance, service, tail).await?;
+            out.push(ServiceLog {
+                service: service.clone(),
+                source: "vercel_api",
+                log_path: None,
+                lines,
+            });
+        }
+        Ok(Some(out))
+    }
+}
+
+fn start_service_payload(instance: &str, service: &str) -> Option<ServicePayload> {
+    let store = stackless_core::state::Store::open_configured().ok()?;
+    let checkpoints = store.checkpoints(instance).ok()?;
+    checkpoints.into_iter().find_map(|checkpoint| {
+        if checkpoint.step_id == format!("start:{service}")
+            && checkpoint.resource_kind == "vercel-service"
+        {
+            serde_json::from_str::<ServicePayload>(&checkpoint.payload).ok()
+        } else {
+            None
+        }
+    })
 }
 
 impl<R: CommandRunner> VercelSubstrate<R> {
+    async fn fetch_service_logs(
+        &self,
+        instance: &str,
+        service: &str,
+        tail: usize,
+    ) -> Result<Vec<String>, SubstrateFault> {
+        let Some(payload) = start_service_payload(instance, service) else {
+            return Ok(vec![format!(
+                "(no start checkpoint for service {service}; run `stackless up` first)"
+            )]);
+        };
+        let vercel = self.vercel(Some(instance)).await?;
+        vercel
+            .deployment_build_events(&payload.deployment_id, tail)
+            .await
+            .map_err(fault)
+    }
+
     async fn remove_and_verify_project(
         &self,
         stripe_resource: &str,

@@ -194,7 +194,7 @@ impl NetlifyApi {
         files: &[UploadFile],
         service: &str,
         budget: Duration,
-    ) -> Result<String, NetlifyError> {
+    ) -> Result<(String, String), NetlifyError> {
         // Per-file SHA1, keyed by leading-slash path (the Netlify file map shape).
         let mut digests = serde_json::Map::new();
         for file in files {
@@ -235,7 +235,61 @@ impl NetlifyApi {
             }
         }
 
-        self.wait_for_ready(&deploy_id, service, budget).await
+        let origin = self.wait_for_ready(&deploy_id, service, budget).await?;
+        Ok((origin, deploy_id))
+    }
+
+    /// Most recent deploy id for a site (resume/checkpoint fallback).
+    pub async fn latest_deploy_id(&self, site_id: &str) -> Result<String, NetlifyError> {
+        let path = format!("/sites/{site_id}/deploys?per_page=1");
+        let deploys = self.send_json(Method::GET, &path, None).await?;
+        let deploys = deploys.as_array().cloned().unwrap_or_default();
+        deploys
+            .first()
+            .and_then(|deploy| deploy.get("id"))
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| api_failed("GET", &path, "site has no deploys"))
+    }
+
+    /// Fetch the deploy record for log/summary retrieval.
+    pub async fn get_site_deploy(
+        &self,
+        site_id: &str,
+        deploy_id: &str,
+    ) -> Result<Value, NetlifyError> {
+        let path = format!("/sites/{site_id}/deploys/{deploy_id}");
+        self.send_json(Method::GET, &path, None).await
+    }
+
+    /// Recent deploy log lines for the `logs` verb (§2). Netlify's public REST
+    /// API has no streaming build-log GET — this returns deploy metadata plus a
+    /// best-effort pull from `log_access_attributes` when the provider includes
+    /// it (full logs otherwise require the Netlify dashboard or websocket API).
+    pub async fn recent_deploy_log(
+        &self,
+        site_id: &str,
+        deploy_id: &str,
+        tail: usize,
+    ) -> Result<Vec<String>, NetlifyError> {
+        let deploy = self.get_site_deploy(site_id, deploy_id).await?;
+        let mut lines = Vec::new();
+        if let Some(firebase) = deploy.get("log_access_attributes")
+            && let Some(mut remote) = fetch_log_access_attributes(firebase).await
+        {
+            lines.append(&mut remote);
+        }
+        push_deploy_summary(&deploy, &mut lines);
+        if lines.is_empty() {
+            lines.push(format!(
+                "(deploy {deploy_id} has no retrievable log lines via the Netlify REST API)"
+            ));
+        }
+        let keep = tail.max(1);
+        if lines.len() > keep {
+            lines = lines.split_off(lines.len() - keep);
+        }
+        Ok(lines)
     }
 
     async fn upload_file(
@@ -306,6 +360,70 @@ impl NetlifyApi {
             }
             tokio::time::sleep(self.poll_interval).await;
         }
+    }
+}
+
+fn push_deploy_summary(deploy: &Value, lines: &mut Vec<String>) {
+    for (key, label) in [
+        ("state", "state"),
+        ("error_message", "error"),
+        ("title", "title"),
+        ("branch", "branch"),
+        ("commit_ref", "commit"),
+        ("created_at", "created_at"),
+        ("published_at", "published_at"),
+    ] {
+        if let Some(value) = deploy.get(key).and_then(Value::as_str)
+            && !value.is_empty()
+        {
+            lines.push(format!("{label}: {value}"));
+        }
+    }
+}
+
+async fn fetch_log_access_attributes(attrs: &Value) -> Option<Vec<String>> {
+    let endpoint = attrs.get("endpoint")?.as_str()?;
+    let path = attrs.get("path")?.as_str()?;
+    let token = attrs.get("token")?.as_str()?;
+    let url = format!("{endpoint}{path}.json?auth={token}");
+    let client = Client::builder().timeout(REQUEST_TIMEOUT).build().ok()?;
+    let response = client.get(url).send().await.ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let value: Value = response.json().await.ok()?;
+    Some(parse_firebase_log(value))
+}
+
+fn parse_firebase_log(value: Value) -> Vec<String> {
+    match value {
+        Value::Array(items) => items
+            .into_iter()
+            .filter_map(format_firebase_entry)
+            .collect(),
+        Value::Object(map) => {
+            let mut entries: Vec<(String, String)> = map
+                .into_iter()
+                .filter_map(|(key, value)| format_firebase_entry(value).map(|line| (key, line)))
+                .collect();
+            entries.sort_by(|left, right| left.0.cmp(&right.0));
+            entries.into_iter().map(|(_, line)| line).collect()
+        }
+        Value::String(line) => vec![line],
+        _ => Vec::new(),
+    }
+}
+
+fn format_firebase_entry(value: Value) -> Option<String> {
+    match value {
+        Value::String(line) => Some(line),
+        Value::Object(map) => map
+            .get("message")
+            .or_else(|| map.get("msg"))
+            .or_else(|| map.get("text"))
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        _ => None,
     }
 }
 
@@ -489,7 +607,26 @@ mod tests {
             .deploy("site_1", &files, "web", Duration::from_secs(5))
             .await
             .unwrap();
-        assert_eq!(url, "https://site-1.netlify.app");
+        assert_eq!(url.0, "https://site-1.netlify.app");
+        assert_eq!(url.1, "dep_1");
+    }
+
+    #[tokio::test]
+    async fn recent_deploy_log_returns_summary_lines() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/sites/site_1/deploys/dep_1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "dep_1",
+                "state": "ready",
+                "error_message": "",
+                "created_at": "2026-01-01T00:00:00Z",
+            })))
+            .mount(&server)
+            .await;
+        let api = NetlifyApi::with_base("tok", server.uri());
+        let lines = api.recent_deploy_log("site_1", "dep_1", 10).await.unwrap();
+        assert!(lines.iter().any(|line| line.contains("state: ready")));
     }
 
     #[tokio::test]
