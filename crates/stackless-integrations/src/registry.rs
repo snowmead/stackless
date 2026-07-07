@@ -197,6 +197,14 @@ fn validate_integration_outputs(
         for (key, value) in &verify.env {
             locations.push((format!("stack.verify.env.{key}"), value.clone()));
         }
+        for (tier, spec) in &verify.tiers {
+            for (key, value) in &spec.env {
+                locations.push((
+                    format!("stack.verify.tiers.{tier}.env.{key}"),
+                    value.clone(),
+                ));
+            }
+        }
     }
     for (service_name, service) in &def.services {
         for (key, value) in &service.env {

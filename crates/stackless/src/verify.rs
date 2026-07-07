@@ -4,10 +4,14 @@
 //! mid-work: it renews *and* proves health.
 
 use std::collections::BTreeMap;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
-use stackless_core::def::{self, Namespace, StackDef};
+use stackless_core::def::{self, Namespace, StackDef, VerifySpec};
+use stackless_core::fault::FAILURE_LOG_TAIL_LINES;
 use stackless_core::state::{Checkpoint, Store};
 use stackless_core::substrate::{NamespacePurpose, SubstrateFault};
 
@@ -36,17 +40,29 @@ struct VerifySourceContext<'a> {
     secrets: &'a BTreeMap<String, String>,
 }
 
-pub fn verify(name: &str, output: &Output) -> Result<(), CliError> {
+pub struct VerifyArgs {
+    pub name: String,
+    pub tier: Option<String>,
+}
+
+pub fn verify(args: VerifyArgs, output: &Output) -> Result<(), CliError> {
+    let name = args.name.as_str();
     let store = open_store()?;
     let record = store
         .instance(name)?
         .ok_or_else(|| stackless_core::state::StateError::InstanceNotFound { name: name.into() })?;
     let def = StackDef::parse(&record.definition)?;
-    let Some(spec) = &def.stack.verify else {
+    let verify_root = def.stack.verify.as_ref().filter(|v| v.is_declared());
+    let Some(verify_root) = verify_root else {
         return Err(CliError::VerifyNotDeclared);
     };
+    let tier_name = args.tier.as_deref();
+    let spec = verify_root
+        .resolve(tier_name)
+        .ok_or_else(|| CliError::VerifyTierUnknown {
+            tier: tier_name.unwrap_or("default").to_owned(),
+        })?;
 
-    // Renewal at the start of every mutating verb (§6).
     store.renew_lease_at_recorded_duration(name)?;
 
     let def_dir = if record.definition_dir.is_empty() {
@@ -93,21 +109,132 @@ pub fn verify(name: &str, output: &Output) -> Result<(), CliError> {
         spec.run,
         dir.display()
     ));
-    let status = std::process::Command::new("/bin/sh")
-        .args(["-c", &spec.run])
-        .current_dir(&dir)
-        .envs(env)
-        .status()
-        .map_err(CliError::Runtime)?;
-    if !status.success() {
+    let log_path = verify_log_path(name);
+    let started = Instant::now();
+    let run = run_verify_command(&spec, &dir, &env, &log_path, output)?;
+    let duration_ms = started.elapsed().as_millis() as u64;
+    if !run.success {
         return Err(CliError::VerifyFailed {
-            status: status.to_string(),
+            status: run.exit_status.to_string(),
+            log_path: Some(log_path.display().to_string()),
+            log_tail: run.log_tail,
         });
     }
-    // A successful verify renews again (§6).
     store.renew_lease_at_recorded_duration(name)?;
-    output.message(&format!("{name}: verify passed (lease renewed)"));
+    let lease = store.lease(name)?;
+    let lease_remaining_secs = lease.map(|l| {
+        l.remaining(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0),
+        )
+        .as_secs()
+    });
+    output.verify_ok(
+        name,
+        tier_name,
+        duration_ms,
+        run.exit_status,
+        &log_path.display().to_string(),
+        lease_remaining_secs,
+    );
     Ok(())
+}
+
+struct VerifyRunOutcome {
+    success: bool,
+    exit_status: i32,
+    log_tail: Option<String>,
+}
+
+fn verify_log_path(instance: &str) -> PathBuf {
+    Store::state_dir()
+        .join("logs")
+        .join(instance)
+        .join("verify.log")
+}
+
+fn run_verify_command(
+    spec: &VerifySpec,
+    dir: &Path,
+    env: &[(String, String)],
+    log_path: &Path,
+    output: &Output,
+) -> Result<VerifyRunOutcome, CliError> {
+    if let Some(parent) = log_path.parent() {
+        std::fs::create_dir_all(parent).map_err(CliError::Runtime)?;
+    }
+    let log_file = std::fs::File::create(log_path).map_err(CliError::Runtime)?;
+    let mut child = Command::new("/bin/sh")
+        .args(["-c", &spec.run])
+        .current_dir(dir)
+        .envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(CliError::Runtime)?;
+
+    let mut stdout = child.stdout.take().ok_or_else(|| {
+        CliError::Runtime(std::io::Error::other("verify child stdout unavailable"))
+    })?;
+    let mut stderr = child.stderr.take().ok_or_else(|| {
+        CliError::Runtime(std::io::Error::other("verify child stderr unavailable"))
+    })?;
+    let mut log = log_file;
+    let mut combined = Vec::new();
+
+    let mut stdout_buf = Vec::new();
+    stdout
+        .read_to_end(&mut stdout_buf)
+        .map_err(CliError::Runtime)?;
+    let mut stderr_buf = Vec::new();
+    stderr
+        .read_to_end(&mut stderr_buf)
+        .map_err(CliError::Runtime)?;
+
+    combined.extend_from_slice(&stdout_buf);
+    if !stderr_buf.is_empty() {
+        if !combined.is_empty() && !combined.ends_with(b"\n") {
+            combined.push(b'\n');
+        }
+        combined.extend_from_slice(&stderr_buf);
+    }
+    log.write_all(&combined).map_err(CliError::Runtime)?;
+
+    if !output.is_json() {
+        if !stdout_buf.is_empty() {
+            print!("{}", String::from_utf8_lossy(&stdout_buf));
+        }
+        if !stderr_buf.is_empty() {
+            eprint!("{}", String::from_utf8_lossy(&stderr_buf));
+        }
+    } else {
+        if !stdout_buf.is_empty() {
+            eprint!("{}", String::from_utf8_lossy(&stdout_buf));
+        }
+        if !stderr_buf.is_empty() {
+            eprint!("{}", String::from_utf8_lossy(&stderr_buf));
+        }
+    }
+
+    let status = child.wait().map_err(CliError::Runtime)?;
+    let exit_status = status.code().unwrap_or(-1);
+    let log_tail = tail_bytes(&combined, FAILURE_LOG_TAIL_LINES);
+    Ok(VerifyRunOutcome {
+        success: status.success(),
+        exit_status,
+        log_tail: Some(log_tail),
+    })
+}
+
+fn tail_bytes(bytes: &[u8], max_lines: usize) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.len() <= max_lines {
+        return text.into_owned();
+    }
+    lines[lines.len() - max_lines..].join("\n")
 }
 
 fn anchor_service(def: &StackDef) -> Option<String> {
@@ -314,6 +441,17 @@ health = { path = "/" }
             payload: payload.into(),
             recorded_at: 0,
         }
+    }
+
+    #[test]
+    fn tail_bytes_keeps_last_lines() {
+        let input = (0..100)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let tail = tail_bytes(input.as_bytes(), 5);
+        assert!(tail.starts_with("line 95"));
+        assert!(tail.contains("line 99"));
     }
 
     #[test]

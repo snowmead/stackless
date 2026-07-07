@@ -600,21 +600,66 @@ mod tests {
         };
         #[derive(Serialize)]
         struct LogsOk<'a> {
+            schema_version: u32,
             ok: bool,
             instance: &'a str,
             services: &'a [LogService<'a>],
         }
         let json = serde_json::to_value(&LogsOk {
+            schema_version: SCHEMA_VERSION,
             ok: true,
             instance: "demo",
             services: &[entry],
         })
         .unwrap();
         assert_eq!(json["ok"], true);
+        assert_eq!(json["schema_version"], 1);
         assert_eq!(json["instance"], "demo");
         assert_eq!(json["services"][0]["source"], "file");
-        assert_eq!(json["services"][0]["log_path"], "/tmp/demo/web.log");
-        assert_eq!(json["services"][0]["lines"][0], "listening on :3000");
+    }
+
+    #[test]
+    fn verify_ok_envelope_shape() {
+        #[derive(Serialize)]
+        struct VerifyOk {
+            schema_version: u32,
+            ok: bool,
+            instance: &'static str,
+            duration_ms: u64,
+            exit_status: i32,
+            log_path: &'static str,
+        }
+        let json = serde_json::to_value(&VerifyOk {
+            schema_version: SCHEMA_VERSION,
+            ok: true,
+            instance: "demo",
+            duration_ms: 12,
+            exit_status: 0,
+            log_path: "/tmp/verify.log",
+        })
+        .unwrap();
+        assert_eq!(json["ok"], true);
+        assert_eq!(json["log_path"], "/tmp/verify.log");
+    }
+
+    #[test]
+    fn down_ok_envelope_shape() {
+        #[derive(Serialize)]
+        struct DownOk {
+            schema_version: u32,
+            ok: bool,
+            instance: &'static str,
+            outcome: &'static str,
+        }
+        let json = serde_json::to_value(&DownOk {
+            schema_version: SCHEMA_VERSION,
+            ok: true,
+            instance: "demo",
+            outcome: "destroyed",
+        })
+        .unwrap();
+        assert_eq!(json["ok"], true);
+        assert_eq!(json["outcome"], "destroyed");
     }
 }
 

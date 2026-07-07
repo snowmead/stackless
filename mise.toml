@@ -47,6 +47,19 @@ smoke = { depends = [
     "smoke-netlify",
 ] }
 
+# Hermetic agent JSON contract gate (every lifecycle verb on agent-demo).
+agent-demo-lifecycle = "bash fixtures/agent-demo-lifecycle.sh"
+
+# Fleet plane live verification (gated; needs STACKLESS_STATE_URL + TOKEN).
+smoke-fleet = '''
+[ -f .stackless.env ] && { set -a; . ./.stackless.env; set +a; }
+if [ -z "${STACKLESS_STATE_URL:-}" ] || [ -z "${STACKLESS_STATE_TOKEN:-}" ]; then
+  echo "skip smoke-fleet: set STACKLESS_STATE_URL and STACKLESS_STATE_TOKEN in .stackless.env"
+  exit 0
+fi
+cargo nextest run -p stackless-core --all-features -E 'test(fleet_lock)' --no-capture
+'''
+
 # Stripe Projects plugin snapshots. `stripe-refresh` is the bless path (writes
 # the committed fixtures from the locally installed plugin); it needs the real
 # `stripe` CLI + creds, so it is EXCLUDED from `ci`/`check`/`test` and is invoked

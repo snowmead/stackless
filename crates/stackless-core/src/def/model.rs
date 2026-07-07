@@ -35,7 +35,7 @@ pub struct Stack {
     pub name: DnsName,
     #[serde(default)]
     pub projects: ProjectsSpec,
-    pub verify: Option<VerifySpec>,
+    pub verify: Option<VerifyRoot>,
     /// Per-substrate stack config (e.g. `[stack.render]` region),
     /// plus any unknown keys — validation tells them apart.
     #[serde(flatten)]
@@ -55,12 +55,39 @@ pub struct StripeProjectSpec {
 }
 
 /// The proof contract, run by `stackless verify` (ARCHITECTURE.md §7).
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VerifySpec {
     pub run: String,
     #[serde(default)]
     pub env: BTreeMap<String, String>,
+}
+
+/// `[stack.verify]` plus optional named tiers under `[stack.verify.tiers.<name>]`.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VerifyRoot {
+    pub run: Option<String>,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    #[serde(default)]
+    pub tiers: BTreeMap<String, VerifySpec>,
+}
+
+impl VerifyRoot {
+    pub fn is_declared(&self) -> bool {
+        self.run.is_some() || !self.tiers.is_empty()
+    }
+
+    pub fn resolve(&self, tier: Option<&str>) -> Option<VerifySpec> {
+        match tier {
+            None | Some("default") => self.run.as_ref().map(|run| VerifySpec {
+                run: run.clone(),
+                env: self.env.clone(),
+            }),
+            Some(name) => self.tiers.get(name).cloned(),
+        }
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]

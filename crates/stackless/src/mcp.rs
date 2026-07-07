@@ -92,10 +92,7 @@ impl JsonRpcResponse {
 }
 
 fn handle_request(request: &JsonRpcRequest) -> Option<JsonRpcResponse> {
-    if request.id.is_none() {
-        // Notifications — no response.
-        return None;
-    }
+    request.id.as_ref()?;
     let id = request.id.clone();
     match request.method.as_str() {
         "initialize" => Some(handle_initialize(id)),
@@ -311,7 +308,7 @@ fn dispatch_tool(name: &str, args: &Value) -> Result<Value, String> {
             let name = require_str(args, "name")?;
             run_command(|output| commands::status(name, output))
         }
-        "stackless_list" => run_command(|output| commands::list(output)),
+        "stackless_list" => run_command(commands::list),
         "stackless_logs" => {
             let name = require_str(args, "name")?;
             let service = optional_str(args, "service");

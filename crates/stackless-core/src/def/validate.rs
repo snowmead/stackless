@@ -100,6 +100,13 @@ fn validate_definition(def: &StackDef, known_substrates: &[&str]) -> Result<(), 
             let refs = interp::references(value, &location)?;
             validate_references(def, &refs, &location)?;
         }
+        for (tier, spec) in &verify.tiers {
+            for (key, value) in &spec.env {
+                let location = format!("stack.verify.tiers.{tier}.env.{key}");
+                let refs = interp::references(value, &location)?;
+                validate_references(def, &refs, &location)?;
+            }
+        }
     }
 
     Ok(())

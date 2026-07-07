@@ -116,6 +116,29 @@ jobs:
       - name: nextest
         run: mise run test
 
+  agent-demo-lifecycle:
+    name: agent-demo-lifecycle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mise
+        uses: jdx/mise-action@v2
+        with:
+          install: false
+          cache: false
+      - name: Install tools (serial, retried)
+        env:
+          MISE_JOBS: "1"
+        shell: bash
+        run: |
+          mise install && exit 0
+          for i in 1 2; do echo "retry $i (force)"; sleep 10; mise install --force && exit 0; done
+          exit 1
+      - name: Rust / Cargo cache
+        uses: Swatinem/rust-cache@v2
+      - name: agent-demo lifecycle JSON gate
+        run: bash fixtures/agent-demo-lifecycle.sh
+
   # Supply-chain / "cargo crap" security & policy gates.
   # These are not OS-specific, so we run them once on the fastest runner.
   # They are completely independent of the other jobs.

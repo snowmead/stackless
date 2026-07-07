@@ -39,3 +39,8 @@ are already present, and the `prek` git hooks are already wired.
   real provider credentials (`STRIPE_API_KEY`, `VERCEL_TOKEN`, `RENDER_API_KEY`,
   usually via `.stackless.env`) and are excluded from the hermetic gates; they
   cannot run here without those secrets.
+- **Local `[datastores.*]` require Docker.** Agent sandboxes without Docker
+  cannot run datastore stacks on `--on local`; use Render for managed postgres
+  or service-only stacks.
+- **Cloud lease reaping runs from the operator's daemon.** A sleeping operator
+  machine defers cloud lease expiry until wake; spend caps bound leakage.

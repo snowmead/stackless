@@ -23,6 +23,10 @@ pub struct StepProgress {
     pub total: usize,
     /// Set on [`StepProgressEvent::Failed`] when a stable code is known.
     pub code: Option<&'static str>,
+    /// Wall-clock time of this event (Unix epoch milliseconds).
+    pub at_epoch_ms: i64,
+    /// Elapsed time since `step_started`, set on completed/failed/skipped.
+    pub duration_ms: Option<u64>,
 }
 
 pub trait ProgressSink {
@@ -34,4 +38,11 @@ pub struct NullProgress;
 
 impl ProgressSink for NullProgress {
     fn on_step(&mut self, _progress: StepProgress) {}
+}
+
+pub fn epoch_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }

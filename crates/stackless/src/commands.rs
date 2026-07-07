@@ -278,10 +278,10 @@ pub fn up(args: UpArgs, output: &mut Output) -> Result<(), CliError> {
         .collect();
     let spend = rt.block_on(provider.spend());
     output.up_ok(&name, &substrate_name, &outcome, &origins, spend.as_ref());
-    if !output.is_json() {
-        if let Some(ref info) = spend {
-            output.message(&info.summary);
-        }
+    if !output.is_json()
+        && let Some(ref info) = spend
+    {
+        output.message(&info.summary);
     }
     Ok(())
 }

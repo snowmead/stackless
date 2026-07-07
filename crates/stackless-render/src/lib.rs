@@ -848,9 +848,9 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
         Ok(())
     }
 
-    async fn spend_line(&self) -> Option<String> {
+    async fn spend(&self) -> Option<stackless_core::substrate::SpendInfo> {
         Some(
-            stackless_cloud::spend::line(
+            stackless_cloud::spend::fetch(
                 &self.definition_dir,
                 SUBSTRATE_NAME,
                 SPEND_CAP_USD,
