@@ -9,6 +9,7 @@ mod daemon_cmd;
 mod doctor;
 mod error;
 mod init;
+mod mcp;
 mod output;
 mod secrets;
 mod substrates;
@@ -21,7 +22,6 @@ use clap::{Parser, Subcommand};
 
 use crate::error::CliError;
 use crate::output::Output;
-use stackless_core::def::{self, StackDef};
 
 #[derive(Parser)]
 #[command(name = "stackless", version, about = "Disposable software stacks")]
@@ -66,7 +66,12 @@ enum Command {
     /// Verified teardown; exits non-zero listing survivors.
     Down { name: String },
     /// Run the stack's proof contract against a live instance (§7).
-    Verify { name: String },
+    Verify {
+        name: String,
+        /// Named verify tier (default: `[stack.verify]`).
+        #[arg(long)]
+        tier: Option<String>,
+    },
     /// Staged truth per service (§7).
     Status { name: String },
     /// All instances with lease remaining.
@@ -126,10 +131,22 @@ enum Command {
     /// Daemon internals (spawned on demand; rarely run by hand).
     #[command(subcommand, hide = true)]
     Daemon(daemon_cmd::DaemonCommand),
+    /// MCP stdio server for agent integrations (hidden).
+    #[command(hide = true)]
+    Mcp,
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    if matches!(cli.command, Command::Mcp) {
+        return match mcp::run_stdio_server() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("stackless mcp: {err}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     let mut output = Output::new(cli.json);
     let result = match cli.command {
         Command::Up {
@@ -153,7 +170,9 @@ fn main() -> ExitCode {
             &mut output,
         ),
         Command::Down { name } => commands::down(&name, &output),
-        Command::Verify { name } => verify::verify(&name, &output),
+        Command::Verify { name, tier } => {
+            verify::verify(verify::VerifyArgs { name, tier }, &output)
+        }
         Command::Status { name } => commands::status(&name, &output),
         Command::List => commands::list(&output),
         Command::Logs {
@@ -161,7 +180,7 @@ fn main() -> ExitCode {
             service,
             tail,
         } => commands::logs(&name, service.as_deref(), tail, &output),
-        Command::Check { file, substrate } => check(&file, substrate.as_deref(), &output),
+        Command::Check { file, substrate } => commands::check(&file, substrate.as_deref(), &output),
         Command::Init { name, file, force } => {
             init::init(init::InitArgs { name, file, force }, &output)
         }
@@ -183,6 +202,7 @@ fn main() -> ExitCode {
             doctor::doctor(doctor::DoctorArgs { file, substrate }, &output)
         }
         Command::Daemon(command) => daemon_cmd::run(command, &output),
+        Command::Mcp => Ok(()),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -192,24 +212,4 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
-}
-
-fn check(file: &PathBuf, substrate: Option<&str>, output: &Output) -> Result<(), CliError> {
-    if let Some(name) = substrate {
-        substrates::ensure_known(name)?;
-    }
-    let known = substrates::known_names();
-    let text = std::fs::read_to_string(file).map_err(|source| CliError::FileRead {
-        path: file.display().to_string(),
-        source,
-    })?;
-    let def = StackDef::parse(&text)?;
-    def.validate_hosts(&known)?;
-    stackless_integrations::validate_all(&def, substrate, &known)?;
-    if let Some(substrate) = substrate {
-        def.validate_for_substrate(substrate)?;
-    }
-    let graph = def::DependencyGraph::derive(&def)?;
-    output.check_ok(&def, &graph, substrate);
-    Ok(())
 }

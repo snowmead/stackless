@@ -276,11 +276,12 @@ pub fn up(args: UpArgs, output: &mut Output) -> Result<(), CliError> {
             )
         })
         .collect();
-    output.up_ok(&name, &substrate_name, &outcome, &origins);
-    // Spend is printed after every cloud `up` (§4 — never silently
-    // nothing; bounded by the project's hard cap). Local spends nothing.
-    if let Some(line) = rt.block_on(provider.spend_line()) {
-        output.message(&line);
+    let spend = rt.block_on(provider.spend());
+    output.up_ok(&name, &substrate_name, &outcome, &origins, spend.as_ref());
+    if !output.is_json() {
+        if let Some(ref info) = spend {
+            output.message(&info.summary);
+        }
     }
     Ok(())
 }
@@ -309,15 +310,10 @@ pub fn down(name: &str, output: &Output) -> Result<(), CliError> {
     };
     let rt = runtime()?;
     let outcome = rt.block_on(engine.down(name))?;
+    let spend = rt.block_on(provider.spend());
     match outcome {
-        DownOutcome::Destroyed => output.message(&format!(
-            "{name}: destroyed, verified gone; tombstone and logs kept"
-        )),
-        DownOutcome::AlreadyDown => output.message(&format!("{name}: already down")),
-    }
-    // Spend is printed after every cloud `down` too (§4). Local spends nothing.
-    if let Some(line) = rt.block_on(provider.spend_line()) {
-        output.message(&line);
+        DownOutcome::Destroyed => output.down_ok(name, "destroyed", spend.as_ref()),
+        DownOutcome::AlreadyDown => output.down_ok(name, "already_down", spend.as_ref()),
     }
     Ok(())
 }
@@ -486,10 +482,21 @@ pub fn logs(
         .block_on(provider.fetch_logs(&def, name, &services, tail))
         .map_err(|err| CliError::substrate(err, Some(name.to_owned())))?;
     let Some(logs) = logs else {
-        output.message(&format!(
-            "logs are not retrievable for substrate {:?}",
+        let reason = format!(
+            "logs are not retrievable for substrate {}",
             record.substrate.as_str()
-        ));
+        );
+        let entries: Vec<LogService> = services
+            .iter()
+            .map(|service| LogService {
+                service: service.as_str(),
+                source: "unavailable",
+                log_path: None,
+                lines: vec![],
+                reason: Some(reason.as_str()),
+            })
+            .collect();
+        output.logs_unavailable_json(name, record.substrate.as_str(), &entries);
         return Ok(());
     };
     let mut entries = Vec::new();
@@ -500,6 +507,7 @@ pub fn logs(
                 source: log.source,
                 log_path: log.log_path.clone(),
                 lines: log.lines.clone(),
+                reason: None,
             });
         } else {
             output.message(&format!("── {} ──", log.service));
@@ -520,6 +528,26 @@ pub fn parse_and_validate(text: &str) -> Result<StackDef, CliError> {
     let def = StackDef::parse(text)?;
     def.validate_hosts(&crate::substrates::known_names())?;
     Ok(def)
+}
+
+pub fn check(file: &PathBuf, substrate: Option<&str>, output: &Output) -> Result<(), CliError> {
+    if let Some(name) = substrate {
+        crate::substrates::ensure_known(name)?;
+    }
+    let known = crate::substrates::known_names();
+    let text = std::fs::read_to_string(file).map_err(|source| CliError::FileRead {
+        path: file.display().to_string(),
+        source,
+    })?;
+    let def = StackDef::parse(&text)?;
+    def.validate_hosts(&known)?;
+    stackless_integrations::validate_all(&def, substrate, &known)?;
+    if let Some(substrate) = substrate {
+        def.validate_for_substrate(substrate)?;
+    }
+    let graph = stackless_core::def::DependencyGraph::derive(&def)?;
+    output.check_ok(&def, &graph, substrate);
+    Ok(())
 }
 
 #[cfg(test)]

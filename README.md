@@ -189,6 +189,9 @@ depend on the daemon staying up).
 Codes are stable, versioned API surface — branch on `error.code`,
 never on prose.
 
+For parallel agents, shared fleet state, and MCP wiring, see
+[docs/AGENT-FLEETS.md](docs/AGENT-FLEETS.md).
+
 ## Quick start
 
 ### Install
