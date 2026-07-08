@@ -82,7 +82,9 @@ pub fn verify(args: VerifyArgs, output: &Output) -> Result<(), CliError> {
         PathBuf::from(&record.definition_dir)
     };
     let rt = crate::commands::runtime()?;
-    if stackless_stripe_projects::recorded_project_id(&def).is_some() {
+    if stackless_stripe_projects::recorded_project_id(&def).is_some()
+        && stackless_stripe_projects::project_initialized_in_dir(&def_dir)
+    {
         let stripe = stackless_stripe_projects::StripeProjects::new(
             stackless_stripe_projects::TokioRunner,
             def_dir.clone(),

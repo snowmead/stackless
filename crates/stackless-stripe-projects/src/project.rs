@@ -432,6 +432,14 @@ pub async fn sync_vault_pull<R: CommandRunner>(
     Ok(())
 }
 
+/// Whether Stripe Projects runtime state exists under `definition_dir` (the
+/// `.projects/` tree created by `stripe projects init`). Vault pull before
+/// first `up` must skip until this exists — the anchor in stackless.toml alone
+/// is not enough.
+pub fn project_initialized_in_dir(definition_dir: &Path) -> bool {
+    definition_dir.join(".projects").is_dir()
+}
+
 /// Read env keys from pulled vault files under `definition_dir`. Scans
 /// `.env` then `.env.<instance>` (when `Some`; instance values override base).
 /// Does not call the Stripe CLI.
