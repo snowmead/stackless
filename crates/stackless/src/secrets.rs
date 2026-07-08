@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use stackless_core::def::StackDef;
-use stackless_stripe_projects::{recorded_project_id, vault_env_from_dir};
+use stackless_stripe_projects::{recorded_project_id, unquote_env_value, vault_env_from_dir};
 
 use crate::error::CliError;
 
@@ -73,10 +73,7 @@ fn merge_env_lines(out: &mut BTreeMap<String, String>, content: &str) {
             continue;
         }
         if let Some((key, value)) = line.split_once('=') {
-            out.insert(
-                key.trim().to_owned(),
-                value.trim().trim_matches('"').to_owned(),
-            );
+            out.insert(key.trim().to_owned(), unquote_env_value(value.trim()));
         }
     }
 }
@@ -105,6 +102,14 @@ required = ["API_TOKEN"]
             resolved.get("API_TOKEN").map(String::as_str),
             Some("overlay-value")
         );
+    }
+
+    #[test]
+    fn overlay_strips_single_quotes() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(ENV_FILE), "API_TOKEN='quoted'\n").unwrap();
+        let loaded = load(dir.path());
+        assert_eq!(loaded.get("API_TOKEN").map(String::as_str), Some("quoted"));
     }
 
     #[test]

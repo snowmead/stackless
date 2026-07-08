@@ -272,7 +272,7 @@ fn is_redacted(value: &str) -> bool {
         || lower.contains("hidden")
 }
 
-fn unquote_env_value(value: &str) -> String {
+pub fn unquote_env_value(value: &str) -> String {
     let bytes = value.as_bytes();
     if bytes.len() >= 2
         && ((bytes[0] == b'\'' && bytes[bytes.len() - 1] == b'\'')
@@ -433,19 +433,45 @@ pub async fn sync_vault_pull<R: CommandRunner>(
 }
 
 /// Read env keys from pulled vault files under `definition_dir`. Scans
-/// `.env.<instance>` (when `Some`) then `.env`. Does not call the Stripe CLI.
+/// `.env` then `.env.<instance>` (when `Some`; instance values override base).
+/// Does not call the Stripe CLI.
 pub fn vault_env_from_dir(
     definition_dir: &Path,
     instance: Option<&str>,
 ) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
-    let mut paths = Vec::new();
-    paths.push(definition_dir.join(".env"));
-    if let Some(instance) = instance {
-        paths.push(definition_dir.join(format!(".env.{instance}")));
+    let base = definition_dir.join(".env");
+    if let Ok(text) = std::fs::read_to_string(&base) {
+        merge_env_file(&mut out, &text);
     }
-    for path in paths {
-        if let Ok(text) = std::fs::read_to_string(path) {
+    if let Some(instance) = instance {
+        let inst = definition_dir.join(format!(".env.{instance}"));
+        if let Ok(text) = std::fs::read_to_string(inst) {
+            merge_env_file(&mut out, &text);
+        }
+    }
+    out
+}
+
+/// Read env keys from `.env` and every `.env.<instance>` under `definition_dir`.
+/// Used by read-only preflight (e.g. `stackless doctor`) when no instance is
+/// named — a required key present in any vault file counts as available.
+pub fn vault_env_union_from_dir(definition_dir: &Path) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    let base = definition_dir.join(".env");
+    if let Ok(text) = std::fs::read_to_string(&base) {
+        merge_env_file(&mut out, &text);
+    }
+    let Ok(entries) = std::fs::read_dir(definition_dir) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with(".env.")
+            && name.len() > 5
+            && let Ok(text) = std::fs::read_to_string(entry.path())
+        {
             merge_env_file(&mut out, &text);
         }
     }

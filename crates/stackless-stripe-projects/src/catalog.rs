@@ -183,8 +183,8 @@ impl ServiceDetail {
     /// Parent plan `service_id`s that must be provisioned before this service.
     /// Only returns parents when the catalog names exactly one (multi-parent
     /// tiers like `vercel/project` are handled by the substrate).
-    pub fn required_parent_services(&self, config: &Value) -> Vec<String> {
-        self.pricing.required_parent_services(config)
+    pub fn required_parent_services(&self, config: &Value, prefer_paid: bool) -> Vec<String> {
+        self.pricing.required_parent_services(config, prefer_paid)
     }
 
     fn collect_drift(&self, out: &mut Vec<String>) {
@@ -396,6 +396,11 @@ impl Pricing {
 
     /// Whether the selected tier requires paid confirmation.
     pub fn requires_confirmation(&self, config: &Value) -> bool {
+        if let Some(component) = &self.component {
+            return component
+                .match_option(config, false)
+                .is_some_and(|option| option.kind == ComponentOptionKind::Paid);
+        }
         if !self.paid_pricing.is_empty()
             && self.paid_pricing.iter().any(|e| e.configuration.is_some())
         {
@@ -410,11 +415,11 @@ impl Pricing {
     /// Parent plan `service_id`s required before provisioning `config`, from the
     /// selected component-pricing option. Empty when unambiguous parents are
     /// absent (multi-parent options are left to substrate-specific handling).
-    pub fn required_parent_services(&self, config: &Value) -> Vec<String> {
+    pub fn required_parent_services(&self, config: &Value, prefer_paid: bool) -> Vec<String> {
         let Some(component) = &self.component else {
             return Vec::new();
         };
-        let Some(option) = component.match_option(config) else {
+        let Some(option) = component.match_option(config, prefer_paid) else {
             return Vec::new();
         };
         if option.parent_services.len() == 1 {
@@ -518,17 +523,24 @@ impl ComponentPricing {
     }
 
     /// The component-pricing option implied by `config`: explicit default, else
-    /// the first free tier, else the first option.
-    fn match_option(&self, _config: &Value) -> Option<&ComponentOption> {
+    /// the paid tier when `prefer_paid`, else the first free tier, else the first option.
+    fn match_option(&self, _config: &Value, prefer_paid: bool) -> Option<&ComponentOption> {
         for option in &self.options {
             if option.is_default == Some(true) {
                 return Some(option);
             }
         }
+        if prefer_paid {
+            return self
+                .options
+                .iter()
+                .find(|option| option.kind == ComponentOptionKind::Paid)
+                .or_else(|| self.options.first());
+        }
         self.options
             .iter()
             .find(|option| option.kind == ComponentOptionKind::Free)
-            .or(self.options.first())
+            .or_else(|| self.options.first())
     }
 }
 
@@ -887,8 +899,12 @@ mod tests {
             }),
         );
         assert_eq!(
-            kv.required_parent_services(&json!({"title": "cache"})),
+            kv.required_parent_services(&json!({"title": "cache"}), false),
             vec!["workers:free"]
+        );
+        assert_eq!(
+            kv.required_parent_services(&json!({"title": "cache"}), true),
+            vec!["workers:paid"]
         );
 
         let vercel = service(
@@ -905,7 +921,7 @@ mod tests {
         );
         assert!(
             vercel
-                .required_parent_services(&json!({"name": "demo"}))
+                .required_parent_services(&json!({"name": "demo"}), false)
                 .is_empty()
         );
     }

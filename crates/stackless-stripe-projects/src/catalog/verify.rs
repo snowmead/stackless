@@ -48,8 +48,8 @@ where
             reference: C::REFERENCE,
             violations,
         })?;
-    ensure_parent_plans(stripe, catalog, service, &value).await?;
     let paid = service.requires_confirmation(&value);
+    ensure_parent_plans(stripe, catalog, service, &value, paid).await?;
     project::add_resource(stripe, C::REFERENCE, resource_name, &value, paid).await
 }
 
@@ -60,8 +60,9 @@ async fn ensure_parent_plans<R: CommandRunner>(
     catalog: &Catalog,
     service: &crate::catalog::ServiceDetail,
     config: &Value,
+    prefer_paid: bool,
 ) -> Result<(), ProjectsError> {
-    for plan_id in service.required_parent_services(config) {
+    for plan_id in service.required_parent_services(config, prefer_paid) {
         let reference = format!("{}/{}", service.provider_name.to_ascii_lowercase(), plan_id);
         let plan = catalog
             .lookup(&reference)
