@@ -8,6 +8,7 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::Value;
 use stackless_core::def::StackDef;
+use stackless_core::types::dns_safe;
 
 use crate::error::ProjectsError;
 use crate::responses::{
@@ -461,9 +462,22 @@ pub fn vault_env_from_dir(
     out
 }
 
+/// Suffixes of `.env.<suffix>` that are samples/templates, not Stripe vault
+/// instance files (the repo gitignores `.env.*` except `!.env.example`).
+const VAULT_ENV_TEMPLATE_SUFFIXES: &[&str] = &["example"];
+
+/// Whether `name` is a Stripe vault instance file (`.env.<instance>`).
+fn vault_instance_env_file(name: &str) -> bool {
+    let Some(suffix) = name.strip_prefix(".env.") else {
+        return false;
+    };
+    !suffix.is_empty() && !VAULT_ENV_TEMPLATE_SUFFIXES.contains(&suffix) && dns_safe(suffix)
+}
+
 /// Read env keys from `.env` and every `.env.<instance>` under `definition_dir`.
 /// Used by read-only preflight (e.g. `stackless doctor`) when no instance is
-/// named — a required key present in any vault file counts as available.
+/// named. Only instance-shaped vault files are merged — templates like
+/// `.env.example` are skipped so doctor matches what `secrets::resolve` can use.
 pub fn vault_env_union_from_dir(definition_dir: &Path) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     let base = definition_dir.join(".env");
@@ -476,8 +490,7 @@ pub fn vault_env_union_from_dir(definition_dir: &Path) -> BTreeMap<String, Strin
     for entry in entries.flatten() {
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        if name.starts_with(".env.")
-            && name.len() > 5
+        if vault_instance_env_file(&name)
             && let Ok(text) = std::fs::read_to_string(entry.path())
         {
             merge_env_file(&mut out, &text);
@@ -649,6 +662,23 @@ mod tests {
         std::fs::write(dir.path().join(".env.demo"), "KEY=instance\n").unwrap();
         let map = vault_env_from_dir(dir.path(), Some("demo"));
         assert_eq!(map.get("KEY").map(String::as_str), Some("instance"));
+    }
+
+    #[test]
+    fn vault_env_union_skips_example_template() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(".env.example"), "TOKEN=sample\n").unwrap();
+        let map = vault_env_union_from_dir(dir.path());
+        assert!(!map.contains_key("TOKEN"));
+
+        std::fs::write(dir.path().join(".env.demo"), "TOKEN=real\n").unwrap();
+        let map = vault_env_union_from_dir(dir.path());
+        assert_eq!(map.get("TOKEN").map(String::as_str), Some("real"));
+
+        std::fs::write(dir.path().join(".env"), "OTHER=base\n").unwrap();
+        let map = vault_env_union_from_dir(dir.path());
+        assert_eq!(map.get("OTHER").map(String::as_str), Some("base"));
+        assert_eq!(map.get("TOKEN").map(String::as_str), Some("real"));
     }
 
     #[tokio::test]
