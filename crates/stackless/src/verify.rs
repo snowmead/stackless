@@ -57,11 +57,22 @@ pub fn verify(args: VerifyArgs, output: &Output) -> Result<(), CliError> {
         return Err(CliError::VerifyNotDeclared);
     };
     let tier_name = args.tier.as_deref();
-    let spec = verify_root
-        .resolve(tier_name)
-        .ok_or_else(|| CliError::VerifyTierUnknown {
-            tier: tier_name.unwrap_or("default").to_owned(),
-        })?;
+    let spec = match verify_root.resolve(tier_name) {
+        Some(spec) => spec,
+        None if tier_name.is_none()
+            && verify_root.run.is_none()
+            && !verify_root.tiers.is_empty() =>
+        {
+            return Err(CliError::VerifyTierRequired {
+                tiers: verify_root.tiers.keys().cloned().collect(),
+            });
+        }
+        None => {
+            return Err(CliError::VerifyTierUnknown {
+                tier: tier_name.unwrap_or("default").to_owned(),
+            });
+        }
+    };
 
     store.renew_lease_at_recorded_duration(name)?;
 
@@ -165,7 +176,7 @@ fn run_verify_command(
     if let Some(parent) = log_path.parent() {
         std::fs::create_dir_all(parent).map_err(CliError::Runtime)?;
     }
-    let log_file = std::fs::File::create(log_path).map_err(CliError::Runtime)?;
+    let mut log_file = std::fs::File::create(log_path).map_err(CliError::Runtime)?;
     let mut child = Command::new("/bin/sh")
         .args(["-c", &spec.run])
         .current_dir(dir)
@@ -181,18 +192,35 @@ fn run_verify_command(
     let mut stderr = child.stderr.take().ok_or_else(|| {
         CliError::Runtime(std::io::Error::other("verify child stderr unavailable"))
     })?;
-    let mut log = log_file;
+
+    let (stdout_buf, stderr_buf, status) = std::thread::scope(|scope| -> Result<_, CliError> {
+        let stdout_handle = scope.spawn(|| -> Result<Vec<u8>, CliError> {
+            let mut buf = Vec::new();
+            stdout.read_to_end(&mut buf).map_err(CliError::Runtime)?;
+            Ok(buf)
+        });
+        let stderr_handle = scope.spawn(|| -> Result<Vec<u8>, CliError> {
+            let mut buf = Vec::new();
+            stderr.read_to_end(&mut buf).map_err(CliError::Runtime)?;
+            Ok(buf)
+        });
+        let wait_handle = scope.spawn(|| -> Result<std::process::ExitStatus, CliError> {
+            child.wait().map_err(CliError::Runtime)
+        });
+
+        let stdout_buf = stdout_handle.join().map_err(|_| {
+            CliError::Runtime(std::io::Error::other("verify stdout reader panicked"))
+        })??;
+        let stderr_buf = stderr_handle.join().map_err(|_| {
+            CliError::Runtime(std::io::Error::other("verify stderr reader panicked"))
+        })??;
+        let status = wait_handle
+            .join()
+            .map_err(|_| CliError::Runtime(std::io::Error::other("verify wait panicked")))??;
+        Ok((stdout_buf, stderr_buf, status))
+    })?;
+
     let mut combined = Vec::new();
-
-    let mut stdout_buf = Vec::new();
-    stdout
-        .read_to_end(&mut stdout_buf)
-        .map_err(CliError::Runtime)?;
-    let mut stderr_buf = Vec::new();
-    stderr
-        .read_to_end(&mut stderr_buf)
-        .map_err(CliError::Runtime)?;
-
     combined.extend_from_slice(&stdout_buf);
     if !stderr_buf.is_empty() {
         if !combined.is_empty() && !combined.ends_with(b"\n") {
@@ -200,7 +228,7 @@ fn run_verify_command(
         }
         combined.extend_from_slice(&stderr_buf);
     }
-    log.write_all(&combined).map_err(CliError::Runtime)?;
+    log_file.write_all(&combined).map_err(CliError::Runtime)?;
 
     if !output.is_json() {
         if !stdout_buf.is_empty() {
@@ -218,7 +246,6 @@ fn run_verify_command(
         }
     }
 
-    let status = child.wait().map_err(CliError::Runtime)?;
     let exit_status = status.code().unwrap_or(-1);
     let log_tail = tail_bytes(&combined, FAILURE_LOG_TAIL_LINES);
     Ok(VerifyRunOutcome {

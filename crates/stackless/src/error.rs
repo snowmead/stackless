@@ -71,6 +71,9 @@ pub enum CliError {
     #[error("verify tier {tier:?} is not declared in stackless.toml")]
     VerifyTierUnknown { tier: String },
 
+    #[error("verify requires --tier (declared tiers: {tiers:?})")]
+    VerifyTierRequired { tiers: Vec<String> },
+
     #[error("verify command exited with {status}")]
     VerifyFailed {
         status: String,
@@ -119,6 +122,7 @@ impl Fault for CliError {
             Self::SecretsUnresolved { .. } => codes::SECRETS_UNRESOLVED,
             Self::VerifyNotDeclared => codes::VERIFY_NOT_DECLARED,
             Self::VerifyTierUnknown { .. } => codes::VERIFY_TIER_UNKNOWN,
+            Self::VerifyTierRequired { .. } => codes::VERIFY_TIER_REQUIRED,
             Self::VerifyFailed { .. } => codes::VERIFY_FAILED,
             Self::VerifySourceUnavailable { .. } => codes::VERIFY_SOURCE_UNAVAILABLE,
             Self::Substrate { fault, .. } => fault.code(),
@@ -174,6 +178,10 @@ impl Fault for CliError {
             }
             Self::VerifyTierUnknown { tier } => format!(
                 "declare [stack.verify.tiers.{tier}] or use the default [stack.verify] tier"
+            ),
+            Self::VerifyTierRequired { tiers } => format!(
+                "pass --tier with one of the declared tiers: {}",
+                tiers.join(", ")
             ),
             Self::VerifyFailed { .. } => {
                 "inspect error.context.log_tail and error.context.log_path; fix the verify \

@@ -187,6 +187,8 @@ error.code?
 │  └─ Add [stack.verify] with a run command
 ├─ verify.tier_unknown
 │  └─ Add [stack.verify.tiers.<name>] or use the default [stack.verify] tier
+├─ verify.tier_required
+│  └─ Pass `--tier` with one of the declared tier names (no default `[stack.verify].run`)
 ├─ verify.failed
 │  └─ Read error.context.log_tail and log_path; fix the verify script; re-run stackless verify
 ├─ doctor.checks.failed

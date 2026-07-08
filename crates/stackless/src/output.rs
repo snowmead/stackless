@@ -22,6 +22,7 @@ pub struct Output {
 
 #[derive(Serialize)]
 struct CheckOk<'a> {
+    schema_version: u32,
     ok: bool,
     stack: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -92,6 +93,7 @@ impl Output {
     pub fn check_ok(&self, def: &StackDef, graph: &DependencyGraph, substrate: Option<&str>) {
         if self.json {
             self.emit(&CheckOk {
+                schema_version: SCHEMA_VERSION,
                 ok: true,
                 stack: def.stack.name.as_str(),
                 substrate,
@@ -138,12 +140,14 @@ impl Output {
         if self.json {
             #[derive(Serialize)]
             struct InitOk<'a> {
+                schema_version: u32,
                 ok: bool,
                 path: String,
                 stack: &'a str,
                 next: String,
             }
             self.emit(&InitOk {
+                schema_version: SCHEMA_VERSION,
                 ok: true,
                 path,
                 stack,
@@ -159,6 +163,7 @@ impl Output {
         if self.json {
             #[derive(Serialize)]
             struct AdoptOk<'a> {
+                schema_version: u32,
                 ok: bool,
                 path: String,
                 services: &'a [&'a str],
@@ -166,6 +171,7 @@ impl Output {
                 next: &'a str,
             }
             self.emit(&AdoptOk {
+                schema_version: SCHEMA_VERSION,
                 ok: true,
                 path,
                 services,
@@ -186,10 +192,15 @@ impl Output {
         if self.json {
             #[derive(Serialize)]
             struct DoctorOk<'a> {
+                schema_version: u32,
                 ok: bool,
                 checks: &'a [crate::doctor::DoctorCheck],
             }
-            self.emit(&DoctorOk { ok: all_ok, checks });
+            self.emit(&DoctorOk {
+                schema_version: SCHEMA_VERSION,
+                ok: all_ok,
+                checks,
+            });
             return;
         }
         for check in checks {
