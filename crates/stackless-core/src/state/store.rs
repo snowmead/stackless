@@ -42,6 +42,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/005_dirty.sql"),
 ];
 
+const MIGRATION_001_TABLES: &[&str] = &["instances", "leases", "op_locks", "checkpoints"];
+
 /// Turso Cloud makes `PRAGMA user_version` read-only; the remote backend
 /// tracks schema version in this table instead (see Turso limitations doc).
 const REMOTE_SCHEMA_VERSION_BOOTSTRAP: &str = r"
@@ -361,6 +363,7 @@ impl Store {
 
     fn migrate(&self) -> Result<(), StateError> {
         if let Backend::Remote(db) = &self.backend {
+            self.repair_remote_migration_001()?;
             self.reconcile_remote_schema_version(db)?;
         }
         let version = self.user_version()?;
@@ -372,6 +375,44 @@ impl Store {
             self.run_migration(sql, target)?;
         }
         Ok(())
+    }
+
+    /// Fill in any migration-001 tables missing after a partial remote apply.
+    fn repair_remote_migration_001(&self) -> Result<(), StateError> {
+        let Backend::Remote(db) = &self.backend else {
+            return Ok(());
+        };
+        if self.migration_001_complete()? || !self.migration_001_started()? {
+            return Ok(());
+        }
+        db.run(|conn, rt| {
+            rt.block_on(async {
+                conn.execute_batch(include_str!("migrations/001_init_repair.sql"))
+                    .await
+                    .map_err(|e| StateError::Migrate {
+                        source: rusqlite_shim(e),
+                    })?;
+                Ok(())
+            })
+        })
+    }
+
+    fn migration_001_complete(&self) -> Result<bool, StateError> {
+        for table in MIGRATION_001_TABLES {
+            if !self.table_exists(table)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    fn migration_001_started(&self) -> Result<bool, StateError> {
+        for table in MIGRATION_001_TABLES {
+            if self.table_exists(table)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// Recover from a partial remote migration (e.g. Turso rejected the old
@@ -388,7 +429,7 @@ impl Store {
 
     fn detect_migration_level(&self) -> Result<i64, StateError> {
         let mut level = 0;
-        if self.table_exists("instances")? {
+        if self.migration_001_complete()? {
             level = 1;
             if self.column_exists("instances", "definition_dir")? {
                 level = 2;
