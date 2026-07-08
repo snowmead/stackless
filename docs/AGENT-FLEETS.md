@@ -65,8 +65,7 @@ stackless list --json
 
 If state open fails, the error code is `state.store.open_failed`; remediation
 mentions `STACKLESS_STATE_URL` and `STACKLESS_STATE_TOKEN`. Turso Cloud live
-verification is tracked in the project roadmap; the seam is implemented in
-`stackless-core` (`Store::open_configured`).
+verification runs via `mise run smoke-fleet` (`crates/stackless-core/tests/turso_fleet_lock.rs`).
 
 ## Naming conventions
 

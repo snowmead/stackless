@@ -5,8 +5,8 @@
 //! instance/lease/lock/journal/reaper method work through the driver
 //! without a Turso Cloud account.
 //!
-//! True network-remote (Turso Cloud) verification is pending credentials
-//! — see the M9 report for the exact env vars and steps.
+//! True network-remote (Turso Cloud) verification lives in
+//! `turso_fleet_lock.rs` — run via `mise run smoke-fleet`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 

@@ -29,9 +29,13 @@ if [ "${STACKLESS_LIVE_SMOKE_REQUIRED:-}" = "1" ] && [ -z "${STRIPE_API_KEY:-}" 
   exit 1
 fi
 
-# Optional provider: skip when explicitly unconfigured (Fly is paid + needs link).
+# Optional providers: skip when explicitly unconfigured.
 if [ "$substrate" = "fly" ] && [ -z "${FLY_API_TOKEN:-}" ]; then
   echo "skip live-smoke (fly): FLY_API_TOKEN not configured"
+  exit 0
+fi
+if [ "$substrate" = "netlify" ] && [ -z "${NETLIFY_AUTH_TOKEN:-}" ]; then
+  echo "skip live-smoke (netlify): NETLIFY_AUTH_TOKEN not configured (run stripe projects link netlify or set the secret)"
   exit 0
 fi
 
