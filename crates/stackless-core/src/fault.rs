@@ -100,6 +100,8 @@ pub mod codes {
     pub const VERIFY_FAILED: &str = "verify.failed";
     pub const VERIFY_NOT_DECLARED: &str = "verify.not_declared";
     pub const VERIFY_SOURCE_UNAVAILABLE: &str = "verify.source_unavailable";
+    pub const VERIFY_TIER_UNKNOWN: &str = "verify.tier_unknown";
+    pub const VERIFY_TIER_REQUIRED: &str = "verify.tier_required";
     pub const STRIPE_PROJECTS_UNAVAILABLE: &str = "stripe.projects.unavailable";
     pub const STRIPE_PROJECTS_AUTH: &str = "stripe.projects.auth";
     pub const STRIPE_PROJECTS_FAILED: &str = "stripe.projects.failed";
@@ -185,6 +187,8 @@ pub mod codes {
         VERIFY_FAILED,
         VERIFY_NOT_DECLARED,
         VERIFY_SOURCE_UNAVAILABLE,
+        VERIFY_TIER_UNKNOWN,
+        VERIFY_TIER_REQUIRED,
         STRIPE_PROJECTS_UNAVAILABLE,
         STRIPE_PROJECTS_AUTH,
         STRIPE_PROJECTS_FAILED,

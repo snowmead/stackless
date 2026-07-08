@@ -387,6 +387,44 @@ impl VercelApi {
         })
     }
 
+    /// Recent deployment build events for the `logs` verb (§2 — a bounded
+    /// window, no streaming). Hand-written: the trimmed OpenAPI client omits
+    /// `/v3/deployments/{id}/events`.
+    pub async fn deployment_build_events(
+        &self,
+        deployment_id: &str,
+        tail: usize,
+    ) -> Result<Vec<String>, VercelError> {
+        let mut url = format!(
+            "{}/v3/deployments/{deployment_id}/events?direction=backward&limit={}",
+            self.base,
+            tail.max(1)
+        );
+        self.append_team(&mut url);
+        let response = self
+            .http
+            .get(&url)
+            .send()
+            .await
+            .map_err(|err| api_failed("GET", "/v3/deployments/{id}/events", err))?;
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        if !status.is_success() {
+            return Err(VercelError::ApiFailed {
+                method: "GET".to_owned(),
+                path: "/v3/deployments/{id}/events".to_owned(),
+                detail: format!("{status}: {}", text.trim()),
+            });
+        }
+        let events: Vec<serde_json::Value> = if text.trim().is_empty() {
+            Vec::new()
+        } else {
+            serde_json::from_str(&text)
+                .map_err(|err| api_failed("GET", "/v3/deployments/{id}/events", err))?
+        };
+        Ok(format_deployment_events(events))
+    }
+
     pub async fn wait_for_deployment(
         &self,
         service: &str,
@@ -415,6 +453,53 @@ impl VercelApi {
             tokio::time::sleep(self.poll_interval).await;
         }
     }
+}
+
+fn format_deployment_events(events: Vec<serde_json::Value>) -> Vec<String> {
+    let mut lines = Vec::with_capacity(events.len());
+    for event in events {
+        let event_type = event
+            .get("type")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("event");
+        let created = event
+            .get("created")
+            .and_then(serde_json::Value::as_f64)
+            .map(|ts| format!("{ts:.0}"))
+            .unwrap_or_default();
+        let payload = event.get("payload").unwrap_or(&event);
+        let text = payload
+            .get("text")
+            .and_then(serde_json::Value::as_str)
+            .filter(|line| !line.is_empty())
+            .map(str::to_owned)
+            .or_else(|| {
+                payload
+                    .get("info")
+                    .and_then(|info| {
+                        let name = info.get("name").and_then(serde_json::Value::as_str)?;
+                        let step = info
+                            .get("step")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("");
+                        let state = info
+                            .get("readyState")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("");
+                        let line = format!("{name} {step} {state}").trim().to_owned();
+                        (!line.is_empty()).then_some(line)
+                    })
+                    .filter(|line| !line.is_empty())
+            })
+            .unwrap_or_default();
+        if text.is_empty() {
+            lines.push(format!("{created} [{event_type}]"));
+        } else {
+            lines.push(format!("{created} [{event_type}] {text}"));
+        }
+    }
+    lines.reverse();
+    lines
 }
 
 #[cfg(test)]
@@ -519,6 +604,34 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(deploy.id, "dpl_2");
+    }
+
+    #[tokio::test]
+    async fn deployment_build_events_formats_log_lines() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path_regex(r"/v3/deployments/dpl_1/events.*"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                {
+                    "type": "stdout",
+                    "created": 1_540_095_775_941.0,
+                    "payload": { "text": "Build completed" }
+                },
+                {
+                    "type": "deployment-state",
+                    "created": 1_540_095_776_000.0,
+                    "payload": {
+                        "info": { "name": "Build", "step": "complete", "readyState": "READY" }
+                    }
+                }
+            ])))
+            .mount(&server)
+            .await;
+        let api = VercelApi::with_base("tok", None, server.uri());
+        let lines = api.deployment_build_events("dpl_1", 10).await.unwrap();
+        assert_eq!(lines.len(), 2);
+        assert!(lines.iter().any(|line| line.contains("Build completed")));
+        assert!(lines.iter().any(|line| line.contains("READY")));
     }
 
     #[tokio::test]

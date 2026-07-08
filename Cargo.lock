@@ -2750,6 +2750,8 @@ name = "stackless-cloud"
 version = "0.1.1"
 dependencies = [
  "reqwest",
+ "serde",
+ "serde_json",
  "stackless-core",
  "stackless-git",
  "stackless-stripe-projects",

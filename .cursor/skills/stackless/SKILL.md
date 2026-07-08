@@ -61,7 +61,7 @@ stackless check stackless.toml --on local --json
 stackless doctor --file stackless.toml --json
 stackless up --name demo --on local --json
 stackless status demo --json
-stackless verify demo --json          # requires [stack.verify] in the definition
+stackless verify demo --json          # requires [stack.verify]; optional --tier smoke
 stackless logs demo --tail 100 --json
 stackless down demo --json
 ```
@@ -84,11 +84,19 @@ creation; set API keys (see doctor). Paid resources need `--confirm-paid`.
 
 ### Success envelopes
 
+Every success verb emits `{ "schema_version": 1, "ok": true, … }` on stdout.
+
 - `check --json`: `{ "ok": true, "stack", "services", "datastores", "graph" }`
-- `up --json`: `{ "schema_version": 1, "ok": true, "instance", "substrate", "executed", "skipped", "origins" }`
-- `status`/`list --json`: may include `persistence_warning` when daemon boot persistence is degraded
+- `up --json`: `{ "schema_version", "ok", "instance", "substrate", "executed", "skipped", "duration_ms", "steps", "origins", "spend?" }`
+- `down --json`: `{ "schema_version", "ok", "instance", "outcome", "spend?" }`
+- `verify --json`: `{ "schema_version", "ok", "instance", "tier?", "duration_ms", "exit_status", "log_path", "lease_remaining_secs?" }`
+- `status`/`list --json`: `{ "schema_version", "ok", …report fields…, "persistence_warning?" }`
+- `logs --json`: `{ "schema_version", "ok", "instance", "services": [{ "service", "source", "lines?", "reason?" }] }`
 - `doctor --json`: `{ "ok": true|false, "checks": [{ "check", "ok", "code?", "remediation?" }] }`
 - `init`/`adopt --json`: `{ "ok": true, "path", "next": "stackless check ..." }`
+
+NDJSON progress during `up --json` includes `at_epoch_ms` and optional `duration_ms`
+per step on stderr.
 
 ### Error envelope
 
@@ -177,8 +185,12 @@ error.code?
 │  └─ Install Stripe CLI + projects plugin; stripe login; stripe projects init
 ├─ verify.not_declared
 │  └─ Add [stack.verify] with a run command
+├─ verify.tier_unknown
+│  └─ Add [stack.verify.tiers.<name>] or use the default [stack.verify] tier
+├─ verify.tier_required
+│  └─ Pass `--tier` with one of the declared tier names (no default `[stack.verify].run`)
 ├─ verify.failed
-│  └─ Fix the verify script; re-run stackless verify
+│  └─ Read error.context.log_tail and log_path; fix the verify script; re-run stackless verify
 ├─ doctor.checks.failed
 │  └─ Re-run stackless doctor --json; fix each check with ok: false
 ├─ cli.init.exists | cli.adopt.exists

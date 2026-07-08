@@ -116,6 +116,29 @@ jobs:
       - name: nextest
         run: mise run test
 
+  agent-demo-lifecycle:
+    name: agent-demo-lifecycle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mise
+        uses: jdx/mise-action@v2
+        with:
+          install: false
+          cache: false
+      - name: Install tools (serial, retried)
+        env:
+          MISE_JOBS: "1"
+        shell: bash
+        run: |
+          mise install && exit 0
+          for i in 1 2; do echo "retry $i (force)"; sleep 10; mise install --force && exit 0; done
+          exit 1
+      - name: Rust / Cargo cache
+        uses: Swatinem/rust-cache@v2
+      - name: agent-demo lifecycle JSON gate
+        run: bash fixtures/agent-demo-lifecycle.sh
+
   # Supply-chain / "cargo crap" security & policy gates.
   # These are not OS-specific, so we run them once on the fastest runner.
   # They are completely independent of the other jobs.
@@ -155,3 +178,93 @@ jobs:
 
       - name: cargo vet
         run: mise run vet
+
+  # Tier-2 live smokes: real up/status/logs/down against each cloud provider.
+  # Gated to the canonical repo (secrets live in GitHub Actions, not forks).
+  # Runs on every PR push to main — same matrix as smoke.yml's nightly sweep.
+  live-smoke:
+    name: live-smoke (${{ matrix.provider }})
+    if: ${{ github.repository_owner == 'snowmead' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: [vercel, render, cloudflare, fly, netlify]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mise
+        uses: jdx/mise-action@v2
+        with:
+          install: false
+          cache: false
+      - name: Install tools (serial, retried)
+        env:
+          MISE_JOBS: "1"
+        shell: bash
+        run: |
+          mise install && exit 0
+          for i in 1 2; do echo "retry $i (force)"; sleep 10; mise install --force && exit 0; done
+          exit 1
+
+      - name: Rust / Cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Stripe CLI + projects plugin
+        run: |
+          curl -s https://packages.stripe.dev/api/security/keypair/stripe-cli-gpg/public \
+            | gpg --dearmor | sudo tee /usr/share/keyrings/stripe.gpg >/dev/null
+          echo "deb [signed-by=/usr/share/keyrings/stripe.gpg] https://packages.stripe.dev/stripe-cli-debian-local stable main" \
+            | sudo tee /etc/apt/sources.list.d/stripe.list
+          sudo apt-get update && sudo apt-get install -y stripe
+          stripe plugin install "projects@$(tr -d '[:space:]' < crates/stackless-stripe-projects/tests/fixtures/plugin-version.txt)"
+
+      - name: Stripe Projects snapshot gate (pinned)
+        run: |
+          pinned=$(tr -d '[:space:]' < crates/stackless-stripe-projects/tests/fixtures/plugin-version.txt)
+          installed=$(stripe projects --version | tr -d '[:space:]')
+          if [ "$installed" != "$pinned" ]; then
+            echo "::error::installed projects plugin $installed != pinned $pinned"; exit 1
+          fi
+          mise run stripe-refresh
+          git diff --exit-code -- \
+            crates/stackless-stripe-projects/tests/fixtures/command-surface.txt \
+            crates/stackless-stripe-projects/tests/fixtures/plugin-version.txt \
+            || { echo "::error::command surface is stale for plugin $pinned — run 'mise run stripe-refresh' and commit"; exit 1; }
+
+      - name: Live ${{ matrix.provider }} up/status/logs/down
+        env:
+          STACKLESS_LIVE_SMOKE_REQUIRED: "1"
+          STRIPE_API_KEY: ${{ secrets.STRIPE_API_KEY }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: mise run smoke-${{ matrix.provider }}
+
+  live-fleet:
+    name: live-fleet (Turso)
+    if: ${{ github.repository_owner == 'snowmead' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mise
+        uses: jdx/mise-action@v2
+        with:
+          install: false
+          cache: false
+      - name: Install tools (serial, retried)
+        env:
+          MISE_JOBS: "1"
+        shell: bash
+        run: |
+          mise install && exit 0
+          for i in 1 2; do echo "retry $i (force)"; sleep 10; mise install --force && exit 0; done
+          exit 1
+      - name: Rust / Cargo cache
+        uses: Swatinem/rust-cache@v2
+      - name: Live Turso fleet-lock tests
+        env:
+          STACKLESS_LIVE_SMOKE_REQUIRED: "1"
+          STACKLESS_STATE_URL: ${{ secrets.STACKLESS_STATE_URL }}
+          STACKLESS_STATE_TOKEN: ${{ secrets.STACKLESS_STATE_TOKEN }}
+        run: mise run smoke-fleet

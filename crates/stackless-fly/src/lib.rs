@@ -46,7 +46,7 @@ use stackless_core::def::{Namespace, StackDef};
 use stackless_core::engine::StepKind;
 use stackless_core::state::Checkpoint;
 use stackless_core::substrate::{
-    NamespacePurpose, Observation, StepContext, StepResource, Substrate, SubstrateFault,
+    NamespacePurpose, Observation, ServiceLog, StepContext, StepResource, Substrate, SubstrateFault,
 };
 use tokio::sync::Mutex;
 
@@ -655,10 +655,9 @@ impl<R: CommandRunner> Substrate for FlySubstrate<R> {
         Ok(())
     }
 
-    async fn spend_line(&self) -> Option<String> {
-        // Fly's Stripe provider is `flyio`, not the substrate name.
+    async fn spend(&self) -> Option<stackless_core::substrate::SpendInfo> {
         Some(
-            stackless_cloud::spend::line(
+            stackless_cloud::spend::fetch(
                 &self.definition_dir,
                 "flyio",
                 SPEND_CAP_USD,
@@ -666,6 +665,90 @@ impl<R: CommandRunner> Substrate for FlySubstrate<R> {
             )
             .await,
         )
+    }
+
+    async fn fetch_logs(
+        &self,
+        _def: &StackDef,
+        instance: &str,
+        services: &[String],
+        tail: usize,
+    ) -> Result<Option<Vec<ServiceLog>>, SubstrateFault> {
+        let mut out = Vec::with_capacity(services.len());
+        for service in services {
+            let lines = self.fetch_service_logs(instance, service, tail).await?;
+            out.push(ServiceLog {
+                service: service.clone(),
+                source: "fly_events",
+                log_path: None,
+                lines,
+            });
+        }
+        Ok(Some(out))
+    }
+}
+
+fn start_service_payload(instance: &str, service: &str) -> Option<ServicePayload> {
+    let store = stackless_core::state::Store::open_configured().ok()?;
+    let checkpoints = store.checkpoints(instance).ok()?;
+    checkpoints.into_iter().find_map(|checkpoint| {
+        if checkpoint.step_id == format!("start:{service}")
+            && checkpoint.resource_kind == "fly-machine"
+        {
+            serde_json::from_str::<ServicePayload>(&checkpoint.payload).ok()
+        } else {
+            None
+        }
+    })
+}
+
+impl<R: CommandRunner> FlySubstrate<R> {
+    async fn fetch_service_logs(
+        &self,
+        instance: &str,
+        service: &str,
+        tail: usize,
+    ) -> Result<Vec<String>, SubstrateFault> {
+        let Some(payload) = start_service_payload(instance, service) else {
+            return Ok(vec![format!(
+                "(no start checkpoint for service {service}; run `stackless up` first)"
+            )]);
+        };
+        let token = self.fly_token(instance, &payload.stripe_resource).await?;
+        let fly = self.fly_with_token(&token);
+        fly.machine_events(&payload.app_name, &payload.machine_id, tail)
+            .await
+            .map_err(fault)
+    }
+
+    async fn fly_token(
+        &self,
+        instance: &str,
+        stripe_resource: &str,
+    ) -> Result<String, SubstrateFault> {
+        let resource_prefix = stripe_resource.to_ascii_uppercase().replace('-', "_");
+        let resource_key = format!("{resource_prefix}_DEPLOY_TOKEN");
+        let keys = [resource_key.as_str(), "FLYIO_DEPLOY_TOKEN"];
+        let pulled = project::pull_env_values(&self.stripe(), instance, &keys)
+            .await
+            .map_err(projects_fault)?;
+        if let Some(token) = pulled
+            .into_iter()
+            .flatten()
+            .find(|value| !value.trim().is_empty())
+        {
+            return Ok(token);
+        }
+        if let Some(token) = self.secrets.get("FLY_API_TOKEN")
+            && !token.trim().is_empty()
+        {
+            return Ok(token.clone());
+        }
+        Err(fault(FlyError::ApiFailed {
+            method: "GET".into(),
+            path: "/apps/{app}/machines/{id}/events".into(),
+            detail: "no Fly deploy token in Stripe instance env or FLY_API_TOKEN in secrets".into(),
+        }))
     }
 }
 

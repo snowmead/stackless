@@ -27,13 +27,13 @@ supply-chain = { depends = ["audit", "deny", "vet"] }
 check = { depends = ["fmt", "clippy", "taplo"] }
 ci    = { depends = ["check", "test", "supply-chain"] }
 
-# Live cloud smokes — gated on real provider creds, EXCLUDED from `ci` (which
-# stays hermetic). Locally they read tokens from .stackless.env; in CI the
-# workflow injects STRIPE_API_KEY / VERCEL_TOKEN / RENDER_API_KEY as secrets. All
-# three share `fixtures/smoke/run.sh`: a real up, then ALWAYS a teardown, with a
-# unique per-run instance name; the task fails if up (health) or down (verified-
-# gone) fails. Cloudflare is a catalog integration, so it provisions R2+KV under
-# `--on local` (needs `stripe projects link cloudflare`, account-level).
+# Live cloud smokes — gated on real provider creds. On the canonical repo they
+# run on every PR via ci.yml `live-smoke` jobs (and nightly via smoke.yml).
+# Locally they read tokens from .stackless.env; CI injects STRIPE_API_KEY /
+# VERCEL_TOKEN / RENDER_API_KEY / FLY_API_TOKEN as secrets. All share
+# `fixtures/smoke/run.sh`: a real up, status, logs, down, with a unique per-run
+# instance name; the task fails if up (health), JSON contract checks, or down
+# (verified-gone) fails.
 smoke-vercel = "bash fixtures/smoke/run.sh vercel fixtures/smoke/vercel/stackless.toml smoke-v"
 smoke-render = "bash fixtures/smoke/run.sh render fixtures/smoke/render/stackless.toml smoke-r"
 smoke-cloudflare = "bash fixtures/smoke/run.sh local fixtures/smoke/cloudflare/stackless.toml smoke-c"
@@ -46,6 +46,23 @@ smoke = { depends = [
     "smoke-fly",
     "smoke-netlify",
 ] }
+
+# Hermetic agent JSON contract gate (every lifecycle verb on agent-demo).
+agent-demo-lifecycle = "bash fixtures/agent-demo-lifecycle.sh"
+
+# Fleet plane live verification (gated; needs STACKLESS_STATE_URL + TOKEN).
+smoke-fleet = '''
+[ -f .stackless.env ] && { set -a; . ./.stackless.env; set +a; }
+if [ -z "${STACKLESS_STATE_URL:-}" ] || [ -z "${STACKLESS_STATE_TOKEN:-}" ]; then
+  if [ "${STACKLESS_LIVE_SMOKE_REQUIRED:-}" = "1" ]; then
+    echo "::error::STACKLESS_STATE_URL and STACKLESS_STATE_TOKEN required for live fleet smoke"
+    exit 1
+  fi
+  echo "skip smoke-fleet: set STACKLESS_STATE_URL and STACKLESS_STATE_TOKEN in .stackless.env"
+  exit 0
+fi
+cargo nextest run -p stackless-core --all-features -E 'binary(turso_fleet_lock)' --run-ignored only --no-capture
+'''
 
 # Stripe Projects plugin snapshots. `stripe-refresh` is the bless path (writes
 # the committed fixtures from the locally installed plugin); it needs the real

@@ -14,10 +14,18 @@ Examples: `crates/stackless-vercel/src/vercel_api.rs` (git/upload deploy +
 protection), `…/lib.rs` (`observe`), `crates/stackless-integrations/src/providers/clerk.rs`
 (provision → observe → destroy).
 
-## Tier 2 — live smoke (gated; nightly / on-demand)
+## Tier 2 — live smoke (gated; every PR on the canonical repo)
 
-A real `up` → health → `down` → verified-gone against the actual cloud, with **no
-second repo**: the smoke fixtures deploy *this repo's own source*.
+A real `up` → health → `status`/`logs` → `down` → verified-gone against the
+actual cloud, with **no second repo**: the smoke fixtures deploy *this repo's
+own source*. Every verb runs `--json` and the runner asserts each stdout
+envelope parses with `ok: true`, so the machine contract (including the
+per-substrate `logs` sources and `spend` fields) gets live coverage, not just
+the hermetic wiremock tier.
+
+On `snowmead/stackless`, these run on **every PR** via `ci.yml` (`live-smoke`
+and `live-fleet` jobs). Forks skip them (no secrets). `smoke.yml` repeats the
+same matrix nightly and on `workflow_dispatch` as a scheduled safety net.
 
 ```
 fixtures/smoke/
@@ -39,9 +47,11 @@ mise run smoke-netlify
 mise run smoke            # vercel + render (see mise.toml for the full set)
 ```
 
-In CI: `.github/workflows/smoke.yml` (`workflow_dispatch` + nightly), one gated
-job per provider, secrets `STRIPE_API_KEY` / `VERCEL_TOKEN` / `RENDER_API_KEY`
-(and `FLY_API_TOKEN` where applicable).
+In CI: `ci.yml` runs one gated job per provider on every PR to `main` (plus a
+`live-fleet` job for Turso). Secrets: `STRIPE_API_KEY` / `VERCEL_TOKEN` /
+`RENDER_API_KEY` / `FLY_API_TOKEN` / `STACKLESS_STATE_URL` /
+`STACKLESS_STATE_TOKEN`. `.github/workflows/smoke.yml` repeats the provider
+matrix nightly and on demand.
 
 ### Prerequisites (one-time, human)
 

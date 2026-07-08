@@ -130,8 +130,22 @@ impl DependencyGraph {
                     let Some(target_idx) = index_of(&target) else {
                         continue;
                     };
-                    // Verify runs after `up`; record wiring only.
                     let _ = target_idx;
+                }
+            }
+            for (tier, spec) in &verify.tiers {
+                for (key, value) in &spec.env {
+                    let location = format!("stack.verify.tiers.{tier}.env.{key}");
+                    for reference in interp::references(value, &location)? {
+                        let Reference::IntegrationOutput { integration, .. } = reference else {
+                            continue;
+                        };
+                        let target = Node::Integration(integration);
+                        let Some(target_idx) = index_of(&target) else {
+                            continue;
+                        };
+                        let _ = target_idx;
+                    }
                 }
             }
         }

@@ -301,6 +301,42 @@ impl FlyApi {
             tokio::time::sleep(self.poll_interval).await;
         }
     }
+
+    /// Recent machine lifecycle events for the `logs` verb (§2). Fly caps
+    /// `limit` at 50; runtime stdout/stderr is not available here.
+    pub async fn machine_events(
+        &self,
+        app: &str,
+        machine_id: &str,
+        tail: usize,
+    ) -> Result<Vec<String>, FlyError> {
+        let limit = tail.clamp(1, 50);
+        let path = format!("/apps/{app}/machines/{machine_id}/events?limit={limit}");
+        let events = self.send_ok(Method::GET, &path, None).await?;
+        let items = events.as_array().cloned().unwrap_or_default();
+        Ok(items.into_iter().filter_map(format_machine_event).collect())
+    }
+}
+
+fn format_machine_event(value: Value) -> Option<String> {
+    let event_type = value.get("type").and_then(Value::as_str).unwrap_or("event");
+    let status = value.get("status").and_then(Value::as_str).unwrap_or("");
+    let source = value.get("source").and_then(Value::as_str).unwrap_or("");
+    let timestamp = value
+        .get("timestamp")
+        .and_then(Value::as_i64)
+        .map(|ts| ts.to_string())
+        .unwrap_or_default();
+    let detail = [status, source]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if detail.is_empty() {
+        Some(format!("{timestamp} [{event_type}]"))
+    } else {
+        Some(format!("{timestamp} [{event_type}] {detail}"))
+    }
 }
 
 /// A Fly machine lifecycle state. Modeled as an enum so the polling logic is
@@ -499,6 +535,27 @@ mod tests {
             Some("m_9")
         );
         assert_eq!(api.find_machine("app1", "absent").await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn machine_events_formats_lifecycle_lines() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/apps/app1/machines/m_1/events"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                {
+                    "id": "evt_1",
+                    "type": "start",
+                    "status": "started",
+                    "source": "flyd",
+                    "timestamp": 1_700_000_000
+                }
+            ])))
+            .mount(&server)
+            .await;
+        let api = FlyApi::with_base("tok", server.uri());
+        let lines = api.machine_events("app1", "m_1", 10).await.unwrap();
+        assert_eq!(lines, vec!["1700000000 [start] started flyd".to_owned()]);
     }
 
     #[tokio::test]

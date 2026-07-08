@@ -68,8 +68,18 @@ pub enum CliError {
     #[error("the stack declares no [stack.verify] contract")]
     VerifyNotDeclared,
 
+    #[error("verify tier {tier:?} is not declared in stackless.toml")]
+    VerifyTierUnknown { tier: String },
+
+    #[error("verify requires --tier (declared tiers: {tiers:?})")]
+    VerifyTierRequired { tiers: Vec<String> },
+
     #[error("verify command exited with {status}")]
-    VerifyFailed { status: String },
+    VerifyFailed {
+        status: String,
+        log_path: Option<String>,
+        log_tail: Option<String>,
+    },
 
     #[error("verify source for service {service:?} is unavailable: {detail}")]
     VerifySourceUnavailable { service: String, detail: String },
@@ -111,6 +121,8 @@ impl Fault for CliError {
             Self::SubstrateRequired { .. } => codes::ENGINE_SUBSTRATE_REQUIRED,
             Self::SecretsUnresolved { .. } => codes::SECRETS_UNRESOLVED,
             Self::VerifyNotDeclared => codes::VERIFY_NOT_DECLARED,
+            Self::VerifyTierUnknown { .. } => codes::VERIFY_TIER_UNKNOWN,
+            Self::VerifyTierRequired { .. } => codes::VERIFY_TIER_REQUIRED,
             Self::VerifyFailed { .. } => codes::VERIFY_FAILED,
             Self::VerifySourceUnavailable { .. } => codes::VERIFY_SOURCE_UNAVAILABLE,
             Self::Substrate { fault, .. } => fault.code(),
@@ -164,9 +176,16 @@ impl Fault for CliError {
             Self::VerifyNotDeclared => {
                 "add a [stack.verify] table with a `run` command to stackless.toml".into()
             }
+            Self::VerifyTierUnknown { tier } => format!(
+                "declare [stack.verify.tiers.{tier}] or use the default [stack.verify] tier"
+            ),
+            Self::VerifyTierRequired { tiers } => format!(
+                "pass --tier with one of the declared tiers: {}",
+                tiers.join(", ")
+            ),
             Self::VerifyFailed { .. } => {
-                "the verify command's output above shows what failed; fix and re-run \
-                 `stackless verify`"
+                "inspect error.context.log_tail and error.context.log_path; fix the verify \
+                 script and re-run `stackless verify`"
                     .into()
             }
             Self::VerifySourceUnavailable { service, .. } => format!(
@@ -207,6 +226,17 @@ impl Fault for CliError {
         match self {
             Self::Engine(err) => err.context(),
             Self::Substrate { fault, .. } => fault.context(),
+            Self::VerifyFailed {
+                log_path,
+                log_tail,
+                status,
+                ..
+            } => stackless_core::fault::ErrorContext {
+                log_path: log_path.clone(),
+                log_tail: log_tail.clone(),
+                exit_status: Some(status.clone()),
+                ..Default::default()
+            },
             _ => stackless_core::fault::ErrorContext::default(),
         }
     }

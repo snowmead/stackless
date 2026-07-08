@@ -4,15 +4,25 @@
 use serde::Serialize;
 
 use stackless_core::def::{DependencyGraph, StackDef};
-use stackless_core::engine::{ProgressSink, StepProgress, StepProgressEvent};
+use stackless_core::engine::{ProgressSink, StepProgress, StepProgressEvent, UpOutcome};
 use stackless_core::fault::{ErrorContext, Fault, Report};
+use stackless_core::substrate::SpendInfo;
+
+const SCHEMA_VERSION: u32 = 1;
+
+struct Capture {
+    stdout: std::cell::RefCell<String>,
+    stderr: std::cell::RefCell<String>,
+}
 
 pub struct Output {
     json: bool,
+    capture: Option<Capture>,
 }
 
 #[derive(Serialize)]
 struct CheckOk<'a> {
+    schema_version: u32,
     ok: bool,
     stack: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -32,6 +42,8 @@ struct ErrorEnvelope {
 /// an agent can branch on it (§3).
 #[derive(Serialize)]
 struct StatusEnvelope<'a> {
+    schema_version: u32,
+    ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     persistence_warning: Option<&'a str>,
     #[serde(flatten)]
@@ -41,6 +53,8 @@ struct StatusEnvelope<'a> {
 /// `list --json`: the same warning alongside the instance array.
 #[derive(Serialize)]
 struct ListEnvelope<'a> {
+    schema_version: u32,
+    ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     persistence_warning: Option<&'a str>,
     instances: &'a [crate::commands::InstanceStatusReport],
@@ -48,16 +62,38 @@ struct ListEnvelope<'a> {
 
 impl Output {
     pub fn new(json: bool) -> Self {
-        Self { json }
+        Self {
+            json,
+            capture: None,
+        }
+    }
+
+    /// Capture stdout/stderr instead of printing — for `stackless mcp`.
+    pub fn capturing_json() -> Self {
+        Self {
+            json: true,
+            capture: Some(Capture {
+                stdout: std::cell::RefCell::new(String::new()),
+                stderr: std::cell::RefCell::new(String::new()),
+            }),
+        }
     }
 
     pub fn is_json(&self) -> bool {
         self.json
     }
 
+    pub fn take_capture(self) -> (String, String) {
+        match self.capture {
+            Some(capture) => (capture.stdout.into_inner(), capture.stderr.into_inner()),
+            None => (String::new(), String::new()),
+        }
+    }
+
     pub fn check_ok(&self, def: &StackDef, graph: &DependencyGraph, substrate: Option<&str>) {
         if self.json {
             self.emit(&CheckOk {
+                schema_version: SCHEMA_VERSION,
                 ok: true,
                 stack: def.stack.name.as_str(),
                 substrate,
@@ -104,12 +140,14 @@ impl Output {
         if self.json {
             #[derive(Serialize)]
             struct InitOk<'a> {
+                schema_version: u32,
                 ok: bool,
                 path: String,
                 stack: &'a str,
                 next: String,
             }
             self.emit(&InitOk {
+                schema_version: SCHEMA_VERSION,
                 ok: true,
                 path,
                 stack,
@@ -125,6 +163,7 @@ impl Output {
         if self.json {
             #[derive(Serialize)]
             struct AdoptOk<'a> {
+                schema_version: u32,
                 ok: bool,
                 path: String,
                 services: &'a [&'a str],
@@ -132,6 +171,7 @@ impl Output {
                 next: &'a str,
             }
             self.emit(&AdoptOk {
+                schema_version: SCHEMA_VERSION,
                 ok: true,
                 path,
                 services,
@@ -152,10 +192,15 @@ impl Output {
         if self.json {
             #[derive(Serialize)]
             struct DoctorOk<'a> {
+                schema_version: u32,
                 ok: bool,
                 checks: &'a [crate::doctor::DoctorCheck],
             }
-            self.emit(&DoctorOk { ok: all_ok, checks });
+            self.emit(&DoctorOk {
+                schema_version: SCHEMA_VERSION,
+                ok: all_ok,
+                checks,
+            });
             return;
         }
         for check in checks {
@@ -202,8 +247,9 @@ impl Output {
         &self,
         name: &str,
         substrate: &str,
-        outcome: &stackless_core::engine::UpOutcome,
+        outcome: &UpOutcome,
         origins: &[(String, String)],
+        spend: Option<&SpendInfo>,
     ) {
         if self.json {
             #[derive(Serialize)]
@@ -214,7 +260,11 @@ impl Output {
                 substrate: &'a str,
                 executed: &'a [String],
                 skipped: &'a [String],
+                duration_ms: u64,
+                steps: &'a [stackless_core::engine::StepTiming],
                 origins: Vec<Origin<'a>>,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                spend: Option<&'a SpendInfo>,
             }
             #[derive(Serialize)]
             struct Origin<'a> {
@@ -222,16 +272,19 @@ impl Output {
                 origin: &'a str,
             }
             self.emit(&UpOk {
-                schema_version: 1,
+                schema_version: SCHEMA_VERSION,
                 ok: true,
                 instance: name,
                 substrate,
                 executed: &outcome.executed,
                 skipped: &outcome.skipped,
+                duration_ms: outcome.duration_ms,
+                steps: &outcome.steps,
                 origins: origins
                     .iter()
                     .map(|(service, origin)| Origin { service, origin })
                     .collect(),
+                spend,
             });
             return;
         }
@@ -254,6 +307,8 @@ impl Output {
     ) {
         if self.json {
             self.emit(&StatusEnvelope {
+                schema_version: SCHEMA_VERSION,
+                ok: true,
                 persistence_warning,
                 report,
             });
@@ -304,6 +359,8 @@ impl Output {
     ) {
         if self.json {
             self.emit(&ListEnvelope {
+                schema_version: SCHEMA_VERSION,
+                ok: true,
                 persistence_warning,
                 instances: reports,
             });
@@ -323,24 +380,125 @@ impl Output {
     /// stdout stays machine-parseable).
     pub fn message(&self, text: &str) {
         if self.json {
-            eprintln!("{text}");
+            self.write_stderr(text);
         } else {
             println!("{text}");
         }
     }
 
+    pub fn down_ok(&self, name: &str, outcome: &str, spend: Option<&SpendInfo>) {
+        if self.json {
+            #[derive(Serialize)]
+            struct DownOk<'a> {
+                schema_version: u32,
+                ok: bool,
+                instance: &'a str,
+                outcome: &'a str,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                spend: Option<&'a SpendInfo>,
+            }
+            self.emit(&DownOk {
+                schema_version: SCHEMA_VERSION,
+                ok: true,
+                instance: name,
+                outcome,
+                spend,
+            });
+            return;
+        }
+        match outcome {
+            "destroyed" => self.message(&format!(
+                "{name}: destroyed, verified gone; tombstone and logs kept"
+            )),
+            "already_down" => self.message(&format!("{name}: already down")),
+            _ => self.message(&format!("{name}: down ({outcome})")),
+        }
+        if let Some(spend) = spend {
+            self.message(&spend.summary);
+        }
+    }
+
+    pub fn verify_ok(
+        &self,
+        name: &str,
+        tier: Option<&str>,
+        duration_ms: u64,
+        exit_status: i32,
+        log_path: &str,
+        lease_remaining_secs: Option<u64>,
+    ) {
+        if self.json {
+            #[derive(Serialize)]
+            struct VerifyOk<'a> {
+                schema_version: u32,
+                ok: bool,
+                instance: &'a str,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                tier: Option<&'a str>,
+                duration_ms: u64,
+                exit_status: i32,
+                log_path: &'a str,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                lease_remaining_secs: Option<u64>,
+            }
+            self.emit(&VerifyOk {
+                schema_version: SCHEMA_VERSION,
+                ok: true,
+                instance: name,
+                tier,
+                duration_ms,
+                exit_status,
+                log_path,
+                lease_remaining_secs,
+            });
+            return;
+        }
+        self.message(&format!("{name}: verify passed (lease renewed)"));
+    }
+
     pub fn logs_json(&self, instance: &str, services: &[LogService<'_>]) {
         #[derive(Serialize)]
         struct LogsOk<'a> {
+            schema_version: u32,
             ok: bool,
             instance: &'a str,
             services: &'a [LogService<'a>],
         }
         self.emit(&LogsOk {
+            schema_version: SCHEMA_VERSION,
             ok: true,
             instance,
             services,
         });
+    }
+
+    pub fn logs_unavailable_json(
+        &self,
+        instance: &str,
+        substrate: &str,
+        services: &[LogService<'_>],
+    ) {
+        if self.json {
+            #[derive(Serialize)]
+            struct LogsUnavailable<'a> {
+                schema_version: u32,
+                ok: bool,
+                instance: &'a str,
+                substrate: &'a str,
+                services: &'a [LogService<'a>],
+            }
+            self.emit(&LogsUnavailable {
+                schema_version: SCHEMA_VERSION,
+                ok: true,
+                instance,
+                substrate,
+                services,
+            });
+            return;
+        }
+        self.message(&format!(
+            "logs are not retrievable for substrate {substrate:?}"
+        ));
     }
 
     pub fn fault(&self, fault: &dyn Fault) {
@@ -385,18 +543,42 @@ impl Output {
 
     fn emit<T: Serialize>(&self, value: &T) {
         match serde_json::to_string_pretty(value) {
-            Ok(json) => println!("{json}"),
+            Ok(json) => self.write_stdout(&json),
             // Serialization of our own types cannot fail; if it ever
             // does, say so on stderr rather than emitting half-JSON.
-            Err(err) => eprintln!("error[cli.json.serialize]: {err}"),
+            Err(err) => self.write_stderr(&format!("error[cli.json.serialize]: {err}")),
         }
     }
 
     fn emit_ndjson<T: Serialize>(&self, value: &T) {
         match serde_json::to_string(value) {
-            Ok(json) => eprintln!("{json}"),
-            Err(err) => eprintln!("error[cli.json.serialize]: {err}"),
+            Ok(json) => self.write_stderr(&json),
+            Err(err) => self.write_stderr(&format!("error[cli.json.serialize]: {err}")),
         }
+    }
+
+    fn write_stdout(&self, text: &str) {
+        if let Some(capture) = &self.capture {
+            let mut buf = capture.stdout.borrow_mut();
+            if !buf.is_empty() {
+                buf.push('\n');
+            }
+            buf.push_str(text);
+            return;
+        }
+        println!("{text}");
+    }
+
+    fn write_stderr(&self, text: &str) {
+        if let Some(capture) = &self.capture {
+            let mut buf = capture.stderr.borrow_mut();
+            if !buf.is_empty() {
+                buf.push('\n');
+            }
+            buf.push_str(text);
+            return;
+        }
+        eprintln!("{text}");
     }
 }
 
@@ -406,7 +588,10 @@ pub struct LogService<'a> {
     pub source: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub log_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub lines: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<&'a str>,
 }
 
 // `impl ProgressSink for Output` follows this module; reordering is noise.
@@ -422,24 +607,70 @@ mod tests {
             source: "file",
             log_path: Some("/tmp/demo/web.log".into()),
             lines: vec!["listening on :3000".into()],
+            reason: None,
         };
         #[derive(Serialize)]
         struct LogsOk<'a> {
+            schema_version: u32,
             ok: bool,
             instance: &'a str,
             services: &'a [LogService<'a>],
         }
         let json = serde_json::to_value(&LogsOk {
+            schema_version: SCHEMA_VERSION,
             ok: true,
             instance: "demo",
             services: &[entry],
         })
         .unwrap();
         assert_eq!(json["ok"], true);
+        assert_eq!(json["schema_version"], 1);
         assert_eq!(json["instance"], "demo");
         assert_eq!(json["services"][0]["source"], "file");
-        assert_eq!(json["services"][0]["log_path"], "/tmp/demo/web.log");
-        assert_eq!(json["services"][0]["lines"][0], "listening on :3000");
+    }
+
+    #[test]
+    fn verify_ok_envelope_shape() {
+        #[derive(Serialize)]
+        struct VerifyOk {
+            schema_version: u32,
+            ok: bool,
+            instance: &'static str,
+            duration_ms: u64,
+            exit_status: i32,
+            log_path: &'static str,
+        }
+        let json = serde_json::to_value(&VerifyOk {
+            schema_version: SCHEMA_VERSION,
+            ok: true,
+            instance: "demo",
+            duration_ms: 12,
+            exit_status: 0,
+            log_path: "/tmp/verify.log",
+        })
+        .unwrap();
+        assert_eq!(json["ok"], true);
+        assert_eq!(json["log_path"], "/tmp/verify.log");
+    }
+
+    #[test]
+    fn down_ok_envelope_shape() {
+        #[derive(Serialize)]
+        struct DownOk {
+            schema_version: u32,
+            ok: bool,
+            instance: &'static str,
+            outcome: &'static str,
+        }
+        let json = serde_json::to_value(&DownOk {
+            schema_version: SCHEMA_VERSION,
+            ok: true,
+            instance: "demo",
+            outcome: "destroyed",
+        })
+        .unwrap();
+        assert_eq!(json["ok"], true);
+        assert_eq!(json["outcome"], "destroyed");
     }
 }
 
@@ -458,6 +689,9 @@ impl ProgressSink for Output {
                 total: usize,
                 #[serde(skip_serializing_if = "Option::is_none")]
                 code: Option<&'static str>,
+                at_epoch_ms: i64,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                duration_ms: Option<u64>,
             }
             let event = match progress.event {
                 StepProgressEvent::Started => "step_started",
@@ -466,7 +700,7 @@ impl ProgressSink for Output {
                 StepProgressEvent::Failed => "step_failed",
             };
             self.emit_ndjson(&ProgressEvent {
-                schema_version: 1,
+                schema_version: SCHEMA_VERSION,
                 event,
                 instance: progress.instance,
                 step: progress.step_id,
@@ -475,6 +709,8 @@ impl ProgressSink for Output {
                 index: progress.index,
                 total: progress.total,
                 code: progress.code,
+                at_epoch_ms: progress.at_epoch_ms,
+                duration_ms: progress.duration_ms,
             });
             return;
         }

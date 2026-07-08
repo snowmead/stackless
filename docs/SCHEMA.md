@@ -99,13 +99,16 @@ region = "iad"           # Fly region (default iad)
 ```
 
 - `name` — required.
-- `verify` — optional. `run` (required string) is executed by
-  `stackless verify <instance>` with `env` (table of strings,
-  interpolation allowed) resolved and exported. It runs from the
-  materialized source of the `root_origin` service (or the first
-  service if none). One command in v0; nonzero exit fails the verb
-  (`verify.failed`). Declaring no `[stack.verify]` makes
-  `stackless verify` fail with `verify.not_declared`.
+- `verify` — optional. `run` (string) is the default tier executed by
+  `stackless verify <instance>` (or `stackless verify <instance> --tier default`).
+  `env` (table of strings, interpolation allowed) is resolved and exported.
+  The command runs from the materialized source of the `root_origin` service
+  (or the first service if none). Output is captured to a per-instance log file;
+  `--json` success includes `duration_ms`, `exit_status`, and `log_path`.
+  Named tiers live under `[stack.verify.tiers.<name>]` with the same `{run, env}`
+  shape. Unknown tiers fail with `verify.tier_unknown`. Declaring no
+  `[stack.verify]` and no tiers makes `stackless verify` fail with
+  `verify.not_declared`.
 - `projects.stripe.project` — optional. Stackless writes this after it
   creates or adopts the stack's Stripe Project. Local integrations and
   cloud resources (Render, Vercel, Clerk, …) share this anchor;
@@ -512,8 +515,12 @@ region = "oregon"
 project = "project_61UqVKJia4fs..."   # recorded by stackless after first project creation
 
 [stack.verify]
-run = "bun e2e/smoke.ts"              # runs in the root_origin service's source
+run = "bun e2e/smoke.ts"              # default tier
 env = { ATTO_STACKLESS = "1", ATTO_E2E_WEB_ORIGIN = "${services.web.origin}", ATTO_E2E_API_ORIGIN = "${services.api.origin}", ATTO_E2E_TENANT_SLUG = "${instance.name}", CLERK_SECRET_KEY = "${integrations.clerk.secret_key}", VITE_CLERK_PUBLISHABLE_KEY = "${integrations.clerk.publishable_key}" }
+
+[stack.verify.tiers.integration]
+run = "bun e2e/integration.ts"
+env = { ATTO_E2E_WEB_ORIGIN = "${services.web.origin}" }
 
 [secrets]
 required = ["GITHUB_PACKAGES_TOKEN"]

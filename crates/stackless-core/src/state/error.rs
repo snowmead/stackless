@@ -79,11 +79,6 @@ impl StateError {
     pub(super) fn remote_worker_gone() -> Self {
         Self::RemoteWorker
     }
-    pub(super) fn remote_no_pragma() -> Self {
-        Self::RemoteQuery {
-            message: "PRAGMA user_version returned no row".into(),
-        }
-    }
     pub(super) fn row_range(column: usize) -> Self {
         Self::RowDecode {
             column,

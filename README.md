@@ -133,10 +133,10 @@ verifiably. No wiki page, no teammate, no manual cleanup.
 |---|---|
 | `up [--name <name>]` | Create **or resume** an instance (no separate resume verb). `--name` optional at creation (`{stack}-{uuid}`); `--on <substrate>` **required at creation**; `--file <path>`, `--source svc=path`, `--dirty` (requires `--source`), `--lease 8h`, `--confirm-paid` |
 | `down <name>` | Verified teardown; exits non-zero listing survivors if anything remains |
-| `verify <name>` | Run the stack's proof contract; renews the lease |
+| `verify <name> [--tier <name>]` | Run the stack's proof contract; renews the lease |
 | `status <name>` | Staged truth per service: provisioned → prepared → started → healthy, downgraded by observation |
 | `list` | All instances with substrate, `active`/`tombstoned`, per-service stage, remaining lease |
-| `logs <name> [service]` | Captured service output (local files / Render log API); Vercel uses the dashboard for now; survives teardown; `--tail` (default 100) |
+| `logs <name> [service]` | Captured service output (local files, Render/Vercel/Netlify/Fly APIs where wired); survives teardown; `--tail` (default 100) |
 | `check <file>` | Parse + validate a definition, print the derived graph; `--on <substrate>` adds substrate checks |
 
 Every command is non-interactive, supports `--json`, and exits with
@@ -179,15 +179,23 @@ exist.
 During `up --json`, stderr emits one NDJSON object per plan step:
 `step_started`, `step_skipped`, `step_completed`, or `step_failed`,
 with `schema_version`, `instance`, `step`, `kind`, `node`, `index`,
-`total`, and optional `code`.
+`total`, optional `code`, `at_epoch_ms`, and optional `duration_ms`.
 
-Success shapes: `up --json` includes `schema_version`, `executed`,
-`skipped`, and `origins`; `status`/`list --json` may include
-`persistence_warning` when daemon boot persistence failed (leases then
-depend on the daemon staying up).
+Every success verb on stdout includes `{ "schema_version": 1, "ok": true, … }`:
+`up` (with `executed`, `skipped`, `duration_ms`, `steps`, `origins`, optional
+`spend`), `down` (`outcome`, optional `spend`), `verify` (`duration_ms`,
+`exit_status`, `log_path`, optional `tier`), `status`, `list`, `logs`,
+`check`, `init`, `adopt`, and `doctor`. Cloud `up`/`down` may include a
+structured `spend` object (`provider`, `cap_usd`, `summary`, optional `data`).
+
+`status`/`list --json` may include `persistence_warning` when daemon boot
+persistence failed (leases then depend on the daemon staying up).
 
 Codes are stable, versioned API surface — branch on `error.code`,
 never on prose.
+
+For parallel agents, shared fleet state, and MCP wiring, see
+[docs/AGENT-FLEETS.md](docs/AGENT-FLEETS.md).
 
 ## Quick start
 
@@ -307,8 +315,24 @@ implemented yet.
 
 - [x] `stackless logs` (local)
 - [x] `stackless logs` (render)
-- [ ] `stackless logs` (vercel)
-- [ ] fleet state plane (Turso Cloud)
+- [x] `stackless logs` (vercel — build events)
+- [x] `stackless logs` (netlify — deploy metadata)
+- [x] `stackless logs` (fly — machine events)
+- [x] fleet state plane (libsql; live Turso verification via `mise run smoke-fleet`)
+
+## Limitations
+
+- **Local datastores require Docker.** `[datastores.*]` on `--on local` uses
+  labeled containers. Agent sandboxes without Docker cannot run those stacks
+  locally; use `--on render` for managed postgres or keep the stack
+  service-only.
+- **Cloud lease reaping runs from the operator machine.** The reaper lives in
+  the local daemon. If the machine sleeps past a cloud instance's lease, the
+  instance outlives its lease until the machine wakes; hard spend caps bound
+  the leakage.
+- **Trust boundary is v0 posture.** Secrets are operator-visible in
+  `.stackless.env`; default-deny egress and secret blinding are sequenced after
+  the lifecycle layer (see ARCHITECTURE.md §0).
 
 ## Status
 

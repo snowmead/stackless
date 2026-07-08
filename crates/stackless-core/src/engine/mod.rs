@@ -8,4 +8,4 @@ pub mod run;
 pub use error::EngineError;
 pub use plan::{Step, StepKind};
 pub use progress::{NullProgress, ProgressSink, StepProgress, StepProgressEvent};
-pub use run::{DownOutcome, Engine, UpOutcome, UpRequest};
+pub use run::{DownOutcome, Engine, StepTiming, UpOutcome, UpRequest};

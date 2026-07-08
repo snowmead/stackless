@@ -34,7 +34,10 @@ pub fn adopt(args: AdoptArgs, output: &Output) -> Result<(), CliError> {
     let detected = detect_services(&dir, &stack, &source)?;
     let (text, merged) = if file.exists() {
         if args.force {
-            (compose_definition(&stack, &detected), false)
+            (
+                compose_definition(&stack, &detected, &adopt_notes(&dir)),
+                false,
+            )
         } else if args.merge {
             let existing = std::fs::read_to_string(&file).map_err(|source| CliError::FileRead {
                 path: file.display().to_string(),
@@ -61,7 +64,10 @@ pub fn adopt(args: AdoptArgs, output: &Output) -> Result<(), CliError> {
             });
         }
     } else {
-        (compose_definition(&stack, &detected), false)
+        (
+            compose_definition(&stack, &detected, &adopt_notes(&dir)),
+            false,
+        )
     };
     stackless_core::def::StackDef::parse(&text)?;
     std::fs::write(&file, &text).map_err(|source| CliError::FileWrite {
@@ -74,8 +80,16 @@ pub fn adopt(args: AdoptArgs, output: &Output) -> Result<(), CliError> {
     Ok(())
 }
 
-fn compose_definition(stack: &str, services: &[DetectedService]) -> String {
-    let mut out = format!("[stack]\nname = \"{stack}\"\n\n");
+fn compose_definition(stack: &str, services: &[DetectedService], notes: &[String]) -> String {
+    let mut out = String::new();
+    for note in notes {
+        out.push_str(note);
+        out.push('\n');
+    }
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    out.push_str(&format!("[stack]\nname = \"{stack}\"\n\n"));
     let mut root_set = false;
     for service in services {
         let block = if service.root_origin && !root_set {
@@ -95,6 +109,25 @@ fn compose_definition(stack: &str, services: &[DetectedService]) -> String {
     out
 }
 
+fn adopt_notes(dir: &Path) -> Vec<String> {
+    let mut notes = Vec::new();
+    if dir.join("docker-compose.yml").is_file() || dir.join("compose.yaml").is_file() {
+        notes.push(
+            "# adopt: found docker-compose — stackless does not translate compose files; \
+             declare each service explicitly."
+                .into(),
+        );
+    }
+    if dir.join("Dockerfile").is_file() {
+        notes.push(
+            "# adopt: found Dockerfile — local substrate runs host processes, not container \
+             images (use a cloud substrate or hand-write run commands)."
+                .into(),
+        );
+    }
+    notes
+}
+
 fn detect_services(
     dir: &Path,
     stack: &str,
@@ -107,6 +140,11 @@ fn detect_services(
 
     if package.is_file()
         && let Some(service) = detect_node_service(dir, stack, source)
+    {
+        services.push(service);
+    }
+    if (dir.join("pyproject.toml").is_file() || dir.join("requirements.txt").is_file())
+        && let Some(service) = detect_python_service(dir, stack, source)
     {
         services.push(service);
     }
@@ -147,10 +185,65 @@ health = {{ path = "/", contains = 'id="root"' }}
             root_origin: true,
         });
     }
+    if let Some(scripts) = value.get("scripts").and_then(|v| v.as_object()) {
+        let run = if scripts.contains_key("dev") {
+            "npm run dev -- --port $PORT"
+        } else if scripts.contains_key("start") {
+            "npm start"
+        } else {
+            return None;
+        };
+        return Some(DetectedService {
+            name: "web".into(),
+            block: format!(
+                r#"[services.web]
+source = {{ repo = "{repo}", ref = "{git_ref}" }}
+root_origin = true
+health = {{ path = "/", status = 200 }}
+
+  [services.web.local]
+  run = "{run}"
+"#,
+                repo = source.repo,
+                git_ref = source.git_ref,
+                run = run,
+            ),
+            root_origin: true,
+        });
+    }
     if dir.join("index.html").is_file() {
         return Some(static_web_service(stack, source, true));
     }
     None
+}
+
+fn detect_python_service(dir: &Path, stack: &str, source: &GitSource) -> Option<DetectedService> {
+    let _ = stack;
+    let run = if dir.join("manage.py").is_file() {
+        "python3 manage.py runserver 127.0.0.1:$PORT"
+    } else if dir.join("app.py").is_file() {
+        "python3 app.py"
+    } else if dir.join("main.py").is_file() {
+        "python3 main.py"
+    } else {
+        return None;
+    };
+    Some(DetectedService {
+        name: "api".into(),
+        block: format!(
+            r#"[services.api]
+source = {{ repo = "{repo}", ref = "{git_ref}" }}
+health = {{ path = "/", status = 200 }}
+
+  [services.api.local]
+  run = "{run}"
+"#,
+            repo = source.repo,
+            git_ref = source.git_ref,
+            run = run,
+        ),
+        root_origin: false,
+    })
 }
 
 fn rust_api_service(stack: &str, source: &GitSource) -> DetectedService {

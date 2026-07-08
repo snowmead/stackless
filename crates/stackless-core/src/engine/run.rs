@@ -5,10 +5,12 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+use serde::Serialize;
 
 use super::error::EngineError;
-use super::progress::{NullProgress, ProgressSink, StepProgress, StepProgressEvent};
+use super::progress::{NullProgress, ProgressSink, StepProgress, StepProgressEvent, epoch_ms};
 
 use crate::def::{DefError, StackDef};
 use crate::state::{InstanceStatus, Store};
@@ -54,10 +56,18 @@ impl std::fmt::Debug for UpRequest<'_> {
     }
 }
 
+#[derive(Debug, Default, PartialEq, Eq, Serialize)]
+pub struct StepTiming {
+    pub id: String,
+    pub duration_ms: u64,
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct UpOutcome {
     pub executed: Vec<String>,
     pub skipped: Vec<String>,
+    pub duration_ms: u64,
+    pub steps: Vec<StepTiming>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -179,6 +189,7 @@ impl Engine<'_> {
         source_overrides: &std::collections::BTreeMap<String, String>,
         dirty: bool,
     ) -> Result<UpOutcome, EngineError> {
+        let up_started = Instant::now();
         let steps = request.def.plan()?;
         let total = steps.len();
         let mut null = NullProgress;
@@ -186,17 +197,27 @@ impl Engine<'_> {
         let mut outcome = UpOutcome::default();
         for (offset, step) in steps.iter().enumerate() {
             let index = offset + 1;
-            let base = || StepProgress {
-                event: StepProgressEvent::Started,
-                instance: request.instance.to_owned(),
-                step_id: step.id.clone(),
-                step_kind: step.kind,
-                node: step.node.clone(),
-                index,
-                total,
-                code: None,
-            };
-            progress.on_step(base());
+            let step_started = Instant::now();
+            let progress_event =
+                |event: StepProgressEvent, code: Option<&'static str>| -> StepProgress {
+                    let duration_ms = match event {
+                        StepProgressEvent::Started => None,
+                        _ => Some(step_started.elapsed().as_millis() as u64),
+                    };
+                    StepProgress {
+                        event,
+                        instance: request.instance.to_owned(),
+                        step_id: step.id.clone(),
+                        step_kind: step.kind,
+                        node: step.node.clone(),
+                        index,
+                        total,
+                        code,
+                        at_epoch_ms: epoch_ms(),
+                        duration_ms,
+                    }
+                };
+            progress.on_step(progress_event(StepProgressEvent::Started, None));
             // Resume reconciles against observation, not memory
             // (invariant 4): a recorded step is only skipped if its
             // resource is still really there.
@@ -206,11 +227,8 @@ impl Engine<'_> {
                     .observe(request.instance, &checkpoint)
                     .await
                     .map_err(|fault| {
-                        progress.on_step(StepProgress {
-                            event: StepProgressEvent::Failed,
-                            code: Some(fault.code),
-                            ..base()
-                        });
+                        progress
+                            .on_step(progress_event(StepProgressEvent::Failed, Some(fault.code)));
                         EngineError::Step {
                             instance: request.instance.to_owned(),
                             step: step.id.clone(),
@@ -218,11 +236,13 @@ impl Engine<'_> {
                         }
                     })?;
                 if observation == Observation::Present {
-                    progress.on_step(StepProgress {
-                        event: StepProgressEvent::Skipped,
-                        ..base()
-                    });
+                    let elapsed = step_started.elapsed().as_millis() as u64;
+                    progress.on_step(progress_event(StepProgressEvent::Skipped, None));
                     outcome.skipped.push(step.id.clone());
+                    outcome.steps.push(StepTiming {
+                        id: step.id.clone(),
+                        duration_ms: elapsed,
+                    });
                     continue;
                 }
             }
@@ -239,11 +259,7 @@ impl Engine<'_> {
                 })
                 .await
                 .map_err(|fault| {
-                    progress.on_step(StepProgress {
-                        event: StepProgressEvent::Failed,
-                        code: Some(fault.code),
-                        ..base()
-                    });
+                    progress.on_step(progress_event(StepProgressEvent::Failed, Some(fault.code)));
                     EngineError::Step {
                         instance: request.instance.to_owned(),
                         step: step.id.clone(),
@@ -258,12 +274,15 @@ impl Engine<'_> {
                 &resource.resource_id,
                 &resource.payload,
             )?;
-            progress.on_step(StepProgress {
-                event: StepProgressEvent::Completed,
-                ..base()
-            });
+            let elapsed = step_started.elapsed().as_millis() as u64;
+            progress.on_step(progress_event(StepProgressEvent::Completed, None));
             outcome.executed.push(step.id.clone());
+            outcome.steps.push(StepTiming {
+                id: step.id.clone(),
+                duration_ms: elapsed,
+            });
         }
+        outcome.duration_ms = up_started.elapsed().as_millis() as u64;
         Ok(outcome)
     }
 

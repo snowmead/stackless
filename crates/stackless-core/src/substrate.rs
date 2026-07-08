@@ -10,10 +10,22 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use serde::Serialize;
+
 use crate::def::{Namespace, StackDef};
 use crate::engine::Step;
 use crate::fault::{ErrorContext, Fault};
 use crate::state::Checkpoint;
+
+/// Structured spend data for cloud `--json` envelopes (§4).
+#[derive(Debug, Clone, Serialize)]
+pub struct SpendInfo {
+    pub provider: String,
+    pub cap_usd: u32,
+    pub summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<serde_json::Value>,
+}
 
 /// A substrate failure, flattened at the trait boundary so the §2
 /// error contract (stable code + remediation) crosses it intact
@@ -182,11 +194,15 @@ pub trait Substrate: Send + Sync {
         Ok(())
     }
 
-    /// A spend line to print after `up`/`down` (§4 — never silently nothing;
-    /// bounded by the project's hard cap). Substrates that spend nothing
-    /// (local) return `None`.
-    async fn spend_line(&self) -> Option<String> {
+    /// Structured spend for `--json` envelopes (§4). Substrates that spend
+    /// nothing (local) return `None`.
+    async fn spend(&self) -> Option<SpendInfo> {
         None
+    }
+
+    /// Human spend line after `up`/`down` (§4 — never silently nothing).
+    async fn spend_line(&self) -> Option<String> {
+        self.spend().await.map(|info| info.summary)
     }
 
     /// Recent logs for `services` (§2 — recent window, no streaming). `None`

@@ -28,7 +28,7 @@ fn atto_parses_to_the_documented_model() {
 
     assert_eq!(def.stack.name.as_str(), "atto");
     let verify = def.stack.verify.as_ref().unwrap();
-    assert_eq!(verify.run, "bun e2e/smoke.ts");
+    assert_eq!(verify.run.as_deref(), Some("bun e2e/smoke.ts"));
     assert_eq!(verify.env["ATTO_STACKLESS"], "1");
     assert_eq!(verify.env["ATTO_E2E_WEB_ORIGIN"], "${services.web.origin}");
     assert_eq!(verify.env["ATTO_E2E_API_ORIGIN"], "${services.api.origin}");

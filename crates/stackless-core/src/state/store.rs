@@ -42,6 +42,16 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/005_dirty.sql"),
 ];
 
+const MIGRATION_001_TABLES: &[&str] = &["instances", "leases", "op_locks", "checkpoints"];
+
+/// Turso Cloud makes `PRAGMA user_version` read-only; the remote backend
+/// tracks schema version in this table instead (see Turso limitations doc).
+const REMOTE_SCHEMA_VERSION_BOOTSTRAP: &str = r"
+CREATE TABLE IF NOT EXISTS _stackless_schema_version (
+    version INTEGER NOT NULL
+);
+";
+
 /// A driver-agnostic SQL value for the helper layer. Bridges rusqlite
 /// and libsql params; only the variants the state store actually binds
 /// (text, integers, null) — no blobs or reals are stored.
@@ -352,6 +362,10 @@ impl Store {
     }
 
     fn migrate(&self) -> Result<(), StateError> {
+        if let Backend::Remote(db) = &self.backend {
+            self.repair_remote_migration_001()?;
+            self.reconcile_remote_schema_version(db)?;
+        }
         let version = self.user_version()?;
         for (index, sql) in MIGRATIONS.iter().enumerate() {
             let target = index as i64 + 1;
@@ -363,26 +377,187 @@ impl Store {
         Ok(())
     }
 
+    /// Fill in any migration-001 tables missing after a partial remote apply.
+    fn repair_remote_migration_001(&self) -> Result<(), StateError> {
+        let Backend::Remote(db) = &self.backend else {
+            return Ok(());
+        };
+        if self.migration_001_complete()? || !self.migration_001_started()? {
+            return Ok(());
+        }
+        db.run(|conn, rt| {
+            rt.block_on(async {
+                conn.execute_batch(include_str!("migrations/001_init_repair.sql"))
+                    .await
+                    .map_err(|e| StateError::Migrate {
+                        source: rusqlite_shim(e),
+                    })?;
+                Ok(())
+            })
+        })
+    }
+
+    fn migration_001_complete(&self) -> Result<bool, StateError> {
+        for table in MIGRATION_001_TABLES {
+            if !self.table_exists(table)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    fn migration_001_started(&self) -> Result<bool, StateError> {
+        for table in MIGRATION_001_TABLES {
+            if self.table_exists(table)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Recover from a partial remote migration (e.g. Turso rejected the old
+    /// `PRAGMA user_version` bump after DDL succeeded). Introspect the live
+    /// schema and advance the recorded version to match.
+    fn reconcile_remote_schema_version(&self, db: &RemoteDb) -> Result<(), StateError> {
+        let recorded = Self::remote_user_version(db)?;
+        let actual = self.detect_migration_level()?;
+        if actual > recorded {
+            Self::remote_set_user_version(db, actual)?;
+        }
+        Ok(())
+    }
+
+    fn detect_migration_level(&self) -> Result<i64, StateError> {
+        let mut level = 0;
+        if self.migration_001_complete()? {
+            level = 1;
+            if self.column_exists("instances", "definition_dir")? {
+                level = 2;
+            }
+            if self.table_exists("reap_attempts")? {
+                level = 3;
+            }
+            if self.column_exists("op_locks", "holder_host")? {
+                level = 4;
+            }
+            if self.column_exists("instances", "dirty")? {
+                level = 5;
+            }
+        }
+        Ok(level)
+    }
+
+    fn table_exists(&self, name: &str) -> Result<bool, StateError> {
+        Ok(self
+            .query_first(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                &[name.into()],
+            )?
+            .is_some())
+    }
+
+    fn column_exists(&self, table: &str, column: &str) -> Result<bool, StateError> {
+        Ok(self
+            .query_first(
+                &format!("SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1"),
+                &[column.into()],
+            )?
+            .is_some())
+    }
+
     fn user_version(&self) -> Result<i64, StateError> {
         match &self.backend {
             Backend::Local(conn) => conn
                 .pragma_query_value(None, "user_version", |row| row.get(0))
                 .map_err(Into::into),
-            Backend::Remote(db) => db.run(|conn, rt| {
-                rt.block_on(async {
+            Backend::Remote(db) => Self::remote_user_version(db),
+        }
+    }
+
+    fn ensure_remote_schema_version_table(db: &RemoteDb) -> Result<(), StateError> {
+        db.run(|conn, rt| {
+            rt.block_on(async {
+                conn.execute_batch(REMOTE_SCHEMA_VERSION_BOOTSTRAP)
+                    .await
+                    .map_err(|e| StateError::Migrate {
+                        source: rusqlite_shim(e),
+                    })?;
+                conn.execute(
+                    "INSERT INTO _stackless_schema_version (version)
+                     SELECT 0 WHERE NOT EXISTS (SELECT 1 FROM _stackless_schema_version)",
+                    (),
+                )
+                .await
+                .map_err(|e| StateError::Migrate {
+                    source: rusqlite_shim(e),
+                })?;
+                Ok(())
+            })
+        })
+    }
+
+    fn remote_user_version(db: &RemoteDb) -> Result<i64, StateError> {
+        Self::ensure_remote_schema_version_table(db)?;
+        db.run(|conn, rt| {
+            rt.block_on(async {
+                let mut rows = conn
+                    .query(
+                        "SELECT COALESCE(MAX(version), 0) FROM _stackless_schema_version",
+                        (),
+                    )
+                    .await
+                    .map_err(StateError::remote_query)?;
+                match rows.next().await.map_err(StateError::remote_query)? {
+                    Some(row) => row.get::<i64>(0).map_err(StateError::remote_query),
+                    None => Ok(0),
+                }
+            })
+        })
+    }
+
+    fn remote_set_user_version(db: &RemoteDb, target: i64) -> Result<(), StateError> {
+        Self::ensure_remote_schema_version_table(db)?;
+        db.run(move |conn, rt| {
+            rt.block_on(async {
+                let changed = conn
+                    .execute(
+                        "UPDATE _stackless_schema_version SET version = ?1",
+                        [libsql::Value::Integer(target)],
+                    )
+                    .await
+                    .map_err(|e| StateError::Migrate {
+                        source: rusqlite_shim(e),
+                    })?;
+                if changed == 0 {
+                    // SQLite reports zero changes when the version is already
+                    // current — only insert into an empty table.
                     let mut rows = conn
-                        .query("PRAGMA user_version", ())
+                        .query("SELECT 1 FROM _stackless_schema_version LIMIT 1", ())
                         .await
-                        .map_err(StateError::remote_query)?;
-                    let row = rows
+                        .map_err(|e| StateError::Migrate {
+                            source: rusqlite_shim(e),
+                        })?;
+                    if rows
                         .next()
                         .await
-                        .map_err(StateError::remote_query)?
-                        .ok_or_else(StateError::remote_no_pragma)?;
-                    row.get::<i64>(0).map_err(StateError::remote_query)
-                })
-            }),
-        }
+                        .map_err(|e| StateError::Migrate {
+                            source: rusqlite_shim(e),
+                        })?
+                        .is_none()
+                    {
+                        conn.execute(
+                            "INSERT INTO _stackless_schema_version (version) VALUES (?1)",
+                            [libsql::Value::Integer(target)],
+                        )
+                        .await
+                        .map_err(|e| StateError::Migrate {
+                            source: rusqlite_shim(e),
+                        })?;
+                    }
+                }
+                Ok(())
+            })
+        })
     }
 
     fn run_migration(&self, sql: &str, target: i64) -> Result<(), StateError> {
@@ -393,14 +568,10 @@ impl Store {
                 ))
                 .map_err(|source| StateError::Migrate { source }),
             Backend::Remote(db) => {
-                // libsql remote rejects `PRAGMA user_version = N` inside a
-                // batch with other DDL, and STRICT-table DDL is supported
-                // remotely (verified against local-libsql; Turso Cloud
-                // shares the engine), so the SQL is used verbatim — no
-                // STRICT stripping needed. The version bump is a separate
-                // statement; remote batches are not transactional, but
-                // each migration's DDL is individually durable and the
-                // version gate makes re-runs idempotent.
+                // Turso Cloud rejects `PRAGMA user_version = N` (read-only).
+                // Track version in `_stackless_schema_version` instead; each
+                // migration's DDL is individually durable and the version gate
+                // makes re-runs idempotent.
                 let sql = sql.to_owned();
                 db.run(move |conn, rt| {
                     rt.block_on(async {
@@ -409,14 +580,10 @@ impl Store {
                             .map_err(|e| StateError::Migrate {
                                 source: rusqlite_shim(e),
                             })?;
-                        conn.execute(&format!("PRAGMA user_version = {target}"), ())
-                            .await
-                            .map_err(|e| StateError::Migrate {
-                                source: rusqlite_shim(e),
-                            })?;
                         Ok(())
                     })
-                })
+                })?;
+                Self::remote_set_user_version(db, target)
             }
         }
     }
