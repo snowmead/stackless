@@ -360,6 +360,9 @@ impl Store {
     }
 
     fn migrate(&self) -> Result<(), StateError> {
+        if let Backend::Remote(db) = &self.backend {
+            self.reconcile_remote_schema_version(db)?;
+        }
         let version = self.user_version()?;
         for (index, sql) in MIGRATIONS.iter().enumerate() {
             let target = index as i64 + 1;
@@ -369,6 +372,56 @@ impl Store {
             self.run_migration(sql, target)?;
         }
         Ok(())
+    }
+
+    /// Recover from a partial remote migration (e.g. Turso rejected the old
+    /// `PRAGMA user_version` bump after DDL succeeded). Introspect the live
+    /// schema and advance the recorded version to match.
+    fn reconcile_remote_schema_version(&self, db: &RemoteDb) -> Result<(), StateError> {
+        let recorded = Self::remote_user_version(db)?;
+        let actual = self.detect_migration_level()?;
+        if actual > recorded {
+            Self::remote_set_user_version(db, actual)?;
+        }
+        Ok(())
+    }
+
+    fn detect_migration_level(&self) -> Result<i64, StateError> {
+        let mut level = 0;
+        if self.table_exists("instances")? {
+            level = 1;
+            if self.column_exists("instances", "definition_dir")? {
+                level = 2;
+            }
+            if self.table_exists("reap_attempts")? {
+                level = 3;
+            }
+            if self.column_exists("op_locks", "holder_host")? {
+                level = 4;
+            }
+            if self.column_exists("instances", "dirty")? {
+                level = 5;
+            }
+        }
+        Ok(level)
+    }
+
+    fn table_exists(&self, name: &str) -> Result<bool, StateError> {
+        Ok(self
+            .query_first(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                &[name.into()],
+            )?
+            .is_some())
+    }
+
+    fn column_exists(&self, table: &str, column: &str) -> Result<bool, StateError> {
+        Ok(self
+            .query_first(
+                &format!("SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1"),
+                &[column.into()],
+            )?
+            .is_some())
     }
 
     fn user_version(&self) -> Result<i64, StateError> {
