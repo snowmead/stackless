@@ -136,6 +136,7 @@ run = "true"
                 "CLOUDFLARE_NAME": "atto-db",
                 "CLOUDFLARE_ACCOUNT_ID": "acc_1"
             }),
+            0,
         );
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(

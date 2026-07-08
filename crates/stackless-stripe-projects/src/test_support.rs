@@ -102,20 +102,35 @@ pub fn raw(stdout: &str) -> CommandOutput {
     }
 }
 
+/// Extra scripted steps for one parent plan (`services list` → `add` → `env add`).
+pub fn parent_plan_steps() -> Vec<CommandOutput> {
+    vec![services(&[]), ok(json!({})), ok_empty()]
+}
+
 /// A [`ScriptedRunner`] pre-loaded with the exact CLI conversation a
-/// `CatalogResource` provision drives: catalog → ensure project/env → add (with
-/// `add_variables` in the response) → env add → env pull. Collapses each
-/// resource's provision test to one call; `add_variables` is the credential
-/// envelope the resource maps to outputs.
-pub fn provision_script(catalog_envelope: &str, add_variables: Value) -> ScriptedRunner {
-    ScriptedRunner::new(vec![
-        raw(catalog_envelope),                     // catalog --json
-        status(Some("project_1")),                 // ensure_project
-        env_list(&["demo"]),                       // ensure_environment (list)
-        ok_empty(),                                // ensure_environment (use)
+/// `CatalogResource` provision drives: catalog → ensure project/env → optional
+/// parent-plan adds → add (with `add_variables` in the response) → env add →
+/// env pull. `parent_plans` is how many parent-plan rounds to script (each round
+/// is three steps from [`parent_plan_steps`]).
+pub fn provision_script(
+    catalog_envelope: &str,
+    add_variables: Value,
+    parent_plans: usize,
+) -> ScriptedRunner {
+    let mut steps = vec![
+        raw(catalog_envelope),     // catalog --json
+        status(Some("project_1")), // ensure_project
+        env_list(&["demo"]),       // ensure_environment (list)
+        ok_empty(),                // ensure_environment (use)
+    ];
+    for _ in 0..parent_plans {
+        steps.extend(parent_plan_steps());
+    }
+    steps.extend([
         services(&[]),                             // add_resource registered pre-check
         ok(json!({ "variables": add_variables })), // add <reference>
         ok_empty(),                                // env add --resource
         ok_empty(),                                // env --pull --refresh
-    ])
+    ]);
+    ScriptedRunner::new(steps)
 }

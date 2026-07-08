@@ -180,6 +180,13 @@ impl ServiceDetail {
         self.pricing.requires_confirmation(config)
     }
 
+    /// Parent plan `service_id`s that must be provisioned before this service.
+    /// Only returns parents when the catalog names exactly one (multi-parent
+    /// tiers like `vercel/project` are handled by the substrate).
+    pub fn required_parent_services(&self, config: &Value) -> Vec<String> {
+        self.pricing.required_parent_services(config)
+    }
+
     fn collect_drift(&self, out: &mut Vec<String>) {
         let at = self.reference();
         push_extra(out, &at, &self.extra);
@@ -400,6 +407,23 @@ impl Pricing {
         self.kind == PricingKind::Paid
     }
 
+    /// Parent plan `service_id`s required before provisioning `config`, from the
+    /// selected component-pricing option. Empty when unambiguous parents are
+    /// absent (multi-parent options are left to substrate-specific handling).
+    pub fn required_parent_services(&self, config: &Value) -> Vec<String> {
+        let Some(component) = &self.component else {
+            return Vec::new();
+        };
+        let Some(option) = component.match_option(config) else {
+            return Vec::new();
+        };
+        if option.parent_services.len() == 1 {
+            option.parent_services.clone()
+        } else {
+            Vec::new()
+        }
+    }
+
     fn collect_drift(&self, out: &mut Vec<String>, at: &str) {
         let path = format!("{at}.pricing");
         push_extra(out, &path, &self.extra);
@@ -491,6 +515,20 @@ impl ComponentPricing {
         for (i, option) in self.options.iter().enumerate() {
             option.collect_drift(out, &format!("{at}.options[{i}]"));
         }
+    }
+
+    /// The component-pricing option implied by `config`: explicit default, else
+    /// the first free tier, else the first option.
+    fn match_option(&self, _config: &Value) -> Option<&ComponentOption> {
+        for option in &self.options {
+            if option.is_default == Some(true) {
+                return Some(option);
+            }
+        }
+        self.options
+            .iter()
+            .find(|option| option.kind == ComponentOptionKind::Free)
+            .or(self.options.first())
     }
 }
 
@@ -831,5 +869,44 @@ mod tests {
         assert!(paid.requires_confirmation(&json!({})));
         let component = service("Clerk/auth", json!({}), json!({"type": "component"}));
         assert!(!component.requires_confirmation(&json!({})));
+    }
+
+    #[test]
+    fn required_parent_services_returns_single_parent_only() {
+        let kv = service(
+            "cloudflare/kv",
+            json!({"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"]}),
+            json!({
+                "type": "component",
+                "component": {
+                    "options": [
+                        {"type": "free", "parent_services": ["workers:free"]},
+                        {"type": "paid", "parent_services": ["workers:paid"]}
+                    ]
+                }
+            }),
+        );
+        assert_eq!(
+            kv.required_parent_services(&json!({"title": "cache"})),
+            vec!["workers:free"]
+        );
+
+        let vercel = service(
+            "vercel/project",
+            json!({"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}),
+            json!({
+                "type": "component",
+                "component": {
+                    "options": [
+                        {"type": "free", "parent_services": ["pro", "hobby"]}
+                    ]
+                }
+            }),
+        );
+        assert!(
+            vercel
+                .required_parent_services(&json!({"name": "demo"}))
+                .is_empty()
+        );
     }
 }

@@ -7,7 +7,7 @@
 //! is the test-time gap check that reuses the exact same validation.
 
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::catalog::Catalog;
 use crate::error::ProjectsError;
@@ -48,8 +48,31 @@ where
             reference: C::REFERENCE,
             violations,
         })?;
+    ensure_parent_plans(stripe, catalog, service, &value).await?;
     let paid = service.requires_confirmation(&value);
     project::add_resource(stripe, C::REFERENCE, resource_name, &value, paid).await
+}
+
+/// Provision catalog-named parent plans before a dependent service. Stripe
+/// Projects 0.23+ enforces `PLAN_REQUIRED` when `parent_services` is unset.
+async fn ensure_parent_plans<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+    catalog: &Catalog,
+    service: &crate::catalog::ServiceDetail,
+    config: &Value,
+) -> Result<(), ProjectsError> {
+    for plan_id in service.required_parent_services(config) {
+        let reference = format!("{}/{}", service.provider_name.to_ascii_lowercase(), plan_id);
+        let plan = catalog
+            .lookup(&reference)
+            .ok_or_else(|| ProjectsError::ProvisionFailed {
+                resource: plan_id.clone(),
+                detail: format!("parent plan {reference} not found in catalog"),
+            })?;
+        let paid = plan.requires_confirmation(&json!({}));
+        project::add_resource(stripe, &reference, &plan_id, &json!({}), paid).await?;
+    }
+    Ok(())
 }
 
 /// Whether provisioning `config` for `reference` needs paid confirmation, per the
