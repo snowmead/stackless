@@ -461,7 +461,7 @@ impl Store {
             rt.block_on(async {
                 let mut rows = conn
                     .query(
-                        "SELECT version FROM _stackless_schema_version ORDER BY rowid DESC LIMIT 1",
+                        "SELECT COALESCE(MAX(version), 0) FROM _stackless_schema_version",
                         (),
                     )
                     .await
@@ -488,14 +488,31 @@ impl Store {
                         source: rusqlite_shim(e),
                     })?;
                 if changed == 0 {
-                    conn.execute(
-                        "INSERT INTO _stackless_schema_version (version) VALUES (?1)",
-                        [libsql::Value::Integer(target)],
-                    )
-                    .await
-                    .map_err(|e| StateError::Migrate {
-                        source: rusqlite_shim(e),
-                    })?;
+                    // SQLite reports zero changes when the version is already
+                    // current — only insert into an empty table.
+                    let mut rows = conn
+                        .query("SELECT 1 FROM _stackless_schema_version LIMIT 1", ())
+                        .await
+                        .map_err(|e| StateError::Migrate {
+                            source: rusqlite_shim(e),
+                        })?;
+                    if rows
+                        .next()
+                        .await
+                        .map_err(|e| StateError::Migrate {
+                            source: rusqlite_shim(e),
+                        })?
+                        .is_none()
+                    {
+                        conn.execute(
+                            "INSERT INTO _stackless_schema_version (version) VALUES (?1)",
+                            [libsql::Value::Integer(target)],
+                        )
+                        .await
+                        .map_err(|e| StateError::Migrate {
+                            source: rusqlite_shim(e),
+                        })?;
+                    }
                 }
                 Ok(())
             })
