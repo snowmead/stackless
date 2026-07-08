@@ -2,9 +2,9 @@ name: Live smoke
 
 # The GATED live tier: a real `stackless up`/`down` against each cloud provider,
 # deploying fixtures/smoke/<provider> (this repo's own source). It is slow, costs
-# real (free-tier) resources, and needs account secrets — so it does NOT run on
-# every PR. The every-PR gate is the hermetic tier (wiremock + mocked Stripe) in
-# ci.yml's `test` job. Run this on a schedule or on demand.
+# real (free-tier) resources, and needs account secrets. The same matrix also
+# runs on every PR via ci.yml `live-smoke` / `live-fleet`; this workflow repeats
+# it nightly and on demand as a scheduled safety net.
 #
 # Required repo secrets:
 #   STRIPE_API_KEY  — a Stripe secret key for the account whose Stripe Project has
@@ -88,6 +88,7 @@ jobs:
 
       - name: Live ${{ matrix.provider }} up/down
         env:
+          STACKLESS_LIVE_SMOKE_REQUIRED: "1"
           STRIPE_API_KEY: ${{ secrets.STRIPE_API_KEY }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
@@ -120,6 +121,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: Live Turso fleet-lock tests
         env:
+          STACKLESS_LIVE_SMOKE_REQUIRED: "1"
           STACKLESS_STATE_URL: ${{ secrets.STACKLESS_STATE_URL }}
           STACKLESS_STATE_TOKEN: ${{ secrets.STACKLESS_STATE_TOKEN }}
         run: mise run smoke-fleet

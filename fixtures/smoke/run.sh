@@ -24,6 +24,11 @@ extra="$*"
 # Local env file for creds (CI injects them as env vars instead).
 [ -f .stackless.env ] && { set -a; . ./.stackless.env; set +a; }
 
+if [ "${STACKLESS_LIVE_SMOKE_REQUIRED:-}" = "1" ] && [ -z "${STRIPE_API_KEY:-}" ]; then
+  echo "::error::STRIPE_API_KEY is required for live smoke (configure repo secret or .stackless.env)"
+  exit 1
+fi
+
 inst="${prefix}-$(date +%s)"
 
 # Assert a verb's --json stdout parses and carries ok: true. Non-fatal input
