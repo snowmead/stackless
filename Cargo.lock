@@ -2161,7 +2161,7 @@ dependencies = [
 
 [[package]]
 name = "render-client"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bytes",
  "chrono",
@@ -2726,7 +2726,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "stackless"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "clap",
  "humantime",
@@ -2747,7 +2747,7 @@ dependencies = [
 
 [[package]]
 name = "stackless-cloud"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "reqwest",
  "serde",
@@ -2762,7 +2762,7 @@ dependencies = [
 
 [[package]]
 name = "stackless-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "libsql",
@@ -2780,7 +2780,7 @@ dependencies = [
 
 [[package]]
 name = "stackless-daemon"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "http-body-util",
  "hyper 1.10.1",
@@ -2795,7 +2795,7 @@ dependencies = [
 
 [[package]]
 name = "stackless-fly"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "reqwest",
@@ -2814,7 +2814,7 @@ dependencies = [
 
 [[package]]
 name = "stackless-git"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "grit-lib",
  "secrecy",
@@ -2824,7 +2824,7 @@ dependencies = [
 
 [[package]]
 name = "stackless-integrations"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "reqwest",
@@ -2842,7 +2842,7 @@ dependencies = [
 
 [[package]]
 name = "stackless-local"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "bollard",
@@ -2864,7 +2864,7 @@ dependencies = [
 
 [[package]]
 name = "stackless-netlify"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "reqwest",
@@ -2885,7 +2885,7 @@ dependencies = [
 
 [[package]]
 name = "stackless-provider-sdk"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "serde",
@@ -2898,7 +2898,7 @@ dependencies = [
 
 [[package]]
 name = "stackless-render"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2921,7 +2921,7 @@ dependencies = [
 
 [[package]]
 name = "stackless-stripe-projects"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "serde",
@@ -2936,7 +2936,7 @@ dependencies = [
 
 [[package]]
 name = "stackless-vercel"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -3438,7 +3438,7 @@ checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
 name = "vercel-client"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bytes",
  "chrono",
@@ -4098,7 +4098,7 @@ checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
 
 [[package]]
 name = "xtask"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "clap",
  "serde_json",

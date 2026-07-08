@@ -10,6 +10,53 @@ from the matching version section below (not from raw git history).
 
 ## Unreleased
 
+## v0.1.2 — 2026-07-08
+
+Agent fleet mode, MCP server, cloud log fetch, and JSON contract hardening.
+
+### Added
+
+- Hidden `stackless mcp` stdio MCP server exposing lifecycle tools for agent
+  integrations (tools mirror CLI verbs with `--json` forced).
+- Cloud `fetch_logs` for Vercel, Netlify, and Fly substrates.
+- [docs/AGENT-FLEETS.md](docs/AGENT-FLEETS.md) — parallel agents, fleet state
+  plane (`STACKLESS_STATE_URL`), naming conventions, and cost hygiene.
+- Live Turso fleet-lock tests (`mise run smoke-fleet`).
+
+### Changed
+
+- Agent JSON contract gaps closed across `status`, `logs`, `verify`, `adopt`,
+  and progress output.
+- Live cloud smokes and fleet tests run on every PR.
+
+### Fixed
+
+- Turso Cloud schema migrations: table-based version tracking, reconcile partial
+  schema after a failed bump, and avoid duplicate version rows on no-op bump.
+
+### Commits
+
+- `0932da5` Add hidden stackless mcp stdio MCP server (Phase 6)
+- `9d32ee7` feat(cloud): add fetch_logs for vercel, netlify, and fly substrates
+- `8abc754` Close agent JSON contract gaps (phases 1-3, 5, 7)
+- `f2bc8b1` smoke: assert JSON envelopes live (status/logs) and wire smoke-fleet into nightly
+- `5807705` fix: address Bugbot review on PR #13
+- `82c0d59` ci: run live cloud smokes and fleet tests on every PR
+- `ea7ade4` fix(ci): refresh Stripe Projects snapshots and skip unconfigured Fly smoke
+- `794b770` fix(ci): add live Turso fleet-lock tests and skip unconfigured Netlify smoke
+- `242fe66` fix(core): use table-based schema version for Turso Cloud migrations
+- `77c9d4b` fix(core): reconcile partial Turso schema after failed migration bump
+- `ba33175` fix(core): avoid duplicate Turso schema version rows on no-op bump
+- `5ba1093` fix(core): require full migration-001 schema before reconcile bump
+- `39470bd` Merge pull request #13 from snowmead/cursor/agent-feedback-loop-e7cb
+
+### Install
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/download/v0.1.2/stackless-installer.sh | sh
+stackless --version
+```
+
 ## v0.1.1 — 2026-07-06
 
 Fix macOS `doctor` false failures when launchd persistence is actually registered.
