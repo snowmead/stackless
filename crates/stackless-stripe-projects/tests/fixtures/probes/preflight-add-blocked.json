@@ -1,0 +1,50 @@
+{
+  "ok": false,
+  "command": "projects add",
+  "version": "0.1",
+  "error": {
+    "code": "TOS_ACCEPTANCE_REQUIRED",
+    "details": {
+      "preflight": [
+        {
+          "label": "Project initialized",
+          "pass": true,
+          "code": "PROJECT_NOT_INITIALIZED"
+        },
+        {
+          "label": "Stripe session authenticated",
+          "pass": true,
+          "code": "BROWSER_AUTH_REQUIRED"
+        },
+        {
+          "label": "Logged-in account matches project owner",
+          "pass": true,
+          "code": "MERCHANT_MISMATCH"
+        },
+        {
+          "label": "Service \"render/static-site\" found in catalog",
+          "pass": true
+        },
+        {
+          "label": "Provider ToS (Render)",
+          "pass": false,
+          "code": "TOS_ACCEPTANCE_REQUIRED",
+          "remedy": "Pass --accept-tos to accept Render terms of service."
+        },
+        {
+          "label": "Provider linking can proceed (Render)",
+          "pass": false,
+          "code": "BROWSER_AUTH_REQUIRED",
+          "remedy": "Provider \"Render\" is not yet linked, and this command cannot hand off provider browser authentication. Run `stripe projects link render` in an interactive terminal first, then retry."
+        }
+      ]
+    },
+    "message": "Pass --accept-tos to accept Render terms of service."
+  },
+  "warnings": [],
+  "next_steps": [],
+  "meta": {
+    "authenticated": true,
+    "project_initialized": true
+  }
+}

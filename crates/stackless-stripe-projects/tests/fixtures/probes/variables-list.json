@@ -1,0 +1,26 @@
+{
+  "ok": true,
+  "command": "projects variables list",
+  "version": "0.1",
+  "data": {
+    "variables": [
+      {
+        "bindings": [
+          {
+            "env_key": "PROBE_SECRET",
+            "environment": "default"
+          }
+        ],
+        "has_value": true,
+        "name": "probe-secret",
+        "status": "synced"
+      }
+    ]
+  },
+  "warnings": [],
+  "next_steps": [],
+  "meta": {
+    "authenticated": true,
+    "project_initialized": true
+  }
+}

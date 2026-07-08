@@ -26,7 +26,8 @@ use stackless_core::substrate::{
 use stackless_stripe_projects::ProjectsError;
 use stackless_stripe_projects::stripe::{CommandRunner, StripeProjects, TokioRunner};
 use stackless_stripe_projects::{
-    CatalogService, add_catalog_resource, project, requires_confirmation,
+    CatalogService, add_catalog_resource, add_catalog_resource_with_paid, project,
+    requires_confirmation,
 };
 use tokio::sync::Mutex;
 
@@ -38,6 +39,7 @@ use crate::vercel_api::{DEPLOY_BUDGET, HEALTH_BUDGET, UploadFile, VercelApi};
 pub const SUBSTRATE_NAME: &str = "vercel";
 
 const PRO_RESOURCE_NAME: &str = "pro";
+const HOBBY_RESOURCE_NAME: &str = "hobby";
 
 /// The typed `vercel/project` `--config` (the catalog requires `name`).
 #[derive(Debug, Serialize)]
@@ -47,6 +49,14 @@ struct VercelProjectConfig {
 
 impl CatalogService for VercelProjectConfig {
     const REFERENCE: &'static str = "vercel/project";
+}
+
+/// The typed `vercel/hobby` `--config` (no fields; free plan).
+#[derive(Debug, Serialize)]
+struct VercelHobbyConfig {}
+
+impl CatalogService for VercelHobbyConfig {
+    const REFERENCE: &'static str = "vercel/hobby";
 }
 
 /// The typed `vercel/pro` `--config` (no fields; a paid plan upgrade).
@@ -303,15 +313,33 @@ impl<R: CommandRunner> VercelSubstrate<R> {
             .map_err(projects_fault)?;
 
         let stack = StackVercel::parse(def);
-        if stack.plan == VercelPlan::Pro {
-            let catalog = stripe.catalog().await.map_err(projects_fault)?;
-            let config = VercelProConfig {};
-            if requires_confirmation(&catalog, &config).unwrap_or(true) {
-                self.require_confirm_paid(PRO_RESOURCE_NAME)?;
-            }
-            add_catalog_resource(&stripe, &catalog, &config, PRO_RESOURCE_NAME)
+        let catalog = stripe.catalog().await.map_err(projects_fault)?;
+        match stack.plan {
+            VercelPlan::Hobby => {
+                add_catalog_resource(
+                    &stripe,
+                    &catalog,
+                    &VercelHobbyConfig {},
+                    HOBBY_RESOURCE_NAME,
+                )
                 .await
                 .map_err(projects_fault)?;
+            }
+            VercelPlan::Pro => {
+                let config = VercelProConfig {};
+                if requires_confirmation(&catalog, &config).unwrap_or(true) {
+                    self.require_confirm_paid(PRO_RESOURCE_NAME)?;
+                }
+                add_catalog_resource_with_paid(
+                    &stripe,
+                    &catalog,
+                    &config,
+                    PRO_RESOURCE_NAME,
+                    self.confirm_paid,
+                )
+                .await
+                .map_err(projects_fault)?;
+            }
         }
 
         if self.confirm_paid {

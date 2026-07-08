@@ -61,7 +61,8 @@ impl Fault for ProjectsError {
             Self::Auth { .. } => "run `stripe login`, then re-run `up`".into(),
             Self::Failed { command, .. } => {
                 format!(
-                    "run `stripe projects {command}` by hand to see the full error, then re-run"
+                    "run `stackless doctor` to see aggregated preflight blockers, or \
+                     `stripe projects {command}` by hand, then re-run"
                 )
             }
             Self::LockHeld { .. } => {

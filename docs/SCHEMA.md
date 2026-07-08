@@ -134,12 +134,16 @@ required = ["GITHUB_PACKAGES_TOKEN"]
 - `required` — list of secret names the stack needs. Every key
   referenced anywhere (`${secrets.KEY}` or a service's `secrets`
   list) **must** appear here (`def.validate.secret_not_required`).
-- Resolution at `up`/`verify` time: a gitignored env file named
-  **`.stackless.env`** sitting next to `stackless.toml`
-  (`KEY=value` lines, `#` comments allowed) overlays the stack's
-  vault pull; the file wins. A required key resolving from no source
-  fails before anything provisions, naming the sources consulted
-  (`secrets.unresolved`).
+- Resolution at `up`/`verify` time: when `[stack.projects.stripe].project`
+  is recorded, stackless refreshes the Stripe Projects vault (`.env` /
+  `.env.<instance>` written by `stripe projects env --pull`) as the
+  **base**. Shared team secrets belong in backend-backed project variables
+  (`stripe projects variables set <name> --env-key <KEY>`). A gitignored
+  **`.stackless.env`** next to `stackless.toml` (`KEY=value` lines)
+  **overlays** the vault — the file wins. Local-only stacks without a
+  Stripe anchor use `.stackless.env` only. A required key resolving from
+  no source fails before anything provisions (`secrets.unresolved`). Run
+  `stackless doctor` for aggregated Stripe Projects `--preflight` blockers.
 - The directory the definition came from is recorded at instance
   creation, so resume and `verify` find the same `.stackless.env`
   regardless of the invoking shell's working directory.

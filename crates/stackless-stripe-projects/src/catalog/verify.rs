@@ -7,7 +7,7 @@
 //! is the test-time gap check that reuses the exact same validation.
 
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::catalog::Catalog;
 use crate::error::ProjectsError;
@@ -33,6 +33,22 @@ where
     C: CatalogService,
     R: CommandRunner,
 {
+    add_catalog_resource_with_paid(stripe, catalog, config, resource_name, false).await
+}
+
+/// Like [`add_catalog_resource`], but passes explicit paid consent into
+/// component-pricing tier selection and parent-plan provisioning.
+pub async fn add_catalog_resource_with_paid<C, R>(
+    stripe: &StripeProjects<R>,
+    catalog: &Catalog,
+    config: &C,
+    resource_name: &str,
+    confirm_paid: bool,
+) -> Result<Value, ProjectsError>
+where
+    C: CatalogService,
+    R: CommandRunner,
+{
     let value = serde_json::to_value(config).map_err(|err| ProjectsError::ProvisionFailed {
         resource: resource_name.to_owned(),
         detail: format!("config for {} did not serialize: {err}", C::REFERENCE),
@@ -48,8 +64,33 @@ where
             reference: C::REFERENCE,
             violations,
         })?;
-    let paid = service.requires_confirmation(&value);
+    let paid = service.requires_confirmation_with_paid(&value, confirm_paid);
+    ensure_parent_plans(stripe, catalog, service, &value, confirm_paid).await?;
     project::add_resource(stripe, C::REFERENCE, resource_name, &value, paid).await
+}
+
+/// Provision catalog-named parent plans before a dependent service. Stripe
+/// Projects 0.23+ enforces `PLAN_REQUIRED` when `parent_services` is unset.
+async fn ensure_parent_plans<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+    catalog: &Catalog,
+    service: &crate::catalog::ServiceDetail,
+    config: &Value,
+    prefer_paid: bool,
+) -> Result<(), ProjectsError> {
+    for plan_id in service.required_parent_services(config, prefer_paid) {
+        let reference = format!("{}/{}", service.provider_name.to_ascii_lowercase(), plan_id);
+        let plan = catalog
+            .lookup(&reference)
+            .ok_or_else(|| ProjectsError::ProvisionFailed {
+                resource: plan_id.clone(),
+                detail: format!("parent plan {reference} not found in catalog"),
+            })?;
+        let needs_paid = plan.requires_confirmation_with_paid(&json!({}), prefer_paid);
+        let paid = needs_paid && prefer_paid;
+        project::add_resource(stripe, &reference, &plan_id, &json!({}), paid).await?;
+    }
+    Ok(())
 }
 
 /// Whether provisioning `config` for `reference` needs paid confirmation, per the

@@ -413,6 +413,7 @@ impl RenderApi {
             .into_inner();
         Ok(response
             .logs
+            .unwrap_or_default()
             .into_iter()
             .map(|entry| {
                 format!(

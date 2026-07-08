@@ -2739,6 +2739,7 @@ dependencies = [
  "stackless-local",
  "stackless-netlify",
  "stackless-render",
+ "stackless-stripe-projects",
  "stackless-vercel",
  "tempfile",
  "thiserror 2.0.18",

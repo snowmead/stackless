@@ -177,7 +177,21 @@ impl ServiceDetail {
     /// confirmation, derived from the selected pricing tier (or the service's
     /// pricing kind when there are no tier selectors).
     pub fn requires_confirmation(&self, config: &Value) -> bool {
-        self.pricing.requires_confirmation(config)
+        self.requires_confirmation_with_paid(config, false)
+    }
+
+    /// Like [`requires_confirmation`], but honors an explicit paid-consent flag
+    /// for component-pricing tier selection.
+    pub fn requires_confirmation_with_paid(&self, config: &Value, confirm_paid: bool) -> bool {
+        self.pricing
+            .requires_confirmation_with_paid(config, confirm_paid)
+    }
+
+    /// Parent plan `service_id`s that must be provisioned before this service.
+    /// Only returns parents when the catalog names exactly one (multi-parent
+    /// tiers like `vercel/project` are handled by the substrate).
+    pub fn required_parent_services(&self, config: &Value, prefer_paid: bool) -> Vec<String> {
+        self.pricing.required_parent_services(config, prefer_paid)
     }
 
     fn collect_drift(&self, out: &mut Vec<String>) {
@@ -389,6 +403,17 @@ impl Pricing {
 
     /// Whether the selected tier requires paid confirmation.
     pub fn requires_confirmation(&self, config: &Value) -> bool {
+        self.requires_confirmation_with_paid(config, false)
+    }
+
+    /// Like [`requires_confirmation`], but selects component-pricing tiers with
+    /// `confirm_paid` so parent-plan provisioning matches the child add.
+    pub fn requires_confirmation_with_paid(&self, config: &Value, confirm_paid: bool) -> bool {
+        if let Some(component) = &self.component {
+            return component
+                .match_option(config, confirm_paid)
+                .is_some_and(|option| option.kind == ComponentOptionKind::Paid);
+        }
         if !self.paid_pricing.is_empty()
             && self.paid_pricing.iter().any(|e| e.configuration.is_some())
         {
@@ -398,6 +423,23 @@ impl Pricing {
             };
         }
         self.kind == PricingKind::Paid
+    }
+
+    /// Parent plan `service_id`s required before provisioning `config`, from the
+    /// selected component-pricing option. Empty when unambiguous parents are
+    /// absent (multi-parent options are left to substrate-specific handling).
+    pub fn required_parent_services(&self, config: &Value, prefer_paid: bool) -> Vec<String> {
+        let Some(component) = &self.component else {
+            return Vec::new();
+        };
+        let Some(option) = component.match_option(config, prefer_paid) else {
+            return Vec::new();
+        };
+        if option.parent_services.len() == 1 {
+            option.parent_services.clone()
+        } else {
+            Vec::new()
+        }
     }
 
     fn collect_drift(&self, out: &mut Vec<String>, at: &str) {
@@ -491,6 +533,33 @@ impl ComponentPricing {
         for (i, option) in self.options.iter().enumerate() {
             option.collect_drift(out, &format!("{at}.options[{i}]"));
         }
+    }
+
+    /// The component-pricing option implied by `config`. With paid consent,
+    /// honors `is_default` then paid tier; without consent, ignores paid defaults
+    /// and selects a free tier so confirmation is not demanded incorrectly.
+    fn match_option(&self, _config: &Value, prefer_paid: bool) -> Option<&ComponentOption> {
+        if prefer_paid {
+            for option in &self.options {
+                if option.is_default == Some(true) && option.kind == ComponentOptionKind::Paid {
+                    return Some(option);
+                }
+            }
+            return self
+                .options
+                .iter()
+                .find(|option| option.kind == ComponentOptionKind::Paid)
+                .or_else(|| self.options.first());
+        }
+        for option in &self.options {
+            if option.is_default == Some(true) && option.kind == ComponentOptionKind::Free {
+                return Some(option);
+            }
+        }
+        self.options
+            .iter()
+            .find(|option| option.kind == ComponentOptionKind::Free)
+            .or_else(|| self.options.first())
     }
 }
 
@@ -831,5 +900,97 @@ mod tests {
         assert!(paid.requires_confirmation(&json!({})));
         let component = service("Clerk/auth", json!({}), json!({"type": "component"}));
         assert!(!component.requires_confirmation(&json!({})));
+    }
+
+    #[test]
+    fn required_parent_services_returns_single_parent_only() {
+        let kv = service(
+            "cloudflare/kv",
+            json!({"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"]}),
+            json!({
+                "type": "component",
+                "component": {
+                    "options": [
+                        {"type": "free", "parent_services": ["workers:free"]},
+                        {"type": "paid", "parent_services": ["workers:paid"]}
+                    ]
+                }
+            }),
+        );
+        assert_eq!(
+            kv.required_parent_services(&json!({"title": "cache"}), false),
+            vec!["workers:free"]
+        );
+        assert_eq!(
+            kv.required_parent_services(&json!({"title": "cache"}), true),
+            vec!["workers:paid"]
+        );
+        assert!(kv.requires_confirmation_with_paid(&json!({"title": "cache"}), true));
+
+        let vercel = service(
+            "vercel/project",
+            json!({"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}),
+            json!({
+                "type": "component",
+                "component": {
+                    "options": [
+                        {"type": "free", "parent_services": ["pro", "hobby"]}
+                    ]
+                }
+            }),
+        );
+        assert!(
+            vercel
+                .required_parent_services(&json!({"name": "demo"}), false)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn match_option_without_paid_consent_ignores_paid_default() {
+        let svc = service(
+            "cloudflare/kv",
+            json!({}),
+            json!({
+                "type": "component",
+                "component": {
+                    "options": [
+                        {"type": "paid", "is_default": true, "parent_services": ["workers:paid"]},
+                        {"type": "free", "parent_services": ["workers:free"]}
+                    ]
+                }
+            }),
+        );
+        assert!(!svc.requires_confirmation_with_paid(&json!({}), false));
+        assert_eq!(
+            svc.required_parent_services(&json!({}), false),
+            vec!["workers:free"]
+        );
+        assert!(svc.requires_confirmation_with_paid(&json!({}), true));
+        assert_eq!(
+            svc.required_parent_services(&json!({}), true),
+            vec!["workers:paid"]
+        );
+    }
+
+    #[test]
+    fn match_option_with_paid_consent_ignores_free_default() {
+        let svc = service(
+            "cloudflare/kv",
+            json!({}),
+            json!({
+                "type": "component",
+                "component": {
+                    "options": [
+                        {"type": "free", "is_default": true, "parent_services": ["workers:free"]},
+                        {"type": "paid", "parent_services": ["workers:paid"]}
+                    ]
+                }
+            }),
+        );
+        assert_eq!(
+            svc.required_parent_services(&json!({}), true),
+            vec!["workers:paid"]
+        );
     }
 }

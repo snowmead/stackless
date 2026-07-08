@@ -1,0 +1,22 @@
+{
+  "ok": true,
+  "command": "projects env",
+  "version": "0.1",
+  "data": {
+    "resource_access_configurations": [],
+    "project_variables": [
+      {
+        "env_key": "PROBE_SECRET",
+        "name": "probe-secret"
+      }
+    ]
+  },
+  "warnings": [],
+  "next_steps": [
+    "stripe projects env --pull"
+  ],
+  "meta": {
+    "authenticated": true,
+    "project_initialized": true
+  }
+}

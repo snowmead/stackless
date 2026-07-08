@@ -1,0 +1,20 @@
+{
+  "ok": true,
+  "command": "projects init",
+  "version": "0.1",
+  "data": {
+    "preflight": [
+      {
+        "label": "Project already initialized (probe-test)",
+        "pass": true
+      }
+    ],
+    "ready": true
+  },
+  "warnings": [],
+  "next_steps": [],
+  "meta": {
+    "authenticated": true,
+    "project_initialized": true
+  }
+}

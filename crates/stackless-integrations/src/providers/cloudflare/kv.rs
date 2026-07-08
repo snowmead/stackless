@@ -129,6 +129,7 @@ run = "true"
                 "CLOUDFLARE_NAMESPACE_ID": "ns_123",
                 "CLOUDFLARE_ACCOUNT_ID": "acc_1"
             }),
+            0,
         );
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(

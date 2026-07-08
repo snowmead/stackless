@@ -9,20 +9,21 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-clap                             = { version = "4.6.1", features = ["derive"] }
-humantime                        = "2.3.0"
-serde                            = { version = "1.0.228", features = ["derive"] }
-serde_json                       = "1.0.150"
-stackless-core.workspace         = true
-stackless-daemon.workspace       = true
-stackless-integrations.workspace = true
-stackless-local.workspace        = true
-stackless-render.workspace       = true
-stackless-vercel.workspace       = true
-stackless-fly.workspace          = true
-stackless-netlify.workspace      = true
-thiserror                        = "2.0.18"
-tokio                            = { version = "1.52.3", features = ["rt-multi-thread"] }
+clap                                = { version = "4.6.1", features = ["derive"] }
+humantime                           = "2.3.0"
+serde                               = { version = "1.0.228", features = ["derive"] }
+serde_json                          = "1.0.150"
+stackless-core.workspace            = true
+stackless-daemon.workspace          = true
+stackless-integrations.workspace    = true
+stackless-local.workspace           = true
+stackless-render.workspace          = true
+stackless-vercel.workspace          = true
+stackless-fly.workspace             = true
+stackless-netlify.workspace         = true
+stackless-stripe-projects.workspace = true
+thiserror                           = "2.0.18"
+tokio                               = { version = "1.52.3", features = ["rt-multi-thread"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"

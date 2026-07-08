@@ -2590,8 +2590,8 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub has_more: ::std::option::Option<bool>,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        pub logs: ::std::vec::Vec<ListLogsResponseLogsItem>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        pub logs: ::std::option::Option<::std::vec::Vec<ListLogsResponseLogsItem>>,
         ///The end time to use in the next query to fetch the next set of logs
         #[serde(
             rename = "nextEndTime",
