@@ -1,0 +1,27 @@
+{
+  "ok": true,
+  "command": "projects env list",
+  "version": "0.1",
+  "data": {
+    "active_environment": "default",
+    "environments": {
+      "default": {
+        "name": "default",
+        "output": ".env",
+        "resources": [],
+        "variables": [
+          {
+            "env_key": "PROBE_SECRET",
+            "name": "probe-secret"
+          }
+        ]
+      }
+    }
+  },
+  "warnings": [],
+  "next_steps": [],
+  "meta": {
+    "authenticated": true,
+    "project_initialized": true
+  }
+}

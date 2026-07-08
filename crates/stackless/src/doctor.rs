@@ -12,6 +12,9 @@ use crate::authoring::{STRIPE_PROJECTS_PINNED, default_output_path, definition_d
 use crate::error::CliError;
 use crate::output::Output;
 use crate::secrets::{self, ENV_FILE};
+use stackless_stripe_projects::{
+    preflight_checks_from_envelope, recorded_project_id, vault_env_from_dir,
+};
 
 pub struct DoctorArgs {
     pub file: Option<PathBuf>,
@@ -58,7 +61,7 @@ pub fn doctor(args: DoctorArgs, output: &Output) -> Result<(), CliError> {
                 if needs_stripe(&def, substrate) {
                     checks.push(check_stripe_cli());
                     checks.push(check_stripe_projects());
-                    checks.push(check_stripe_projects_linked(&dir));
+                    checks.extend(check_stripe_projects_preflight(&dir, &def, substrate));
                 }
             }
             Err(err) => {
@@ -204,11 +207,15 @@ fn check_env_file(
         return Vec::new();
     }
     let env_path = dir.join(ENV_FILE);
+    let mut available = secrets_overlay.clone();
+    if recorded_project_id(def).is_some() {
+        available.extend(vault_env_from_dir(dir, None));
+    }
     let missing: Vec<String> = def
         .secrets
         .required
         .iter()
-        .filter(|key| !secrets_overlay.contains_key(*key) && std::env::var(key).is_err())
+        .filter(|key| !available.contains_key(*key) && std::env::var(key).is_err())
         .cloned()
         .collect();
     if missing.is_empty() {
@@ -224,7 +231,8 @@ fn check_env_file(
             ok: false,
             code: Some(codes::SECRETS_UNRESOLVED),
             remediation: Some(format!(
-                "add {:?} to {} or export them before `stackless up`",
+                "set shared secrets with `stripe projects variables set <name> --env-key <KEY>`, \
+                 add {:?} to {} (overlay wins), or export them before `stackless up`",
                 missing,
                 env_path.display()
             )),
@@ -327,50 +335,143 @@ fn check_stripe_projects() -> DoctorCheck {
     }
 }
 
-fn check_stripe_projects_linked(dir: &Path) -> DoctorCheck {
+fn check_stripe_projects_preflight(
+    dir: &Path,
+    def: &StackDef,
+    substrate: Option<&str>,
+) -> Vec<DoctorCheck> {
+    // Preflight simulates the exact invocation `up` performs, so the consent
+    // flags `up` always supplies (`--accept-tos --yes`) are included; only
+    // genuine blockers (auth, eligibility, provider link) surface as failures.
+    let mut checks = Vec::new();
+    checks.extend(run_preflight_command(
+        dir,
+        &[
+            "projects",
+            "init",
+            def.stack.name.as_str(),
+            "--preflight",
+            "--skip-skills",
+            "--accept-tos",
+            "--yes",
+            "--json",
+        ],
+        "stripe_projects_init",
+    ));
+    if let Some(reference) = provider_preflight_reference(def, substrate) {
+        checks.extend(run_preflight_command(
+            dir,
+            &[
+                "projects",
+                "add",
+                reference,
+                "--preflight",
+                "--accept-tos",
+                "--yes",
+                "--json",
+            ],
+            &format!("stripe_projects_add:{reference}"),
+        ));
+    }
+    if checks.is_empty() {
+        checks.push(DoctorCheck {
+            check: "stripe_projects_preflight".into(),
+            ok: true,
+            code: None,
+            remediation: None,
+        });
+    }
+    checks
+}
+
+fn run_preflight_command(dir: &Path, args: &[&str], check_name: &str) -> Vec<DoctorCheck> {
     let output = std::process::Command::new("stripe")
-        .args(["projects", "status", "--json"])
+        .args(args)
         .current_dir(dir)
         .output();
     let Ok(output) = output else {
-        return DoctorCheck {
-            check: "stripe_projects_linked".into(),
+        return vec![DoctorCheck {
+            check: check_name.into(),
             ok: false,
             code: Some(codes::STRIPE_PROJECTS_UNAVAILABLE),
-            remediation: Some("ensure `stripe projects status --json` runs in this repo".into()),
-        };
+            remediation: Some(format!(
+                "ensure `stripe {}` runs in this repo",
+                args.join(" ")
+            )),
+        }];
     };
-    if !output.status.success() {
-        return DoctorCheck {
-            check: "stripe_projects_linked".into(),
+    let body = String::from_utf8_lossy(&output.stdout);
+    let rows = preflight_checks_from_envelope(&body);
+    if rows.is_empty() && !output.status.success() {
+        return vec![DoctorCheck {
+            check: check_name.into(),
             ok: false,
             code: Some(codes::STRIPE_PROJECTS_AUTH),
             remediation: Some(
-                "run `stripe login` and `stripe projects init` (or `stripe projects pull <id>`) in this repo"
-                    .into(),
+                "run `stripe login` and `stackless doctor` again to see preflight blockers".into(),
             ),
-        };
+        }];
     }
-    let body = String::from_utf8_lossy(&output.stdout);
-    let linked = body.contains("\"project\"")
-        || body.contains("\"id\":\"project_")
-        || body.contains("\"linked\":true");
-    DoctorCheck {
-        check: "stripe_projects_linked".into(),
-        ok: linked,
-        code: if linked {
+    let mut checks = Vec::new();
+    for row in rows.iter().filter(|row| !row.pass) {
+        // A missing project is not a blocker: `stackless up` initializes one
+        // automatically. But without a project the provider-link rows are
+        // absent, so say the check is partial instead of silently passing.
+        if row.code.as_deref() == Some("PROJECT_NOT_INITIALIZED") {
+            checks.push(DoctorCheck {
+                check: format!("{check_name}:{}", row.label),
+                ok: true,
+                code: None,
+                remediation: Some(
+                    "no project initialized here yet, so provider-link preflight is \
+                     incomplete; `stackless up` initializes the project automatically"
+                        .into(),
+                ),
+            });
+            continue;
+        }
+        checks.push(DoctorCheck {
+            check: format!("{check_name}:{}", row.label),
+            ok: false,
+            code: Some(codes::STRIPE_PROJECTS_FAILED),
+            remediation: row.remedy.clone().or_else(|| {
+                Some(format!(
+                    "fix preflight blocker {:?}; run `stackless doctor` after resolving",
+                    row.label
+                ))
+            }),
+        });
+    }
+    checks
+}
+
+fn provider_preflight_reference(def: &StackDef, substrate: Option<&str>) -> Option<&'static str> {
+    if def.integrations.values().any(|i| i.provider == "clerk") {
+        return Some("clerk/auth");
+    }
+    match substrate {
+        Some("render") => Some("render/static-site"),
+        Some("vercel") => Some("vercel/project"),
+        Some("fly") => Some("flyio/app"),
+        Some("netlify") => Some("netlify/project"),
+        None => {
+            for service in def.services.values() {
+                if service.substrates.contains_key("render") {
+                    return Some("render/static-site");
+                }
+                if service.substrates.contains_key("vercel") {
+                    return Some("vercel/project");
+                }
+                if service.substrates.contains_key("fly") {
+                    return Some("flyio/app");
+                }
+                if service.substrates.contains_key("netlify") {
+                    return Some("netlify/project");
+                }
+            }
             None
-        } else {
-            Some(codes::STRIPE_PROJECT_ANCHOR)
-        },
-        remediation: if linked {
-            None
-        } else {
-            Some(
-                "link a Stripe Project with `stripe projects init` or `stripe projects pull <id>`"
-                    .into(),
-            )
-        },
+        }
+        _ => None,
     }
 }
 

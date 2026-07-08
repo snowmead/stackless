@@ -1,0 +1,39 @@
+{
+  "ok": false,
+  "command": "projects init",
+  "version": "0.1",
+  "error": {
+    "code": "TOS_ACCEPTANCE_REQUIRED",
+    "details": {
+      "preflight": [
+        {
+          "label": "Stripe session authenticated",
+          "pass": true,
+          "code": "BROWSER_AUTH_REQUIRED"
+        },
+        {
+          "label": "Account eligible for Projects",
+          "pass": true,
+          "code": "ACCOUNT_NOT_ELIGIBLE"
+        },
+        {
+          "label": "Developer terms accepted",
+          "pass": false,
+          "code": "TOS_ACCEPTANCE_REQUIRED",
+          "remedy": "Pass `--accept-tos --yes` to accept the Stripe developer terms."
+        },
+        {
+          "label": "Confirmation can be satisfied",
+          "pass": false,
+          "code": "JSON_REQUIRES_CONFIRMATION",
+          "remedy": "Pass `--yes` to skip confirmation prompts in non-interactive/JSON mode."
+        }
+      ]
+    },
+    "message": "Pass `--accept-tos --yes` to accept the Stripe developer terms."
+  },
+  "meta": {
+    "authenticated": true,
+    "project_initialized": false
+  }
+}

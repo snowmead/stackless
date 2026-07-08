@@ -81,7 +81,15 @@ pub fn verify(args: VerifyArgs, output: &Output) -> Result<(), CliError> {
     } else {
         PathBuf::from(&record.definition_dir)
     };
-    let secrets = crate::secrets::resolve(&def, &def_dir)?;
+    let rt = crate::commands::runtime()?;
+    if stackless_stripe_projects::recorded_project_id(&def).is_some() {
+        let stripe = stackless_stripe_projects::StripeProjects::new(
+            stackless_stripe_projects::TokioRunner,
+            def_dir.clone(),
+        );
+        let _ = rt.block_on(stackless_stripe_projects::sync_vault_pull(&stripe));
+    }
+    let secrets = crate::secrets::resolve(&def, &def_dir, Some(name))?;
     let checkpoints = store.checkpoints(name)?;
     let provider = build_substrate(
         record.substrate.as_str(),

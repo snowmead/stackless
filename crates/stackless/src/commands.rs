@@ -47,7 +47,7 @@ pub fn open_store() -> Result<Store, CliError> {
     Ok(Store::open_configured()?)
 }
 
-fn runtime() -> Result<tokio::runtime::Runtime, CliError> {
+pub(crate) fn runtime() -> Result<tokio::runtime::Runtime, CliError> {
     tokio::runtime::Runtime::new().map_err(CliError::Runtime)
 }
 
@@ -235,7 +235,15 @@ pub fn up(args: UpArgs, output: &mut Output) -> Result<(), CliError> {
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_default();
     let def_dir = std::fs::canonicalize(&def_dir).unwrap_or(def_dir);
-    let secrets = crate::secrets::resolve(&def, &def_dir)?;
+    let rt = runtime()?;
+    if stackless_stripe_projects::recorded_project_id(&def).is_some() {
+        let stripe = stackless_stripe_projects::StripeProjects::new(
+            stackless_stripe_projects::TokioRunner,
+            def_dir.clone(),
+        );
+        let _ = rt.block_on(stackless_stripe_projects::sync_vault_pull(&stripe));
+    }
+    let secrets = crate::secrets::resolve(&def, &def_dir, Some(&name))?;
     let known = crate::substrates::known_names();
     stackless_integrations::validate_all(&def, Some(substrate_name.as_str()), &known)?;
     let provider = build_substrate(
@@ -254,7 +262,6 @@ pub fn up(args: UpArgs, output: &mut Output) -> Result<(), CliError> {
         store: &store,
         substrate: provider.as_ref(),
     };
-    let rt = runtime()?;
     let outcome = rt.block_on(engine.up(UpRequest {
         instance: &name,
         definition_text: &text,

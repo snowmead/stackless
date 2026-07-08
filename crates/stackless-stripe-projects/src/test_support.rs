@@ -115,7 +115,7 @@ pub fn provision_script(catalog_envelope: &str, add_variables: Value) -> Scripte
         ok_empty(),                                // ensure_environment (use)
         services(&[]),                             // add_resource registered pre-check
         ok(json!({ "variables": add_variables })), // add <reference>
-        ok_empty(),                                // env add
+        ok_empty(),                                // env add --resource
         ok_empty(),                                // env --pull --refresh
     ])
 }

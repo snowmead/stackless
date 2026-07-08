@@ -19,7 +19,15 @@ pub use catalog::verify::{
 };
 pub use catalog::{Catalog, ServiceDetail};
 pub use error::ProjectsError;
-pub use project::recorded_project_id;
+pub use project::{
+    add_resource, delete_environment, delete_variable, ensure_environment, ensure_project,
+    find_env_value, list_variables, recorded_project_id, remove_resource, run_init_preflight,
+    set_spend_cap, set_variable, spend_summary, sync_vault_pull, vault_env_from_dir,
+};
+pub use responses::{
+    EnvListResponse, PreflightCheck, PreflightReady, ProjectVariable, ServicesListResponse,
+    StatusResponse, VariableBinding, VariablesListResponse, preflight_checks_from_envelope,
+};
 pub use stripe::{CommandOutput, CommandRunner, StripeProjects, StripeResult, TokioRunner};
 pub use surface::{
     command_separators, command_surface, parse_header_version, plugin_version, render_surface,

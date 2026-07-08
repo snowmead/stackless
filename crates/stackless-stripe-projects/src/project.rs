@@ -1,14 +1,18 @@
 //! Stripe Projects orchestration: project anchor, per-instance environments,
 //! resource add/remove, env materialization, and spend reporting.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
 
+use serde::Deserialize;
 use serde_json::Value;
 use stackless_core::def::StackDef;
 
 use crate::error::ProjectsError;
-use crate::responses::{EnvListResponse, ServicesListResponse, StatusResponse};
+use crate::responses::{
+    EnvListResponse, PreflightCheck, ServicesListResponse, StatusResponse, VariablesListResponse,
+};
 use crate::stripe::{CommandRunner, StripeProjects};
 
 /// The recorded Stripe Projects anchor from `[stack.projects.stripe].project`.
@@ -48,6 +52,7 @@ pub async fn ensure_project<R: CommandRunner>(
             Ok(())
         }
         (None, None) => {
+            run_init_preflight(stripe, def.stack.name.as_str()).await?;
             stripe
                 .run_ok(
                     "init",
@@ -181,7 +186,13 @@ pub async fn add_resource<R: CommandRunner>(
     let data = stripe
         .run_ok(&format!("add {reference}"), &args, &plain_extra)
         .await?;
-    let _ = stripe.json(&["env", "add", name]).await;
+    stripe
+        .run_ok(
+            &format!("env add {name}"),
+            &["env", "add", name, "--resource"],
+            &["--yes"],
+        )
+        .await?;
     Ok(data)
 }
 
@@ -213,9 +224,8 @@ pub async fn pull_env_value<R: CommandRunner>(
 }
 
 /// Pull the instance's env once and read several keys from it, returning one
-/// `Option<String>` per key in input order. Folds the per-key file scan over a
-/// single `env --pull`, so a caller needing N values doesn't trigger N pulls.
-/// Each key prefers `.env.{instance}` over `.env`, matching [`pull_env_value`].
+/// `Option<String>` per key in input order. Values are read from on-disk vault
+/// files after `env --pull` — the plugin still redacts values in JSON at 0.23.0.
 pub async fn pull_env_values<R: CommandRunner>(
     stripe: &StripeProjects<R>,
     instance: &str,
@@ -224,17 +234,8 @@ pub async fn pull_env_values<R: CommandRunner>(
     stripe
         .run_ok("env --pull", &["env", "--pull", "--refresh"], &["--yes"])
         .await?;
-    let texts: Vec<String> = [
-        stripe.dir().join(format!(".env.{instance}")),
-        stripe.dir().join(".env"),
-    ]
-    .into_iter()
-    .filter_map(|path| std::fs::read_to_string(path).ok())
-    .collect();
-    let values = keys
-        .iter()
-        .map(|&key| texts.iter().find_map(|text| parse_env_value(text, key)))
-        .collect();
+    let map = vault_env_from_dir(stripe.dir(), Some(instance));
+    let values = keys.iter().map(|&key| map.get(key).cloned()).collect();
     Ok(values)
 }
 
@@ -269,22 +270,6 @@ fn is_redacted(value: &str) -> bool {
         || value.contains('*')
         || lower.contains("redacted")
         || lower.contains("hidden")
-}
-
-fn parse_env_value(text: &str, key: &str) -> Option<String> {
-    for line in text.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let Some((name, value)) = line.split_once('=') else {
-            continue;
-        };
-        if name.trim() == key {
-            return Some(unquote_env_value(value.trim()));
-        }
-    }
-    None
 }
 
 fn unquote_env_value(value: &str) -> String {
@@ -365,6 +350,168 @@ pub async fn spend_summary<R: CommandRunner>(stripe: &StripeProjects<R>) -> Opti
     Some(result.data.to_string())
 }
 
+/// Run `init --preflight` before the one-time project-creation path. Surfaces
+/// every blocker (auth, eligibility) in one failure instead of mid-init.
+/// Passes the same consent flags the real `init` will use (`--accept-tos
+/// --yes`), so ToS/confirmation rows reflect the actual invocation instead of
+/// failing on flags `up` supplies anyway.
+pub async fn run_init_preflight<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+    stack_name: &str,
+) -> Result<(), ProjectsError> {
+    let result = stripe
+        .json(&[
+            "init",
+            stack_name,
+            "--preflight",
+            "--skip-skills",
+            "--accept-tos",
+            "--yes",
+        ])
+        .await?;
+    if result.ok {
+        return Ok(());
+    }
+    Err(preflight_failure("init", &result))
+}
+
+/// List backend-backed project variables (metadata only — values are not exposed
+/// in JSON; use [`sync_vault_pull`] + [`vault_env_from_dir`] to read values).
+pub async fn list_variables<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+) -> Result<VariablesListResponse, ProjectsError> {
+    let result = stripe.json(&["variables", "list"]).await?;
+    if !result.ok {
+        return Err(stripe.classify_failure("variables list", &result));
+    }
+    serde_json::from_value(result.data).map_err(|err| ProjectsError::Unavailable {
+        detail: format!("`stripe projects variables list` returned unmodeled data: {err}"),
+    })
+}
+
+/// Set a backend-backed project variable for the active environment.
+pub async fn set_variable<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+    name: &str,
+    env_key: &str,
+    value: Option<&str>,
+) -> Result<(), ProjectsError> {
+    let mut args = vec!["variables", "set", name, "--env-key", env_key, "--yes"];
+    let value_owned;
+    if let Some(value) = value {
+        value_owned = value.to_owned();
+        args.push("--value");
+        args.push(&value_owned);
+    }
+    stripe.run_ok("variables set", &args, &["--yes"]).await?;
+    Ok(())
+}
+
+/// Delete a backend-backed project variable.
+pub async fn delete_variable<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+    name: &str,
+) -> Result<(), ProjectsError> {
+    stripe
+        .run_ok(
+            "variables delete",
+            &["variables", "delete", name, "--yes"],
+            &["--yes"],
+        )
+        .await?;
+    Ok(())
+}
+
+/// Refresh the on-disk vault (`.env` / `.env.<instance>`) from Stripe Projects.
+pub async fn sync_vault_pull<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+) -> Result<(), ProjectsError> {
+    stripe
+        .run_ok("env --pull", &["env", "--pull", "--refresh"], &["--yes"])
+        .await?;
+    Ok(())
+}
+
+/// Read env keys from pulled vault files under `definition_dir`. Scans
+/// `.env.<instance>` (when `Some`) then `.env`. Does not call the Stripe CLI.
+pub fn vault_env_from_dir(
+    definition_dir: &Path,
+    instance: Option<&str>,
+) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    let mut paths = Vec::new();
+    paths.push(definition_dir.join(".env"));
+    if let Some(instance) = instance {
+        paths.push(definition_dir.join(format!(".env.{instance}")));
+    }
+    for path in paths {
+        if let Ok(text) = std::fs::read_to_string(path) {
+            merge_env_file(&mut out, &text);
+        }
+    }
+    out
+}
+
+fn merge_env_file(out: &mut BTreeMap<String, String>, text: &str) {
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        out.insert(key.trim().to_owned(), unquote_env_value(value.trim()));
+    }
+}
+
+fn preflight_failure(command: &str, result: &crate::stripe::StripeResult) -> ProjectsError {
+    let checks = preflight_checks_from_result(result);
+    let detail = if checks.iter().any(|c| !c.pass) {
+        checks
+            .iter()
+            .filter(|c| !c.pass)
+            .map(|c| {
+                let remedy = c.remedy.as_deref().unwrap_or("");
+                if remedy.is_empty() {
+                    c.label.clone()
+                } else {
+                    format!("{} — {remedy}", c.label)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("; ")
+    } else {
+        result
+            .error_message
+            .clone()
+            .unwrap_or_else(|| "preflight blocked".into())
+    };
+    ProjectsError::Failed {
+        command: command.to_owned(),
+        detail,
+    }
+}
+
+fn preflight_checks_from_result(result: &crate::stripe::StripeResult) -> Vec<PreflightCheck> {
+    if result.ok {
+        return serde_json::from_value::<crate::responses::PreflightReady>(result.data.clone())
+            .map(|ready| ready.preflight)
+            .unwrap_or_default();
+    }
+    let Some(details) = result.error_details.as_ref() else {
+        return Vec::new();
+    };
+    #[derive(Deserialize)]
+    struct Details {
+        #[serde(default)]
+        preflight: Vec<PreflightCheck>,
+    }
+    serde_json::from_value::<Details>(details.clone())
+        .map(|d| d.preflight)
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -413,6 +560,61 @@ mod tests {
                 stderr: String::new(),
             })
         }
+    }
+
+    #[tokio::test]
+    async fn add_resource_propagates_env_add_failure() {
+        struct FailEnvAddRunner;
+
+        #[async_trait]
+        impl CommandRunner for FailEnvAddRunner {
+            async fn run(
+                &self,
+                args: &[String],
+                _cwd: &std::path::Path,
+            ) -> Result<CommandOutput, ProjectsError> {
+                if args.iter().any(|a| a == "list") {
+                    return Ok(CommandOutput {
+                        status: 0,
+                        stdout: r#"{"ok":true,"data":{"services":[]}}"#.into(),
+                        stderr: String::new(),
+                    });
+                }
+                if args.iter().any(|a| a == "add") && args.iter().any(|a| a == "--resource") {
+                    return Ok(CommandOutput {
+                        status: 0,
+                        stdout: r#"{"ok":false,"error":{"message":"member missing"}}"#.into(),
+                        stderr: String::new(),
+                    });
+                }
+                Ok(CommandOutput {
+                    status: 0,
+                    stdout: r#"{"ok":true,"data":{}}"#.into(),
+                    stderr: String::new(),
+                })
+            }
+        }
+
+        let stripe = StripeProjects::new(FailEnvAddRunner, std::env::temp_dir());
+        let err = add_resource(
+            &stripe,
+            "render/static-site",
+            "demo-web",
+            &serde_json::json!({}),
+            false,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, ProjectsError::Failed { .. }));
+    }
+
+    #[test]
+    fn vault_env_from_dir_prefers_instance_file() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(".env"), "KEY=base\n").unwrap();
+        std::fs::write(dir.path().join(".env.demo"), "KEY=instance\n").unwrap();
+        let map = vault_env_from_dir(dir.path(), Some("demo"));
+        assert_eq!(map.get("KEY").map(String::as_str), Some("instance"));
     }
 
     #[tokio::test]

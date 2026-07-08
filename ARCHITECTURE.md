@@ -207,11 +207,15 @@ only a real stack proving the need reopens that door; a declared-
 separately edge is exactly the drift the derived graph exists to
 prevent.
 
-Secrets resolution is pinned: the stack's vault pull is the base, and
-a gitignored env file next to `stackless.toml` overlays it — the
-override wins (the Clerk lesson's hand-managed keys). A `required` key
-that resolves from neither fails validation before anything
-provisions, naming the sources consulted.
+Secrets resolution: when `[stack.projects.stripe].project` is recorded,
+stackless pulls the Stripe Projects vault (`.env` / `.env.<instance>`)
+as the base; backend-backed project variables
+(`stripe projects variables set/list/delete`) hold shared team secrets.
+A gitignored `.stackless.env` next to `stackless.toml` overlays the
+vault — the file wins. Local-only stacks without a Stripe anchor stay
+env-file-only. A `required` key that resolves from neither fails before
+anything provisions. `stackless doctor` runs `stripe projects --preflight`
+to surface auth, ToS, and provider-link blockers before `up`.
 
 Known soft spot, to revisit before implementation freezes it:
 `runtime = "rust"` under a `render` block passes Render's own
@@ -486,27 +490,18 @@ proven there.
   (`stripe projects billing update --limit <amount> --provider render`)
   so a leak is bounded even if reaping fails. Tested present in plugin
   v0.19.0 on 2026-06-11 — available from day one.
-- **Plugin surface, tested against v0.19.0 on 2026-06-11** (the latest
-  distributable that day, hours after Stripe's expansion
-  announcement — their docs already describe a newer, not-yet-shipped
-  surface): present and working — `--json` (clean
-  `{ok, command, version, data}` envelope), `--yes`, `--stream`,
-  `billing update --limit [--provider]`, `rotate`, `catalog`/`search`,
-  `init --from <URL>`. **Not yet shipped** — the documented
-  `--no-interactive`/`--auto-confirm`/`--quiet` flags and the `share`/
-  `import` commands (`init --from` exists but nothing can generate a
-  share URL yet — the same gap atto's `config.ts` recorded). Until the
-  new flags land, the backend keeps `cloud-env.ts`'s plain-mode
-  fallbacks for `--json`'s confirmation/auth quirks. The pinned
-  version of record and the full command surface are committed
-  snapshots
-  (`crates/stackless-stripe-projects/tests/fixtures/{plugin-version,command-surface}.txt`,
-  plus `catalog.json`); CI re-tests them against each release and a
-  nightly watcher opens an upgrade PR automatically (see
-  `docs/SELFTEST.md`). Environment membership (`env add`/`env remove`) can
-  express a resource shared across instances — the seam for
-  invariant 8's "unless the definition explicitly says so" (not in
-  the v0 schema).
+- **Plugin surface, pinned at v0.23.0** (committed snapshots in
+  `crates/stackless-stripe-projects/tests/fixtures/`; nightly watcher
+  opens upgrade PRs): `--json`, `--yes`, `--preflight` on `init`/`add`
+  (aggregated blockers), backend-backed **project variables**
+  (`variables set/list/delete`), member-aware `env add/remove`
+  (`--resource` / `--variable --env-key`), `billing update --limit`,
+  `rotate`, `catalog`/`search`. **Not yet shipped** — documented
+  `--no-interactive`/`--auto-confirm`/`--quiet` and shareable
+  `import`/`share` URLs. Until those land, plain-mode fallbacks remain
+  for `--json` confirmation/auth quirks. Environment membership uses
+  explicit `env add <name> --resource`; project variables use
+  `variables set` + `env add --variable`.
 
 ## 4b. Vercel substrate
 

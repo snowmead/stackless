@@ -88,6 +88,8 @@ struct EnvelopeError {
     code: Option<String>,
     #[serde(default)]
     message: Option<String>,
+    #[serde(default)]
+    details: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -101,6 +103,7 @@ pub struct StripeResult {
     pub ok: bool,
     pub error_code: Option<String>,
     pub error_message: Option<String>,
+    pub error_details: Option<serde_json::Value>,
     pub authenticated: bool,
     pub data: serde_json::Value,
 }
@@ -181,6 +184,7 @@ impl<R: CommandRunner> StripeProjects<R> {
             ok: envelope.ok,
             error_code: envelope.error.as_ref().and_then(|e| e.code.clone()),
             error_message: envelope.error.as_ref().and_then(|e| e.message.clone()),
+            error_details: envelope.error.as_ref().and_then(|e| e.details.clone()),
             authenticated: envelope
                 .meta
                 .as_ref()
@@ -203,7 +207,7 @@ impl<R: CommandRunner> StripeProjects<R> {
         self.runner.run(&argv, &self.dir).await
     }
 
-    fn classify_failure(&self, command: &str, result: &StripeResult) -> ProjectsError {
+    pub fn classify_failure(&self, command: &str, result: &StripeResult) -> ProjectsError {
         let message = result
             .error_message
             .clone()

@@ -169,8 +169,10 @@ impl Fault for CliError {
                  `--on render`, `--on vercel`, `--on fly`, or `--on netlify`"
             ),
             Self::SecretsUnresolved { missing, .. } => format!(
-                "add {missing:?} to the {} file next to stackless.toml (KEY=value lines), or \
-                 remove them from [secrets].required",
+                "add {missing:?} via `stripe projects variables set <name> --env-key <KEY>` for \
+                 shared team secrets, add them to the {} file next to stackless.toml (overlay \
+                 wins), or remove them from [secrets].required; run `stackless doctor` to see \
+                 Stripe Projects preflight blockers",
                 crate::secrets::ENV_FILE
             ),
             Self::VerifyNotDeclared => {
