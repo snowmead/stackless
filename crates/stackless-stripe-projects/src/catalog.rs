@@ -541,7 +541,7 @@ impl ComponentPricing {
     fn match_option(&self, _config: &Value, prefer_paid: bool) -> Option<&ComponentOption> {
         if prefer_paid {
             for option in &self.options {
-                if option.is_default == Some(true) {
+                if option.is_default == Some(true) && option.kind == ComponentOptionKind::Paid {
                     return Some(option);
                 }
             }
@@ -967,6 +967,27 @@ mod tests {
             vec!["workers:free"]
         );
         assert!(svc.requires_confirmation_with_paid(&json!({}), true));
+        assert_eq!(
+            svc.required_parent_services(&json!({}), true),
+            vec!["workers:paid"]
+        );
+    }
+
+    #[test]
+    fn match_option_with_paid_consent_ignores_free_default() {
+        let svc = service(
+            "cloudflare/kv",
+            json!({}),
+            json!({
+                "type": "component",
+                "component": {
+                    "options": [
+                        {"type": "free", "is_default": true, "parent_services": ["workers:free"]},
+                        {"type": "paid", "parent_services": ["workers:paid"]}
+                    ]
+                }
+            }),
+        );
         assert_eq!(
             svc.required_parent_services(&json!({}), true),
             vec!["workers:paid"]

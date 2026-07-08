@@ -433,6 +433,15 @@ pub async fn sync_vault_pull<R: CommandRunner>(
     Ok(())
 }
 
+/// Select the target instance environment, then refresh its vault files.
+pub async fn sync_vault_pull_for_instance<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+    instance: &str,
+) -> Result<(), ProjectsError> {
+    ensure_environment(stripe, instance).await?;
+    sync_vault_pull(stripe).await
+}
+
 /// Whether Stripe Projects runtime state exists under `definition_dir` (the
 /// `.projects/` tree created by `stripe projects init`). Vault pull before
 /// first `up` must skip until this exists — the anchor in stackless.toml alone

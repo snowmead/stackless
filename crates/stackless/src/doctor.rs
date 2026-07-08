@@ -360,6 +360,21 @@ fn check_stripe_projects_preflight(
         "stripe_projects_init",
     ));
     if let Some(reference) = provider_preflight_reference(def, substrate) {
+        for plan_ref in plan_preflight_references(def, substrate) {
+            checks.extend(run_preflight_command(
+                dir,
+                &[
+                    "projects",
+                    "add",
+                    plan_ref,
+                    "--preflight",
+                    "--accept-tos",
+                    "--yes",
+                    "--json",
+                ],
+                &format!("stripe_projects_add:{plan_ref}"),
+            ));
+        }
         checks.extend(run_preflight_command(
             dir,
             &[
@@ -444,6 +459,41 @@ fn run_preflight_command(dir: &Path, args: &[&str], check_name: &str) -> Vec<Doc
         });
     }
     checks
+}
+
+fn plan_preflight_references(def: &StackDef, substrate: Option<&str>) -> Vec<&'static str> {
+    let mut refs = Vec::new();
+    if def
+        .integrations
+        .values()
+        .any(|i| i.provider.starts_with("cloudflare"))
+    {
+        refs.push("cloudflare/workers:free");
+    }
+    let vercel_stack = match substrate {
+        Some("vercel") => true,
+        None => def
+            .services
+            .values()
+            .any(|s| s.substrates.contains_key("vercel")),
+        _ => false,
+    };
+    if vercel_stack {
+        refs.push(vercel_plan_reference(def));
+    }
+    refs
+}
+
+fn vercel_plan_reference(def: &StackDef) -> &'static str {
+    def.stack
+        .substrates
+        .get("vercel")
+        .and_then(|value| value.as_table())
+        .and_then(|table| table.get("plan"))
+        .and_then(|value| value.as_str())
+        .filter(|plan| *plan == "pro")
+        .map(|_| "vercel/pro")
+        .unwrap_or("vercel/hobby")
 }
 
 fn provider_preflight_reference(def: &StackDef, substrate: Option<&str>) -> Option<&'static str> {
