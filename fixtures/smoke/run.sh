@@ -29,6 +29,12 @@ if [ "${STACKLESS_LIVE_SMOKE_REQUIRED:-}" = "1" ] && [ -z "${STRIPE_API_KEY:-}" 
   exit 1
 fi
 
+# Optional provider: skip when explicitly unconfigured (Fly is paid + needs link).
+if [ "$substrate" = "fly" ] && [ -z "${FLY_API_TOKEN:-}" ]; then
+  echo "skip live-smoke (fly): FLY_API_TOKEN not configured"
+  exit 0
+fi
+
 inst="${prefix}-$(date +%s)"
 
 # Assert a verb's --json stdout parses and carries ok: true. Non-fatal input
