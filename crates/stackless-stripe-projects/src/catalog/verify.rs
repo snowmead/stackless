@@ -33,6 +33,22 @@ where
     C: CatalogService,
     R: CommandRunner,
 {
+    add_catalog_resource_with_paid(stripe, catalog, config, resource_name, false).await
+}
+
+/// Like [`add_catalog_resource`], but passes explicit paid consent into
+/// component-pricing tier selection and parent-plan provisioning.
+pub async fn add_catalog_resource_with_paid<C, R>(
+    stripe: &StripeProjects<R>,
+    catalog: &Catalog,
+    config: &C,
+    resource_name: &str,
+    confirm_paid: bool,
+) -> Result<Value, ProjectsError>
+where
+    C: CatalogService,
+    R: CommandRunner,
+{
     let value = serde_json::to_value(config).map_err(|err| ProjectsError::ProvisionFailed {
         resource: resource_name.to_owned(),
         detail: format!("config for {} did not serialize: {err}", C::REFERENCE),
@@ -48,8 +64,8 @@ where
             reference: C::REFERENCE,
             violations,
         })?;
-    let paid = service.requires_confirmation(&value);
-    ensure_parent_plans(stripe, catalog, service, &value, paid).await?;
+    let paid = service.requires_confirmation_with_paid(&value, confirm_paid);
+    ensure_parent_plans(stripe, catalog, service, &value, confirm_paid).await?;
     project::add_resource(stripe, C::REFERENCE, resource_name, &value, paid).await
 }
 

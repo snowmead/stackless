@@ -15,7 +15,8 @@ pub mod surface;
 pub mod test_support;
 
 pub use catalog::verify::{
-    CatalogService, add_catalog_resource, requires_confirmation, verify_service,
+    CatalogService, add_catalog_resource, add_catalog_resource_with_paid, requires_confirmation,
+    verify_service,
 };
 pub use catalog::{Catalog, ServiceDetail};
 pub use error::ProjectsError;

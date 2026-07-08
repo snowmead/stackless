@@ -177,7 +177,14 @@ impl ServiceDetail {
     /// confirmation, derived from the selected pricing tier (or the service's
     /// pricing kind when there are no tier selectors).
     pub fn requires_confirmation(&self, config: &Value) -> bool {
-        self.pricing.requires_confirmation(config)
+        self.requires_confirmation_with_paid(config, false)
+    }
+
+    /// Like [`requires_confirmation`], but honors an explicit paid-consent flag
+    /// for component-pricing tier selection.
+    pub fn requires_confirmation_with_paid(&self, config: &Value, confirm_paid: bool) -> bool {
+        self.pricing
+            .requires_confirmation_with_paid(config, confirm_paid)
     }
 
     /// Parent plan `service_id`s that must be provisioned before this service.
@@ -396,9 +403,15 @@ impl Pricing {
 
     /// Whether the selected tier requires paid confirmation.
     pub fn requires_confirmation(&self, config: &Value) -> bool {
+        self.requires_confirmation_with_paid(config, false)
+    }
+
+    /// Like [`requires_confirmation`], but selects component-pricing tiers with
+    /// `confirm_paid` so parent-plan provisioning matches the child add.
+    pub fn requires_confirmation_with_paid(&self, config: &Value, confirm_paid: bool) -> bool {
         if let Some(component) = &self.component {
             return component
-                .match_option(config, false)
+                .match_option(config, confirm_paid)
                 .is_some_and(|option| option.kind == ComponentOptionKind::Paid);
         }
         if !self.paid_pricing.is_empty()
@@ -906,6 +919,7 @@ mod tests {
             kv.required_parent_services(&json!({"title": "cache"}), true),
             vec!["workers:paid"]
         );
+        assert!(kv.requires_confirmation_with_paid(&json!({"title": "cache"}), true));
 
         let vercel = service(
             "vercel/project",

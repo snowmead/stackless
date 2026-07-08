@@ -87,7 +87,11 @@ pub fn verify(args: VerifyArgs, output: &Output) -> Result<(), CliError> {
             stackless_stripe_projects::TokioRunner,
             def_dir.clone(),
         );
-        let _ = rt.block_on(stackless_stripe_projects::sync_vault_pull(&stripe));
+        rt.block_on(stackless_stripe_projects::sync_vault_pull(&stripe))
+            .map_err(|err| CliError::BadArgument {
+                argument: "stripe projects env --pull".into(),
+                detail: err.to_string(),
+            })?;
     }
     let secrets = crate::secrets::resolve(&def, &def_dir, Some(name))?;
     let checkpoints = store.checkpoints(name)?;

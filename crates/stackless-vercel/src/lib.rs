@@ -26,7 +26,8 @@ use stackless_core::substrate::{
 use stackless_stripe_projects::ProjectsError;
 use stackless_stripe_projects::stripe::{CommandRunner, StripeProjects, TokioRunner};
 use stackless_stripe_projects::{
-    CatalogService, add_catalog_resource, project, requires_confirmation,
+    CatalogService, add_catalog_resource, add_catalog_resource_with_paid, project,
+    requires_confirmation,
 };
 use tokio::sync::Mutex;
 
@@ -329,9 +330,15 @@ impl<R: CommandRunner> VercelSubstrate<R> {
                 if requires_confirmation(&catalog, &config).unwrap_or(true) {
                     self.require_confirm_paid(PRO_RESOURCE_NAME)?;
                 }
-                add_catalog_resource(&stripe, &catalog, &config, PRO_RESOURCE_NAME)
-                    .await
-                    .map_err(projects_fault)?;
+                add_catalog_resource_with_paid(
+                    &stripe,
+                    &catalog,
+                    &config,
+                    PRO_RESOURCE_NAME,
+                    self.confirm_paid,
+                )
+                .await
+                .map_err(projects_fault)?;
             }
         }
 
