@@ -86,7 +86,8 @@ async fn ensure_parent_plans<R: CommandRunner>(
                 resource: plan_id.clone(),
                 detail: format!("parent plan {reference} not found in catalog"),
             })?;
-        let paid = plan.requires_confirmation(&json!({}));
+        let needs_paid = plan.requires_confirmation_with_paid(&json!({}), prefer_paid);
+        let paid = needs_paid && prefer_paid;
         project::add_resource(stripe, &reference, &plan_id, &json!({}), paid).await?;
     }
     Ok(())

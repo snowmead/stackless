@@ -535,20 +535,26 @@ impl ComponentPricing {
         }
     }
 
-    /// The component-pricing option implied by `config`: explicit default, else
-    /// the paid tier when `prefer_paid`, else the first free tier, else the first option.
+    /// The component-pricing option implied by `config`. With paid consent,
+    /// honors `is_default` then paid tier; without consent, ignores paid defaults
+    /// and selects a free tier so confirmation is not demanded incorrectly.
     fn match_option(&self, _config: &Value, prefer_paid: bool) -> Option<&ComponentOption> {
-        for option in &self.options {
-            if option.is_default == Some(true) {
-                return Some(option);
-            }
-        }
         if prefer_paid {
+            for option in &self.options {
+                if option.is_default == Some(true) {
+                    return Some(option);
+                }
+            }
             return self
                 .options
                 .iter()
                 .find(|option| option.kind == ComponentOptionKind::Paid)
                 .or_else(|| self.options.first());
+        }
+        for option in &self.options {
+            if option.is_default == Some(true) && option.kind == ComponentOptionKind::Free {
+                return Some(option);
+            }
         }
         self.options
             .iter()
@@ -937,6 +943,33 @@ mod tests {
             vercel
                 .required_parent_services(&json!({"name": "demo"}), false)
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn match_option_without_paid_consent_ignores_paid_default() {
+        let svc = service(
+            "cloudflare/kv",
+            json!({}),
+            json!({
+                "type": "component",
+                "component": {
+                    "options": [
+                        {"type": "paid", "is_default": true, "parent_services": ["workers:paid"]},
+                        {"type": "free", "parent_services": ["workers:free"]}
+                    ]
+                }
+            }),
+        );
+        assert!(!svc.requires_confirmation_with_paid(&json!({}), false));
+        assert_eq!(
+            svc.required_parent_services(&json!({}), false),
+            vec!["workers:free"]
+        );
+        assert!(svc.requires_confirmation_with_paid(&json!({}), true));
+        assert_eq!(
+            svc.required_parent_services(&json!({}), true),
+            vec!["workers:paid"]
         );
     }
 }

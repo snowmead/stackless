@@ -13,7 +13,7 @@ use crate::error::CliError;
 use crate::output::Output;
 use crate::secrets::{self, ENV_FILE};
 use stackless_stripe_projects::{
-    preflight_checks_from_envelope, recorded_project_id, vault_env_union_from_dir,
+    preflight_checks_from_envelope, recorded_project_id, vault_env_from_dir,
 };
 
 pub struct DoctorArgs {
@@ -209,7 +209,8 @@ fn check_env_file(
     let env_path = dir.join(ENV_FILE);
     let mut available = secrets_overlay.clone();
     if recorded_project_id(def).is_some() {
-        available.extend(vault_env_union_from_dir(dir));
+        // Match `secrets::resolve` without a named instance: base vault only.
+        available.extend(vault_env_from_dir(dir, None));
     }
     let missing: Vec<String> = def
         .secrets
@@ -512,7 +513,7 @@ health = { path = "/" }
     }
 
     #[test]
-    fn env_check_passes_when_secret_in_instance_vault() {
+    fn env_check_fails_when_secret_only_in_instance_vault() {
         let def = StackDef::parse(
             r#"[stack]
 name = "demo"
@@ -528,6 +529,28 @@ health = { path = "/" }
         .unwrap();
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join(".env.demo"), "API_TOKEN=from-instance\n").unwrap();
+        let checks = check_env_file(dir.path(), &def, &Default::default());
+        assert_eq!(checks.len(), 1);
+        assert!(!checks[0].ok);
+    }
+
+    #[test]
+    fn env_check_passes_when_secret_in_base_vault() {
+        let def = StackDef::parse(
+            r#"[stack]
+name = "demo"
+[stack.projects.stripe]
+project = "project_test"
+[secrets]
+required = ["API_TOKEN"]
+[services.web]
+source = { repo = "file:///tmp", ref = "main" }
+health = { path = "/" }
+"#,
+        )
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(".env"), "API_TOKEN=from-base\n").unwrap();
         let checks = check_env_file(dir.path(), &def, &Default::default());
         assert_eq!(checks.len(), 1);
         assert!(checks[0].ok);
