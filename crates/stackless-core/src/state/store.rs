@@ -812,6 +812,18 @@ fn from_libsql(row: &libsql::Row, column_count: i32) -> Result<Row, StateError> 
     Ok(Row { columns })
 }
 
+/// Wrap a libsql error as a `rusqlite::Error` for the two error variants
+/// (`Open`, `Migrate`) whose `source` is typed `rusqlite::Error`.
+/// Remote-specific failures use the dedicated `state.remote.*` variants;
+/// this shim only covers migration/open, where the message is what
+/// matters.
+fn rusqlite_shim(e: libsql::Error) -> rusqlite::Error {
+    rusqlite::Error::SqliteFailure(
+        rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ERROR),
+        Some(e.to_string()),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -844,16 +856,4 @@ mod tests {
         assert!(row.get_u32(0).is_err());
         assert_eq!(row.get_u32(1).unwrap(), 42);
     }
-}
-
-/// Wrap a libsql error as a `rusqlite::Error` for the two error variants
-/// (`Open`, `Migrate`) whose `source` is typed `rusqlite::Error`.
-/// Remote-specific failures use the dedicated `state.remote.*` variants;
-/// this shim only covers migration/open, where the message is what
-/// matters.
-fn rusqlite_shim(e: libsql::Error) -> rusqlite::Error {
-    rusqlite::Error::SqliteFailure(
-        rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ERROR),
-        Some(e.to_string()),
-    )
 }
