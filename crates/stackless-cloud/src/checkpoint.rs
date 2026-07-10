@@ -13,9 +13,7 @@ pub fn is_ephemeral_resource_kind(kind: &str) -> bool {
 
 /// Parse a checkpoint payload: empty → `Ok(None)` (legacy fallback);
 /// non-empty malformed → `Err(detail)`; valid → `Ok(Some(T))`.
-pub fn parse_payload<'a, T: serde::de::DeserializeOwned>(
-    payload: &'a str,
-) -> Result<Option<T>, String> {
+pub fn parse_payload<T: serde::de::DeserializeOwned>(payload: &str) -> Result<Option<T>, String> {
     let trimmed = payload.trim();
     if trimmed.is_empty() {
         return Ok(None);
