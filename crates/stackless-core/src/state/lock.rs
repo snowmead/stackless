@@ -32,7 +32,8 @@
 use std::time::Duration;
 
 use super::error::StateError;
-use super::store::{Row, Store};
+use super::row::Row;
+use super::store::Store;
 use crate::process::ProcessStamp;
 use crate::types::{Pid, ProcessStartTime};
 

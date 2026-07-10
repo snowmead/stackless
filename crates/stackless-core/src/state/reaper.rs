@@ -10,7 +10,8 @@
 use std::time::Duration;
 
 use super::error::StateError;
-use super::store::{Row, Store};
+use super::row::Row;
+use super::store::Store;
 
 /// A recorded failed-reap attempt — surfaced in `status`/`list` until a
 /// successful teardown clears it (invariant 4).

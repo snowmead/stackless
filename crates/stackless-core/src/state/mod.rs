@@ -6,7 +6,10 @@ mod journal;
 mod lease;
 mod lock;
 mod reaper;
+mod remote;
+mod row;
 mod store;
+mod value;
 
 pub use error::StateError;
 pub use instance::{InstanceRecord, InstanceStatus};
