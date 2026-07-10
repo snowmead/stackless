@@ -592,9 +592,18 @@ impl<R: CommandRunner> Substrate for FlySubstrate<R> {
             // via the Stripe resource registration (the source of truth for what
             // Stripe provisioned), not the Fly API.
             "fly-machine" => {
-                let stripe_resource = serde_json::from_str::<ServicePayload>(&checkpoint.payload)
+                let payload = stackless_cloud::checkpoint::parse_payload::<ServicePayload>(
+                    &checkpoint.payload,
+                )
+                .map_err(|detail| {
+                    fault(FlyError::ConfigInvalid {
+                        location: "checkpoint.payload".into(),
+                        detail,
+                    })
+                })?;
+                let stripe_resource = payload
                     .map(|p| p.stripe_resource)
-                    .unwrap_or_else(|_| checkpoint.resource_id.clone());
+                    .unwrap_or_else(|| checkpoint.resource_id.clone());
                 let present = project::resource_registered(&self.stripe(), &stripe_resource)
                     .await
                     .map_err(projects_fault)?;
@@ -611,9 +620,14 @@ impl<R: CommandRunner> Substrate for FlySubstrate<R> {
                 .await
                 .map_err(integration_fault)
             }
-            // Hooks, gates, and the source-ref own nothing destructible: Gone,
-            // so teardown drops their checkpoints and resume re-runs them.
-            _ => Ok(Observation::Gone),
+            // Hooks, gates, and source-ref own nothing destructible on Fly.
+            kind if stackless_cloud::checkpoint::is_ephemeral_resource_kind(kind) => {
+                Ok(Observation::Gone)
+            }
+            kind => Err(fault(FlyError::ConfigInvalid {
+                location: "checkpoint.resource_kind".into(),
+                detail: format!("unknown resource kind {kind:?}"),
+            })),
         }
     }
 
@@ -627,9 +641,18 @@ impl<R: CommandRunner> Substrate for FlySubstrate<R> {
             // (and its machine). `remove_resource` is idempotent; the engine
             // then re-`observe`s via Stripe registration to confirm gone.
             "fly-machine" => {
-                let stripe_resource = serde_json::from_str::<ServicePayload>(&checkpoint.payload)
+                let payload = stackless_cloud::checkpoint::parse_payload::<ServicePayload>(
+                    &checkpoint.payload,
+                )
+                .map_err(|detail| {
+                    fault(FlyError::ConfigInvalid {
+                        location: "checkpoint.payload".into(),
+                        detail,
+                    })
+                })?;
+                let stripe_resource = payload
                     .map(|p| p.stripe_resource)
-                    .unwrap_or_else(|_| checkpoint.resource_id.clone());
+                    .unwrap_or_else(|| checkpoint.resource_id.clone());
                 project::remove_resource(&self.stripe(), &stripe_resource)
                     .await
                     .map_err(projects_fault)
@@ -645,8 +668,11 @@ impl<R: CommandRunner> Substrate for FlySubstrate<R> {
                 .await
                 .map_err(integration_fault)
             }
-            // action and source-ref kinds: nothing to destroy.
-            _ => Ok(()),
+            kind if stackless_cloud::checkpoint::is_ephemeral_resource_kind(kind) => Ok(()),
+            kind => Err(fault(FlyError::ConfigInvalid {
+                location: "checkpoint.resource_kind".into(),
+                detail: format!("unknown resource kind {kind:?}"),
+            })),
         }
     }
 
@@ -856,6 +882,22 @@ mod tests {
             r#"{"repo":"r","ref":"main"}"#,
         );
         assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Gone);
+        s.destroy("demo", &cp).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn unknown_resource_kind_fails_closed() {
+        let (_dir, s) = subj();
+        let cp = checkpoint("not-a-real-kind", "start:web", "{}");
+        assert!(s.observe("demo", &cp).await.is_err());
+        assert!(s.destroy("demo", &cp).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn malformed_nonempty_payload_fails_on_destroy() {
+        let (_dir, s) = subj();
+        let cp = checkpoint("fly-machine", "start:web", "{");
+        assert!(s.destroy("demo", &cp).await.is_err());
     }
 
     #[tokio::test]

@@ -135,7 +135,8 @@ macro_rules! string_newtype {
                 }
             }
 
-            /// Wrap a value already validated elsewhere (e.g. TOML → validate()).
+            /// Wrap a value already validated by the engine or a trusted store
+            /// boundary. Prefer [`Self::try_new`] at untrusted inputs (serde, CLI).
             pub fn from_stored(value: impl Into<String>) -> Self {
                 Self(value.into())
             }
@@ -191,7 +192,7 @@ string_newtype!(
 
 fn deserialize_dns_name<'de, D: Deserializer<'de>>(deserializer: D) -> Result<DnsName, D::Error> {
     let value = String::deserialize(deserializer)?;
-    Ok(DnsName::from_stored(value))
+    DnsName::try_new(value).map_err(serde::de::Error::custom)
 }
 
 fn deserialize_validated_proxy_host<'de, D: Deserializer<'de>>(
@@ -319,5 +320,11 @@ mod tests {
     fn dns_name_matches_dns_safe() {
         assert!(DnsName::try_new("atto").is_ok());
         assert!(DnsName::try_new("API").is_err());
+    }
+
+    #[test]
+    fn dns_name_serde_rejects_invalid() {
+        assert!(serde_json::from_str::<DnsName>(r#""atto""#).is_ok());
+        assert!(serde_json::from_str::<DnsName>(r#""API""#).is_err());
     }
 }

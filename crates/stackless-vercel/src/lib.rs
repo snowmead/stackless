@@ -741,7 +741,15 @@ impl<R: CommandRunner> Substrate for VercelSubstrate<R> {
     ) -> Result<Observation, SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
             "vercel-service" => {
-                let payload = serde_json::from_str::<ServicePayload>(&checkpoint.payload).ok();
+                let payload = stackless_cloud::checkpoint::parse_payload::<ServicePayload>(
+                    &checkpoint.payload,
+                )
+                .map_err(|detail| {
+                    fault(VercelError::ConfigInvalid {
+                        location: "checkpoint.payload".into(),
+                        detail,
+                    })
+                })?;
                 let project_id = payload
                     .map(|p| p.project_id)
                     .unwrap_or_else(|| checkpoint.resource_id.clone());
@@ -755,7 +763,15 @@ impl<R: CommandRunner> Substrate for VercelSubstrate<R> {
                 Ok(stackless_core::substrate::present_or_gone(present))
             }
             "source-ref" => {
-                let payload = serde_json::from_str::<SourceRefPayload>(&checkpoint.payload).ok();
+                let payload = stackless_cloud::checkpoint::parse_payload::<SourceRefPayload>(
+                    &checkpoint.payload,
+                )
+                .map_err(|detail| {
+                    fault(VercelError::ConfigInvalid {
+                        location: "checkpoint.payload".into(),
+                        detail,
+                    })
+                })?;
                 let present = payload
                     .and_then(|payload| Some((payload.path?, payload.commit?)))
                     .is_some_and(|(path, commit)| source_ref_present(&path, &commit));
@@ -772,14 +788,28 @@ impl<R: CommandRunner> Substrate for VercelSubstrate<R> {
                 .await
                 .map_err(integration_fault)
             }
-            _ => Ok(Observation::Gone),
+            kind if stackless_cloud::checkpoint::is_ephemeral_resource_kind(kind) => {
+                Ok(Observation::Gone)
+            }
+            kind => Err(fault(VercelError::ConfigInvalid {
+                location: "checkpoint.resource_kind".into(),
+                detail: format!("unknown resource kind {kind:?}"),
+            })),
         }
     }
 
     async fn destroy(&self, instance: &str, checkpoint: &Checkpoint) -> Result<(), SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
             "vercel-service" => {
-                let payload = serde_json::from_str::<ServicePayload>(&checkpoint.payload).ok();
+                let payload = stackless_cloud::checkpoint::parse_payload::<ServicePayload>(
+                    &checkpoint.payload,
+                )
+                .map_err(|detail| {
+                    fault(VercelError::ConfigInvalid {
+                        location: "checkpoint.payload".into(),
+                        detail,
+                    })
+                })?;
                 let (stripe_resource, project_id, vercel_name) = payload
                     .map(|p| (p.stripe_resource, p.project_id, p.vercel_name))
                     .unwrap_or_else(|| {
@@ -798,7 +828,15 @@ impl<R: CommandRunner> Substrate for VercelSubstrate<R> {
                 .await
             }
             "source-ref" => {
-                let payload = serde_json::from_str::<SourceRefPayload>(&checkpoint.payload).ok();
+                let payload = stackless_cloud::checkpoint::parse_payload::<SourceRefPayload>(
+                    &checkpoint.payload,
+                )
+                .map_err(|detail| {
+                    fault(VercelError::ConfigInvalid {
+                        location: "checkpoint.payload".into(),
+                        detail,
+                    })
+                })?;
                 if let Some(path) = payload.and_then(|payload| payload.path) {
                     destroy_source_ref(&path)?;
                 }
@@ -815,7 +853,11 @@ impl<R: CommandRunner> Substrate for VercelSubstrate<R> {
                 .await
                 .map_err(integration_fault)
             }
-            _ => Ok(()),
+            kind if stackless_cloud::checkpoint::is_ephemeral_resource_kind(kind) => Ok(()),
+            kind => Err(fault(VercelError::ConfigInvalid {
+                location: "checkpoint.resource_kind".into(),
+                detail: format!("unknown resource kind {kind:?}"),
+            })),
         }
     }
 
@@ -1091,6 +1133,21 @@ mod tests {
             r#"{"stripe_resource":"demo-api","vercel_name":"atto-demo-api","project_id":"prj_1","deployment_id":"dpl_1","origin":"https://atto-demo-api.vercel.app"}"#,
         );
         assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Gone);
+    }
+
+    #[tokio::test]
+    async fn unknown_resource_kind_fails_closed() {
+        let (_dir, s) = subj("http://127.0.0.1:1");
+        let cp = checkpoint("not-a-real-kind", "start:api", "{}");
+        assert!(s.observe("demo", &cp).await.is_err());
+        assert!(s.destroy("demo", &cp).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn malformed_nonempty_payload_fails_on_destroy() {
+        let (_dir, s) = subj("http://127.0.0.1:1");
+        let cp = checkpoint("vercel-service", "start:api", "{");
+        assert!(s.destroy("demo", &cp).await.is_err());
     }
 
     #[test]

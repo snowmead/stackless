@@ -111,21 +111,20 @@ impl Row {
     pub(super) fn get_i64(&self, idx: usize) -> Result<i64, StateError> {
         match self.columns.get(idx) {
             Some(Value::Int(v)) => Ok(*v),
-            Some(Value::Null) => Ok(0),
-            Some(Value::Text(t)) => t.parse().map_err(|_| StateError::row_type(idx, "i64")),
+            Some(other) => Err(StateError::row_type(idx, &format!("i64, got {other:?}"))),
             None => Err(StateError::row_range(idx)),
         }
     }
 
     pub(super) fn get_u32(&self, idx: usize) -> Result<u32, StateError> {
-        Ok(self.get_i64(idx)? as u32)
+        let v = self.get_i64(idx)?;
+        u32::try_from(v).map_err(|_| StateError::row_type(idx, "u32"))
     }
 
     pub(super) fn get_string(&self, idx: usize) -> Result<String, StateError> {
         match self.columns.get(idx) {
             Some(Value::Text(t)) => Ok(t.clone()),
-            Some(Value::Int(v)) => Ok(v.to_string()),
-            Some(Value::Null) => Ok(String::new()),
+            Some(other) => Err(StateError::row_type(idx, &format!("text, got {other:?}"))),
             None => Err(StateError::row_range(idx)),
         }
     }
@@ -135,12 +134,17 @@ impl Row {
         match self.columns.get(idx) {
             Some(Value::Null) => Ok(None),
             Some(Value::Int(v)) => Ok(Some(*v)),
-            Some(Value::Text(t)) => t
-                .parse()
-                .map(Some)
-                .map_err(|_| StateError::row_type(idx, "i64")),
+            Some(other) => Err(StateError::row_type(
+                idx,
+                &format!("i64|null, got {other:?}"),
+            )),
             None => Err(StateError::row_range(idx)),
         }
+    }
+
+    #[cfg(test)]
+    pub(super) fn from_values(columns: Vec<Value>) -> Self {
+        Self { columns }
     }
 }
 
@@ -759,9 +763,13 @@ fn from_rusqlite(row: &rusqlite::Row<'_>, idx: usize) -> Result<Value, StateErro
     Ok(match row.get_ref(idx)? {
         ValueRef::Null => Value::Null,
         ValueRef::Integer(i) => Value::Int(i),
-        ValueRef::Real(r) => Value::Int(r as i64),
         ValueRef::Text(t) => Value::Text(String::from_utf8_lossy(t).into_owned()),
-        ValueRef::Blob(_) => Value::Null,
+        ValueRef::Real(_) => {
+            return Err(StateError::row_type(idx, "int|text|null (got real)"));
+        }
+        ValueRef::Blob(_) => {
+            return Err(StateError::row_type(idx, "int|text|null (got blob)"));
+        }
     })
 }
 
@@ -786,9 +794,19 @@ fn from_libsql(row: &libsql::Row, column_count: i32) -> Result<Row, StateError> 
         columns.push(match v {
             libsql::Value::Null => Value::Null,
             libsql::Value::Integer(i) => Value::Int(i),
-            libsql::Value::Real(r) => Value::Int(r as i64),
             libsql::Value::Text(t) => Value::Text(t),
-            libsql::Value::Blob(_) => Value::Null,
+            libsql::Value::Real(_) => {
+                return Err(StateError::row_type(
+                    idx as usize,
+                    "int|text|null (got real)",
+                ));
+            }
+            libsql::Value::Blob(_) => {
+                return Err(StateError::row_type(
+                    idx as usize,
+                    "int|text|null (got blob)",
+                ));
+            }
         });
     }
     Ok(Row { columns })
@@ -804,4 +822,38 @@ fn rusqlite_shim(e: libsql::Error) -> rusqlite::Error {
         rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ERROR),
         Some(e.to_string()),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn get_i64_rejects_null_and_text() {
+        let row = Row::from_values(vec![Value::Null, Value::Text("1".into())]);
+        assert!(row.get_i64(0).is_err());
+        assert!(row.get_i64(1).is_err());
+    }
+
+    #[test]
+    fn get_string_rejects_null_and_int() {
+        let row = Row::from_values(vec![Value::Null, Value::Int(7)]);
+        assert!(row.get_string(0).is_err());
+        assert!(row.get_string(1).is_err());
+    }
+
+    #[test]
+    fn get_opt_i64_accepts_null_and_int_only() {
+        let row = Row::from_values(vec![Value::Null, Value::Int(3), Value::Text("x".into())]);
+        assert_eq!(row.get_opt_i64(0).unwrap(), None);
+        assert_eq!(row.get_opt_i64(1).unwrap(), Some(3));
+        assert!(row.get_opt_i64(2).is_err());
+    }
+
+    #[test]
+    fn get_u32_rejects_negative() {
+        let row = Row::from_values(vec![Value::Int(-1), Value::Int(42)]);
+        assert!(row.get_u32(0).is_err());
+        assert_eq!(row.get_u32(1).unwrap(), 42);
+    }
 }
