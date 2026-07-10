@@ -13,10 +13,14 @@ pub enum InstanceStatus {
 }
 
 impl InstanceStatus {
-    pub(super) fn from_sql(s: &str) -> Self {
+    pub(super) fn from_sql(s: &str) -> Result<Self, StateError> {
         match s {
-            "tombstoned" => Self::Tombstoned,
-            _ => Self::Active,
+            "active" => Ok(Self::Active),
+            "tombstoned" => Ok(Self::Tombstoned),
+            other => Err(StateError::RowDecode {
+                column: 2,
+                detail: format!("unknown instance status {other:?}"),
+            }),
         }
     }
 }
@@ -59,7 +63,7 @@ impl TryFrom<&Row> for InstanceRecord {
                 column: 1,
                 detail: err.to_string(),
             })?,
-            status: InstanceStatus::from_sql(&status),
+            status: InstanceStatus::from_sql(&status)?,
             definition: row.get_string(3)?,
             source_overrides: serde_json::from_str(&overrides_json).unwrap_or_default(),
             created_at: row.get_i64(5)?,

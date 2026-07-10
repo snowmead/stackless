@@ -739,7 +739,15 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
             // Present iff the named resource still resolves on Render and
             // is not deleted (invariant 4: the substrate says what's true).
             "render-postgres" => {
-                let payload = serde_json::from_str::<DatastorePayload>(&checkpoint.payload).ok();
+                let payload = stackless_cloud::checkpoint::parse_payload::<DatastorePayload>(
+                    &checkpoint.payload,
+                )
+                .map_err(|detail| {
+                    fault(RenderError::ConfigInvalid {
+                        location: "checkpoint.payload".into(),
+                        detail,
+                    })
+                })?;
                 let name = payload
                     .map(|p| p.render_name)
                     .unwrap_or_else(|| checkpoint.resource_id.clone());
@@ -752,7 +760,15 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
                 Ok(stackless_core::substrate::present_or_gone(present))
             }
             "render-service" => {
-                let payload = serde_json::from_str::<ServicePayload>(&checkpoint.payload).ok();
+                let payload = stackless_cloud::checkpoint::parse_payload::<ServicePayload>(
+                    &checkpoint.payload,
+                )
+                .map_err(|detail| {
+                    fault(RenderError::ConfigInvalid {
+                        location: "checkpoint.payload".into(),
+                        detail,
+                    })
+                })?;
                 let name = payload
                     .map(|p| p.render_name)
                     .unwrap_or_else(|| checkpoint.resource_id.clone());
@@ -765,7 +781,15 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
                 Ok(stackless_core::substrate::present_or_gone(present))
             }
             "source-ref" => {
-                let payload = serde_json::from_str::<SourceRefPayload>(&checkpoint.payload).ok();
+                let payload = stackless_cloud::checkpoint::parse_payload::<SourceRefPayload>(
+                    &checkpoint.payload,
+                )
+                .map_err(|detail| {
+                    fault(RenderError::ConfigInvalid {
+                        location: "checkpoint.payload".into(),
+                        detail,
+                    })
+                })?;
                 let present = payload
                     .and_then(|payload| Some((payload.path?, payload.commit?)))
                     .is_some_and(|(path, commit)| source_ref_present(&path, &commit));
@@ -782,9 +806,13 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
                 .await
                 .map_err(integration_fault)
             }
-            // Hooks and gates own nothing destructible: Gone, so teardown
-            // drops their checkpoints and resume re-runs them.
-            _ => Ok(Observation::Gone),
+            kind if stackless_cloud::checkpoint::is_ephemeral_resource_kind(kind) => {
+                Ok(Observation::Gone)
+            }
+            kind => Err(fault(RenderError::ConfigInvalid {
+                location: "checkpoint.resource_kind".into(),
+                detail: format!("unknown resource kind {kind:?}"),
+            })),
         }
     }
 
@@ -795,7 +823,15 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
     ) -> Result<(), SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
             "render-service" => {
-                let payload = serde_json::from_str::<ServicePayload>(&checkpoint.payload).ok();
+                let payload = stackless_cloud::checkpoint::parse_payload::<ServicePayload>(
+                    &checkpoint.payload,
+                )
+                .map_err(|detail| {
+                    fault(RenderError::ConfigInvalid {
+                        location: "checkpoint.payload".into(),
+                        detail,
+                    })
+                })?;
                 let (stripe_resource, render_name) = payload
                     .map(|p| (p.stripe_resource, p.render_name))
                     .unwrap_or_else(|| {
@@ -808,7 +844,15 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
                     .await
             }
             "render-postgres" => {
-                let payload = serde_json::from_str::<DatastorePayload>(&checkpoint.payload).ok();
+                let payload = stackless_cloud::checkpoint::parse_payload::<DatastorePayload>(
+                    &checkpoint.payload,
+                )
+                .map_err(|detail| {
+                    fault(RenderError::ConfigInvalid {
+                        location: "checkpoint.payload".into(),
+                        detail,
+                    })
+                })?;
                 let (stripe_resource, render_name) = payload
                     .map(|p| (p.stripe_resource, p.render_name))
                     .unwrap_or_else(|| {
@@ -821,7 +865,15 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
                     .await
             }
             "source-ref" => {
-                let payload = serde_json::from_str::<SourceRefPayload>(&checkpoint.payload).ok();
+                let payload = stackless_cloud::checkpoint::parse_payload::<SourceRefPayload>(
+                    &checkpoint.payload,
+                )
+                .map_err(|detail| {
+                    fault(RenderError::ConfigInvalid {
+                        location: "checkpoint.payload".into(),
+                        detail,
+                    })
+                })?;
                 if let Some(path) = payload.and_then(|payload| payload.path) {
                     destroy_source_ref(&path)?;
                 }
@@ -838,8 +890,11 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
                 .await
                 .map_err(integration_fault)
             }
-            // action kinds: nothing to destroy.
-            _ => Ok(()),
+            kind if stackless_cloud::checkpoint::is_ephemeral_resource_kind(kind) => Ok(()),
+            kind => Err(fault(RenderError::ConfigInvalid {
+                location: "checkpoint.resource_kind".into(),
+                detail: format!("unknown resource kind {kind:?}"),
+            })),
         }
     }
 
@@ -1160,6 +1215,21 @@ mod tests {
             r#"{"stripe_resource":"demo-api","render_name":"atto-demo-api","service_id":"srv_1","origin":"x","is_static":false}"#,
         );
         assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Gone);
+    }
+
+    #[tokio::test]
+    async fn unknown_resource_kind_fails_closed() {
+        let (_dir, s) = subj("http://127.0.0.1:1");
+        let cp = checkpoint("not-a-real-kind", "start:api", "{}");
+        assert!(s.observe("demo", &cp).await.is_err());
+        assert!(s.destroy("demo", &cp).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn malformed_nonempty_payload_fails_on_destroy() {
+        let (_dir, s) = subj("http://127.0.0.1:1");
+        let cp = checkpoint("render-service", "start:api", "{");
+        assert!(s.destroy("demo", &cp).await.is_err());
     }
 
     #[test]

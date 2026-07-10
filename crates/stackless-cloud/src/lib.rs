@@ -9,6 +9,7 @@
 //! NOT abstracted here — it differs materially between providers and has too few
 //! instances to generalise safely.
 
+pub mod checkpoint;
 pub mod credential;
 pub mod health;
 pub mod prepare;

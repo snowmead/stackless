@@ -591,9 +591,18 @@ impl<R: CommandRunner> Substrate for NetlifySubstrate<R> {
     ) -> Result<Observation, SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
             "netlify-site" => {
-                let stripe_resource = serde_json::from_str::<NetlifyPayload>(&checkpoint.payload)
+                let payload = stackless_cloud::checkpoint::parse_payload::<NetlifyPayload>(
+                    &checkpoint.payload,
+                )
+                .map_err(|detail| {
+                    fault(NetlifyError::ConfigInvalid {
+                        location: "checkpoint.payload".into(),
+                        detail,
+                    })
+                })?;
+                let stripe_resource = payload
                     .map(|p| p.stripe_resource)
-                    .unwrap_or_else(|_| checkpoint.resource_id.clone());
+                    .unwrap_or_else(|| checkpoint.resource_id.clone());
                 let present = project::resource_registered(&self.stripe(), &stripe_resource)
                     .await
                     .map_err(projects_fault)?;
@@ -610,7 +619,13 @@ impl<R: CommandRunner> Substrate for NetlifySubstrate<R> {
                 .await
                 .map_err(integration_fault)
             }
-            _ => Ok(Observation::Gone),
+            kind if stackless_cloud::checkpoint::is_ephemeral_resource_kind(kind) => {
+                Ok(Observation::Gone)
+            }
+            kind => Err(fault(NetlifyError::ConfigInvalid {
+                location: "checkpoint.resource_kind".into(),
+                detail: format!("unknown resource kind {kind:?}"),
+            })),
         }
     }
 
@@ -621,9 +636,18 @@ impl<R: CommandRunner> Substrate for NetlifySubstrate<R> {
     ) -> Result<(), SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
             "netlify-site" => {
-                let stripe_resource = serde_json::from_str::<NetlifyPayload>(&checkpoint.payload)
+                let payload = stackless_cloud::checkpoint::parse_payload::<NetlifyPayload>(
+                    &checkpoint.payload,
+                )
+                .map_err(|detail| {
+                    fault(NetlifyError::ConfigInvalid {
+                        location: "checkpoint.payload".into(),
+                        detail,
+                    })
+                })?;
+                let stripe_resource = payload
                     .map(|p| p.stripe_resource)
-                    .unwrap_or_else(|_| checkpoint.resource_id.clone());
+                    .unwrap_or_else(|| checkpoint.resource_id.clone());
                 project::remove_resource(&self.stripe(), &stripe_resource)
                     .await
                     .map_err(projects_fault)
@@ -639,7 +663,11 @@ impl<R: CommandRunner> Substrate for NetlifySubstrate<R> {
                 .await
                 .map_err(integration_fault)
             }
-            _ => Ok(()),
+            kind if stackless_cloud::checkpoint::is_ephemeral_resource_kind(kind) => Ok(()),
+            kind => Err(fault(NetlifyError::ConfigInvalid {
+                location: "checkpoint.resource_kind".into(),
+                detail: format!("unknown resource kind {kind:?}"),
+            })),
         }
     }
 
@@ -852,6 +880,26 @@ mod tests {
         let s = NetlifySubstrate::for_test(&runner, dir.path(), "http://127.0.0.1:1", false);
         let cp = checkpoint("netlify-site", "start:web", PAYLOAD);
         assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Gone);
+    }
+
+    #[tokio::test]
+    async fn source_ref_observes_gone_so_teardown_drops_it() {
+        let (_dir, s) = subj();
+        let cp = checkpoint(
+            "source-ref",
+            "materialize:web",
+            r#"{"repo":"r","ref":"main"}"#,
+        );
+        assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Gone);
+        s.destroy("demo", &cp).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn unknown_resource_kind_fails_closed() {
+        let (_dir, s) = subj();
+        let cp = checkpoint("not-a-real-kind", "start:web", "{}");
+        assert!(s.observe("demo", &cp).await.is_err());
+        assert!(s.destroy("demo", &cp).await.is_err());
     }
 
     #[tokio::test]
