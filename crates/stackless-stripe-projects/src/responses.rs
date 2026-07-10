@@ -94,42 +94,6 @@ impl EnvListResponse {
     }
 }
 
-/// `stripe projects variables list --json` data. Values are never returned —
-/// only bindings and `has_value` metadata (probe: fixtures/probes/variables-list.json).
-#[derive(Debug, Default, Deserialize)]
-pub struct VariablesListResponse {
-    #[serde(default)]
-    pub variables: Vec<ProjectVariable>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ProjectVariable {
-    pub name: String,
-    #[serde(default)]
-    pub has_value: bool,
-    #[serde(default)]
-    pub status: Option<String>,
-    #[serde(default)]
-    pub bindings: Vec<VariableBinding>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct VariableBinding {
-    pub env_key: String,
-    #[serde(default)]
-    pub environment: Option<String>,
-}
-
-impl VariablesListResponse {
-    /// Map env keys (e.g. `PROBE_SECRET`) configured via project variables.
-    pub fn env_keys(&self) -> Vec<&str> {
-        self.variables
-            .iter()
-            .flat_map(|v| v.bindings.iter().map(|b| b.env_key.as_str()))
-            .collect()
-    }
-}
-
 /// `stripe projects services list --json` data.
 #[derive(Debug, Default, Deserialize)]
 pub struct ServicesListResponse {
@@ -157,30 +121,46 @@ pub fn preflight_checks_from_envelope(raw: &str) -> Vec<PreflightCheck> {
     #[derive(Deserialize)]
     struct Envelope {
         #[serde(default)]
-        data: Option<PreflightReady>,
+        ok: bool,
+        #[serde(default)]
+        data: Option<Value>,
         #[serde(default)]
         error: Option<PreflightError>,
     }
     #[derive(Deserialize)]
     struct PreflightError {
         #[serde(default)]
-        details: Option<PreflightDetails>,
-    }
-    #[derive(Deserialize)]
-    struct PreflightDetails {
-        #[serde(default)]
-        preflight: Vec<PreflightCheck>,
+        details: Option<Value>,
     }
     let envelope: Envelope = match serde_json::from_str(raw) {
         Ok(e) => e,
         Err(_) => return Vec::new(),
     };
-    if let Some(data) = envelope.data {
-        return data.preflight;
+    let data = envelope.data.unwrap_or(Value::Null);
+    let details = envelope.error.and_then(|e| e.details);
+    preflight_checks_from_parts(&data, envelope.ok, details.as_ref())
+}
+
+/// Extract preflight rows from already-parsed Stripe result parts.
+pub fn preflight_checks_from_parts(
+    data: &Value,
+    ok: bool,
+    error_details: Option<&Value>,
+) -> Vec<PreflightCheck> {
+    if ok {
+        return serde_json::from_value::<PreflightReady>(data.clone())
+            .map(|ready| ready.preflight)
+            .unwrap_or_default();
     }
-    envelope
-        .error
-        .and_then(|e| e.details)
+    let Some(details) = error_details else {
+        return Vec::new();
+    };
+    #[derive(Deserialize)]
+    struct Details {
+        #[serde(default)]
+        preflight: Vec<PreflightCheck>,
+    }
+    serde_json::from_value::<Details>(details.clone())
         .map(|d| d.preflight)
         .unwrap_or_default()
 }
@@ -197,10 +177,6 @@ mod tests {
     const PREFLIGHT_INIT_READY: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/tests/fixtures/probes/preflight-init-ready.json"
-    ));
-    const VARIABLES_LIST: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/probes/variables-list.json"
     ));
     const ENV_LIST: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -235,21 +211,9 @@ mod tests {
         struct Envelope {
             data: EnvListResponse,
         }
-        let start = ENV_LIST.find('{').unwrap();
+        let start = ENV_LIST.find('{').expect("fixture contains JSON object");
         let envelope: Envelope = serde_json::from_str(&ENV_LIST[start..]).unwrap();
         assert!(envelope.data.contains("default"));
-    }
-
-    #[test]
-    fn variables_list_parses_probe_fixture() {
-        #[derive(Deserialize)]
-        struct Envelope {
-            data: VariablesListResponse,
-        }
-        let start = VARIABLES_LIST.find('{').unwrap();
-        let envelope: Envelope = serde_json::from_str(&VARIABLES_LIST[start..]).unwrap();
-        assert_eq!(envelope.data.variables.len(), 1);
-        assert_eq!(envelope.data.env_keys(), vec!["PROBE_SECRET"]);
     }
 
     #[test]

@@ -207,16 +207,20 @@ fn check_env_file(
         return Vec::new();
     }
     let env_path = dir.join(ENV_FILE);
-    let mut available = secrets_overlay.clone();
-    if recorded_project_id(def).is_some() {
-        // Match `secrets::resolve` without a named instance: base vault only.
-        available.extend(vault_env_from_dir(dir, None));
-    }
+    let vault = if recorded_project_id(def).is_some() {
+        vault_env_from_dir(dir, None)
+    } else {
+        std::collections::BTreeMap::new()
+    };
     let missing: Vec<String> = def
         .secrets
         .required
         .iter()
-        .filter(|key| !available.contains_key(*key) && std::env::var(key).is_err())
+        .filter(|key| {
+            !secrets_overlay.contains_key(*key)
+                && !vault.contains_key(*key)
+                && std::env::var(key).is_err()
+        })
         .cloned()
         .collect();
     if missing.is_empty() {
@@ -341,22 +345,17 @@ fn check_stripe_projects_preflight(
     def: &StackDef,
     substrate: Option<&str>,
 ) -> Vec<DoctorCheck> {
-    // Preflight simulates the exact invocation `up` performs, so the consent
-    // flags `up` always supplies (`--accept-tos --yes`) are included; only
-    // genuine blockers (auth, eligibility, provider link) surface as failures.
     let mut checks = Vec::new();
+    let mut init_args =
+        Vec::with_capacity(4 + stackless_stripe_projects::INIT_PREFLIGHT_FLAGS.len());
+    init_args.push("projects");
+    init_args.push("init");
+    init_args.push(def.stack.name.as_str());
+    init_args.extend_from_slice(stackless_stripe_projects::INIT_PREFLIGHT_FLAGS);
+    init_args.push("--json");
     checks.extend(run_preflight_command(
         dir,
-        &[
-            "projects",
-            "init",
-            def.stack.name.as_str(),
-            "--preflight",
-            "--skip-skills",
-            "--accept-tos",
-            "--yes",
-            "--json",
-        ],
+        &init_args,
         "stripe_projects_init",
     ));
     if let Some(reference) = provider_preflight_reference(def, substrate) {

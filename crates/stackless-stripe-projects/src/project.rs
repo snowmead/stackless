@@ -5,16 +5,19 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
 
-use serde::Deserialize;
 use serde_json::Value;
 use stackless_core::def::StackDef;
-use stackless_core::types::dns_safe;
 
 use crate::error::ProjectsError;
 use crate::responses::{
-    EnvListResponse, PreflightCheck, ServicesListResponse, StatusResponse, VariablesListResponse,
+    EnvListResponse, ServicesListResponse, StatusResponse, preflight_checks_from_parts,
 };
 use crate::stripe::{CommandRunner, StripeProjects};
+
+/// Shared flags for `init --preflight` (doctor prefixes `projects` / `--json`;
+/// [`run_init_preflight`] uses `stripe.json` which supplies those).
+pub const INIT_PREFLIGHT_FLAGS: &[&str] =
+    &["--preflight", "--skip-skills", "--accept-tos", "--yes"];
 
 /// The recorded Stripe Projects anchor from `[stack.projects.stripe].project`.
 pub fn recorded_project_id(def: &StackDef) -> Option<String> {
@@ -232,9 +235,7 @@ pub async fn pull_env_values<R: CommandRunner>(
     instance: &str,
     keys: &[&str],
 ) -> Result<Vec<Option<String>>, ProjectsError> {
-    stripe
-        .run_ok("env --pull", &["env", "--pull", "--refresh"], &["--yes"])
-        .await?;
+    refresh_vault(stripe).await?;
     let map = vault_env_from_dir(stripe.dir(), Some(instance));
     let values = keys.iter().map(|&key| map.get(key).cloned()).collect();
     Ok(values)
@@ -351,82 +352,24 @@ pub async fn spend_summary<R: CommandRunner>(stripe: &StripeProjects<R>) -> Opti
     Some(result.data.to_string())
 }
 
-/// Run `init --preflight` before the one-time project-creation path. Surfaces
-/// every blocker (auth, eligibility) in one failure instead of mid-init.
-/// Passes the same consent flags the real `init` will use (`--accept-tos
-/// --yes`), so ToS/confirmation rows reflect the actual invocation instead of
-/// failing on flags `up` supplies anyway.
+/// Run `init --preflight` before project creation so auth/eligibility blockers
+/// surface once instead of mid-init. Uses the same consent flags as real `init`.
 pub async fn run_init_preflight<R: CommandRunner>(
     stripe: &StripeProjects<R>,
     stack_name: &str,
 ) -> Result<(), ProjectsError> {
-    let result = stripe
-        .json(&[
-            "init",
-            stack_name,
-            "--preflight",
-            "--skip-skills",
-            "--accept-tos",
-            "--yes",
-        ])
-        .await?;
+    let mut args = Vec::with_capacity(2 + INIT_PREFLIGHT_FLAGS.len());
+    args.push("init");
+    args.push(stack_name);
+    args.extend_from_slice(INIT_PREFLIGHT_FLAGS);
+    let result = stripe.json(&args).await?;
     if result.ok {
         return Ok(());
     }
     Err(preflight_failure("init", &result))
 }
 
-/// List backend-backed project variables (metadata only — values are not exposed
-/// in JSON; use [`sync_vault_pull`] + [`vault_env_from_dir`] to read values).
-pub async fn list_variables<R: CommandRunner>(
-    stripe: &StripeProjects<R>,
-) -> Result<VariablesListResponse, ProjectsError> {
-    let result = stripe.json(&["variables", "list"]).await?;
-    if !result.ok {
-        return Err(stripe.classify_failure("variables list", &result));
-    }
-    serde_json::from_value(result.data).map_err(|err| ProjectsError::Unavailable {
-        detail: format!("`stripe projects variables list` returned unmodeled data: {err}"),
-    })
-}
-
-/// Set a backend-backed project variable for the active environment.
-pub async fn set_variable<R: CommandRunner>(
-    stripe: &StripeProjects<R>,
-    name: &str,
-    env_key: &str,
-    value: Option<&str>,
-) -> Result<(), ProjectsError> {
-    let mut args = vec!["variables", "set", name, "--env-key", env_key, "--yes"];
-    let value_owned;
-    if let Some(value) = value {
-        value_owned = value.to_owned();
-        args.push("--value");
-        args.push(&value_owned);
-    }
-    stripe.run_ok("variables set", &args, &["--yes"]).await?;
-    Ok(())
-}
-
-/// Delete a backend-backed project variable.
-pub async fn delete_variable<R: CommandRunner>(
-    stripe: &StripeProjects<R>,
-    name: &str,
-) -> Result<(), ProjectsError> {
-    stripe
-        .run_ok(
-            "variables delete",
-            &["variables", "delete", name, "--yes"],
-            &["--yes"],
-        )
-        .await?;
-    Ok(())
-}
-
-/// Refresh the on-disk vault (`.env` / `.env.<instance>`) from Stripe Projects.
-pub async fn sync_vault_pull<R: CommandRunner>(
-    stripe: &StripeProjects<R>,
-) -> Result<(), ProjectsError> {
+async fn refresh_vault<R: CommandRunner>(stripe: &StripeProjects<R>) -> Result<(), ProjectsError> {
     stripe
         .run_ok("env --pull", &["env", "--pull", "--refresh"], &["--yes"])
         .await?;
@@ -439,20 +382,17 @@ pub async fn sync_vault_pull_for_instance<R: CommandRunner>(
     instance: &str,
 ) -> Result<(), ProjectsError> {
     ensure_environment(stripe, instance).await?;
-    sync_vault_pull(stripe).await
+    refresh_vault(stripe).await
 }
 
-/// Whether Stripe Projects runtime state exists under `definition_dir` (the
-/// `.projects/` tree created by `stripe projects init`). Vault pull before
-/// first `up` must skip until this exists — the anchor in stackless.toml alone
-/// is not enough.
+/// Whether `.projects/` exists under `definition_dir` (created by `init`).
+/// Vault pull before first `up` must skip until this exists.
 pub fn project_initialized_in_dir(definition_dir: &Path) -> bool {
     definition_dir.join(".projects").is_dir()
 }
 
-/// Read env keys from pulled vault files under `definition_dir`. Scans
-/// `.env` then `.env.<instance>` (when `Some`; instance values override base).
-/// Does not call the Stripe CLI.
+/// Read env keys from pulled vault files. Scans `.env` then `.env.<instance>`
+/// (instance overrides base). Does not call the Stripe CLI.
 pub fn vault_env_from_dir(
     definition_dir: &Path,
     instance: Option<&str>,
@@ -460,55 +400,19 @@ pub fn vault_env_from_dir(
     let mut out = BTreeMap::new();
     let base = definition_dir.join(".env");
     if let Ok(text) = std::fs::read_to_string(&base) {
-        merge_env_file(&mut out, &text);
+        merge_env_lines(&mut out, &text);
     }
     if let Some(instance) = instance {
         let inst = definition_dir.join(format!(".env.{instance}"));
         if let Ok(text) = std::fs::read_to_string(inst) {
-            merge_env_file(&mut out, &text);
+            merge_env_lines(&mut out, &text);
         }
     }
     out
 }
 
-/// Suffixes of `.env.<suffix>` that are samples/templates, not Stripe vault
-/// instance files (the repo gitignores `.env.*` except `!.env.example`).
-const VAULT_ENV_TEMPLATE_SUFFIXES: &[&str] = &["example"];
-
-/// Whether `name` is a Stripe vault instance file (`.env.<instance>`).
-fn vault_instance_env_file(name: &str) -> bool {
-    let Some(suffix) = name.strip_prefix(".env.") else {
-        return false;
-    };
-    !suffix.is_empty() && !VAULT_ENV_TEMPLATE_SUFFIXES.contains(&suffix) && dns_safe(suffix)
-}
-
-/// Read env keys from `.env` and every `.env.<instance>` under `definition_dir`.
-/// Used by read-only preflight (e.g. `stackless doctor`) when no instance is
-/// named. Only instance-shaped vault files are merged — templates like
-/// `.env.example` are skipped so doctor matches what `secrets::resolve` can use.
-pub fn vault_env_union_from_dir(definition_dir: &Path) -> BTreeMap<String, String> {
-    let mut out = BTreeMap::new();
-    let base = definition_dir.join(".env");
-    if let Ok(text) = std::fs::read_to_string(&base) {
-        merge_env_file(&mut out, &text);
-    }
-    let Ok(entries) = std::fs::read_dir(definition_dir) else {
-        return out;
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if vault_instance_env_file(&name)
-            && let Ok(text) = std::fs::read_to_string(entry.path())
-        {
-            merge_env_file(&mut out, &text);
-        }
-    }
-    out
-}
-
-fn merge_env_file(out: &mut BTreeMap<String, String>, text: &str) {
+/// Parse `KEY=VALUE` lines into `out` (comments and blank lines skipped).
+pub fn merge_env_lines(out: &mut BTreeMap<String, String>, text: &str) {
     for line in text.lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -522,7 +426,8 @@ fn merge_env_file(out: &mut BTreeMap<String, String>, text: &str) {
 }
 
 fn preflight_failure(command: &str, result: &crate::stripe::StripeResult) -> ProjectsError {
-    let checks = preflight_checks_from_result(result);
+    let checks =
+        preflight_checks_from_parts(&result.data, result.ok, result.error_details.as_ref());
     let detail = if checks.iter().any(|c| !c.pass) {
         checks
             .iter()
@@ -547,25 +452,6 @@ fn preflight_failure(command: &str, result: &crate::stripe::StripeResult) -> Pro
         command: command.to_owned(),
         detail,
     }
-}
-
-fn preflight_checks_from_result(result: &crate::stripe::StripeResult) -> Vec<PreflightCheck> {
-    if result.ok {
-        return serde_json::from_value::<crate::responses::PreflightReady>(result.data.clone())
-            .map(|ready| ready.preflight)
-            .unwrap_or_default();
-    }
-    let Some(details) = result.error_details.as_ref() else {
-        return Vec::new();
-    };
-    #[derive(Deserialize)]
-    struct Details {
-        #[serde(default)]
-        preflight: Vec<PreflightCheck>,
-    }
-    serde_json::from_value::<Details>(details.clone())
-        .map(|d| d.preflight)
-        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -671,23 +557,6 @@ mod tests {
         std::fs::write(dir.path().join(".env.demo"), "KEY=instance\n").unwrap();
         let map = vault_env_from_dir(dir.path(), Some("demo"));
         assert_eq!(map.get("KEY").map(String::as_str), Some("instance"));
-    }
-
-    #[test]
-    fn vault_env_union_skips_example_template() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join(".env.example"), "TOKEN=sample\n").unwrap();
-        let map = vault_env_union_from_dir(dir.path());
-        assert!(!map.contains_key("TOKEN"));
-
-        std::fs::write(dir.path().join(".env.demo"), "TOKEN=real\n").unwrap();
-        let map = vault_env_union_from_dir(dir.path());
-        assert_eq!(map.get("TOKEN").map(String::as_str), Some("real"));
-
-        std::fs::write(dir.path().join(".env"), "OTHER=base\n").unwrap();
-        let map = vault_env_union_from_dir(dir.path());
-        assert_eq!(map.get("OTHER").map(String::as_str), Some("base"));
-        assert_eq!(map.get("TOKEN").map(String::as_str), Some("real"));
     }
 
     #[tokio::test]

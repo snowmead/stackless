@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use stackless_core::def::StackDef;
-use stackless_stripe_projects::{recorded_project_id, unquote_env_value, vault_env_from_dir};
+use stackless_stripe_projects::{merge_env_lines, recorded_project_id, vault_env_from_dir};
 
 use crate::error::CliError;
 
@@ -24,6 +24,32 @@ pub fn load(def_dir: &Path) -> BTreeMap<String, String> {
         merge_env_lines(&mut resolved, &content);
     }
     resolved
+}
+
+/// Pull the Stripe vault for an instance when a project is recorded and
+/// initialized under `def_dir`. No-op otherwise.
+pub fn pull_vault_for_instance(
+    def: &StackDef,
+    def_dir: &Path,
+    instance: &str,
+    rt: &tokio::runtime::Runtime,
+) -> Result<(), CliError> {
+    if recorded_project_id(def).is_none()
+        || !stackless_stripe_projects::project_initialized_in_dir(def_dir)
+    {
+        return Ok(());
+    }
+    let stripe = stackless_stripe_projects::StripeProjects::new(
+        stackless_stripe_projects::TokioRunner,
+        def_dir.to_path_buf(),
+    );
+    rt.block_on(stackless_stripe_projects::sync_vault_pull_for_instance(
+        &stripe, instance,
+    ))
+    .map_err(|err| CliError::BadArgument {
+        argument: "stripe projects env --pull".into(),
+        detail: err.to_string(),
+    })
 }
 
 pub fn resolve(
@@ -64,18 +90,6 @@ pub fn resolve(
         return Err(CliError::SecretsUnresolved { missing, sources });
     }
     Ok(resolved)
-}
-
-fn merge_env_lines(out: &mut BTreeMap<String, String>, content: &str) {
-    for line in content.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        if let Some((key, value)) = line.split_once('=') {
-            out.insert(key.trim().to_owned(), unquote_env_value(value.trim()));
-        }
-    }
 }
 
 #[cfg(test)]
