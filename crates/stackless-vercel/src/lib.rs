@@ -305,12 +305,17 @@ impl<R: CommandRunner> VercelSubstrate<R> {
             return Ok(());
         }
         let stripe = self.stripe();
-        project::ensure_project(&stripe, def, &self.definition_dir)
-            .await
-            .map_err(projects_fault)?;
-        project::ensure_environment(&stripe, instance)
-            .await
-            .map_err(projects_fault)?;
+        // Hobby/Pro catalog resources are Vercel-specific; shared prelude is
+        // only project+env. Spend cap is set after plan provisioning.
+        stackless_cloud::ensure::project_and_env(
+            &stripe,
+            def,
+            &self.definition_dir,
+            instance,
+            None,
+        )
+        .await
+        .map_err(projects_fault)?;
 
         let stack = StackVercel::parse(def);
         let catalog = stripe.catalog().await.map_err(projects_fault)?;
@@ -609,29 +614,6 @@ fn collect_dir(base: &Path, dir: &Path, out: &mut Vec<UploadFile>) -> std::io::R
     Ok(())
 }
 
-fn source_ref_present(path: &str, commit: &str) -> bool {
-    let path = Path::new(path);
-    if !path.exists() {
-        return false;
-    }
-    std::fs::read_to_string(path.join(".git/HEAD"))
-        .map(|head| head.trim() == commit)
-        .unwrap_or(false)
-}
-
-fn destroy_source_ref(path: &str) -> Result<(), SubstrateFault> {
-    match std::fs::remove_dir_all(path) {
-        Ok(()) => Ok(()),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(err) => Err(SubstrateFault {
-            code: stackless_core::fault::codes::LOCAL_GIT_CHECKOUT_FAILED,
-            message: format!("cannot remove verify checkout {path}: {err}"),
-            remediation: format!("remove {path} by hand, then re-run `stackless down`"),
-            context: Box::default(),
-        }),
-    }
-}
-
 #[async_trait]
 impl<R: CommandRunner> Substrate for VercelSubstrate<R> {
     fn name(&self) -> &str {
@@ -774,7 +756,9 @@ impl<R: CommandRunner> Substrate for VercelSubstrate<R> {
                 })?;
                 let present = payload
                     .and_then(|payload| Some((payload.path?, payload.commit?)))
-                    .is_some_and(|(path, commit)| source_ref_present(&path, &commit));
+                    .is_some_and(|(path, commit)| {
+                        stackless_cloud::source_ref::present(&path, &commit)
+                    });
                 Ok(stackless_core::substrate::present_or_gone(present))
             }
             kind if stackless_integrations::is_integration_resource(kind) => {
@@ -838,7 +822,7 @@ impl<R: CommandRunner> Substrate for VercelSubstrate<R> {
                     })
                 })?;
                 if let Some(path) = payload.and_then(|payload| payload.path) {
-                    destroy_source_ref(&path)?;
+                    stackless_cloud::source_ref::destroy(&path)?;
                 }
                 Ok(())
             }
