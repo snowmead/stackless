@@ -411,7 +411,7 @@ impl Pricing {
     pub fn requires_confirmation_with_paid(&self, config: &Value, confirm_paid: bool) -> bool {
         if let Some(component) = &self.component {
             return component
-                .match_option(config, confirm_paid)
+                .match_option(confirm_paid)
                 .is_some_and(|option| option.kind == ComponentOptionKind::Paid);
         }
         if !self.paid_pricing.is_empty()
@@ -428,11 +428,11 @@ impl Pricing {
     /// Parent plan `service_id`s required before provisioning `config`, from the
     /// selected component-pricing option. Empty when unambiguous parents are
     /// absent (multi-parent options are left to substrate-specific handling).
-    pub fn required_parent_services(&self, config: &Value, prefer_paid: bool) -> Vec<String> {
+    pub fn required_parent_services(&self, _config: &Value, prefer_paid: bool) -> Vec<String> {
         let Some(component) = &self.component else {
             return Vec::new();
         };
-        let Some(option) = component.match_option(config, prefer_paid) else {
+        let Some(option) = component.match_option(prefer_paid) else {
             return Vec::new();
         };
         if option.parent_services.len() == 1 {
@@ -535,10 +535,9 @@ impl ComponentPricing {
         }
     }
 
-    /// The component-pricing option implied by `config`. With paid consent,
-    /// honors `is_default` then paid tier; without consent, ignores paid defaults
-    /// and selects a free tier so confirmation is not demanded incorrectly.
-    fn match_option(&self, _config: &Value, prefer_paid: bool) -> Option<&ComponentOption> {
+    /// Select a component-pricing option by paid-consent flag (default + free/paid
+    /// kind). Unlike [`Pricing::match_tier`], options are not matched against `config`.
+    fn match_option(&self, prefer_paid: bool) -> Option<&ComponentOption> {
         if prefer_paid {
             for option in &self.options {
                 if option.is_default == Some(true) && option.kind == ComponentOptionKind::Paid {

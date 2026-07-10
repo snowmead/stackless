@@ -236,21 +236,7 @@ pub fn up(args: UpArgs, output: &mut Output) -> Result<(), CliError> {
         .unwrap_or_default();
     let def_dir = std::fs::canonicalize(&def_dir).unwrap_or(def_dir);
     let rt = runtime()?;
-    if stackless_stripe_projects::recorded_project_id(&def).is_some()
-        && stackless_stripe_projects::project_initialized_in_dir(&def_dir)
-    {
-        let stripe = stackless_stripe_projects::StripeProjects::new(
-            stackless_stripe_projects::TokioRunner,
-            def_dir.clone(),
-        );
-        rt.block_on(stackless_stripe_projects::sync_vault_pull_for_instance(
-            &stripe, &name,
-        ))
-        .map_err(|err| CliError::BadArgument {
-            argument: "stripe projects env --pull".into(),
-            detail: err.to_string(),
-        })?;
-    }
+    crate::secrets::pull_vault_for_instance(&def, &def_dir, &name, &rt)?;
     let secrets = crate::secrets::resolve(&def, &def_dir, Some(&name))?;
     let known = crate::substrates::known_names();
     stackless_integrations::validate_all(&def, Some(substrate_name.as_str()), &known)?;
