@@ -15,6 +15,36 @@ Generate with:
 
 ## Unreleased
 
+## v0.1.4 — 2026-07-10
+
+Strict state decoding, fail-closed cloud checkpoints, and internal cleanup.
+
+### Changed
+
+- State store rejects Real/Blob and coerced row types at the rusqlite/libsql
+  bridge; `InstanceStatus` and `DnsName` parse strictly.
+- Unknown cloud checkpoint kinds fault instead of silently treating as Gone.
+- Stripe vault-pull / env-line / preflight helpers deduped; unused project
+  variables API removed.
+- Cloud Stripe ensure prelude and Render/Vercel verify checkout helpers shared
+  via `stackless-cloud`.
+- State store split into `value` / `row` / `remote` modules (public `Store` API
+  unchanged).
+
+### Commits
+
+- [863bb3d](https://github.com/snowmead/stackless/commit/863bb3de42a166cb32edea3e3e9eb65f05c51ff1) deslop: dedupe Stripe vault pull, env parse, and dead variables API (#15)
+- [bb795a8](https://github.com/snowmead/stackless/commit/bb795a87d6868b815ccbfe4d88a3c402dd1472b6) harden: strict state decoding and fail-closed checkpoint kinds (#16)
+- [159d6df](https://github.com/snowmead/stackless/commit/159d6df45f9544e608f4b909b34676dcb99f751b) refactor(cloud): share ensure prelude and source-ref helpers (#17)
+- [30eee8a](https://github.com/snowmead/stackless/commit/30eee8a6c76db2b6829f9fa35a8653c4ec2a8565) refactor(core): split state store into value/row/remote modules (#18)
+
+### Install
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/download/v0.1.4/stackless-installer.sh | sh
+stackless --version
+```
+
 ## v0.1.3 — 2026-07-08
 
 Stripe Projects plugin 0.23.0 adoption — preflight, project variables, vault secrets.

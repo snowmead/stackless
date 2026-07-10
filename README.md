@@ -208,7 +208,7 @@ Prebuilt binaries (macOS and Linux) ship on GitHub Releases via
 ```console
 $ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/latest/download/stackless-installer.sh | sh
 $ stackless --version
-stackless 0.1.3
+stackless 0.1.4
 ```
 
 The installer places `stackless` on your `PATH` (under `$CARGO_HOME/bin` by
