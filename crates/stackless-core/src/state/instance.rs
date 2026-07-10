@@ -3,7 +3,8 @@
 use std::collections::BTreeMap;
 
 use super::error::StateError;
-use super::store::{Row, Store};
+use super::row::Row;
+use super::store::Store;
 use crate::types::DnsName;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

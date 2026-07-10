@@ -4,7 +4,8 @@
 use std::time::Duration;
 
 use super::error::StateError;
-use super::store::{Row, Store};
+use super::row::Row;
+use super::store::Store;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Lease {
