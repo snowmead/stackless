@@ -218,18 +218,16 @@ impl<R: CommandRunner> NetlifySubstrate<R> {
         if *done {
             return Ok(());
         }
-        let stripe = self.stripe();
-        project::ensure_project(&stripe, def, &self.definition_dir)
-            .await
-            .map_err(projects_fault)?;
-        project::ensure_environment(&stripe, instance)
-            .await
-            .map_err(projects_fault)?;
-        if self.confirm_paid {
-            project::set_spend_cap(&stripe, SPEND_CAP_USD, "netlify")
-                .await
-                .map_err(projects_fault)?;
-        }
+        let spend = self.confirm_paid.then_some((SPEND_CAP_USD, "netlify"));
+        stackless_cloud::ensure::project_and_env(
+            &self.stripe(),
+            def,
+            &self.definition_dir,
+            instance,
+            spend,
+        )
+        .await
+        .map_err(projects_fault)?;
         *done = true;
         Ok(())
     }
