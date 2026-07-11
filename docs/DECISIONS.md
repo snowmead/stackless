@@ -4,6 +4,29 @@ Architecture decisions and the reasoning behind them. Newest first.
 
 ---
 
+## 3. Catalog-first for every Stripe provider; substrates later
+
+**Date:** 2026-07-11
+
+**Decision.** Every Stripe Projects **deployable** gets a Phase 1
+`CatalogResource` integration (one PR per provider family; see
+[PROVIDER-WAVES.md](PROVIDER-WAVES.md)). New `--on` substrates (railway, gitlab,
+laravel cloud, wordpress.com, cloudflare workers) are Phase 2 and stay
+unchecked on the stack-host list until those crates land.
+
+**Exclusions (never auto-provision / never smoke):**
+
+- `cloudflare/containers`, `cloudflare/registrar:domain`
+- `cloudflare/workers:free`, `cloudflare/workers:paid` (plans)
+- `squarespace/domain`, `wordpress.com/domain` (non-refundable domain purchase;
+  Squarespace has no other deployable, so it has no adapter)
+
+**Rationale.** Catalog integrations parallelize cleanly and give
+`up`/`observe`/`down` via Stripe for the whole catalog. Substrate crates need
+provider REST clients and live smoke; they do not block catalog coverage.
+
+---
+
 ## 2. Extract `stackless-provider-sdk` as the provider extension surface
 
 **Date:** 2026-07-02
