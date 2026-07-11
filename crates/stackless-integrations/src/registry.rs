@@ -76,6 +76,7 @@ register_providers! {
     (cloudflare::workers, CloudflareWorkers),
     (cloudflare::workers_ai, CloudflareWorkersAi),
     (cloudflare::browser_run, CloudflareBrowserRun),
+    (base44_projects::app, Base44ProjectsApp),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
