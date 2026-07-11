@@ -76,6 +76,8 @@ register_providers! {
     (cloudflare::workers, CloudflareWorkers),
     (cloudflare::workers_ai, CloudflareWorkersAi),
     (cloudflare::browser_run, CloudflareBrowserRun),
+    (sentry::project, SentryProject),
+    (sentry::seer, SentrySeer),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
