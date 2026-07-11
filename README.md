@@ -5,7 +5,7 @@ accounted for, destroyed.**
 
 stackless is a CLI that owns the complete lifecycle of disposable
 stacks. One declarative file describes your product once — every
-service, datastore, secret, and health contract. One verb spawns a
+service, secret, and health contract. One verb spawns a
 full, isolated, working copy with a name and a URL; one verb proves it
 works; one verb (or an expired lease) destroys it verifiably. On a
 laptop or on a cloud provider, for a human, a CI job, or — first and
@@ -41,12 +41,10 @@ verifiably. No wiki page, no teammate, no manual cleanup.
 ## How it works
 
 - **A stack definition** (`stackless.toml`) declares services,
-  datastores, hosted integrations, secrets, wiring, and health
-  contracts once. Wiring is interpolation —
-  `DATABASE_URL = "${datastores.db.url}"`,
+  hosted integrations, secrets, wiring, and health contracts once.
+  Wiring is interpolation — e.g.
   `CLERK_SECRET_KEY = "${integrations.clerk.secret_key}"` — and the
-  startup order is *derived* from it; there is no `depends_on` to
-  drift.
+  startup order is *derived* from it; there is no `depends_on` to drift.
 - **Hosted integrations** (`[integrations.<name>]`, with a required
   `provider` naming the catalog adapter) are provisioned as stack
   resources too. For Clerk (`provider = "clerk"`), Stackless creates
@@ -67,9 +65,8 @@ verifiably. No wiki page, no teammate, no manual cleanup.
   `--on local`, `--on render`, `--on vercel`, `--on fly`, or `--on netlify`
   at creation (required); resume uses the recorded substrate and never asks again:
   - **local** — services run as host processes from your declared
-    commands; datastores run as labeled Docker containers with
-    per-instance volumes; everything meets at a built-in reverse proxy,
-    so origins are derivable from the name alone:
+    commands; everything meets at a built-in reverse proxy, so origins
+    are derivable from the name alone:
     `http://{service}.{instance}.localhost:4444`.
   - **render** — the same definition deploys to
     [Render](https://render.com) through the same Stripe Project used
@@ -85,8 +82,8 @@ verifiably. No wiki page, no teammate, no manual cleanup.
     optional `vercel/pro` when `[stack.vercel].plan = "pro"`). Stripe
     creates/links the project; the Vercel REST API pushes interpolated
     env, triggers git deployments, polls until READY, and verifies
-    teardown (`VERCEL_TOKEN` or `.vercel-token`). No managed postgres
-    on Vercel in v0; `source.repo` must be a public GitHub HTTPS remote.
+    teardown (`VERCEL_TOKEN` or `.vercel-token`). `source.repo` must be a
+    public GitHub HTTPS remote.
   - **fly** — container apps on [Fly.io](https://fly.io) via Stripe
     `flyio/app` (paid → `--confirm-paid`). Stripe creates the app and hands
     back a scoped deploy token; the Fly Machines REST API uses it to
@@ -94,8 +91,7 @@ verifiably. No wiki page, no teammate, no manual cleanup.
     machine, and poll it to `started`, health-gating on
     `https://{stack}-{instance}-{service}.fly.dev`. Teardown removes the
     Stripe resource and confirms via its registration (no operator API
-    token needed). v0 is image-only (no build-from-source) and has no
-    managed datastore.
+    token needed). v0 is image-only (no build-from-source).
   - **netlify** — static sites on [Netlify](https://netlify.com) via Stripe
     `netlify/project` (free). Stripe creates the site and returns a scoped
     token; the substrate clones the pinned ref and runs the Netlify
@@ -103,7 +99,7 @@ verifiably. No wiki page, no teammate, no manual cleanup.
     `ready`, and health-gates on
     `https://{stack}-{instance}-{service}.netlify.app`. Teardown removes the
     Stripe resource and confirms via its registration. v0 is static-upload
-    (no build step) and has no managed datastore.
+    (no build step).
 - **Sources are git references** (`repo` + `ref`), materialized per
   instance from a shared object cache. For the edit loop,
   `--source service=/path/to/checkout` pins a service to your working
@@ -226,8 +222,7 @@ $ stackless up --name demo --on local           # clone, build, wire, health-gat
 $ stackless down demo              # verified teardown
 ```
 
-Local substrate: Docker is required for datastore containers; app
-services run as host processes.
+Local substrate: app services run as host processes.
 
 Writing a definition: start from [docs/SCHEMA.md](docs/SCHEMA.md) —
 it is written to be sufficient on its own, for humans and agents.
@@ -261,7 +256,7 @@ The original `cargo build` / `cargo test` paths remain valid.
 | `stackless-core` | Definition model + validation + interpolation + derived graph, the SQL state store (local `rusqlite` file; opt-in fleet plane via `libsql` remote), instances, leases, locks, checkpoint journal, the lifecycle engine, the `Substrate` trait |
 | `stackless-stripe-projects` | Neutral Stripe Projects CLI driver: project anchor (`[stack.projects.stripe]`), per-instance environments, catalog add/remove, env materialization |
 | `stackless-integrations` | Hosted integration routing and provider adapters (Clerk today); substrates call here for provision / observe / destroy |
-| `stackless-local` | Local substrate: process spawn/teardown, container datastores, source materialization (via `stackless-git`), wiring, hosted integrations |
+| `stackless-local` | Local substrate: process spawn/teardown, source materialization (via `stackless-git`), wiring, hosted integrations |
 | `stackless-git` | Pure-Rust git (backed by `grit-lib`): one bare cache repo per source URL with thin per-instance checkouts sharing objects via `alternates` (local materialization); shallow clone + checkout for cloud prepare |
 | `stackless-render` | Render substrate (REST calls go through the generated `render-client` crate) |
 | `stackless-vercel` | Vercel substrate (REST calls go through the generated `vercel-client` crate) |
@@ -300,17 +295,6 @@ implemented yet.
 - [ ] privy
 - [ ] supabase
 
-### Datastores (`[datastores.*]`)
-
-- [x] postgres (local — Docker)
-- [x] postgres (render — `render/postgres`)
-- [ ] postgres (vercel)
-- [ ] neon
-- [ ] supabase
-- [ ] planetscale
-- [ ] turso
-- [ ] upstash redis
-
 ### Platform
 
 - [x] `stackless logs` (local)
@@ -322,10 +306,6 @@ implemented yet.
 
 ## Limitations
 
-- **Local datastores require Docker.** `[datastores.*]` on `--on local` uses
-  labeled containers. Agent sandboxes without Docker cannot run those stacks
-  locally; use `--on render` for managed postgres or keep the stack
-  service-only.
 - **Cloud lease reaping runs from the operator machine.** The reaper lives in
   the local daemon. If the machine sleeps past a cloud instance's lease, the
   instance outlives its lease until the machine wakes; hard spend caps bound

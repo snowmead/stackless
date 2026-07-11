@@ -62,12 +62,11 @@ Decided:
 - **Wiring is interpolation, and the dependency graph is derived from
   it.** Env values reference a namespace evaluated per instance per
   substrate: `${instance.name}`, `${services.api.origin}`,
-  `${datastores.db.url}`, `${secrets.KEY}`. If service A's env
-  references service B or datastore D, that *is* the dependency edge —
-  startup order is derived from wiring, never declared separately
-  (nothing to drift). Origins are derivable from the instance name
-  alone on local and Render (Vercel uses the deployment URL after
-  `start`), so mutual references between services
+  `${secrets.KEY}`. If service A's env references service B, that *is*
+  the dependency edge — startup order is derived from wiring, never
+  declared separately (nothing to drift). Origins are derivable from
+  the instance name alone on local and Render (Vercel uses the
+  deployment URL after `start`), so mutual references between services
   (api ↔ web CORS) are not cycles.
 
 - **Two per-service lifecycle hooks, both optional.** `setup` runs once
@@ -76,16 +75,14 @@ Decided:
   the service's dependencies are ready and before the service itself
   starts (migrations, seed). `prepare` runs on **every substrate**: on
   cloud substrates it executes on the operator's machine from the
-  materialized source, with the instance's env exported (e.g. the
-  provisioned database's external connection string), sequenced after
-  datastores are provisioned and before services deploy. Stacks whose
-  services migrate on boot (atto-server runs sqlx migrations in
-  `serve`) simply omit migration from `prepare` — migrate-on-boot is
-  the less common pattern, so stackless cannot require it. Both hooks
-  are contractually safe to re-run: resume re-runs an interrupted
-  `setup` in place (warm caches survive, and `mise install`/`bun
-  install` are naturally idempotent), and `prepare` already runs on
-  every `up`.
+  materialized source, with the instance's env exported, sequenced before
+  services deploy. Stacks whose services migrate on boot (atto-server runs
+  sqlx migrations in `serve`) simply omit migration from `prepare` —
+  migrate-on-boot is the less common pattern, so stackless cannot require
+  it. Both hooks are contractually safe to re-run: resume re-runs an
+  interrupted `setup` in place (warm caches survive, and `mise install`/`bun
+  install` are naturally idempotent), and `prepare` already runs on every
+  `up`.
 - **Health gates `up`; `verify` proves.** Every service declares a
   `health` check (HTTP path + expected status/content, with retry
   budget); `up` refuses to report success until all pass — invariant 2.
@@ -135,22 +132,13 @@ app_name = "${stack.name}-${instance.name}"
 credential_set = "development"
 organizations = true
 
-# ── datastores: containers locally, managed services on Render ──
-
-[datastores.db]
-engine = "postgres"        # readiness built in per engine (§7), never declared
-version = "17"
-
-[datastores.db.render]
-plan = "basic-256mb"       # paid → requires --confirm-paid (§4)
-
 # ── services: identity + wiring + health, substrate run config nested ──
 
 [services.api]
 source = { repo = "https://github.com/haaku-co/atto-server", ref = "main" }
 setup = "mise install"     # once, after materialization
-prepare = "just migrate-run && just seed"      # every up, deps ready → before start; uses the Stackless DATABASE_URL
-env = { DATABASE_URL = "${datastores.db.url}", CORS_ALLOWED_ORIGINS = "${services.web.origin}", TENANT_SLUG = "${instance.name}", CLERK_SECRET_KEY = "${integrations.clerk.secret_key}", RUST_LOG = "info" }
+prepare = "just migrate-run && just seed"      # every up, deps ready → before start
+env = { CORS_ALLOWED_ORIGINS = "${services.web.origin}", TENANT_SLUG = "${instance.name}", CLERK_SECRET_KEY = "${integrations.clerk.secret_key}", RUST_LOG = "info" }
 health = { path = "/health", contains = "ok" }   # status defaults to 200
 
   [services.api.local]
@@ -184,16 +172,15 @@ health = { path = "/", contains = 'id="root"' }   # the SPA shell check, product
 | `${stack.name}` | the stack's declared name | useful for hosted integration names |
 | `${instance.name}` | the instance's name | the one identity everything derives from |
 | `${services.X.origin}` | substrate-appropriate origin | local: `http://x.{instance}.localhost:<port>`; Render: `https://{stack}-{instance}-x.onrender.com`; Vercel: deployment URL after `start` (best-effort `https://{stack}-{instance}-x.vercel.app` before deploy). Derived from the name alone on local/Render; mutual references (api ↔ web) are not cycles |
-| `${datastores.X.url}` | connection string | local: mapped loopback port; Render: internal URL for services, external for `prepare` |
 | `${secrets.KEY}` | resolved secret value | for renaming; the `secrets = [...]` list injects same-named vars |
 | `${integrations.clerk.secret_key}` | Clerk secret key | selected from Stripe Projects' Clerk environments JSON (`CLERK_AUTH_ENVIRONMENTS` or `CLERK_ENVIRONMENTS`) |
 | `${integrations.clerk.publishable_key}` | Clerk publishable key | selected from Stripe Projects' Clerk environments JSON (`CLERK_AUTH_ENVIRONMENTS` or `CLERK_ENVIRONMENTS`) |
 | `$PORT` | OS-allocated port | injected into local `run` commands only |
 
 Resolution rules: substrate `env` blocks overlay the common `env`; any
-reference from service A to service B or datastore D *is* the
-dependency edge that orders startup and `prepare`; references to
-anything undeclared fail validation at parse time, not at `up` time.
+reference from service A to service B *is* the dependency edge that
+orders startup and `prepare`; references to anything undeclared fail
+validation at parse time, not at `up` time.
 
 Deliberately absent from the schema: lease duration (a per-invocation
 `--lease` flag with substrate defaults, not stack policy), the
@@ -346,10 +333,6 @@ Decided:
 - **App services run as host processes** from commands declared in the
   definition. Toolchain provisioning is the repo's business (e.g.
   `mise install` in a setup hook) — stackless stays unopinionated.
-- **Datastores run as containers** with per-instance volumes (version
-  pinning, clean teardown, no host pollution). The container runner —
-  pull image, inject env, map port, mount volume, health-check,
-  destroy — exists in v0 for datastores only.
 - **One wiring story:** everything meets at `localhost` ports allocated
   per instance. stackless's built-in Rust reverse proxy plays the
   portless role: `{instance}.localhost` (and per-service subdomains)
@@ -363,11 +346,9 @@ Decided:
   written today.
 - **Teardown is verified locally too, mirroring §4's contract:**
   services get SIGTERM then SIGKILL on their process group, confirmed
-  dead by PID + start time; containers and volumes are removed through
-  the Docker API and confirmed gone; the proxy route is withdrawn.
-  `down` exits non-zero listing survivors if anything remains —
-  invariant 4 does not have a cloud-only clause. The state rows then
-  flip to the §2 tombstone.
+  dead by PID + start time; the proxy route is withdrawn. `down` exits
+  non-zero listing survivors if anything remains — invariant 4 does not
+  have a cloud-only clause. The state rows then flip to the §2 tombstone.
 
 Rationale for host processes over containers-only: the container-build
 penalty on macOS (virtiofs I/O on cargo builds) is paid on every
@@ -434,8 +415,6 @@ same reaper from the operator's machine.
   additionally claims `http://{instance}.localhost:<port>` (atto: web).
 - **Service ports are OS-allocated at `up`** (bind `:0`, record in the
   manifest) and injected as `$PORT` alongside the interpolated env.
-  Datastore container ports are mapped the same way;
-  `${datastores.db.url}` resolves to the mapped loopback port.
 - **The proxy routes on the Host header** from a routing table the
   daemon updates as instances come and go.
 
@@ -449,12 +428,11 @@ proven there.
   id is recorded at `[stack.projects.stripe].project` after first
   creation — the reproducibility anchor that lets any fresh checkout
   re-link with a `pull`.
-- **Per-instance resources derive from the definition:** datastores →
-  `render/postgres`, services → `render/web-service` or
-  `render/static-site` per their `[services.X.render]` config, and
-  integrations with `provider = "clerk"` → `clerk/auth` (optionally
-  enabling Clerk Organizations and slugs for app/test fixtures). Cloud
-  resource names are
+- **Per-instance resources derive from the definition:** services →
+  `render/web-service` or `render/static-site` per their
+  `[services.X.render]` config, and integrations with `provider = "clerk"`
+  → `clerk/auth` (optionally enabling Clerk Organizations and slugs for
+  app/test fixtures). Cloud resource names are
   `{stack}-{instance}-{service}`, DNS-safe by construction (§2 name
   rules).
 - **Stripe Projects provisions and tracks spend; the Render REST API
@@ -464,18 +442,17 @@ proven there.
   CLI calls with the plain-mode fallbacks `cloud-env.ts` had to learn
   are part of the backend, not rediscovered per stack. The Render API
   key resolves from env or a scoped key file.
-- **Sequencing per instance:** provision hosted integrations →
-  provision datastores → run `prepare` hooks from the operator's
-  machine against external connection strings → push env vars → deploy
+- **Sequencing per instance:** provision hosted integrations → run
+  `prepare` hooks from the operator's machine → push env vars → deploy
   services → health gate → `up`.
 - **Every step checkpoints into the manifest before proceeding** (§2);
   interrupted runs resume rather than duplicate.
-- **Teardown is verified, dependents-first:** remove services, then
-  datastores, delete the named environment — then query the Render API
-  for survivors and **exit non-zero listing them if anything that bills
-  or holds state remains** (the vision demands refusal here, not the
-  warning `cloud-env.ts` settled for). Spend is printed after every
-  `up` and `down`.
+- **Teardown is verified, dependents-first:** remove services, delete the
+  named environment — then query the Render API for survivors and
+  **exit non-zero listing them if anything that bills or holds state
+  remains** (the vision demands refusal here, not the warning
+  `cloud-env.ts` settled for). Spend is printed after every `up` and
+  `down`.
 - **Stripe Projects is the authoritative inventory for recovery.** If
   the state store and reality drift — a lost local state file, a
   hand-deleted service — `stripe projects pull` re-links a fresh
@@ -523,8 +500,6 @@ Mirrors §4's Stripe + provider-API split for
   project and polls until gone. The Vercel API token resolves from
   `VERCEL_TOKEN` or a scoped `.vercel-token` file next to the
   definition (`VERCEL_TEAM_ID` optional for team-scoped projects).
-- **No datastores on Vercel in v0** — postgres and other managed state
-  belong on `local` or `render` today.
 - **No root-origin alias on cloud** (same as Render): every service
   keeps its own deployment URL; `${services.X.origin}` resolves
   accordingly.
@@ -562,9 +537,8 @@ container apps. v0 is **image-only**.
   The client (`stackless-fly::fly_api`) is hand-written reqwest/serde
   rather than a generated client — the Machines surface we use is a
   handful of endpoints and the published spec is Swagger 2.0.
-- **No build-from-source and no datastore in v0** — a service supplies a
-  prebuilt `image`; `flyio/mpg` (managed Postgres) is a separate catalog
-  integration, and a `[datastores.*]` block is rejected.
+- **No build-from-source in v0** — a service supplies a prebuilt
+  `image`.
 - **No root-origin alias on cloud** (same as Render/Vercel); setup is
   skipped; prepare runs on the operator's machine from a shallow clone.
 - **Spend caps and summaries** follow §4 (`billing update --provider
@@ -589,8 +563,7 @@ Mirrors §4's Stripe + provider-API split for
   `required`, poll the deploy to `ready` — and health-gates on the deploy's
   `ssl_url`. The client (`stackless-netlify::netlify_api`) is hand-written
   reqwest/serde (Swagger-2.0 source, ~5 endpoints).
-- **No build step and no datastore in v0** — pre-built static files only; a
-  `[datastores.*]` block is rejected.
+- **No build step in v0** — pre-built static files only.
 - **No root-origin alias on cloud**; setup is skipped; prepare runs on the
   operator's machine. The token is ephemeral, so `observe`/`down` key off the
   Stripe resource registration.
@@ -657,8 +630,6 @@ The contract shapes were decided in §1; this is how they execute.
   cold cloud deploy, as `cloud-env.ts`'s 5-minute health wait proved
   necessary). This covers both atto checks: `/health` == `ok` and the
   SPA shell containing `id="root"`.
-- **Datastore readiness is built in per engine** (postgres:
-  `pg_isready`); definitions never declare it.
 - **`up` reports staged truth:** provisioned → configured → prepared →
   started → healthy, each stage gated on the previous (invariant 2).
   `status` shows the stage an instance actually reached, per service.
@@ -699,9 +670,6 @@ Workspace-wide conventions:
   and the reaper — they are the same machinery. Defines the
   `Substrate` trait.
 - **`stackless-local`** — `Substrate` impl: process spawn/adoption,
-  the container runner (the `bollard` crate against the Docker Engine
-  socket — typed API beats parsing CLI output; we resolve the socket
-  path/`DOCKER_HOST` ourselves since contexts are a CLI-side concept),
   port allocation. Source materialization is delegated to
   `stackless-git` (below).
 - **`stackless-git`** — pure-Rust git, backed by **`grit-lib`** (the

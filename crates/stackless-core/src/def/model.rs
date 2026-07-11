@@ -25,8 +25,6 @@ pub struct StackDef {
     #[serde(default)]
     pub integrations: BTreeMap<String, Integration>,
     #[serde(default)]
-    pub datastores: BTreeMap<String, Datastore>,
-    #[serde(default)]
     pub services: BTreeMap<String, Service>,
 }
 
@@ -151,15 +149,6 @@ impl Integration {
             })
             .collect()
     }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Datastore {
-    pub engine: String,
-    pub version: String,
-    /// Per-substrate datastore config (e.g. `[datastores.db.render]` plan).
-    #[serde(flatten)]
-    pub substrates: BTreeMap<String, toml::Value>,
 }
 
 #[derive(Debug, Deserialize)]

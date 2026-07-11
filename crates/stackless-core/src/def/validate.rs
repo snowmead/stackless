@@ -11,9 +11,6 @@ use super::error::DefError;
 use super::interp::{self, Reference};
 use super::model::{Integration, Service, StackDef};
 
-/// Engines with built-in readiness in v0 (ARCHITECTURE.md §7).
-const KNOWN_ENGINES: &[&str] = &["postgres"];
-
 impl StackDef {
     /// Validate the whole definition against the rules registered substrates share.
     /// Callers pass the names of registered substrates (core knows none by name).
@@ -49,26 +46,6 @@ fn validate_definition(def: &StackDef, known_substrates: &[&str]) -> Result<(), 
 
     validate_substrate_keys(&def.stack.substrates, "stack", known_substrates)?;
     validate_integrations(def, known_substrates)?;
-
-    for (name, datastore) in &def.datastores {
-        if !crate::types::dns_safe(name) {
-            return Err(DefError::NameInvalid {
-                kind: "datastore",
-                name: name.clone(),
-            });
-        }
-        if !KNOWN_ENGINES.contains(&datastore.engine.as_str()) {
-            return Err(DefError::EngineUnknown {
-                datastore: name.clone(),
-                engine: datastore.engine.clone(),
-            });
-        }
-        validate_substrate_keys(
-            &datastore.substrates,
-            &format!("datastores.{name}"),
-            known_substrates,
-        )?;
-    }
 
     let mut root_origins = Vec::new();
     for (name, service) in &def.services {
@@ -253,15 +230,6 @@ fn validate_references(def: &StackDef, refs: &[Reference], location: &str) -> Re
                     return Err(DefError::UndeclaredReference {
                         location: location.to_owned(),
                         kind: "service",
-                        name: target.clone(),
-                    });
-                }
-            }
-            Reference::DatastoreUrl(target) => {
-                if !def.datastores.contains_key(target) {
-                    return Err(DefError::UndeclaredReference {
-                        location: location.to_owned(),
-                        kind: "datastore",
                         name: target.clone(),
                     });
                 }

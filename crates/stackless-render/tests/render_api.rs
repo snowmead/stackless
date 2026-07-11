@@ -1,7 +1,7 @@
 //! Offline tests for the Render REST client against a local mock server
 //! (wiremock). No network leaves the machine; these cover the endpoints
 //! the live round-trip exercises: find-by-name, env PUT, deploy poll
-//! (happy path + timeout), connection info, and the survivors check.
+//! (happy path + timeout), and the survivors check.
 
 use std::time::Duration;
 
@@ -72,22 +72,6 @@ async fn put_env_vars_sends_array() {
         )
         .await
         .unwrap();
-}
-
-#[tokio::test]
-async fn connection_info_returns_both_strings() {
-    let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/postgres/pg_1/connection-info"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "internalConnectionString": "postgres://internal/db",
-            "externalConnectionString": "postgres://external/db"
-        })))
-        .mount(&server)
-        .await;
-    let info = api(&server).postgres_connection_info("pg_1").await.unwrap();
-    assert_eq!(info.internal.as_deref(), Some("postgres://internal/db"));
-    assert_eq!(info.external.as_deref(), Some("postgres://external/db"));
 }
 
 /// A `GET /services/{id}/deploys` list wrapper with one deploy.
@@ -272,28 +256,6 @@ async fn ensure_spa_rewrite_creates_when_absent() {
         .mount(&server)
         .await;
     api(&server).ensure_spa_rewrite("srv_1").await.unwrap();
-}
-
-#[tokio::test]
-async fn survivor_still_present_after_delete() {
-    // The teardown survivors check: find-by-name still resolves → caller
-    // treats it as a survivor and refuses (engine.teardown contract).
-    let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/postgres"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
-            { "postgres": { "id": "pg_1", "name": "atto-demo-db" } }
-        ])))
-        .mount(&server)
-        .await;
-    assert_eq!(
-        api(&server)
-            .find_postgres_by_name("atto-demo-db")
-            .await
-            .unwrap()
-            .as_deref(),
-        Some("pg_1")
-    );
 }
 
 #[tokio::test]

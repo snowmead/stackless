@@ -47,9 +47,7 @@ use stackless_core::substrate::{
 };
 use tokio::sync::Mutex;
 
-use crate::config::{
-    RenderPostgresConfig, RenderStaticSiteConfig, RenderWebServiceConfig, ServiceRender,
-};
+use crate::config::{RenderStaticSiteConfig, RenderWebServiceConfig, ServiceRender};
 use crate::error::RenderError;
 use crate::render_api::{HEALTH_BUDGET, RenderApi, STATIC_DEPLOY_BUDGET, WEB_DEPLOY_BUDGET};
 use stackless_stripe_projects::ProjectsError;
@@ -90,18 +88,6 @@ fn prepare_fault(f: stackless_cloud::prepare::PrepareFailure) -> SubstrateFault 
         message: f.message,
         log_tail: f.log_tail,
     })
-}
-
-/// What a `provision:<datastore>` checkpoint records: the Render postgres
-/// id plus both connection strings (§4 — internal for services, external
-/// for the operator-side prepare).
-#[derive(Debug, Serialize, Deserialize)]
-struct DatastorePayload {
-    stripe_resource: String,
-    render_name: String,
-    postgres_id: String,
-    internal_url: String,
-    external_url: String,
 }
 
 /// What a `materialize:<service>` checkpoint records: the pinned source.
@@ -222,17 +208,8 @@ impl<R: CommandRunner> RenderSubstrate<R> {
     }
 
     /// Build the interpolation namespace for cloud env resolution. Service
-    /// origins are the onrender URLs; datastore urls are the *internal*
-    /// connection strings recorded at provision (services run on Render's
-    /// network). The operator-side prepare overrides db urls with the
-    /// external string.
-    fn namespace(
-        &self,
-        def: &StackDef,
-        instance: &str,
-        prior: &[Checkpoint],
-        external_db: bool,
-    ) -> Namespace {
+    /// origins are the onrender URLs.
+    fn namespace(&self, def: &StackDef, instance: &str, prior: &[Checkpoint]) -> Namespace {
         let mut namespace = Namespace {
             stack_name: def.stack.name.clone(),
             instance_name: stackless_core::types::DnsName::from_stored(instance),
@@ -242,18 +219,6 @@ impl<R: CommandRunner> RenderSubstrate<R> {
             namespace
                 .service_origins
                 .insert(service.clone(), Self::origin(def, instance, service));
-        }
-        for checkpoint in prior {
-            if let Some(name) = checkpoint.step_id.strip_prefix("provision:")
-                && let Ok(payload) = serde_json::from_str::<DatastorePayload>(&checkpoint.payload)
-            {
-                let url = if external_db {
-                    payload.external_url.clone()
-                } else {
-                    payload.internal_url.clone()
-                };
-                namespace.datastore_urls.insert(name.to_owned(), url);
-            }
         }
         namespace.secrets = self.secrets.clone();
         namespace.add_integration_checkpoints(prior);
@@ -270,7 +235,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
         service: &str,
         prior: &[Checkpoint],
     ) -> Result<Vec<(String, String)>, SubstrateFault> {
-        let namespace = self.namespace(def, instance, prior, false);
+        let namespace = self.namespace(def, instance, prior);
         let spec = def.services.get(service).ok_or_else(|| {
             fault(RenderError::ConfigInvalid {
                 location: format!("services.{service}"),
@@ -341,69 +306,6 @@ impl<R: CommandRunner> RenderSubstrate<R> {
             }));
         }
         Ok(())
-    }
-
-    async fn provision_datastore(
-        &self,
-        def: &StackDef,
-        instance: &str,
-        datastore: &str,
-    ) -> Result<StepResource, SubstrateFault> {
-        let plan = Self::datastore_plan(def, datastore).map_err(fault)?;
-        let render_name = Self::resource_name(def, instance, datastore);
-        let resource = format!("{instance}-{datastore}");
-        let spec = def.datastores.get(datastore).ok_or_else(|| {
-            fault(RenderError::ConfigInvalid {
-                location: format!("datastores.{datastore}"),
-                detail: "datastore not in definition".into(),
-            })
-        })?;
-        let region = Self::stack_region(def);
-        // `[datastores.X.render].plan` feeds the pricing-tier selector
-        // `instance_type` (values `free`/`basic-256mb`/…); the catalog gap
-        // test pins these against the live `paid_pricing` configurations.
-        let config = RenderPostgresConfig {
-            name: render_name.clone(),
-            region,
-            version: spec.version.clone(),
-            instance_type: plan,
-        };
-        let catalog = self.stripe().catalog().await.map_err(projects_fault)?;
-        if requires_confirmation(&catalog, &config).unwrap_or(false) {
-            self.require_confirm_paid(&resource)?;
-        }
-        add_catalog_resource(&self.stripe(), &catalog, &config, &resource)
-            .await
-            .map_err(projects_fault)?;
-
-        // Wait until the Render postgres is visible and record BOTH
-        // connection strings (§4).
-        let render = self.render()?;
-        let postgres_id = wait_for_postgres(&render, &render_name).await?;
-        let info = render
-            .postgres_connection_info(&postgres_id)
-            .await
-            .map_err(fault)?;
-        let internal = info.internal.clone().or_else(|| info.external.clone());
-        let external = info.external.clone().or_else(|| info.internal.clone());
-        let (Some(internal_url), Some(external_url)) = (internal, external) else {
-            return Err(fault(RenderError::ProvisionFailed {
-                resource,
-                detail: "no connection string in connection-info yet".into(),
-            }));
-        };
-        let payload = DatastorePayload {
-            stripe_resource: resource,
-            render_name: render_name.clone(),
-            postgres_id,
-            internal_url,
-            external_url,
-        };
-        Ok(StepResource {
-            resource_kind: "render-postgres".into(),
-            resource_id: render_name,
-            payload: serde_json::to_string(&payload).unwrap_or_default(),
-        })
     }
 
     async fn start_service(
@@ -525,7 +427,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
             return Ok(());
         };
         // External-DB env for operator-side execution (§1/§4).
-        let namespace = self.namespace(def, instance, prior, true);
+        let namespace = self.namespace(def, instance, prior);
         stackless_cloud::prepare::run_service_prepare(
             &namespace,
             &self.secrets,
@@ -569,28 +471,6 @@ impl<R: CommandRunner> RenderSubstrate<R> {
     }
 }
 
-/// Poll until a just-provisioned Render postgres is visible by name.
-async fn wait_for_postgres(render: &RenderApi, name: &str) -> Result<String, SubstrateFault> {
-    // Wait for `available`, not just visible: a freshly-provisioned DB reports
-    // `creating` for a minute or two and refuses connections, which would race
-    // the operator-side `prepare` (migrations). Budget covers provisioning lag.
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(300);
-    loop {
-        if let Some(pg) = render.find_postgres(name).await.map_err(fault)?
-            && pg.status.as_deref() == Some("available")
-        {
-            return Ok(pg.id);
-        }
-        if tokio::time::Instant::now() >= deadline {
-            return Err(fault(RenderError::ProvisionFailed {
-                resource: name.to_owned(),
-                detail: "postgres did not become available via the Render API in time".into(),
-            }));
-        }
-        tokio::time::sleep(Duration::from_secs(5)).await;
-    }
-}
-
 /// Poll until a just-created Render service is visible by name.
 async fn wait_for_service(render: &RenderApi, name: &str) -> Result<String, SubstrateFault> {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
@@ -615,12 +495,8 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
     }
 
     fn validate_definition(&self, def: &StackDef) -> Result<(), SubstrateFault> {
-        // Every service needs a well-shaped [services.X.render] block;
-        // every datastore a [datastores.X.render] plan (§4). Strict, to
-        // trap agent typos before anything provisions.
-        for datastore in def.datastores.keys() {
-            Self::datastore_plan(def, datastore).map_err(fault)?;
-        }
+        // Every service needs a well-shaped [services.X.render] block (§4).
+        // Strict, to trap agent typos before anything provisions.
         for service in def.services.keys() {
             Self::service_render(def, service).map_err(fault)?;
         }
@@ -648,13 +524,9 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
         instance: &str,
         prior: &[Checkpoint],
         secrets: &BTreeMap<String, String>,
-        purpose: stackless_core::substrate::NamespacePurpose,
+        _purpose: stackless_core::substrate::NamespacePurpose,
     ) -> Namespace {
-        let external_db = !matches!(
-            purpose,
-            stackless_core::substrate::NamespacePurpose::ServiceEnv
-        );
-        let mut namespace = self.namespace(def, instance, prior, external_db);
+        let mut namespace = self.namespace(def, instance, prior);
         namespace.secrets = secrets.clone();
         namespace
     }
@@ -662,7 +534,8 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
     async fn execute(&self, ctx: StepContext<'_>) -> Result<StepResource, SubstrateFault> {
         // Instance-wide project/env ensure runs before every step's own
         // work, idempotent and once-per-process — so resume (which may
-        // skip the datastore step) still activates the environment.
+        // work, idempotent and once-per-process — so resume still activates
+        // the environment.
         self.ensure_project_and_env(ctx.def, ctx.instance).await?;
 
         let node = ctx.step.node.as_str();
@@ -678,9 +551,6 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
             )
             .await
             .map_err(integration_fault),
-            StepKind::ProvisionDatastore => {
-                self.provision_datastore(ctx.def, ctx.instance, node).await
-            }
             StepKind::Materialize => {
                 // No local checkout on render — record the pinned ref.
                 // It owns nothing destructible: observe reports Gone so
@@ -733,27 +603,6 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
         match checkpoint.resource_kind.as_str() {
             // Present iff the named resource still resolves on Render and
             // is not deleted (invariant 4: the substrate says what's true).
-            "render-postgres" => {
-                let payload = stackless_cloud::checkpoint::parse_payload::<DatastorePayload>(
-                    &checkpoint.payload,
-                )
-                .map_err(|detail| {
-                    fault(RenderError::ConfigInvalid {
-                        location: "checkpoint.payload".into(),
-                        detail,
-                    })
-                })?;
-                let name = payload
-                    .map(|p| p.render_name)
-                    .unwrap_or_else(|| checkpoint.resource_id.clone());
-                let present = self
-                    .render()?
-                    .find_postgres_by_name(&name)
-                    .await
-                    .map_err(fault)?
-                    .is_some();
-                Ok(stackless_core::substrate::present_or_gone(present))
-            }
             "render-service" => {
                 let payload = stackless_cloud::checkpoint::parse_payload::<ServicePayload>(
                     &checkpoint.payload,
@@ -838,27 +687,6 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
                         )
                     });
                 self.remove_and_verify_service(&stripe_resource, &render_name)
-                    .await
-            }
-            "render-postgres" => {
-                let payload = stackless_cloud::checkpoint::parse_payload::<DatastorePayload>(
-                    &checkpoint.payload,
-                )
-                .map_err(|detail| {
-                    fault(RenderError::ConfigInvalid {
-                        location: "checkpoint.payload".into(),
-                        detail,
-                    })
-                })?;
-                let (stripe_resource, render_name) = payload
-                    .map(|p| (p.stripe_resource, p.render_name))
-                    .unwrap_or_else(|| {
-                        (
-                            checkpoint.resource_id.clone(),
-                            checkpoint.resource_id.clone(),
-                        )
-                    });
-                self.remove_and_verify_postgres(&stripe_resource, &render_name)
                     .await
             }
             "source-ref" => {
@@ -956,34 +784,6 @@ impl<R: CommandRunner> RenderSubstrate<R> {
         loop {
             if render
                 .find_service_by_name(render_name)
-                .await
-                .map_err(fault)?
-                .is_none()
-            {
-                return Ok(());
-            }
-            if tokio::time::Instant::now() >= deadline {
-                return Err(fault(RenderError::TeardownSurvivor {
-                    resource: render_name.to_owned(),
-                }));
-            }
-            tokio::time::sleep(DESTROY_POLL_INTERVAL).await;
-        }
-    }
-
-    async fn remove_and_verify_postgres(
-        &self,
-        stripe_resource: &str,
-        render_name: &str,
-    ) -> Result<(), SubstrateFault> {
-        project::remove_resource(&self.stripe(), stripe_resource)
-            .await
-            .map_err(projects_fault)?;
-        let render = self.render()?;
-        let deadline = tokio::time::Instant::now() + DESTROY_POLL_BUDGET;
-        loop {
-            if render
-                .find_postgres_by_name(render_name)
                 .await
                 .map_err(fault)?
                 .is_none()

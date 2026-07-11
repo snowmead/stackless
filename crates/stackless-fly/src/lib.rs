@@ -21,8 +21,6 @@
 //! - **Image-only.** A service declares a prebuilt container `image` in
 //!   `[services.X.fly]`; the substrate deploys it as a Fly machine. Building from
 //!   source via a remote builder is a later enhancement.
-//! - **No managed datastore in v0.** `flyio/mpg` (managed Postgres) is a separate
-//!   catalog integration; a `[datastores.*]` block is rejected.
 //! - **Cloud resource names** are `{stack}-{instance}-{service}` — DNS-safe and a
 //!   legal Fly app name (`^[a-z][a-z0-9-]{2,62}$`). Origins are
 //!   `https://{stack}-{instance}-{service}.fly.dev`.
@@ -204,7 +202,7 @@ impl<R: CommandRunner> FlySubstrate<R> {
     }
 
     /// Build the interpolation namespace: service origins are the fly.dev URLs;
-    /// v0 Fly has no datastores. Same-named secrets are injected.
+    /// same-named secrets are injected.
     fn namespace(&self, def: &StackDef, instance: &str, prior: &[Checkpoint]) -> Namespace {
         let mut namespace = Namespace {
             stack_name: def.stack.name.clone(),
@@ -464,16 +462,6 @@ impl<R: CommandRunner> Substrate for FlySubstrate<R> {
     }
 
     fn validate_definition(&self, def: &StackDef) -> Result<(), SubstrateFault> {
-        // v0 Fly has no managed datastore (flyio/mpg is a separate catalog
-        // integration). Trap it early rather than fail mid-provision.
-        if let Some(name) = def.datastores.keys().next() {
-            return Err(fault(FlyError::ConfigInvalid {
-                location: format!("datastores.{name}"),
-                detail: "the fly substrate has no managed datastore in v0; remove the \
-                         [datastores.*] block or use a different substrate"
-                    .into(),
-            }));
-        }
         // Every service needs a well-shaped [services.X.fly] block, and its
         // derived app name must be a legal Fly app name.
         for service in def.services.keys() {
@@ -535,10 +523,6 @@ impl<R: CommandRunner> Substrate for FlySubstrate<R> {
             )
             .await
             .map_err(integration_fault),
-            StepKind::ProvisionDatastore => Err(fault(FlyError::ConfigInvalid {
-                location: format!("datastores.{node}"),
-                detail: "the fly substrate has no managed datastore in v0".into(),
-            })),
             StepKind::Materialize => {
                 // No local checkout on fly — record the pinned ref. It owns
                 // nothing destructible: observe reports Gone so teardown drops
@@ -840,17 +824,6 @@ mod tests {
         assert_eq!(s.name(), "fly");
         assert!(!s.supports_source_override());
         assert_eq!(s.default_lease(), Duration::from_secs(8 * 3600));
-    }
-
-    #[test]
-    fn validate_rejects_datastores() {
-        let def = StackDef::parse(
-            "[stack]\nname=\"atto\"\n[datastores.db]\nengine=\"postgres\"\nversion=\"17\"\n[services.web]\nsource={repo=\"r\",ref=\"main\"}\nenv={}\nhealth={path=\"/\"}\n[services.web.fly]\nimage=\"nginx\"\n",
-        )
-        .unwrap();
-        let (_dir, s) = subj();
-        let err = s.validate_definition(&def).unwrap_err();
-        assert_eq!(err.code, crate::codes::FLY_CONFIG_INVALID);
     }
 
     #[tokio::test]

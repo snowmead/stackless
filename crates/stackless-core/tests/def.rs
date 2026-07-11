@@ -63,16 +63,6 @@ fn atto_parses_to_the_documented_model() {
     assert_eq!(clerk_config["credential_set"].as_str(), Some("development"));
     assert_eq!(clerk_config["organizations"].as_bool(), Some(true));
 
-    let db = &def.datastores["db"];
-    assert_eq!(db.engine, "postgres");
-    assert_eq!(db.version, "17");
-    assert_eq!(
-        db.substrates["render"].as_table().unwrap()["plan"]
-            .as_str()
-            .unwrap(),
-        "basic-256mb"
-    );
-
     let api = &def.services["api"];
     assert_eq!(api.source.repo, "https://github.com/haaku-co/atto-server");
     assert_eq!(api.source.reference, "main");
@@ -82,7 +72,6 @@ fn atto_parses_to_the_documented_model() {
         Some("just migrate-run && just seed")
     );
     assert!(api.secrets.is_empty());
-    assert_eq!(api.env["DATABASE_URL"], "${datastores.db.url}");
     assert_eq!(
         api.env["CLERK_SECRET_KEY"],
         "${integrations.clerk.secret_key}"
@@ -113,26 +102,23 @@ fn minimal_stack_is_valid() {
 }
 
 #[test]
-fn atto_graph_orders_db_before_api_without_origin_cycles() {
+fn atto_graph_orders_clerk_before_api_without_origin_cycles() {
     let def = parse_valid("atto.toml");
     let graph = def::DependencyGraph::derive(&def).unwrap();
 
     let order = graph.startup_order();
     let pos = |node: &Node| order.iter().position(|n| n == node).unwrap();
-    // db before api: the url reference is an ordering edge.
-    assert!(pos(&Node::Datastore("db".into())) < pos(&Node::Service("api".into())));
     // clerk before api/web: integration outputs are ordering edges.
     assert!(pos(&Node::Integration("clerk".into())) < pos(&Node::Service("api".into())));
     assert!(pos(&Node::Integration("clerk".into())) < pos(&Node::Service("web".into())));
     // api <-> web mutual origin references are wiring, not a cycle:
     // derive succeeded and both are in the order.
-    assert_eq!(order.len(), 4);
+    assert_eq!(order.len(), 3);
 
     // Wiring records the origin edges (the future egress seam).
     let wiring = graph.wiring();
     assert!(wiring.contains(&(Node::Service("api".into()), Node::Service("web".into()))));
     assert!(wiring.contains(&(Node::Service("web".into()), Node::Service("api".into()))));
-    assert!(wiring.contains(&(Node::Service("api".into()), Node::Datastore("db".into()))));
     assert!(wiring.contains(&(
         Node::Service("api".into()),
         Node::Integration("clerk".into())
@@ -188,16 +174,8 @@ fn api_env_resolves_against_a_namespace() {
     namespace
         .service_origins
         .insert("api".into(), "http://api.demo.localhost:4444".into());
-    namespace.datastore_urls.insert(
-        "db".into(),
-        "postgres://stackless:pw@127.0.0.1:55432/app".into(),
-    );
 
     let resolve = |value: &str| def::interp::resolve(value, &namespace, "test").unwrap();
-    assert_eq!(
-        resolve(&api.env["DATABASE_URL"]),
-        "postgres://stackless:pw@127.0.0.1:55432/app"
-    );
     assert_eq!(
         resolve(&api.env["CORS_ALLOWED_ORIGINS"]),
         "http://web.demo.localhost:4444"
@@ -225,7 +203,6 @@ fn invalid_fixtures_produce_stable_codes() {
     expect_invalid("unknown_key.toml", codes::DEF_UNKNOWN_KEY);
     expect_invalid("secret_not_required.toml", codes::DEF_SECRET_NOT_REQUIRED);
     expect_invalid("root_origin_conflict.toml", codes::DEF_ROOT_ORIGIN_CONFLICT);
-    expect_invalid("engine_unknown.toml", codes::DEF_ENGINE_UNKNOWN);
     expect_invalid("reference_syntax.toml", codes::DEF_REFERENCE_SYNTAX);
 }
 

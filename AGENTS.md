@@ -28,9 +28,6 @@ are already present, and the `prek` git hooks are already wired.
 - **`--source svc=PATH` pins a service to a local checkout**, bypassing git
   materialization — the way to exercise `up` locally without a reachable
   `source.repo` remote (the committed fixtures point at `example.invalid`).
-- **Docker is only required for stacks that declare `[datastores.*]`** (e.g.
-  `fixtures/pgdemo`); it is NOT installed here. Stacks with only services (e.g.
-  `fixtures/hello`) run fully without Docker.
 - **Expected DEGRADED persistence warning.** `status`/`list` print
   `⚠ DEGRADED: leases enforced only while the daemon happens to be running ...`
   because the VM has no launchd/systemd init for boot persistence. This is
@@ -39,8 +36,5 @@ are already present, and the `prek` git hooks are already wired.
   real provider credentials (`STRIPE_API_KEY`, `VERCEL_TOKEN`, `RENDER_API_KEY`,
   usually via `.stackless.env`) and are excluded from the hermetic gates; they
   cannot run here without those secrets.
-- **Local `[datastores.*]` require Docker.** Agent sandboxes without Docker
-  cannot run datastore stacks on `--on local`; use Render for managed postgres
-  or service-only stacks.
 - **Cloud lease reaping runs from the operator's daemon.** A sleeping operator
   machine defers cloud lease expiry until wake; spend caps bound leakage.

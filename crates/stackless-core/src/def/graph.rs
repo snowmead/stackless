@@ -3,9 +3,6 @@
 //! Wiring is interpolation, and the graph is derived from it — never
 //! declared separately. Two edge classes fall out of the namespace:
 //!
-//! - `${datastores.X.url}` is an **ordering** edge: the value does not
-//!   exist until the datastore is provisioned, so the referencing
-//!   service starts after it.
 //! - `${integrations.X.output}` is an **ordering** edge: outputs exist
 //!   only after the integration is provisioned.
 //! - `${services.X.origin}` is **wiring only**: origins are derivable
@@ -32,14 +29,13 @@ use super::model::StackDef;
 #[serde(tag = "kind", content = "name", rename_all = "snake_case")]
 pub enum Node {
     Integration(String),
-    Datastore(String),
     Service(String),
 }
 
 impl Node {
     pub fn name(&self) -> &str {
         match self {
-            Self::Integration(name) | Self::Datastore(name) | Self::Service(name) => name,
+            Self::Integration(name) | Self::Service(name) => name,
         }
     }
 }
@@ -61,17 +57,12 @@ impl DependencyGraph {
     /// Call on a validated definition: undeclared references have
     /// already been rejected, so lookups here cannot miss.
     pub fn derive(def: &StackDef) -> Result<Self, DefError> {
-        // Dense indices: integrations, then datastores, then services —
-        // all in the definition's (sorted) order for deterministic ties.
+        // Dense indices: integrations, then services — all in the
+        // definition's (sorted) order for deterministic ties.
         let nodes: Vec<Node> = def
             .integrations
             .keys()
             .map(|name| Node::Integration(name.clone()))
-            .chain(
-                def.datastores
-                    .keys()
-                    .map(|name| Node::Datastore(name.clone())),
-            )
             .chain(def.services.keys().map(|name| Node::Service(name.clone())))
             .collect();
         let index_of =
@@ -97,7 +88,6 @@ impl DependencyGraph {
             for (location, value) in &values {
                 for reference in interp::references(value, location)? {
                     let target = match reference {
-                        Reference::DatastoreUrl(name) => Node::Datastore(name),
                         Reference::ServiceOrigin(name) => Node::Service(name),
                         Reference::IntegrationOutput { integration, .. } => {
                             Node::Integration(integration)
@@ -110,7 +100,7 @@ impl DependencyGraph {
                         continue;
                     };
                     wiring.insert((service_idx, target_idx));
-                    if matches!(target, Node::Datastore(_) | Node::Integration(_)) {
+                    if matches!(target, Node::Integration(_)) {
                         // Edge points dependency → dependent so Kahn
                         // emits dependencies first.
                         ordering_edges.insert((target_idx, service_idx));

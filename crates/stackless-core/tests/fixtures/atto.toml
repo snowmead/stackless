@@ -28,23 +28,14 @@ app_name       = "${stack.name}-${instance.name}"
 credential_set = "development"
 organizations  = true
 
-# ── datastores: containers locally, managed services on Render ──
-
-[datastores.db]
-engine  = "postgres" # readiness built in per engine (§7), never declared
-version = "17"
-
-[datastores.db.render]
-plan = "basic-256mb" # paid → requires --confirm-paid (§4)
-
 # ── services: identity + wiring + health, substrate run config nested ──
 
 [services.api]
 source  = { repo = "https://github.com/haaku-co/atto-server", ref = "main" }
-setup   = "mise install"                                                                                                                                                                                         # once, after materialization
-prepare = "just migrate-run && just seed"                                                                                                                                                                        # every up, deps ready → before start; uses the Stackless DATABASE_URL
-env     = { DATABASE_URL = "${datastores.db.url}", CORS_ALLOWED_ORIGINS = "${services.web.origin}", TENANT_SLUG = "${instance.name}", CLERK_SECRET_KEY = "${integrations.clerk.secret_key}", RUST_LOG = "info" }
-health  = { path = "/health", contains = "ok" }                                                                                                                                                                  # status defaults to 200
+setup   = "mise install"                                                                                                                                                  # once, after materialization
+prepare = "just migrate-run && just seed"                                                                                                                                 # every up, deps ready → before start
+env     = { CORS_ALLOWED_ORIGINS = "${services.web.origin}", TENANT_SLUG = "${instance.name}", CLERK_SECRET_KEY = "${integrations.clerk.secret_key}", RUST_LOG = "info" }
+health  = { path = "/health", contains = "ok" }                                                                                                                           # status defaults to 200
 
 [services.api.local]
 run = "cargo run" # $PORT injected; runs in the materialized source dir

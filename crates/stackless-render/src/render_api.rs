@@ -1,7 +1,7 @@
 //! The Render REST client (ARCHITECTURE.md §4): the post-provisioning steps
 //! Stripe Projects can't express — env vars, the SPA rewrite route, deploy
-//! triggers, deploy polling with per-kind budgets, postgres connection info,
-//! recent logs, and the teardown survivors check.
+//! triggers, deploy polling with per-kind budgets, recent logs, and the
+//! teardown survivors check.
 //!
 //! This is a thin adapter over the [`render_client`] crate, which is generated
 //! by progenitor from Render's OpenAPI spec (`specs/render-openapi.json`). The
@@ -39,22 +39,6 @@ pub struct RenderService {
 pub struct RenderDeploy {
     pub id: String,
     pub status: DeployStatus,
-}
-
-#[derive(Debug, Clone)]
-pub struct RenderPostgres {
-    pub id: String,
-    /// The `databaseStatus` (e.g. `creating`, `available`); a freshly-provisioned
-    /// DB reports `creating` before it accepts connections.
-    pub status: Option<String>,
-}
-
-/// Postgres connection strings: internal for services on Render's
-/// network, external for the operator-side `prepare` step (§4).
-#[derive(Debug, Clone)]
-pub struct PostgresConnInfo {
-    pub internal: Option<String>,
-    pub external: Option<String>,
 }
 
 pub struct RenderApi {
@@ -155,61 +139,6 @@ impl RenderApi {
             }
         }
         Ok(None)
-    }
-
-    pub async fn find_postgres(&self, name: &str) -> Result<Option<RenderPostgres>, RenderError> {
-        let names = vec![name.to_owned()];
-        let response = self
-            .client
-            .list_postgres(
-                None,
-                None,
-                None,
-                None,
-                None,
-                limit(20),
-                Some(&names),
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-            .await
-            .map_err(|err| api_failed("GET", "/postgres", err))?;
-        for entry in response.into_inner() {
-            let Some(postgres) = entry.postgres else {
-                continue;
-            };
-            if postgres.name.as_deref() == Some(name) {
-                return Ok(postgres.id.map(|id| RenderPostgres {
-                    id,
-                    status: postgres.status.map(|s| s.0),
-                }));
-            }
-        }
-        Ok(None)
-    }
-
-    /// The postgres id by name (existence check for observe/teardown).
-    pub async fn find_postgres_by_name(&self, name: &str) -> Result<Option<String>, RenderError> {
-        Ok(self.find_postgres(name).await?.map(|pg| pg.id))
-    }
-
-    pub async fn postgres_connection_info(
-        &self,
-        postgres_id: &str,
-    ) -> Result<PostgresConnInfo, RenderError> {
-        let info = self
-            .client
-            .retrieve_postgres_connection_info(postgres_id)
-            .await
-            .map_err(|err| api_failed("GET", "/postgres/{id}/connection-info", err))?
-            .into_inner();
-        Ok(PostgresConnInfo {
-            internal: info.internal_connection_string,
-            external: info.external_connection_string,
-        })
     }
 
     pub async fn put_env_vars(

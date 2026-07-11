@@ -55,7 +55,6 @@ pub fn doctor(args: DoctorArgs, output: &Output) -> Result<(), CliError> {
     } else {
         match parse_definition_file(&file) {
             Ok(def) => {
-                checks.push(check_docker(&def));
                 checks.extend(check_env_file(&dir, &def, &secrets_overlay));
                 checks.extend(check_cloud_keys(&dir, &def, substrate, &secrets_overlay));
                 if needs_stripe(&def, substrate) {
@@ -99,31 +98,6 @@ fn parse_definition_file(file: &Path) -> Result<StackDef, CliError> {
         source,
     })?;
     StackDef::parse(&text).map_err(CliError::Def)
-}
-
-fn check_docker(def: &StackDef) -> DoctorCheck {
-    if def.datastores.is_empty() {
-        return DoctorCheck {
-            check: "docker".into(),
-            ok: true,
-            code: None,
-            remediation: None,
-        };
-    }
-    match stackless_local::container::ContainerRunner::connect() {
-        Ok(_) => DoctorCheck {
-            check: "docker".into(),
-            ok: true,
-            code: None,
-            remediation: None,
-        },
-        Err(err) => DoctorCheck {
-            check: "docker".into(),
-            ok: false,
-            code: Some(err.code()),
-            remediation: Some(err.remediation()),
-        },
-    }
 }
 
 fn check_daemon() -> DoctorCheck {
@@ -623,21 +597,6 @@ health = { path = "/" }
         assert_eq!(checks.len(), 1);
         assert!(!checks[0].ok);
         assert_eq!(checks[0].code, Some(codes::SECRETS_UNRESOLVED));
-    }
-
-    #[test]
-    fn docker_skipped_without_datastores() {
-        let def = StackDef::parse(
-            r#"[stack]
-name = "demo"
-[services.web]
-source = { repo = "file:///tmp", ref = "main" }
-health = { path = "/" }
-"#,
-        )
-        .unwrap();
-        let check = check_docker(&def);
-        assert!(check.ok);
     }
 
     #[test]

@@ -35,21 +35,6 @@ impl ServiceRender {
     }
 }
 
-/// The typed `render/postgres` `--config`. `name`/`region`/`version` are schema
-/// properties; `instance_type` is a pricing-tier selector (`basic-256mb`, …).
-/// Field names ARE the catalog contract — the gap test pins them.
-#[derive(Debug, Serialize)]
-pub struct RenderPostgresConfig {
-    pub name: String,
-    pub region: String,
-    pub version: String,
-    pub instance_type: String,
-}
-
-impl CatalogService for RenderPostgresConfig {
-    const REFERENCE: &'static str = "render/postgres";
-}
-
 /// The typed `render/web-service` `--config`.
 #[derive(Debug, Serialize)]
 pub struct RenderWebServiceConfig {
@@ -156,29 +141,6 @@ impl<R: CommandRunner> RenderSubstrate<R> {
         })
     }
 
-    /// A datastore's `[datastores.X.render]` plan.
-    pub fn datastore_plan(def: &StackDef, datastore: &str) -> Result<String, RenderError> {
-        let location = format!("datastores.{datastore}.render");
-        let block = def
-            .datastores
-            .get(datastore)
-            .and_then(|spec| spec.substrates.get(SUBSTRATE_NAME))
-            .and_then(|value| value.as_table())
-            .ok_or_else(|| RenderError::ConfigInvalid {
-                location: location.clone(),
-                detail: "missing [datastores.X.render] block".into(),
-            })?;
-        for key in block.keys() {
-            if key.as_str() != "plan" {
-                return Err(RenderError::ConfigInvalid {
-                    location: location.clone(),
-                    detail: format!("unknown key {key:?} (known: plan)"),
-                });
-            }
-        }
-        required_str(block, "plan", &location)
-    }
-
     /// The recorded Stripe Projects anchor from `[stack.projects.stripe].project`.
     pub fn stack_project(def: &StackDef) -> Option<String> {
         stackless_stripe_projects::recorded_project_id(def)
@@ -237,11 +199,6 @@ project = "project_neutral"
     const BASE: &str = r#"
 [stack]
 name = "atto"
-[datastores.db]
-engine = "postgres"
-version = "17"
-[datastores.db.render]
-plan = "basic-256mb"
 [services.api]
 source = { repo = "r", ref = "main" }
 env = {}
@@ -267,10 +224,6 @@ static = { build = "bun run build", publish = "./dist", spa_rewrite = true }
         ));
         let web = RenderSubstrate::<TokioRunner>::service_render(&def, "web").unwrap();
         assert!(web.is_static());
-        assert_eq!(
-            RenderSubstrate::<TokioRunner>::datastore_plan(&def, "db").unwrap(),
-            "basic-256mb"
-        );
         assert_eq!(RenderSubstrate::<TokioRunner>::stack_region(&def), "oregon");
     }
 
@@ -278,7 +231,6 @@ static = { build = "bun run build", publish = "./dist", spa_rewrite = true }
     fn typed_configs_carry_their_catalog_references() {
         assert_eq!(RenderWebServiceConfig::REFERENCE, "render/web-service");
         assert_eq!(RenderStaticSiteConfig::REFERENCE, "render/static-site");
-        assert_eq!(RenderPostgresConfig::REFERENCE, "render/postgres");
     }
 
     /// Catalog gap check: each Render config must validate against the live
@@ -292,15 +244,6 @@ static = { build = "bun run build", publish = "./dist", spa_rewrite = true }
         ));
         let catalog = stackless_stripe_projects::Catalog::from_json_envelope(FIXTURE).unwrap();
         let mut failures = Vec::new();
-        failures.extend(stackless_stripe_projects::verify_service(
-            &catalog,
-            &RenderPostgresConfig {
-                name: "atto-demo-db".into(),
-                region: "oregon".into(),
-                version: "17".into(),
-                instance_type: "basic-256mb".into(),
-            },
-        ));
         failures.extend(stackless_stripe_projects::verify_service(
             &catalog,
             &RenderWebServiceConfig {
@@ -365,16 +308,6 @@ static = { build = "bun run build", publish = "./dist", spa_rewrite = true }
             "",
         );
         let err = RenderSubstrate::<TokioRunner>::service_render(&parse(&toml), "api").unwrap_err();
-        assert_eq!(
-            stackless_core::fault::Fault::code(&err),
-            crate::codes::RENDER_CONFIG_INVALID
-        );
-    }
-
-    #[test]
-    fn datastore_missing_plan_is_rejected() {
-        let toml = BASE.replace("plan = \"basic-256mb\"", "");
-        let err = RenderSubstrate::<TokioRunner>::datastore_plan(&parse(&toml), "db").unwrap_err();
         assert_eq!(
             stackless_core::fault::Fault::code(&err),
             crate::codes::RENDER_CONFIG_INVALID

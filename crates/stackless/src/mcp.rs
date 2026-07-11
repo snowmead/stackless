@@ -168,7 +168,7 @@ fn tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "stackless_doctor",
-            description: "Preflight checks: Docker, daemon, env keys, Stripe Projects.",
+            description: "Preflight checks: daemon, env keys, Stripe Projects.",
             input_schema: json!({
                 "type": "object",
                 "properties": {

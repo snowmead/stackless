@@ -119,7 +119,7 @@ enum Command {
         #[arg(long)]
         merge: bool,
     },
-    /// Preflight checks: Docker, daemon, env keys, Stripe Projects.
+    /// Preflight checks: daemon, env keys, Stripe Projects.
     Doctor {
         /// Definition file for context-aware checks (default: ./stackless.toml).
         #[arg(long)]

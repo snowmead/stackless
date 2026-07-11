@@ -44,7 +44,7 @@ Always prefer `--json` for automation.
    `--on vercel`, etc. for each cloud target). Fix every reported code before
    `up`.
 4. **Preflight:** `stackless doctor` (optionally `--file stackless.toml --on
-   render`) before first `up` — Docker, daemon, persistence, `.stackless.env`,
+   render`) before first `up` — daemon, persistence, `.stackless.env`,
    cloud API keys, Stripe CLI + Projects plugin.
 
 Read [docs/SCHEMA.md](../../docs/SCHEMA.md) for the full schema: services need
@@ -86,7 +86,7 @@ creation; set API keys (see doctor). Paid resources need `--confirm-paid`.
 
 Every success verb emits `{ "schema_version": 1, "ok": true, … }` on stdout.
 
-- `check --json`: `{ "ok": true, "stack", "services", "datastores", "graph" }`
+- `check --json`: `{ "ok": true, "stack", "services", "graph" }`
 - `up --json`: `{ "schema_version", "ok", "instance", "substrate", "executed", "skipped", "duration_ms", "steps", "origins", "spend?" }`
 - `down --json`: `{ "schema_version", "ok", "instance", "outcome", "spend?" }`
 - `verify --json`: `{ "schema_version", "ok", "instance", "tier?", "duration_ms", "exit_status", "log_path", "lease_remaining_secs?" }`
@@ -152,9 +152,9 @@ error.code?
 ├─ def.validate.no_services
 │  └─ Add at least one [services.<name>] block
 ├─ def.validate.depends_on_rejected
-│  └─ Remove depends_on; wire via env (${services.X.origin}, ${datastores.X.url})
+│  └─ Remove depends_on; wire via env (${services.X.origin})
 ├─ def.validate.undeclared_reference | def.validate.reference_syntax
-│  └─ Fix ${...} references to declared stack/instance/service/datastore/secret names
+│  └─ Fix ${...} references to declared stack/instance/service/secret names
 ├─ def.validate.secret_not_required | secrets.unresolved
 │  └─ Add keys to [secrets].required and .stackless.env (or export)
 ├─ def.validate.substrate_config_missing
@@ -175,8 +175,6 @@ error.code?
 │  └─ Re-run with --confirm-paid
 ├─ vercel.api_key.missing | render.api_key.missing
 │  └─ Set VERCEL_TOKEN / RENDER_API_KEY in env, .stackless.env, or key file beside stackless.toml
-├─ local.docker.engine | local.datastore.failed
-│  └─ Start Docker; re-run stackless doctor then up
 ├─ local.health_failed | local.service_died | local.hook_failed
 │  └─ Read error.context.log_tail; fix service/hook; stackless up resumes
 ├─ daemon.unreachable | daemon.spawn_failed

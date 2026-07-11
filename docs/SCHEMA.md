@@ -59,14 +59,13 @@ rejected (`def.parse.schema`):
 | `[stack]` | yes | Stack identity, verify contract, per-substrate stack config |
 | `[secrets]` | no | The required-secrets list |
 | `[integrations.<name>]` | no | Hosted third-party services provisioned through Stripe Projects |
-| `[datastores.<name>]` | no | Managed stateful services (postgres) |
 | `[services.<name>]` | no* | The application services |
 
 *At least one service must be declared (`def.validate.no_services`).
 
 ### Naming rules (everywhere)
 
-Stack, service, datastore, and instance names become hostnames and
+Stack, service, and instance names become hostnames and
 cloud resource names, so they must be DNS-safe: lowercase letters,
 digits, and hyphens; starting with a letter; not ending with a hyphen;
 at most 63 characters (`def.validate.name_invalid`).
@@ -194,29 +193,6 @@ organizations = true
 - Stackless does not create app-specific Clerk orgs/users. Tests or
   application setup own that fixture layer.
 
-## `[datastores.<name>]`
-
-```toml
-[datastores.db]
-engine = "postgres"      # v0 supports exactly: postgres
-version = "17"           # image / managed-service version, as a string
-
-  [datastores.db.render] # required for `up --on render`
-  plan = "basic-256mb"   # paid plans require --confirm-paid
-```
-
-- `engine` — `"postgres"` only in v0 (`def.validate.engine_unknown`).
-  Readiness checking is built in per engine (postgres: `pg_isready`);
-  it is never declared.
-- `version` — string, becomes the image tag locally
-  (`postgres:17`) and the managed version on cloud substrates.
-- Locally a datastore is a container with a per-instance volume and an
-  instance-minted password; on Render it is a managed postgres. Vercel
-  does not support datastores in v0 (`up --on vercel` with any
-  `[datastores.*]` fails at provision). Its connection string is
-  consumed via `${datastores.<name>.url}` — declaring a datastore
-  nothing references is legal but pointless.
-
 ## `[services.<name>]`
 
 ```toml
@@ -225,7 +201,7 @@ source = { repo = "https://github.com/you/api", ref = "main" }   # required
 setup = "mise install"            # optional: once, after materialization
 prepare = "just seed"             # optional: every up, after deps are ready
 secrets = ["API_TOKEN"]            # optional: injected as same-named env vars
-env = { DATABASE_URL = "${datastores.db.url}", CLERK_SECRET_KEY = "${integrations.clerk.secret_key}", RUST_LOG = "info" }
+env = { CLERK_SECRET_KEY = "${integrations.clerk.secret_key}", RUST_LOG = "info" }
 health = { path = "/health", contains = "ok" }                   # required
 root_origin = false               # optional, at most one service true
 ```
@@ -342,7 +318,6 @@ Or a static site:
   (`def.validate.substrate_config_missing`), refuses `--source` pins
   (`engine.source_override.unsupported`), and requires `--confirm-paid`
   when `[stack.vercel].plan = "pro"` (`vercel.payment.not_confirmed`).
-- Datastores are not supported on Vercel in v0.
 - Setup is skipped on cloud (same as Render); prepare runs on the
   operator's machine from a shallow `git clone` of the pinned ref.
 - **Two layers (same as Render):** Stripe Projects provisions the
@@ -377,9 +352,6 @@ and the substrate runs it as a Fly machine.
   (`fly.config.invalid`), refuses `--source` pins
   (`engine.source_override.unsupported`), and requires `--confirm-paid`
   (`fly.payment.not_confirmed` — `flyio/app` is usage-billed).
-- Datastores are not supported on Fly in v0 (`up --on fly` with any
-  `[datastores.*]` block is rejected); `flyio/mpg` (managed Postgres) is
-  a separate catalog integration.
 - Setup is skipped on cloud (same as Render); prepare runs on the
   operator's machine from a shallow `git clone` of the pinned ref.
 - **Two layers (same as Render):** Stripe Projects provisions the
@@ -407,8 +379,6 @@ block is optional.
 - `up --on netlify` refuses `--source` pins
   (`engine.source_override.unsupported`). `netlify/project` is **free**, so no
   `--confirm-paid` is required.
-- Datastores are not supported on Netlify in v0 (`up --on netlify` with any
-  `[datastores.*]` block is rejected).
 - Setup is skipped on cloud; prepare runs on the operator's machine from a
   shallow `git clone` of the pinned ref.
 - **Two layers (same as Render):** Stripe Projects provisions the
@@ -428,7 +398,6 @@ Env values (common `env`, substrate `env` overlays, and
 | `${stack.name}` | the stack's declared name |
 | `${instance.name}` | the instance's name — the one identity everything derives from |
 | `${services.X.origin}` | service X's substrate-appropriate origin. Local: `http://x.{instance}.localhost:4444` (the root-origin service resolves to `http://{instance}.localhost:4444` — what browsers actually use). Render: `https://{stack}-{instance}-x.onrender.com`. Vercel: the deployment URL after `start` (best-effort `https://{stack}-{instance}-x.vercel.app` before deploy). Fly: `https://{stack}-{instance}-x.fly.dev`. Netlify: the deploy's `ssl_url` recorded at `start` (`https://{stack}-{instance}-x.netlify.app`) |
-| `${datastores.X.url}` | X's connection string. Local: `postgres://...@127.0.0.1:{mapped-port}/postgres`. Render: the internal URL for services, the external one for `prepare` hooks |
 | `${secrets.KEY}` | the resolved secret value (KEY must be in `[secrets].required`) — for renaming; the `secrets = [...]` list already injects same-named vars |
 | `${integrations.clerk.secret_key}` | the Clerk secret key selected from Stripe Projects' Clerk environments JSON (`CLERK_AUTH_ENVIRONMENTS` or `CLERK_ENVIRONMENTS`) |
 | `${integrations.clerk.publishable_key}` | the Clerk publishable key selected from Stripe Projects' Clerk environments JSON (`CLERK_AUTH_ENVIRONMENTS` or `CLERK_ENVIRONMENTS`) |
@@ -439,31 +408,28 @@ values untouched.
 
 Rules, all enforced at parse/validate time (never at `up` time):
 
-- Referencing an undeclared service/datastore/secret →
+- Referencing an undeclared service/secret →
   `def.validate.undeclared_reference` / `def.validate.secret_not_required`.
 - Any other `${...}` form → `def.validate.reference_syntax`.
 - An unterminated `${...` → `def.validate.reference_syntax`.
 
 ### Wiring derives the graph — there is no `depends_on`
 
-If service A's env references `${datastores.D.url}`, that *is* the
-dependency edge: D is provisioned (and ready) before A's `prepare`
-runs and before A starts. Origin references
-(`${services.B.origin}`) are recorded wiring but never ordering
-constraints — origins are derivable from the instance name alone, so
-mutual references (api ↔ web CORS) are legal and are not cycles.
-`stackless check` prints the derived startup order and wiring edges.
+If service A's env references `${services.B.origin}`, that is recorded
+wiring but never an ordering constraint — origins are derivable from
+the instance name alone, so mutual references (api ↔ web CORS) are
+legal and are not cycles. `stackless check` prints the derived startup
+order and wiring edges.
 
 ## What happens on `up` (so you can write definitions that fit it)
 
-Per instance: provision hosted integrations → provision datastores in
-dependency order → materialize each service's source (shared git cache;
-or your `--source` pin; with `--dirty`, snapshot the pin's working tree
-into instance-owned space) → `setup` (once) → `prepare` (every up, deps
-ready) → start → health-gate. Every step checkpoints before proceeding,
-so interrupted runs **resume** — re-running `up` re-checks recorded
-resources against reality and re-executes only what is missing;
-`prepare` and health gates rerun on every `up` by contract.
+Per instance: provision hosted integrations → materialize each service's
+source (shared git cache; or your `--source` pin; with `--dirty`, snapshot
+the pin's working tree into instance-owned space) → `setup` (once) →
+`prepare` (every up, deps ready) → start → health-gate. Every step
+checkpoints before proceeding, so interrupted runs **resume** — re-running
+`up` re-checks recorded resources against reality and re-executes only what
+is missing; `prepare` and health gates rerun on every `up` by contract.
 
 `up` on an existing name resumes it; the substrate was fixed at
 creation and is never asked again. Names are unique across substrates:
@@ -535,18 +501,11 @@ app_name = "${stack.name}-${instance.name}"
 credential_set = "development"
 organizations = true
 
-[datastores.db]
-engine = "postgres"
-version = "17"
-
-  [datastores.db.render]
-  plan = "basic-256mb"                # paid → requires --confirm-paid
-
 [services.api]
 source = { repo = "https://github.com/haaku-co/atto-server", ref = "main" }
 setup = "mise install"
-prepare = "just migrate-run && just seed"  # uses the Stackless DATABASE_URL
-env = { DATABASE_URL = "${datastores.db.url}", CORS_ALLOWED_ORIGINS = "${services.web.origin}", TENANT_SLUG = "${instance.name}", CLERK_SECRET_KEY = "${integrations.clerk.secret_key}", RUST_LOG = "info" }
+prepare = "just migrate-run && just seed"
+env = { CORS_ALLOWED_ORIGINS = "${services.web.origin}", TENANT_SLUG = "${instance.name}", CLERK_SECRET_KEY = "${integrations.clerk.secret_key}", RUST_LOG = "info" }
 health = { path = "/health", contains = "ok" }
 
   [services.api.local]
@@ -598,17 +557,6 @@ Stripe Projects is internal plumbing — never declared in
 - [ ] workos
 - [ ] privy
 - [ ] supabase
-
-### Datastores
-
-- [x] postgres (local)
-- [x] postgres (render)
-- [ ] postgres (vercel)
-- [ ] neon
-- [ ] supabase
-- [ ] planetscale
-- [ ] turso
-- [ ] upstash redis
 
 ### Platform
 

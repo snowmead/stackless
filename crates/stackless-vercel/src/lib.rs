@@ -675,10 +675,6 @@ impl<R: CommandRunner> Substrate for VercelSubstrate<R> {
             )
             .await
             .map_err(integration_fault),
-            StepKind::ProvisionDatastore => Err(fault(VercelError::ConfigInvalid {
-                location: format!("datastores.{node}"),
-                detail: "datastores are not supported on vercel in v0".into(),
-            })),
             StepKind::Materialize => {
                 let spec = ctx.def.services.get(node).ok_or_else(|| {
                     fault(VercelError::ConfigInvalid {

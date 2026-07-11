@@ -1,6 +1,6 @@
 //! Step planning: one validated definition + the derived graph → the
 //! ordered steps every substrate executes (§3/§4 share the sequence:
-//! provision datastores → prepare → start services → health gate).
+//! provision integrations → prepare → start services → health gate).
 
 use serde::Serialize;
 
@@ -11,9 +11,6 @@ use crate::def::{DefError, DependencyGraph, Node, StackDef};
 pub enum StepKind {
     /// Provision a hosted third-party integration (Clerk in v0).
     ProvisionIntegration,
-    /// Provision a datastore (container locally, managed service on a
-    /// cloud substrate).
-    ProvisionDatastore,
     /// Materialize a service's source into instance-owned space.
     Materialize,
     /// The once-after-materialization hook.
@@ -30,7 +27,6 @@ impl StepKind {
     fn id_prefix(self) -> &'static str {
         match self {
             Self::ProvisionIntegration => "integration",
-            Self::ProvisionDatastore => "provision",
             Self::Materialize => "materialize",
             Self::Setup => "setup",
             Self::Prepare => "prepare",
@@ -45,7 +41,7 @@ pub struct Step {
     /// Stable id, the journal's primary key: `"{kind}:{node}"`.
     pub id: String,
     pub kind: StepKind,
-    /// The service or datastore name the step belongs to.
+    /// The service name the step belongs to.
     pub node: String,
 }
 
@@ -68,9 +64,6 @@ impl StackDef {
             match node {
                 Node::Integration(name) => {
                     steps.push(Step::new(StepKind::ProvisionIntegration, name));
-                }
-                Node::Datastore(name) => {
-                    steps.push(Step::new(StepKind::ProvisionDatastore, name));
                 }
                 Node::Service(name) => {
                     let Some(service) = self.services.get(name) else {
