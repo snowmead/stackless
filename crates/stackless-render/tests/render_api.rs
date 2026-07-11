@@ -1,7 +1,8 @@
 //! Offline tests for the Render REST client against a local mock server
 //! (wiremock). No network leaves the machine; these cover the endpoints
 //! the live round-trip exercises: find-by-name, env PUT, deploy poll
-//! (happy path + timeout), and the survivors check.
+//! (happy path + timeout), legacy postgres existence, and the survivors
+//! check.
 
 use std::time::Duration;
 
@@ -256,6 +257,28 @@ async fn ensure_spa_rewrite_creates_when_absent() {
         .mount(&server)
         .await;
     api(&server).ensure_spa_rewrite("srv_1").await.unwrap();
+}
+
+#[tokio::test]
+async fn survivor_still_present_after_delete() {
+    // Legacy render-postgres teardown survivors check: find-by-name still
+    // resolves → caller treats it as a survivor and refuses.
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/postgres"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+            { "postgres": { "id": "pg_1", "name": "atto-demo-db" } }
+        ])))
+        .mount(&server)
+        .await;
+    assert_eq!(
+        api(&server)
+            .find_postgres_by_name("atto-demo-db")
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("pg_1")
+    );
 }
 
 #[tokio::test]

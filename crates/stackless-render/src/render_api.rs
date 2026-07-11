@@ -1,7 +1,7 @@
 //! The Render REST client (ARCHITECTURE.md §4): the post-provisioning steps
 //! Stripe Projects can't express — env vars, the SPA rewrite route, deploy
-//! triggers, deploy polling with per-kind budgets, recent logs, and the
-//! teardown survivors check.
+//! triggers, deploy polling with per-kind budgets, legacy postgres existence
+//! checks for teardown, recent logs, and the teardown survivors check.
 //!
 //! This is a thin adapter over the [`render_client`] crate, which is generated
 //! by progenitor from Render's OpenAPI spec (`specs/render-openapi.json`). The
@@ -39,6 +39,14 @@ pub struct RenderService {
 pub struct RenderDeploy {
     pub id: String,
     pub status: DeployStatus,
+}
+
+/// Minimal postgres identity for legacy `render-postgres` teardown.
+#[derive(Debug, Clone)]
+pub struct RenderPostgres {
+    pub id: String,
+    /// The `databaseStatus` (e.g. `creating`, `available`).
+    pub status: Option<String>,
 }
 
 pub struct RenderApi {
@@ -139,6 +147,47 @@ impl RenderApi {
             }
         }
         Ok(None)
+    }
+
+    /// Look up a managed Postgres by name — used only to observe/teardown
+    /// legacy `render-postgres` checkpoints from older stackless versions.
+    pub async fn find_postgres(&self, name: &str) -> Result<Option<RenderPostgres>, RenderError> {
+        let names = vec![name.to_owned()];
+        let response = self
+            .client
+            .list_postgres(
+                None,
+                None,
+                None,
+                None,
+                None,
+                limit(20),
+                Some(&names),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            .map_err(|err| api_failed("GET", "/postgres", err))?;
+        for entry in response.into_inner() {
+            let Some(postgres) = entry.postgres else {
+                continue;
+            };
+            if postgres.name.as_deref() == Some(name) {
+                return Ok(postgres.id.map(|id| RenderPostgres {
+                    id,
+                    status: postgres.status.map(|s| s.0),
+                }));
+            }
+        }
+        Ok(None)
+    }
+
+    /// The postgres id by name (existence check for observe/teardown).
+    pub async fn find_postgres_by_name(&self, name: &str) -> Result<Option<String>, RenderError> {
+        Ok(self.find_postgres(name).await?.map(|pg| pg.id))
     }
 
     pub async fn put_env_vars(

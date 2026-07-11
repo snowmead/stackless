@@ -2,7 +2,9 @@
 
 //! stackless-local (ARCHITECTURE.md §3): the local substrate — app
 //! services as host processes, wiring through the built-in proxy.
+//! Legacy Docker datastore checkpoints are still torn down on `down`.
 
+pub mod container;
 pub mod error;
 pub mod git_auth;
 pub mod health;
@@ -26,6 +28,7 @@ use stackless_core::types::{DnsName, LogPath, ProxyHost, TcpPort};
 use stackless_daemon::DaemonClient;
 use stackless_daemon::rpc::Request;
 
+use crate::container::ContainerRunner;
 use crate::error::LocalError;
 use crate::spawn::Spawner;
 
@@ -545,7 +548,7 @@ impl Substrate for LocalSubstrate {
 
     async fn observe(
         &self,
-        _instance: &str,
+        instance: &str,
         checkpoint: &Checkpoint,
     ) -> Result<Observation, SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
@@ -563,6 +566,37 @@ impl Substrate for LocalSubstrate {
                 )
                 .await
                 .map_err(|err| SubstrateFault::from_fault(&err))
+            }
+            // Legacy first-class datastore containers: still reclaimable.
+            "container" => {
+                let payload = serde_json::from_str::<serde_json::Value>(&checkpoint.payload).ok();
+                let container_id = payload
+                    .as_ref()
+                    .and_then(|p| p.get("container_id"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&checkpoint.resource_id)
+                    .to_owned();
+                let docker =
+                    ContainerRunner::connect().map_err(|err| SubstrateFault::from_fault(&err))?;
+                let running = docker
+                    .observe(&container_id)
+                    .await
+                    .map_err(|err| SubstrateFault::from_fault(&err))?;
+                // After destroy, a lingering volume is a survivor too:
+                // teardown verification covers state, not just runtime.
+                let datastore = checkpoint
+                    .step_id
+                    .strip_prefix("provision:")
+                    .unwrap_or_default();
+                let volume = docker
+                    .volume_exists(instance, datastore)
+                    .await
+                    .map_err(|err| SubstrateFault::from_fault(&err))?;
+                Ok(if running || volume {
+                    Observation::Present
+                } else {
+                    Observation::Gone
+                })
             }
             "process" => {
                 let payload = serde_json::from_str::<StartCheckpoint>(&checkpoint.payload);
@@ -602,11 +636,7 @@ impl Substrate for LocalSubstrate {
         }
     }
 
-    async fn destroy(
-        &self,
-        _instance: &str,
-        checkpoint: &Checkpoint,
-    ) -> Result<(), SubstrateFault> {
+    async fn destroy(&self, instance: &str, checkpoint: &Checkpoint) -> Result<(), SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
             kind if stackless_integrations::is_integration_resource(kind) => {
                 let stripe = stackless_stripe_projects::StripeProjects::new(
@@ -622,6 +652,25 @@ impl Substrate for LocalSubstrate {
                 )
                 .await
                 .map_err(|err| SubstrateFault::from_fault(&err))
+            }
+            // Legacy first-class datastore containers: stop + remove + volume.
+            "container" => {
+                let payload = serde_json::from_str::<serde_json::Value>(&checkpoint.payload).ok();
+                let container_id = payload
+                    .as_ref()
+                    .and_then(|p| p.get("container_id"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&checkpoint.resource_id)
+                    .to_owned();
+                let datastore = checkpoint
+                    .step_id
+                    .strip_prefix("provision:")
+                    .unwrap_or_default();
+                ContainerRunner::connect()
+                    .map_err(|err| SubstrateFault::from_fault(&err))?
+                    .destroy(instance, datastore, &container_id)
+                    .await
+                    .map_err(|err| SubstrateFault::from_fault(&err))
             }
             "process" => {
                 let payload = serde_json::from_str::<StartCheckpoint>(&checkpoint.payload)

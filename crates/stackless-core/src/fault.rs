@@ -92,6 +92,9 @@ pub mod codes {
     pub const CLI_ADOPT_EXISTS: &str = "cli.adopt.exists";
     pub const CLI_ADOPT_INSPECT: &str = "cli.adopt.inspect";
     pub const DOCTOR_CHECKS_FAILED: &str = "doctor.checks.failed";
+    /// Legacy local Docker datastore teardown (pre-`[datastores.*]` removal).
+    pub const LOCAL_DOCKER_ENGINE: &str = "local.docker.engine";
+    pub const LOCAL_DATASTORE_FAILED: &str = "local.datastore.failed";
     pub const SECRETS_UNRESOLVED: &str = "secrets.unresolved";
     pub const VERIFY_FAILED: &str = "verify.failed";
     pub const VERIFY_NOT_DECLARED: &str = "verify.not_declared";
@@ -175,6 +178,8 @@ pub mod codes {
         CLI_ADOPT_EXISTS,
         CLI_ADOPT_INSPECT,
         DOCTOR_CHECKS_FAILED,
+        LOCAL_DOCKER_ENGINE,
+        LOCAL_DATASTORE_FAILED,
         SECRETS_UNRESOLVED,
         VERIFY_FAILED,
         VERIFY_NOT_DECLARED,

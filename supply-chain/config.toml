@@ -92,6 +92,14 @@ criteria = "safe-to-deploy"
 version = "0.10.4"
 criteria = "safe-to-deploy"
 
+[[exemptions.bollard]]
+version = "0.21.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.bollard-stubs]]
+version = "1.53.1-rc.29.3.1"
+criteria = "safe-to-deploy"
+
 [[exemptions.bumpalo]]
 version = "3.20.3"
 criteria = "safe-to-deploy"

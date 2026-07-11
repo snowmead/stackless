@@ -90,6 +90,18 @@ fn prepare_fault(f: stackless_cloud::prepare::PrepareFailure) -> SubstrateFault 
     })
 }
 
+/// Legacy `provision:<datastore>` checkpoint payload from when Render
+/// managed Postgres was first-class. Kept so `down` can still tear those
+/// resources down.
+#[derive(Debug, Serialize, Deserialize)]
+struct DatastorePayload {
+    stripe_resource: String,
+    render_name: String,
+    postgres_id: String,
+    internal_url: String,
+    external_url: String,
+}
+
 /// What a `materialize:<service>` checkpoint records: the pinned source.
 /// Initially this owns nothing locally. `stackless verify` may later add
 /// a local checkout path/commit so cloud verifies have a stable cwd.
@@ -603,6 +615,28 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
         match checkpoint.resource_kind.as_str() {
             // Present iff the named resource still resolves on Render and
             // is not deleted (invariant 4: the substrate says what's true).
+            // Legacy first-class managed Postgres — still reclaimable on down.
+            "render-postgres" => {
+                let payload = stackless_cloud::checkpoint::parse_payload::<DatastorePayload>(
+                    &checkpoint.payload,
+                )
+                .map_err(|detail| {
+                    fault(RenderError::ConfigInvalid {
+                        location: "checkpoint.payload".into(),
+                        detail,
+                    })
+                })?;
+                let name = payload
+                    .map(|p| p.render_name)
+                    .unwrap_or_else(|| checkpoint.resource_id.clone());
+                let present = self
+                    .render()?
+                    .find_postgres_by_name(&name)
+                    .await
+                    .map_err(fault)?
+                    .is_some();
+                Ok(stackless_core::substrate::present_or_gone(present))
+            }
             "render-service" => {
                 let payload = stackless_cloud::checkpoint::parse_payload::<ServicePayload>(
                     &checkpoint.payload,
@@ -687,6 +721,28 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
                         )
                     });
                 self.remove_and_verify_service(&stripe_resource, &render_name)
+                    .await
+            }
+            // Legacy first-class managed Postgres — still reclaimable on down.
+            "render-postgres" => {
+                let payload = stackless_cloud::checkpoint::parse_payload::<DatastorePayload>(
+                    &checkpoint.payload,
+                )
+                .map_err(|detail| {
+                    fault(RenderError::ConfigInvalid {
+                        location: "checkpoint.payload".into(),
+                        detail,
+                    })
+                })?;
+                let (stripe_resource, render_name) = payload
+                    .map(|p| (p.stripe_resource, p.render_name))
+                    .unwrap_or_else(|| {
+                        (
+                            checkpoint.resource_id.clone(),
+                            checkpoint.resource_id.clone(),
+                        )
+                    });
+                self.remove_and_verify_postgres(&stripe_resource, &render_name)
                     .await
             }
             "source-ref" => {
@@ -784,6 +840,34 @@ impl<R: CommandRunner> RenderSubstrate<R> {
         loop {
             if render
                 .find_service_by_name(render_name)
+                .await
+                .map_err(fault)?
+                .is_none()
+            {
+                return Ok(());
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(fault(RenderError::TeardownSurvivor {
+                    resource: render_name.to_owned(),
+                }));
+            }
+            tokio::time::sleep(DESTROY_POLL_INTERVAL).await;
+        }
+    }
+
+    async fn remove_and_verify_postgres(
+        &self,
+        stripe_resource: &str,
+        render_name: &str,
+    ) -> Result<(), SubstrateFault> {
+        project::remove_resource(&self.stripe(), stripe_resource)
+            .await
+            .map_err(projects_fault)?;
+        let render = self.render()?;
+        let deadline = tokio::time::Instant::now() + DESTROY_POLL_BUDGET;
+        loop {
+            if render
+                .find_postgres_by_name(render_name)
                 .await
                 .map_err(fault)?
                 .is_none()
