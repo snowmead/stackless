@@ -244,6 +244,44 @@ run = "true"
 }
 
 #[test]
+fn datastores_section_is_rejected_on_fresh_parse() {
+    let text = r#"
+[stack]
+name = "bad"
+[datastores.db]
+engine = "postgres"
+version = "16"
+[services.web]
+source = { repo = "https://example.invalid/web", ref = "main" }
+health = { path = "/" }
+[services.web.local]
+run = "true"
+"#;
+    let err = StackDef::parse(text).unwrap_err();
+    assert_eq!(err.code(), codes::DEF_PARSE_SCHEMA);
+}
+
+#[test]
+fn parse_snapshot_strips_legacy_datastores() {
+    let text = r#"
+[stack]
+name = "legacy"
+[datastores.db]
+engine = "postgres"
+version = "16"
+[services.web]
+source = { repo = "https://example.invalid/web", ref = "main" }
+health = { path = "/" }
+[services.web.local]
+run = "true"
+"#;
+    let def = StackDef::parse_snapshot(text).unwrap();
+    def.validate_hosts(KNOWN).unwrap();
+    assert_eq!(def.stack.name.as_str(), "legacy");
+    assert!(def.services.contains_key("web"));
+}
+
+#[test]
 fn errors_are_reportable() {
     let err = DefError::NoServices;
     let report = stackless_core::fault::Report::from_fault(&err);

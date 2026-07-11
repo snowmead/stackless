@@ -51,7 +51,7 @@ pub fn verify(args: VerifyArgs, output: &Output) -> Result<(), CliError> {
     let record = store
         .instance(name)?
         .ok_or_else(|| stackless_core::state::StateError::InstanceNotFound { name: name.into() })?;
-    let def = StackDef::parse(&record.definition)?;
+    let def = StackDef::parse_snapshot(&record.definition)?;
     let verify_root = def.stack.verify.as_ref().filter(|v| v.is_declared());
     let Some(verify_root) = verify_root else {
         return Err(CliError::VerifyNotDeclared);

@@ -186,8 +186,20 @@ fn resolve_up_context(
     match &args.name {
         Some(name) => {
             let existing = store.instance(name)?;
+            let from_snapshot = args.file.is_none()
+                && existing
+                    .as_ref()
+                    .is_some_and(|record| record.status == InstanceStatus::Active);
             let text = definition_text(args.file.as_ref(), existing.as_ref())?;
-            let def = parse_and_validate(&text)?;
+            let def = if from_snapshot {
+                // Resume from the instance snapshot: tolerate legacy
+                // `[datastores.*]` that fresh files still reject.
+                let def = StackDef::parse_snapshot(&text)?;
+                def.validate_hosts(&crate::substrates::known_names())?;
+                def
+            } else {
+                parse_and_validate(&text)?
+            };
             Ok((name.clone(), text, def, existing))
         }
         None => {
@@ -344,7 +356,7 @@ pub fn status_report(
     store: &Store,
     record: &InstanceRecord,
 ) -> Result<InstanceStatusReport, CliError> {
-    let def = StackDef::parse(&record.definition)?;
+    let def = StackDef::parse_snapshot(&record.definition)?;
     let def_dir = if record.definition_dir.is_empty() {
         std::env::current_dir().unwrap_or_default()
     } else {
@@ -461,7 +473,7 @@ pub fn logs(
     let record = store
         .instance(name)?
         .ok_or_else(|| stackless_core::state::StateError::InstanceNotFound { name: name.into() })?;
-    let def = StackDef::parse(&record.definition)?;
+    let def = StackDef::parse_snapshot(&record.definition)?;
     let services: Vec<String> = match service {
         Some(one) => vec![one.to_owned()],
         None => def.services.keys().cloned().collect(),
