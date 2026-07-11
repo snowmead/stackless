@@ -86,7 +86,7 @@ register_providers! {
     (blaxel::sandbox, BlaxelSandbox),
     (browserbase::project, BrowserbaseProject),
     (chroma::database, ChromaDatabase),
-    (clickhouse::clickhouse, ClickHouseClickhouse),
+    (clickhouse::cluster, ClickHouseClickhouse),
     (clickhouse::postgres, ClickHousePostgres),
     (daytona::sandbox, DaytonaSandbox),
     (e2b::sandbox, E2BSandbox),

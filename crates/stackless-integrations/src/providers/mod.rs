@@ -90,7 +90,7 @@ mod tests {
         assert_outputs_match::<blaxel::sandbox::BlaxelSandbox>();
         assert_outputs_match::<browserbase::project::BrowserbaseProject>();
         assert_outputs_match::<chroma::database::ChromaDatabase>();
-        assert_outputs_match::<clickhouse::clickhouse::ClickHouseClickhouse>();
+        assert_outputs_match::<clickhouse::cluster::ClickHouseClickhouse>();
         assert_outputs_match::<clickhouse::postgres::ClickHousePostgres>();
         assert_outputs_match::<daytona::sandbox::DaytonaSandbox>();
         assert_outputs_match::<e2b::sandbox::E2BSandbox>();

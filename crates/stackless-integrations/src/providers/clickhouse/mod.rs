@@ -2,7 +2,7 @@
 //!
 //! Output envelopes are provisional until pinned by `xtask discover`.
 
-pub mod clickhouse;
+pub mod cluster;
 pub mod postgres;
 
 #[allow(unused_imports)]

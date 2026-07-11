@@ -9,7 +9,6 @@ use stackless_stripe_projects::provision::ProvisionContext;
 use super::FamilyResource;
 use crate::error::IntegrationError;
 use crate::hostable::{ConfigScope, Hostable, IntegrationHosting};
-use crate::registry;
 
 pub const RESOURCE_KIND: &str = "integration-elevenlabs";
 
