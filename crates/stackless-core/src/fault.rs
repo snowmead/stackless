@@ -38,7 +38,6 @@ pub mod codes {
     pub const DEF_DEPENDS_ON_REJECTED: &str = "def.validate.depends_on_rejected";
     pub const DEF_SUBSTRATE_BLOCK_INVALID: &str = "def.validate.substrate_block_invalid";
     pub const DEF_SUBSTRATE_CONFIG_MISSING: &str = "def.validate.substrate_config_missing";
-    pub const DEF_ENGINE_UNKNOWN: &str = "def.validate.engine_unknown";
     pub const DEF_ROOT_ORIGIN_CONFLICT: &str = "def.validate.root_origin_conflict";
     pub const DEF_REFERENCE_SYNTAX: &str = "def.validate.reference_syntax";
     pub const DEF_UNDECLARED_REFERENCE: &str = "def.validate.undeclared_reference";
@@ -93,9 +92,9 @@ pub mod codes {
     pub const CLI_ADOPT_EXISTS: &str = "cli.adopt.exists";
     pub const CLI_ADOPT_INSPECT: &str = "cli.adopt.inspect";
     pub const DOCTOR_CHECKS_FAILED: &str = "doctor.checks.failed";
+    /// Legacy local Docker datastore teardown (pre-`[datastores.*]` removal).
     pub const LOCAL_DOCKER_ENGINE: &str = "local.docker.engine";
     pub const LOCAL_DATASTORE_FAILED: &str = "local.datastore.failed";
-    pub const LOCAL_DATASTORE_NOT_READY: &str = "local.datastore.not_ready";
     pub const SECRETS_UNRESOLVED: &str = "secrets.unresolved";
     pub const VERIFY_FAILED: &str = "verify.failed";
     pub const VERIFY_NOT_DECLARED: &str = "verify.not_declared";
@@ -125,7 +124,6 @@ pub mod codes {
         DEF_DEPENDS_ON_REJECTED,
         DEF_SUBSTRATE_BLOCK_INVALID,
         DEF_SUBSTRATE_CONFIG_MISSING,
-        DEF_ENGINE_UNKNOWN,
         DEF_ROOT_ORIGIN_CONFLICT,
         DEF_REFERENCE_SYNTAX,
         DEF_UNDECLARED_REFERENCE,
@@ -182,7 +180,6 @@ pub mod codes {
         DOCTOR_CHECKS_FAILED,
         LOCAL_DOCKER_ENGINE,
         LOCAL_DATASTORE_FAILED,
-        LOCAL_DATASTORE_NOT_READY,
         SECRETS_UNRESOLVED,
         VERIFY_FAILED,
         VERIFY_NOT_DECLARED,

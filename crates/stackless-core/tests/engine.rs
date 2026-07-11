@@ -23,14 +23,9 @@ const DEF_TEXT: &str = r#"
 [stack]
 name = "mockstack"
 
-[datastores.db]
-engine = "postgres"
-version = "17"
-
 [services.api]
 source = { repo = "https://example.invalid/api", ref = "main" }
 prepare = "just seed"
-env = { DATABASE_URL = "${datastores.db.url}" }
 health = { path = "/health", contains = "ok" }
 
   [services.api.mock]
@@ -206,17 +201,11 @@ async fn up_executes_steps_in_order_and_checkpoints() {
     let outcome = engine.up(request(&def)).await.unwrap();
     assert_eq!(
         outcome.executed,
-        vec![
-            "provision:db",
-            "materialize:api",
-            "prepare:api",
-            "start:api",
-            "health:api"
-        ]
+        vec!["materialize:api", "prepare:api", "start:api", "health:api"]
     );
     assert!(outcome.skipped.is_empty());
     let checkpoints = store.checkpoints("demo").unwrap();
-    assert_eq!(checkpoints.len(), 5);
+    assert_eq!(checkpoints.len(), 4);
     // Lease set to the substrate default.
     let lease = store.lease("demo").unwrap().unwrap();
     assert_eq!(lease.duration, Duration::from_secs(24 * 3600));
@@ -241,13 +230,9 @@ async fn interrupted_up_resumes_without_duplicating() {
     // Recover: the failing step is unscripted, re-run resumes.
     *mock.fail_on.lock().unwrap() = None;
     let outcome = engine.up(request(&def)).await.unwrap();
-    assert_eq!(
-        outcome.skipped,
-        vec!["provision:db", "materialize:api", "prepare:api"]
-    );
+    assert_eq!(outcome.skipped, vec!["materialize:api", "prepare:api"]);
     assert_eq!(outcome.executed, vec!["start:api", "health:api"]);
     // Resume, don't duplicate (invariant 3): completed steps ran once.
-    assert_eq!(mock.execution_count("provision:db"), 1);
     assert_eq!(mock.execution_count("materialize:api"), 1);
 }
 
@@ -261,12 +246,12 @@ async fn resume_reexecutes_resources_that_are_gone() {
     };
     let def = parse_def();
     engine.up(request(&def)).await.unwrap();
-    // The substrate says the datastore vanished (invariant 4: observe,
-    // don't trust the manifest).
-    mock.gone.lock().unwrap().push("res-provision:db".into());
+    // The substrate says a checkpointed resource vanished (invariant 4:
+    // observe, don't trust the manifest).
+    mock.gone.lock().unwrap().push("res-materialize:api".into());
     let outcome = engine.up(request(&def)).await.unwrap();
-    assert!(outcome.executed.contains(&"provision:db".to_owned()));
-    assert_eq!(mock.execution_count("provision:db"), 2);
+    assert!(outcome.executed.contains(&"materialize:api".to_owned()));
+    assert_eq!(mock.execution_count("materialize:api"), 2);
 }
 
 #[tokio::test]
@@ -281,9 +266,9 @@ async fn down_destroys_reverse_order_and_tombstones() {
     engine.up(request(&def)).await.unwrap();
     let outcome = engine.down("demo").await.unwrap();
     assert_eq!(outcome, DownOutcome::Destroyed);
-    // Dependents-first: api resources before the datastore.
+    // Dependents-first: later steps before earlier ones.
     let destroyed = mock.destroyed.lock().unwrap().clone();
-    assert_eq!(*destroyed.last().unwrap(), "res-provision:db");
+    assert_eq!(*destroyed.last().unwrap(), "res-materialize:api");
     // Tombstone, not amnesia.
     let record = store.instance("demo").unwrap().unwrap();
     assert_eq!(record.status, InstanceStatus::Tombstoned);
@@ -305,10 +290,10 @@ async fn down_with_survivor_fails_and_keeps_instance_active() {
     mock.destroy_fails_for
         .lock()
         .unwrap()
-        .push("res-provision:db".into());
+        .push("res-materialize:api".into());
     let err = engine.down("demo").await.unwrap_err();
     assert_eq!(err.code(), codes::ENGINE_TEARDOWN_SURVIVORS);
-    assert!(err.to_string().contains("res-provision:db"));
+    assert!(err.to_string().contains("res-materialize:api"));
     let record = store.instance("demo").unwrap().unwrap();
     assert_eq!(record.status, InstanceStatus::Active);
 
@@ -329,7 +314,7 @@ async fn up_after_down_is_a_fresh_birth() {
     engine.up(request(&def)).await.unwrap();
     engine.down("demo").await.unwrap();
     let outcome = engine.up(request(&def)).await.unwrap();
-    assert_eq!(outcome.executed.len(), 5);
+    assert_eq!(outcome.executed.len(), 4);
     let record = store.instance("demo").unwrap().unwrap();
     assert_eq!(record.status, InstanceStatus::Active);
 }

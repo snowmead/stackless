@@ -51,7 +51,7 @@ pub fn verify(args: VerifyArgs, output: &Output) -> Result<(), CliError> {
     let record = store
         .instance(name)?
         .ok_or_else(|| stackless_core::state::StateError::InstanceNotFound { name: name.into() })?;
-    let def = StackDef::parse(&record.definition)?;
+    let def = StackDef::parse_snapshot(&record.definition)?;
     let verify_root = def.stack.verify.as_ref().filter(|v| v.is_declared());
     let Some(verify_root) = verify_root else {
         return Err(CliError::VerifyNotDeclared);
@@ -435,7 +435,7 @@ mod tests {
 name = "atto"
 [stack.verify]
 run = "true"
-env = { WEB = "${services.web.origin}", API = "${services.api.origin}", DB = "${datastores.db.url}", SLUG = "${instance.name}", CLERK = "${integrations.clerk.secret_key}" }
+env = { WEB = "${services.web.origin}", API = "${services.api.origin}", SLUG = "${instance.name}", CLERK = "${integrations.clerk.secret_key}" }
 
 [integrations.clerk]
 provider = "clerk"
@@ -443,13 +443,9 @@ provider = "clerk"
 app_name = "${stack.name}-${instance.name}"
 credential_set = "development"
 
-[datastores.db]
-engine = "postgres"
-version = "17"
-
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { DATABASE_URL = "${datastores.db.url}" }
+env = { CORS_ALLOWED_ORIGINS = "${services.web.origin}" }
 health = { path = "/health" }
 
 [services.web]
@@ -461,17 +457,6 @@ health = { path = "/" }
         .unwrap()
     }
 
-    fn checkpoint(step: &str, kind: &str, payload: &str) -> Checkpoint {
-        Checkpoint {
-            instance: "demo".into(),
-            step_id: step.into(),
-            resource_kind: kind.into(),
-            resource_id: "res".into(),
-            payload: payload.into(),
-            recorded_at: 0,
-        }
-    }
-
     #[test]
     fn tail_bytes_keeps_last_lines() {
         let input = (0..100)
@@ -481,86 +466,6 @@ health = { path = "/" }
         let tail = tail_bytes(input.as_bytes(), 5);
         assert!(tail.starts_with("line 95"));
         assert!(tail.contains("line 99"));
-    }
-
-    #[test]
-    fn verify_namespace_uses_local_origins_and_datastore_url() {
-        let def = parse_def();
-        let checkpoints = vec![
-            checkpoint("provision:db", "container", r#"{"url":"postgres://local"}"#),
-            checkpoint(
-                "integration:clerk",
-                "integration-clerk",
-                r#"{"outputs":{"secret_key":"sk_test_local","publishable_key":"pk_test_local"}}"#,
-            ),
-        ];
-        let provider = build_substrate(
-            stackless_local::SUBSTRATE_NAME,
-            SubstrateCtx {
-                secrets: BTreeMap::new(),
-                definition_dir: PathBuf::from("."),
-                confirm_paid: false,
-            },
-        )
-        .unwrap();
-        let ns = provider.build_namespace(
-            &def,
-            "demo",
-            &checkpoints,
-            &BTreeMap::new(),
-            NamespacePurpose::Verify,
-        );
-        assert_eq!(
-            ns.service_origins["web"],
-            format!(
-                "http://demo.localhost:{}",
-                stackless_daemon::proxy::proxy_port()
-            )
-        );
-        assert_eq!(
-            ns.service_origins["api"],
-            format!(
-                "http://api.demo.localhost:{}",
-                stackless_daemon::proxy::proxy_port()
-            )
-        );
-        assert_eq!(ns.datastore_urls["db"], "postgres://local");
-        assert_eq!(ns.integrations["clerk"]["secret_key"], "sk_test_local");
-    }
-
-    #[test]
-    fn verify_namespace_uses_render_origins_and_external_datastore_url() {
-        let def = parse_def();
-        let checkpoints = vec![checkpoint(
-            "provision:db",
-            "render-postgres",
-            r#"{"stripe_resource":"res","render_name":"atto-demo-db","postgres_id":"pg","external_url":"postgres://external","internal_url":"postgres://internal"}"#,
-        )];
-        let provider = build_substrate(
-            stackless_render::SUBSTRATE_NAME,
-            SubstrateCtx {
-                secrets: BTreeMap::new(),
-                definition_dir: PathBuf::from("."),
-                confirm_paid: false,
-            },
-        )
-        .unwrap();
-        let ns = provider.build_namespace(
-            &def,
-            "demo",
-            &checkpoints,
-            &BTreeMap::new(),
-            NamespacePurpose::Verify,
-        );
-        assert_eq!(
-            ns.service_origins["web"],
-            "https://atto-demo-web.onrender.com"
-        );
-        assert_eq!(
-            ns.service_origins["api"],
-            "https://atto-demo-api.onrender.com"
-        );
-        assert_eq!(ns.datastore_urls["db"], "postgres://external");
     }
 
     #[test]

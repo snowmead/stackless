@@ -11,6 +11,4 @@ pub mod validate;
 pub use error::DefError;
 pub use graph::{DependencyGraph, Node};
 pub use interp::{Namespace, Reference};
-pub use model::{
-    Datastore, Health, Integration, SecretsSpec, Service, Source, Stack, StackDef, VerifySpec,
-};
+pub use model::{Health, Integration, SecretsSpec, Service, Source, Stack, StackDef, VerifySpec};

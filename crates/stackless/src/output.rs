@@ -28,7 +28,6 @@ struct CheckOk<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     substrate: Option<&'a str>,
     services: Vec<&'a str>,
-    datastores: Vec<&'a str>,
     graph: &'a DependencyGraph,
 }
 
@@ -98,7 +97,6 @@ impl Output {
                 stack: def.stack.name.as_str(),
                 substrate,
                 services: def.services.keys().map(String::as_str).collect(),
-                datastores: def.datastores.keys().map(String::as_str).collect(),
                 graph,
             });
             return;
@@ -111,16 +109,6 @@ impl Output {
             "  services: {}",
             def.services.keys().cloned().collect::<Vec<_>>().join(", ")
         );
-        if !def.datastores.is_empty() {
-            println!(
-                "  datastores: {}",
-                def.datastores
-                    .keys()
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-        }
         println!(
             "  startup order: {}",
             graph

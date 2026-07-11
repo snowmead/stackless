@@ -1,8 +1,8 @@
 #![allow(clippy::result_large_err)] // HookFailed carries agent telemetry fields.
 
 //! stackless-local (ARCHITECTURE.md §3): the local substrate — app
-//! services as host processes, datastores as containers (M5), wiring
-//! through the built-in proxy.
+//! services as host processes, wiring through the built-in proxy.
+//! Legacy Docker datastore checkpoints are still torn down on `down`.
 
 pub mod container;
 pub mod error;
@@ -163,16 +163,7 @@ impl LocalSubstrate {
                 self.local_service_origin(def, instance, service),
             );
         }
-        for checkpoint in prior {
-            if let Some(name) = checkpoint.step_id.strip_prefix("provision:")
-                && let Ok(payload) = serde_json::from_str::<serde_json::Value>(&checkpoint.payload)
-                && let Some(url) = payload.get("url").and_then(|v| v.as_str())
-            {
-                namespace
-                    .datastore_urls
-                    .insert(name.to_owned(), url.to_owned());
-            }
-        }
+        namespace.add_datastore_checkpoints(prior, false);
         namespace.secrets = secrets.clone();
         namespace.add_integration_checkpoints(prior);
         namespace
@@ -322,32 +313,6 @@ impl Substrate for LocalSubstrate {
                 )
                 .await
                 .map_err(|err| SubstrateFault::from_fault(&err))
-            }
-            StepKind::ProvisionDatastore => {
-                let datastore = service;
-                let Some(spec) = ctx.def.datastores.get(datastore) else {
-                    return Err(SubstrateFault {
-                        code: stackless_core::fault::codes::LOCAL_DATASTORE_FAILED,
-                        message: format!("datastore {datastore:?} is not in the definition"),
-                        remediation: "re-run `up`; if it persists this is a stackless bug".into(),
-                        context: Box::default(),
-                    });
-                };
-                let provisioned = ContainerRunner::connect()
-                    .map_err(|err| SubstrateFault::from_fault(&err))?
-                    .provision_postgres(ctx.instance, datastore, &spec.version)
-                    .await
-                    .map_err(|err| SubstrateFault::from_fault(&err))?;
-                let payload = serde_json::json!({
-                    "container_id": provisioned.container_id.as_str(),
-                    "port": provisioned.port.get(),
-                    "url": provisioned.url,
-                });
-                Ok(StepResource {
-                    resource_kind: "container".into(),
-                    resource_id: ContainerRunner::container_name(ctx.instance, datastore),
-                    payload: payload.to_string(),
-                })
             }
             StepKind::Materialize => {
                 // An explicit `--source service=path` pin still wins (§1):
@@ -603,6 +568,7 @@ impl Substrate for LocalSubstrate {
                 .await
                 .map_err(|err| SubstrateFault::from_fault(&err))
             }
+            // Legacy first-class datastore containers: still reclaimable.
             "container" => {
                 let payload = serde_json::from_str::<serde_json::Value>(&checkpoint.payload).ok();
                 let container_id = payload
@@ -688,6 +654,7 @@ impl Substrate for LocalSubstrate {
                 .await
                 .map_err(|err| SubstrateFault::from_fault(&err))
             }
+            // Legacy first-class datastore containers: stop + remove + volume.
             "container" => {
                 let payload = serde_json::from_str::<serde_json::Value>(&checkpoint.payload).ok();
                 let container_id = payload

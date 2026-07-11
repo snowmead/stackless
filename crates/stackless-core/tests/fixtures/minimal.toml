@@ -1,4 +1,4 @@
-# The smallest valid stack: one service, no datastores, no secrets.
+# The smallest valid stack: one service, no secrets.
 
 [stack]
 name = "hello"

@@ -10,7 +10,6 @@ pub enum TypeError {
     InvalidDnsName { value: String, detail: String },
     InvalidProxyHost { value: String, detail: String },
     InvalidLogPath { value: String, detail: String },
-    InvalidContainerId { value: String },
 }
 
 impl fmt::Display for TypeError {
@@ -34,7 +33,6 @@ impl fmt::Display for TypeError {
             Self::InvalidLogPath { value, detail } => {
                 write!(f, "invalid log path {value:?}: {detail}")
             }
-            Self::InvalidContainerId { value } => write!(f, "invalid container id {value:?}"),
         }
     }
 }

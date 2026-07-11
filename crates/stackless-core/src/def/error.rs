@@ -33,9 +33,6 @@ pub enum DefError {
     #[error("service {service:?} has no [services.{service}.{substrate}] config")]
     SubstrateConfigMissing { service: String, substrate: String },
 
-    #[error("datastore {datastore:?} declares unsupported engine {engine:?}")]
-    EngineUnknown { datastore: String, engine: String },
-
     #[error("multiple services declare root_origin: {services:?}")]
     RootOriginConflict { services: Vec<String> },
 
@@ -77,7 +74,6 @@ impl Fault for DefError {
             Self::DependsOnRejected { .. } => codes::DEF_DEPENDS_ON_REJECTED,
             Self::SubstrateBlockInvalid { .. } => codes::DEF_SUBSTRATE_BLOCK_INVALID,
             Self::SubstrateConfigMissing { .. } => codes::DEF_SUBSTRATE_CONFIG_MISSING,
-            Self::EngineUnknown { .. } => codes::DEF_ENGINE_UNKNOWN,
             Self::RootOriginConflict { .. } => codes::DEF_ROOT_ORIGIN_CONFLICT,
             Self::ReferenceSyntax { .. } => codes::DEF_REFERENCE_SYNTAX,
             Self::UndeclaredReference { .. } => codes::DEF_UNDECLARED_REFERENCE,
@@ -113,8 +109,8 @@ impl Fault for DefError {
             ),
             Self::DependsOnRejected { .. } => {
                 "express the dependency in wiring instead: reference the dependency from this \
-                 service's env (e.g. DATABASE_URL = \"${datastores.db.url}\"); the dependency \
-                 graph is derived from wiring, never declared separately"
+                 service's env (e.g. CORS_ALLOWED_ORIGINS = \"${services.web.origin}\"); the \
+                 dependency graph is derived from wiring, never declared separately"
                     .into()
             }
             Self::SubstrateBlockInvalid { location, .. } => {
@@ -124,18 +120,14 @@ impl Fault for DefError {
                 "add a [services.{service}.{substrate}] block with the config that substrate \
                  requires, or bring the instance up on a substrate this service supports"
             ),
-            Self::EngineUnknown { .. } => {
-                "v0 supports engine = \"postgres\"; change the engine or remove the datastore"
-                    .into()
-            }
             Self::RootOriginConflict { services } => format!(
                 "keep root_origin = true on exactly one of {services:?} and remove it from the \
                  others"
             ),
             Self::ReferenceSyntax { .. } => {
                 "valid references are ${stack.name}, ${instance.name}, \
-                 ${services.<name>.origin}, ${datastores.<name>.url}, \
-                 ${secrets.<KEY>}, and ${integrations.<name>.<output>}"
+                 ${services.<name>.origin}, ${secrets.<KEY>}, and \
+                 ${integrations.<name>.<output>}"
                     .into()
             }
             Self::UndeclaredReference { kind, name, .. } => format!(

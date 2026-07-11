@@ -7,7 +7,7 @@
 //! beyond two contracts that §1 fixes across all substrates: the block
 //! must be a table, and an `env` key inside it overlays the common env.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Deserialize;
 
@@ -25,9 +25,13 @@ pub struct StackDef {
     #[serde(default)]
     pub integrations: BTreeMap<String, Integration>,
     #[serde(default)]
-    pub datastores: BTreeMap<String, Datastore>,
-    #[serde(default)]
     pub services: BTreeMap<String, Service>,
+    /// Names from a stripped legacy `[datastores.*]` section in an
+    /// instance snapshot. Empty for fresh files. Lets
+    /// `${datastores.*.url}` validate and resolve from journaled
+    /// provision checkpoints on resume.
+    #[serde(skip)]
+    pub legacy_datastores: BTreeSet<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -151,15 +155,6 @@ impl Integration {
             })
             .collect()
     }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Datastore {
-    pub engine: String,
-    pub version: String,
-    /// Per-substrate datastore config (e.g. `[datastores.db.render]` plan).
-    #[serde(flatten)]
-    pub substrates: BTreeMap<String, toml::Value>,
 }
 
 #[derive(Debug, Deserialize)]

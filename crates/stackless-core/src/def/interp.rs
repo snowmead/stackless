@@ -19,7 +19,9 @@ pub enum Reference {
     InstanceName,
     /// `${services.X.origin}`
     ServiceOrigin(String),
-    /// `${datastores.X.url}`
+    /// `${datastores.X.url}` — legacy first-class datastore wiring kept
+    /// so instance snapshots can still resolve URLs from journaled
+    /// provision checkpoints after the section was removed from the schema.
     DatastoreUrl(String),
     /// `${secrets.KEY}`
     Secret(String),
@@ -90,6 +92,8 @@ pub struct Namespace {
     pub stack_name: DnsName,
     pub instance_name: DnsName,
     pub service_origins: BTreeMap<String, String>,
+    /// Legacy `${datastores.X.url}` values reconstructed from journaled
+    /// `provision:` checkpoints (local container / render-postgres).
     pub datastore_urls: BTreeMap<String, String>,
     pub secrets: BTreeMap<String, String>,
     pub integrations: BTreeMap<String, BTreeMap<String, String>>,
@@ -177,6 +181,49 @@ impl Namespace {
                 if let Some(value) = value.as_str() {
                     entry.insert(key.clone(), value.to_owned());
                 }
+            }
+        }
+    }
+
+    /// Reconstruct legacy `${datastores.X.url}` values from journaled
+    /// `provision:` checkpoints.
+    ///
+    /// Local checkpoints store a single `url`. Render checkpoints store
+    /// `internal_url` / `external_url`; `prefer_external` selects which
+    /// (service env → internal, operator prepare / verify → external).
+    pub fn add_datastore_checkpoints(
+        &mut self,
+        checkpoints: &[crate::state::Checkpoint],
+        prefer_external: bool,
+    ) {
+        for checkpoint in checkpoints {
+            let Some(name) = checkpoint.step_id.strip_prefix("provision:") else {
+                continue;
+            };
+            let Ok(payload) = serde_json::from_str::<serde_json::Value>(&checkpoint.payload) else {
+                continue;
+            };
+            let url = payload
+                .get("url")
+                .and_then(|value| value.as_str())
+                .or_else(|| {
+                    let primary = if prefer_external {
+                        "external_url"
+                    } else {
+                        "internal_url"
+                    };
+                    let fallback = if prefer_external {
+                        "internal_url"
+                    } else {
+                        "external_url"
+                    };
+                    payload
+                        .get(primary)
+                        .and_then(|value| value.as_str())
+                        .or_else(|| payload.get(fallback).and_then(|value| value.as_str()))
+                });
+            if let Some(url) = url {
+                self.datastore_urls.insert(name.to_owned(), url.to_owned());
             }
         }
     }

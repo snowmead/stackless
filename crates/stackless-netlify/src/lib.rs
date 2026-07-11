@@ -19,7 +19,6 @@
 //! - **Static upload.** A service's source files (under `[services.X.netlify].root`
 //!   or the repo root) are uploaded via the file-digest deploy API; running a
 //!   framework build first is a later enhancement. `netlify/project` is free.
-//! - **No managed datastore** — a `[datastores.*]` block is rejected.
 //! - **Cloud resource names** are `{stack}-{instance}-{service}` — DNS-safe and a
 //!   legal Netlify site name. Origins are
 //!   `https://{stack}-{instance}-{service}.netlify.app`.
@@ -481,14 +480,6 @@ impl<R: CommandRunner> Substrate for NetlifySubstrate<R> {
     }
 
     fn validate_definition(&self, def: &StackDef) -> Result<(), SubstrateFault> {
-        if let Some(name) = def.datastores.keys().next() {
-            return Err(fault(NetlifyError::ConfigInvalid {
-                location: format!("datastores.{name}"),
-                detail: "the netlify substrate has no managed datastore; remove the \
-                         [datastores.*] block or use a different substrate"
-                    .into(),
-            }));
-        }
         for service in def.services.keys() {
             config::service_netlify(def, service).map_err(fault)?;
             let site_name = Self::resource_name(def, "i", service);
@@ -546,10 +537,6 @@ impl<R: CommandRunner> Substrate for NetlifySubstrate<R> {
             )
             .await
             .map_err(integration_fault),
-            StepKind::ProvisionDatastore => Err(fault(NetlifyError::ConfigInvalid {
-                location: format!("datastores.{node}"),
-                detail: "the netlify substrate has no managed datastore".into(),
-            })),
             StepKind::Materialize => {
                 let spec = ctx.def.services.get(node).ok_or_else(|| {
                     fault(NetlifyError::ConfigInvalid {
@@ -849,17 +836,6 @@ mod tests {
         assert_eq!(s.name(), "netlify");
         assert!(!s.supports_source_override());
         assert_eq!(s.default_lease(), Duration::from_secs(8 * 3600));
-    }
-
-    #[test]
-    fn validate_rejects_datastores() {
-        let def = StackDef::parse(
-            "[stack]\nname=\"atto\"\n[datastores.db]\nengine=\"postgres\"\nversion=\"17\"\n[services.web]\nsource={repo=\"r\",ref=\"main\"}\nenv={}\nhealth={path=\"/\"}\n",
-        )
-        .unwrap();
-        let (_dir, s) = subj();
-        let err = s.validate_definition(&def).unwrap_err();
-        assert_eq!(err.code, crate::codes::NETLIFY_CONFIG_INVALID);
     }
 
     #[tokio::test]
