@@ -12,6 +12,11 @@ members = [
     "crates/stackless-vercel",
     "crates/stackless-fly",
     "crates/stackless-netlify",
+    "crates/stackless-railway",
+    "crates/stackless-laravel-cloud",
+    "crates/stackless-gitlab",
+    "crates/stackless-wordpress",
+    "crates/stackless-cloudflare",
     "crates/stackless-stripe-projects",
     "crates/stackless",
     "crates/render-client",
@@ -45,6 +50,11 @@ stackless-render          = { path = "crates/stackless-render" }
 stackless-vercel          = { path = "crates/stackless-vercel" }
 stackless-fly             = { path = "crates/stackless-fly" }
 stackless-netlify         = { path = "crates/stackless-netlify" }
+stackless-railway         = { path = "crates/stackless-railway" }
+stackless-laravel-cloud   = { path = "crates/stackless-laravel-cloud" }
+stackless-gitlab          = { path = "crates/stackless-gitlab" }
+stackless-wordpress       = { path = "crates/stackless-wordpress" }
+stackless-cloudflare      = { path = "crates/stackless-cloudflare" }
 stackless-integrations    = { path = "crates/stackless-integrations" }
 stackless-provider-sdk    = { path = "crates/stackless-provider-sdk" }
 stackless-stripe-projects = { path = "crates/stackless-stripe-projects" }
