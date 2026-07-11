@@ -1,5 +1,8 @@
 # Adding a provider
 
+For parallel catalog rollouts (waves, merge gates, exclusions), see
+[PROVIDER-WAVES.md](PROVIDER-WAVES.md).
+
 stackless has two provider families. Adding one touches **exactly one
 registration site** plus the provider's own module/crate — the engine, core, and
 sibling providers stay untouched (core never names a provider).
