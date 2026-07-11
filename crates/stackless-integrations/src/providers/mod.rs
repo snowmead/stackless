@@ -1,18 +1,14 @@
 pub mod clerk;
 pub mod cloudflare;
+pub mod daytona;
 
 #[cfg(test)]
 mod tests {
     use stackless_provider_sdk::CatalogResource;
     use stackless_provider_sdk::Hostable;
 
-    use crate::providers::cloudflare;
+    use crate::providers::{cloudflare, daytona};
 
-    /// `Hostable::OUTPUTS` (the names referenceable as `${integrations.*.<out>}`)
-    /// must stay in lockstep with the names column of `OUTPUT_FIELDS` — the two
-    /// are co-located but hand-written, so this makes drift a test failure rather
-    /// than a silent validation bug. Bespoke providers (Clerk) aren't
-    /// `CatalogResource`, so they're out of scope here by construction.
     fn assert_outputs_match<T: CatalogResource>() {
         let fields: Vec<&str> = T::OUTPUT_FIELDS.iter().map(|(_, name, _)| *name).collect();
         let outputs: Vec<&str> = <T as Hostable>::OUTPUTS.to_vec();
@@ -34,5 +30,6 @@ mod tests {
         assert_outputs_match::<cloudflare::workers::CloudflareWorkers>();
         assert_outputs_match::<cloudflare::workers_ai::CloudflareWorkersAi>();
         assert_outputs_match::<cloudflare::browser_run::CloudflareBrowserRun>();
+        assert_outputs_match::<daytona::sandbox::DaytonaSandbox>();
     }
 }
