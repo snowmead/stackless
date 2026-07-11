@@ -11,7 +11,7 @@
 //! Excluded: `containers` (paid, "pricing unavailable" — unknown cost),
 //! `registrar:domain` (a one-time non-refundable domain purchase), and the
 //! `workers:free`/`workers:paid` plans. Cloudflare Workers as a *deploy*
-//! substrate (`--on cloudflare`) is a separate build.
+//! substrate (`--on cloudflare`) lives in `stackless-cloudflare` — not here.
 
 pub mod browser_run;
 pub mod d1;

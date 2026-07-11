@@ -280,20 +280,60 @@ implemented yet.
 - [x] render
 - [x] vercel
 - [x] fly.io
-- [ ] railway
+- [x] railway
 - [x] netlify
-- [ ] cloudflare workers
-- [ ] gitlab
-- [ ] laravel cloud
-- [ ] wordpress.com
+- [x] cloudflare workers
+- [x] gitlab
+- [x] laravel cloud
+- [x] wordpress.com
 
 ### Integrations (`[integrations.*]` / `provider`)
 
 - [x] clerk
-- [ ] auth0
-- [ ] workos
-- [ ] privy
-- [ ] supabase
+- [x] auth0
+- [x] workos
+- [x] privy
+- [x] supabase
+- [x] neon
+- [x] turso
+- [x] prisma
+- [x] upstash (redis, qstash, search, vector)
+- [x] planetscale (mysql, postgresql)
+- [x] clickhouse (clickhouse, postgres)
+- [x] chroma
+- [x] sentry (project, seer)
+- [x] posthog
+- [x] amplitude
+- [x] mixpanel
+- [x] algolia
+- [x] openrouter
+- [x] exa
+- [x] firecrawl
+- [x] parallel
+- [x] elevenlabs
+- [x] heygen
+- [x] huggingface (platform, bucket)
+- [x] inngest
+- [x] e2b
+- [x] daytona
+- [x] browserbase
+- [x] blaxel (agent-drive, sandbox)
+- [x] runloop
+- [x] kernel
+- [x] agentmail
+- [x] agentphone
+- [x] railway (hosting, postgres, redis, mongo, bucket) — catalog integrations; `--on railway` is Phase 2
+- [x] gitlab — catalog integration; `--on gitlab` is Phase 2
+- [x] laravel-cloud (application, mysql, valkey) — catalog integrations; `--on` is Phase 2
+- [x] wordpress-com (site) — catalog integration; `--on` is Phase 2; domain purchase excluded
+- [x] base44
+- [x] wix
+- [x] postalform
+- [x] metronome
+- [x] supermemory
+- [x] render-postgres
+- [x] flyio-mpg / flyio-sprite
+- [x] cloudflare (r2, kv, d1, queues, hyperdrive, workers, workers-ai, browser-run)
 
 ### Platform
 

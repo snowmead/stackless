@@ -3,7 +3,7 @@
 //! This provisions the Workers *resource* (account-level Workers enablement +
 //! a `*.workers.dev` subdomain) and exposes its coordinates — it is NOT a deploy
 //! target. Deploying a service's code to Workers (`--on cloudflare`) is a
-//! separate substrate (out of scope; see the plan's deferred section).
+//! separate deploy substrate in `stackless-cloudflare` (`--on cloudflare`).
 
 use std::collections::BTreeMap;
 

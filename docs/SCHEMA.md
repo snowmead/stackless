@@ -542,28 +542,39 @@ Stripe Projects is internal plumbing — never declared in
 - [x] local
 - [x] render
 - [x] vercel
-- [ ] fly.io
-- [ ] railway
-- [ ] netlify
-- [ ] cloudflare workers
-- [ ] gitlab
-- [ ] laravel cloud
-- [ ] wordpress.com
+- [x] fly.io
+- [x] railway
+- [x] netlify
+- [x] cloudflare workers
+- [x] gitlab
+- [x] laravel cloud
+- [x] wordpress.com
 
 ### Integrations (`provider`)
 
+Phase 1 catalog integrations (see [PROVIDER-WAVES.md](PROVIDER-WAVES.md)).
+Phase 2 substrates above are Stripe-provisioned hosts; provider REST deploy
+clients remain follow-ups where noted in each crate.
+
 - [x] clerk
-- [ ] auth0
-- [ ] workos
-- [ ] privy
-- [ ] supabase
+- [x] auth0
+- [x] workos
+- [x] privy
+- [x] supabase
+- [x] neon, turso, prisma, upstash, planetscale, clickhouse, chroma
+- [x] sentry, posthog, amplitude, mixpanel, algolia
+- [x] openrouter, exa, firecrawl, parallel, elevenlabs, heygen, huggingface, inngest
+- [x] e2b, daytona, browserbase, blaxel, runloop, kernel, agentmail, agentphone
+- [x] railway-*, gitlab, laravel-cloud-*, wordpress-com, base44, wix, postalform, metronome, supermemory
+- [x] render-postgres, flyio-mpg, flyio-sprite
+- [x] cloudflare-* (see Cloudflare provider module; domains/containers excluded)
 
 ### Platform
 
 - [x] `stackless logs` (local)
 - [x] `stackless logs` (render)
-- [ ] `stackless logs` (vercel)
-- [ ] fleet state plane (Turso Cloud)
+- [x] `stackless logs` (vercel)
+- [x] fleet state plane (Turso Cloud)
 
 ## Checklist for agents writing a definition
 
