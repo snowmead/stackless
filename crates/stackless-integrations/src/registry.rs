@@ -76,6 +76,7 @@ register_providers! {
     (cloudflare::workers, CloudflareWorkers),
     (cloudflare::workers_ai, CloudflareWorkersAi),
     (cloudflare::browser_run, CloudflareBrowserRun),
+    (render_db::postgres, RenderPostgres),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
