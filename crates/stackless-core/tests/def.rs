@@ -266,12 +266,16 @@ fn parse_snapshot_strips_legacy_datastores() {
     let text = r#"
 [stack]
 name = "legacy"
+[stack.verify]
+run = "true"
+env = { DATABASE_URL = "${datastores.db.url}" }
 [datastores.db]
 engine = "postgres"
 version = "16"
 [services.web]
 source = { repo = "https://example.invalid/web", ref = "main" }
 health = { path = "/" }
+env = { DATABASE_URL = "${datastores.db.url}", ORIGIN = "${services.web.origin}" }
 [services.web.local]
 run = "true"
 "#;
@@ -279,6 +283,25 @@ run = "true"
     def.validate_hosts(KNOWN).unwrap();
     assert_eq!(def.stack.name.as_str(), "legacy");
     assert!(def.services.contains_key("web"));
+    assert_eq!(
+        def.services["web"]
+            .env
+            .get("DATABASE_URL")
+            .map(String::as_str),
+        Some("")
+    );
+    assert_eq!(
+        def.services["web"].env.get("ORIGIN").map(String::as_str),
+        Some("${services.web.origin}")
+    );
+    assert_eq!(
+        def.stack
+            .verify
+            .as_ref()
+            .and_then(|v| v.env.get("DATABASE_URL"))
+            .map(String::as_str),
+        Some("")
+    );
 }
 
 #[test]
