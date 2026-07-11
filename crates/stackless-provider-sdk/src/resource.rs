@@ -249,6 +249,48 @@ pub fn int_required(
         })
 }
 
+/// Read an optional integer field from the effective config.
+pub fn int_optional(
+    ctx: &ProvisionContext<'_>,
+    config: &BTreeMap<String, toml::Value>,
+    key: &str,
+) -> Result<Option<i64>, IntegrationError> {
+    match config.get(key) {
+        None => Ok(None),
+        Some(value) => value
+            .as_integer()
+            .map(Some)
+            .ok_or_else(|| cfg_invalid(ctx, key, format!("{key} must be an integer when set"))),
+    }
+}
+
+/// Read a required boolean field from the effective config.
+pub fn bool_required(
+    ctx: &ProvisionContext<'_>,
+    config: &BTreeMap<String, toml::Value>,
+    key: &str,
+) -> Result<bool, IntegrationError> {
+    config
+        .get(key)
+        .and_then(toml::Value::as_bool)
+        .ok_or_else(|| cfg_invalid(ctx, key, format!("{key} is required and must be a boolean")))
+}
+
+/// Read an optional boolean field from the effective config.
+pub fn bool_optional(
+    ctx: &ProvisionContext<'_>,
+    config: &BTreeMap<String, toml::Value>,
+    key: &str,
+) -> Result<Option<bool>, IntegrationError> {
+    match config.get(key) {
+        None => Ok(None),
+        Some(value) => value
+            .as_bool()
+            .map(Some)
+            .ok_or_else(|| cfg_invalid(ctx, key, format!("{key} must be a boolean when set"))),
+    }
+}
+
 fn cfg_invalid(ctx: &ProvisionContext<'_>, key: &str, detail: String) -> IntegrationError {
     IntegrationError::ConfigInvalid {
         location: format!("integrations.{}.{key}", ctx.logical_name),
