@@ -220,8 +220,16 @@ impl<R: CommandRunner> RenderSubstrate<R> {
     }
 
     /// Build the interpolation namespace for cloud env resolution. Service
-    /// origins are the onrender URLs.
-    fn namespace(&self, def: &StackDef, instance: &str, prior: &[Checkpoint]) -> Namespace {
+    /// origins are the onrender URLs; legacy datastore urls prefer the
+    /// *internal* connection string for on-Render service env, and the
+    /// *external* string for operator-side prepare/verify.
+    fn namespace(
+        &self,
+        def: &StackDef,
+        instance: &str,
+        prior: &[Checkpoint],
+        external_db: bool,
+    ) -> Namespace {
         let mut namespace = Namespace {
             stack_name: def.stack.name.clone(),
             instance_name: stackless_core::types::DnsName::from_stored(instance),
@@ -233,7 +241,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
                 .insert(service.clone(), Self::origin(def, instance, service));
         }
         namespace.secrets = self.secrets.clone();
-        namespace.add_datastore_checkpoints(prior);
+        namespace.add_datastore_checkpoints(prior, external_db);
         namespace.add_integration_checkpoints(prior);
         namespace
     }
@@ -248,7 +256,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
         service: &str,
         prior: &[Checkpoint],
     ) -> Result<Vec<(String, String)>, SubstrateFault> {
-        let namespace = self.namespace(def, instance, prior);
+        let namespace = self.namespace(def, instance, prior, false);
         let spec = def.services.get(service).ok_or_else(|| {
             fault(RenderError::ConfigInvalid {
                 location: format!("services.{service}"),
@@ -440,7 +448,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
             return Ok(());
         };
         // External-DB env for operator-side execution (§1/§4).
-        let namespace = self.namespace(def, instance, prior);
+        let namespace = self.namespace(def, instance, prior, true);
         stackless_cloud::prepare::run_service_prepare(
             &namespace,
             &self.secrets,
@@ -537,9 +545,13 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
         instance: &str,
         prior: &[Checkpoint],
         secrets: &BTreeMap<String, String>,
-        _purpose: stackless_core::substrate::NamespacePurpose,
+        purpose: stackless_core::substrate::NamespacePurpose,
     ) -> Namespace {
-        let mut namespace = self.namespace(def, instance, prior);
+        let external_db = !matches!(
+            purpose,
+            stackless_core::substrate::NamespacePurpose::ServiceEnv
+        );
+        let mut namespace = self.namespace(def, instance, prior, external_db);
         namespace.secrets = secrets.clone();
         namespace
     }

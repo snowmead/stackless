@@ -186,9 +186,16 @@ impl Namespace {
     }
 
     /// Reconstruct legacy `${datastores.X.url}` values from journaled
-    /// `provision:` checkpoints (local `url`, or render
-    /// `external_url` / `internal_url`).
-    pub fn add_datastore_checkpoints(&mut self, checkpoints: &[crate::state::Checkpoint]) {
+    /// `provision:` checkpoints.
+    ///
+    /// Local checkpoints store a single `url`. Render checkpoints store
+    /// `internal_url` / `external_url`; `prefer_external` selects which
+    /// (service env → internal, operator prepare / verify → external).
+    pub fn add_datastore_checkpoints(
+        &mut self,
+        checkpoints: &[crate::state::Checkpoint],
+        prefer_external: bool,
+    ) {
         for checkpoint in checkpoints {
             let Some(name) = checkpoint.step_id.strip_prefix("provision:") else {
                 continue;
@@ -199,8 +206,22 @@ impl Namespace {
             let url = payload
                 .get("url")
                 .and_then(|value| value.as_str())
-                .or_else(|| payload.get("external_url").and_then(|value| value.as_str()))
-                .or_else(|| payload.get("internal_url").and_then(|value| value.as_str()));
+                .or_else(|| {
+                    let primary = if prefer_external {
+                        "external_url"
+                    } else {
+                        "internal_url"
+                    };
+                    let fallback = if prefer_external {
+                        "internal_url"
+                    } else {
+                        "external_url"
+                    };
+                    payload
+                        .get(primary)
+                        .and_then(|value| value.as_str())
+                        .or_else(|| payload.get(fallback).and_then(|value| value.as_str()))
+                });
             if let Some(url) = url {
                 self.datastore_urls.insert(name.to_owned(), url.to_owned());
             }
