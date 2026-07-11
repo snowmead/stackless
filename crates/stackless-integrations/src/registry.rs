@@ -76,6 +76,7 @@ register_providers! {
     (cloudflare::workers, CloudflareWorkers),
     (cloudflare::workers_ai, CloudflareWorkersAi),
     (cloudflare::browser_run, CloudflareBrowserRun),
+    (supermemory::memory, SupermemoryMemory),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
