@@ -76,6 +76,7 @@ register_providers! {
     (cloudflare::workers, CloudflareWorkers),
     (cloudflare::workers_ai, CloudflareWorkersAi),
     (cloudflare::browser_run, CloudflareBrowserRun),
+    (e2b::sandbox, E2BSandbox),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
