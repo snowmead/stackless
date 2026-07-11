@@ -234,6 +234,17 @@ fn validate_references(def: &StackDef, refs: &[Reference], location: &str) -> Re
                     });
                 }
             }
+            Reference::DatastoreUrl(target) => {
+                // Fresh files cannot declare `[datastores.*]`; only
+                // snapshot resume populates `legacy_datastores`.
+                if !def.legacy_datastores.contains(target) {
+                    return Err(DefError::UndeclaredReference {
+                        location: location.to_owned(),
+                        kind: "datastore",
+                        name: target.clone(),
+                    });
+                }
+            }
             Reference::Secret(key) => {
                 if !def.secrets.required.contains(key) {
                     return Err(DefError::SecretNotRequired {

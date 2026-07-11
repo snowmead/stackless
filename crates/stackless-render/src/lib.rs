@@ -233,6 +233,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
                 .insert(service.clone(), Self::origin(def, instance, service));
         }
         namespace.secrets = self.secrets.clone();
+        namespace.add_datastore_checkpoints(prior);
         namespace.add_integration_checkpoints(prior);
         namespace
     }

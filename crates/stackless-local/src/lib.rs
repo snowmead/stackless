@@ -163,6 +163,7 @@ impl LocalSubstrate {
                 self.local_service_origin(def, instance, service),
             );
         }
+        namespace.add_datastore_checkpoints(prior);
         namespace.secrets = secrets.clone();
         namespace.add_integration_checkpoints(prior);
         namespace

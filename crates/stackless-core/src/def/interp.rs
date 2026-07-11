@@ -19,6 +19,10 @@ pub enum Reference {
     InstanceName,
     /// `${services.X.origin}`
     ServiceOrigin(String),
+    /// `${datastores.X.url}` — legacy first-class datastore wiring kept
+    /// so instance snapshots can still resolve URLs from journaled
+    /// provision checkpoints after the section was removed from the schema.
+    DatastoreUrl(String),
     /// `${secrets.KEY}`
     Secret(String),
     /// `${integrations.X.output}`
@@ -63,6 +67,7 @@ impl Reference {
             ["instance", "name"] => Reference::InstanceName,
             ["stack", "name"] => Reference::StackName,
             ["services", name, "origin"] => Reference::ServiceOrigin((*name).to_owned()),
+            ["datastores", name, "url"] => Reference::DatastoreUrl((*name).to_owned()),
             ["secrets", key] => Reference::Secret((*key).to_owned()),
             ["integrations", name, output] => Reference::IntegrationOutput {
                 integration: (*name).to_owned(),
@@ -87,6 +92,9 @@ pub struct Namespace {
     pub stack_name: DnsName,
     pub instance_name: DnsName,
     pub service_origins: BTreeMap<String, String>,
+    /// Legacy `${datastores.X.url}` values reconstructed from journaled
+    /// `provision:` checkpoints (local container / render-postgres).
+    pub datastore_urls: BTreeMap<String, String>,
     pub secrets: BTreeMap<String, String>,
     pub integrations: BTreeMap<String, BTreeMap<String, String>>,
 }
@@ -97,6 +105,7 @@ impl Default for Namespace {
             stack_name: DnsName::from_stored("stack"),
             instance_name: DnsName::from_stored("instance"),
             service_origins: BTreeMap::new(),
+            datastore_urls: BTreeMap::new(),
             secrets: BTreeMap::new(),
             integrations: BTreeMap::new(),
         }
@@ -113,6 +122,15 @@ impl Namespace {
                     DefError::UndeclaredReference {
                         location: location.to_owned(),
                         kind: "service",
+                        name: name.clone(),
+                    }
+                })
+            }
+            Reference::DatastoreUrl(name) => {
+                self.datastore_urls.get(name).cloned().ok_or_else(|| {
+                    DefError::UndeclaredReference {
+                        location: location.to_owned(),
+                        kind: "datastore",
                         name: name.clone(),
                     }
                 })
@@ -167,6 +185,28 @@ impl Namespace {
         }
     }
 
+    /// Reconstruct legacy `${datastores.X.url}` values from journaled
+    /// `provision:` checkpoints (local `url`, or render
+    /// `external_url` / `internal_url`).
+    pub fn add_datastore_checkpoints(&mut self, checkpoints: &[crate::state::Checkpoint]) {
+        for checkpoint in checkpoints {
+            let Some(name) = checkpoint.step_id.strip_prefix("provision:") else {
+                continue;
+            };
+            let Ok(payload) = serde_json::from_str::<serde_json::Value>(&checkpoint.payload) else {
+                continue;
+            };
+            let url = payload
+                .get("url")
+                .and_then(|value| value.as_str())
+                .or_else(|| payload.get("external_url").and_then(|value| value.as_str()))
+                .or_else(|| payload.get("internal_url").and_then(|value| value.as_str()));
+            if let Some(url) = url {
+                self.datastore_urls.insert(name.to_owned(), url.to_owned());
+            }
+        }
+    }
+
     /// Substitute every `${...}` in `value` from this namespace.
     pub fn resolve(&self, value: &str, location: &str) -> Result<String, DefError> {
         let mut out = String::with_capacity(value.len());
@@ -202,7 +242,7 @@ mod tests {
     #[test]
     fn tokenizes_all_namespace_forms() {
         let refs = references(
-            "${stack.name} ${instance.name} ${services.web.origin} ${secrets.KEY} ${integrations.clerk.secret_key}",
+            "${stack.name} ${instance.name} ${services.web.origin} ${datastores.db.url} ${secrets.KEY} ${integrations.clerk.secret_key}",
             "test",
         )
         .unwrap();
@@ -212,6 +252,7 @@ mod tests {
                 Reference::StackName,
                 Reference::InstanceName,
                 Reference::ServiceOrigin("web".into()),
+                Reference::DatastoreUrl("db".into()),
                 Reference::Secret("KEY".into()),
                 Reference::IntegrationOutput {
                     integration: "clerk".into(),

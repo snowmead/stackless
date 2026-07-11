@@ -282,13 +282,14 @@ run = "true"
     let def = StackDef::parse_snapshot(text).unwrap();
     def.validate_hosts(KNOWN).unwrap();
     assert_eq!(def.stack.name.as_str(), "legacy");
+    assert!(def.legacy_datastores.contains("db"));
     assert!(def.services.contains_key("web"));
     assert_eq!(
         def.services["web"]
             .env
             .get("DATABASE_URL")
             .map(String::as_str),
-        Some("")
+        Some("${datastores.db.url}")
     );
     assert_eq!(
         def.services["web"].env.get("ORIGIN").map(String::as_str),
@@ -300,7 +301,7 @@ run = "true"
             .as_ref()
             .and_then(|v| v.env.get("DATABASE_URL"))
             .map(String::as_str),
-        Some("")
+        Some("${datastores.db.url}")
     );
 }
 

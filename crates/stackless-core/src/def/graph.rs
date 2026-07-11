@@ -92,7 +92,13 @@ impl DependencyGraph {
                         Reference::IntegrationOutput { integration, .. } => {
                             Node::Integration(integration)
                         }
-                        Reference::StackName | Reference::InstanceName | Reference::Secret(_) => {
+                        // Legacy datastore refs are resume-only wiring; the
+                        // provision step is gone from the plan, so they do
+                        // not contribute ordering edges.
+                        Reference::StackName
+                        | Reference::InstanceName
+                        | Reference::Secret(_)
+                        | Reference::DatastoreUrl(_) => {
                             continue;
                         }
                     };
