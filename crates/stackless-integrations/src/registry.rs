@@ -76,6 +76,7 @@ register_providers! {
     (cloudflare::workers, CloudflareWorkers),
     (cloudflare::workers_ai, CloudflareWorkersAi),
     (cloudflare::browser_run, CloudflareBrowserRun),
+    (agentphone::number, AgentPhoneNumber),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
