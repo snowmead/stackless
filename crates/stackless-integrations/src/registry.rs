@@ -76,6 +76,8 @@ register_providers! {
     (cloudflare::workers, CloudflareWorkers),
     (cloudflare::workers_ai, CloudflareWorkersAi),
     (cloudflare::browser_run, CloudflareBrowserRun),
+    (flyio::mpg, FlyioMpg),
+    (flyio::sprite, FlyioSprite),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
