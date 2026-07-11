@@ -76,6 +76,11 @@ register_providers! {
     (cloudflare::workers, CloudflareWorkers),
     (cloudflare::workers_ai, CloudflareWorkersAi),
     (cloudflare::browser_run, CloudflareBrowserRun),
+    (railway::bucket, RailwayBucket),
+    (railway::hosting, RailwayHosting),
+    (railway::mongo, RailwayMongo),
+    (railway::postgres, RailwayPostgres),
+    (railway::redis, RailwayRedis),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
