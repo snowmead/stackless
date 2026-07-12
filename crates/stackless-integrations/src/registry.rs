@@ -115,6 +115,7 @@ register_providers! {
     (prisma::database, PrismaDatabase),
     (privy::app, PrivyApp),
     (runloop::sandbox, RunloopSandbox),
+    (supermemory::memory, SupermemoryMemory),
     (workos::auth, WorkOSAuth),
 }
 

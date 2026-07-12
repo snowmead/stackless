@@ -32,6 +32,7 @@ pub mod posthog;
 pub mod prisma;
 pub mod privy;
 pub mod runloop;
+pub mod supermemory;
 pub mod workos;
 
 #[cfg(test)]
@@ -43,7 +44,7 @@ mod tests {
         agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel, browserbase,
         chroma, clickhouse, cloudflare, daytona, e2b, elevenlabs, exa, firecrawl, flyio, gitlab,
         heygen, huggingface, inngest, kernel, laravel_cloud, metronome, neon, openrouter, parallel,
-        planetscale, postalform, posthog, prisma, privy, runloop, workos,
+        planetscale, postalform, posthog, prisma, privy, runloop, supermemory, workos,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -106,6 +107,7 @@ mod tests {
         assert_outputs_match::<prisma::database::PrismaDatabase>();
         assert_outputs_match::<privy::app::PrivyApp>();
         assert_outputs_match::<runloop::sandbox::RunloopSandbox>();
+        assert_outputs_match::<supermemory::memory::SupermemoryMemory>();
         assert_outputs_match::<workos::auth::WorkOSAuth>();
     }
 }
