@@ -103,6 +103,7 @@ register_providers! {
     (kernel::project, KERNELProject),
     (metronome::sandbox, MetronomeSandbox),
     (prisma::database, PrismaDatabase),
+    (workos::auth, WorkOSAuth),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
