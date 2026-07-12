@@ -106,6 +106,7 @@ register_providers! {
     (laravel_cloud::valkey, LaravelCloudValkey),
     (metronome::sandbox, MetronomeSandbox),
     (neon::postgres, NeonPostgres),
+    (openrouter::api, OpenRouterApi),
     (prisma::database, PrismaDatabase),
     (workos::auth, WorkOSAuth),
 }

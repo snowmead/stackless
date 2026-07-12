@@ -24,6 +24,7 @@ pub mod kernel;
 pub mod laravel_cloud;
 pub mod metronome;
 pub mod neon;
+pub mod openrouter;
 pub mod prisma;
 pub mod workos;
 
@@ -35,7 +36,8 @@ mod tests {
     use crate::providers::{
         agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel, browserbase,
         chroma, clickhouse, cloudflare, daytona, e2b, elevenlabs, exa, firecrawl, flyio, gitlab,
-        heygen, huggingface, inngest, kernel, laravel_cloud, metronome, neon, prisma, workos,
+        heygen, huggingface, inngest, kernel, laravel_cloud, metronome, neon, openrouter, prisma,
+        workos,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -89,6 +91,7 @@ mod tests {
         assert_outputs_match::<laravel_cloud::valkey::LaravelCloudValkey>();
         assert_outputs_match::<metronome::sandbox::MetronomeSandbox>();
         assert_outputs_match::<neon::postgres::NeonPostgres>();
+        assert_outputs_match::<openrouter::api::OpenRouterApi>();
         assert_outputs_match::<prisma::database::PrismaDatabase>();
         assert_outputs_match::<workos::auth::WorkOSAuth>();
     }
