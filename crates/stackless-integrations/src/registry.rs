@@ -95,6 +95,7 @@ register_providers! {
     (firecrawl::api, FirecrawlApi),
     (flyio::mpg, FlyioMpg),
     (flyio::sprite, FlyioSprite),
+    (gitlab::project, GitLabProject),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
