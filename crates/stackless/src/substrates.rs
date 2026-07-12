@@ -2,12 +2,17 @@
 //! (ground rule: core never names a substrate; the `Substrate` trait is the
 //! only seam). Adding a hosting provider is one row here plus its own crate.
 
+use stackless_cloudflare::{CloudflareSubstrate, SUBSTRATE_NAME as CLOUDFLARE};
 use stackless_core::substrate::Substrate;
 use stackless_fly::{FlySubstrate, SUBSTRATE_NAME as FLY};
+use stackless_gitlab::{GitLabSubstrate, SUBSTRATE_NAME as GITLAB};
+use stackless_laravel_cloud::{LaravelCloudSubstrate, SUBSTRATE_NAME as LARAVEL_CLOUD};
 use stackless_local::{LocalSubstrate, SUBSTRATE_NAME as LOCAL};
 use stackless_netlify::{NetlifySubstrate, SUBSTRATE_NAME as NETLIFY};
+use stackless_railway::{RailwaySubstrate, SUBSTRATE_NAME as RAILWAY};
 use stackless_render::{RenderSubstrate, SUBSTRATE_NAME as RENDER};
 use stackless_vercel::{SUBSTRATE_NAME as VERCEL, VercelSubstrate};
+use stackless_wordpress::{SUBSTRATE_NAME as WORDPRESS, WordPressSubstrate};
 
 use crate::commands::SubstrateCtx;
 use crate::error::CliError;
@@ -39,6 +44,26 @@ static SUBSTRATES: &[SubstrateInfo] = &[
     SubstrateInfo {
         name: NETLIFY,
         build: build_netlify,
+    },
+    SubstrateInfo {
+        name: RAILWAY,
+        build: build_railway,
+    },
+    SubstrateInfo {
+        name: CLOUDFLARE,
+        build: build_cloudflare,
+    },
+    SubstrateInfo {
+        name: WORDPRESS,
+        build: build_wordpress,
+    },
+    SubstrateInfo {
+        name: LARAVEL_CLOUD,
+        build: build_laravel_cloud,
+    },
+    SubstrateInfo {
+        name: GITLAB,
+        build: build_gitlab,
     },
 ];
 
@@ -112,6 +137,46 @@ fn build_netlify(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliError> {
     )))
 }
 
+fn build_laravel_cloud(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliError> {
+    Ok(Box::new(LaravelCloudSubstrate::new(
+        ctx.definition_dir,
+        ctx.secrets,
+        ctx.confirm_paid,
+    )))
+}
+
+fn build_railway(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliError> {
+    Ok(Box::new(RailwaySubstrate::new(
+        ctx.definition_dir,
+        ctx.secrets,
+        ctx.confirm_paid,
+    )))
+}
+
+fn build_cloudflare(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliError> {
+    Ok(Box::new(CloudflareSubstrate::new(
+        ctx.definition_dir,
+        ctx.secrets,
+        ctx.confirm_paid,
+    )))
+}
+
+fn build_wordpress(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliError> {
+    Ok(Box::new(WordPressSubstrate::new(
+        ctx.definition_dir,
+        ctx.secrets,
+        ctx.confirm_paid,
+    )))
+}
+
+fn build_gitlab(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliError> {
+    Ok(Box::new(GitLabSubstrate::new(
+        ctx.definition_dir,
+        ctx.secrets,
+        ctx.confirm_paid,
+    )))
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
@@ -127,6 +192,11 @@ mod tests {
         all.extend(stackless_vercel::codes::ALL);
         all.extend(stackless_fly::codes::ALL);
         all.extend(stackless_netlify::codes::ALL);
+        all.extend(stackless_railway::codes::ALL);
+        all.extend(stackless_cloudflare::codes::ALL);
+        all.extend(stackless_wordpress::codes::ALL);
+        all.extend(stackless_laravel_cloud::codes::ALL);
+        all.extend(stackless_gitlab::codes::ALL);
         let unique: BTreeSet<&str> = all.iter().copied().collect();
         assert_eq!(
             unique.len(),
