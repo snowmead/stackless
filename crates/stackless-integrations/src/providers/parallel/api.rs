@@ -13,7 +13,18 @@ use crate::hostable::{ConfigScope, Hostable, IntegrationHosting};
 pub const RESOURCE_KIND: &str = "integration-parallel";
 
 #[derive(Debug, Serialize)]
-pub struct ParallelApiConfig {}
+pub struct ParallelApiConfig {
+    /// Paid-pricing selectors (not in configuration_schema). Default product
+    /// `search` matches the catalog default tier; `processor` / `generator` /
+    /// `tier` select non-default products.
+    pub product: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generator: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tier: Option<String>,
+}
 
 impl CatalogService for ParallelApiConfig {
     const REFERENCE: &'static str = "parallel/api";
@@ -38,8 +49,14 @@ impl FamilyResource for ParallelApi {
         &[("API_KEY", "api_key", true)];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<ParallelApiConfig, IntegrationError> {
-        let _ = super::integration_config(ctx)?;
-        Ok(ParallelApiConfig {})
+        let config = super::integration_config(ctx)?;
+        Ok(ParallelApiConfig {
+            product: super::interp_optional(ctx, &config, "product")?
+                .unwrap_or_else(|| "search".to_owned()),
+            processor: super::interp_optional(ctx, &config, "processor")?,
+            generator: super::interp_optional(ctx, &config, "generator")?,
+            tier: super::interp_optional(ctx, &config, "tier")?,
+        })
     }
 }
 
@@ -67,7 +84,15 @@ mod tests {
             "/../stackless-stripe-projects/tests/fixtures/catalog.json"
         ));
         let catalog = stackless_stripe_projects::Catalog::from_json_envelope(FIXTURE).unwrap();
-        let failures = stackless_stripe_projects::verify_service(&catalog, &ParallelApiConfig {});
+        let failures = stackless_stripe_projects::verify_service(
+            &catalog,
+            &ParallelApiConfig {
+                product: "search".into(),
+                processor: None,
+                generator: None,
+                tier: None,
+            },
+        );
         assert!(
             failures.is_empty(),
             "parallel/api catalog gaps:\n{}",
@@ -75,7 +100,7 @@ mod tests {
         );
     }
 
-    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_api","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_parallel","provider_name":"Parallel","service_id":"api","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"paid"},"configuration_schema":{"type":"object","required":[],"additionalProperties":false,"properties":{}}}]}}"##;
+    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_api","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_parallel","provider_name":"Parallel","service_id":"api","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"paid","paid_pricing":[{"type":"freeform","is_default":true,"configuration":{"product":"search"}}]},"configuration_schema":{"type":"object","required":[],"additionalProperties":false,"properties":{}}}]}}"##;
 
     fn test_def() -> StackDef {
         StackDef::parse(
