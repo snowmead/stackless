@@ -85,6 +85,7 @@ register_providers! {
     (blaxel::agent_drive, BlaxelAgentDrive),
     (blaxel::sandbox, BlaxelSandbox),
     (browserbase::project, BrowserbaseProject),
+    (chroma::database, ChromaDatabase),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
