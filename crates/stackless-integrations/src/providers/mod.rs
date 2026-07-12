@@ -10,6 +10,7 @@ pub mod chroma;
 pub mod clerk;
 pub mod clickhouse;
 pub mod cloudflare;
+pub mod daytona;
 
 #[cfg(test)]
 mod tests {
@@ -18,7 +19,7 @@ mod tests {
 
     use crate::providers::{
         agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel, browserbase,
-        chroma, clickhouse, cloudflare,
+        chroma, clickhouse, cloudflare, daytona,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -54,5 +55,6 @@ mod tests {
         assert_outputs_match::<chroma::database::ChromaDatabase>();
         assert_outputs_match::<clickhouse::cluster::ClickHouseClickhouse>();
         assert_outputs_match::<clickhouse::postgres::ClickHousePostgres>();
+        assert_outputs_match::<daytona::sandbox::DaytonaSandbox>();
     }
 }

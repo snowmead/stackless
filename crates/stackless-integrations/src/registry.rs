@@ -88,6 +88,7 @@ register_providers! {
     (chroma::database, ChromaDatabase),
     (clickhouse::cluster, ClickHouseClickhouse),
     (clickhouse::postgres, ClickHousePostgres),
+    (daytona::sandbox, DaytonaSandbox),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
