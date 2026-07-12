@@ -81,6 +81,7 @@ register_providers! {
     (algolia::application, AlgoliaApplication),
     (amplitude::analytics, AmplitudeAnalytics),
     (auth0::client, Auth0Client),
+    (base44_projects::app, Base44ProjectsApp),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
