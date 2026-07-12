@@ -100,6 +100,7 @@ register_providers! {
     (huggingface::bucket, HuggingFaceBucket),
     (huggingface::platform, HuggingFacePlatform),
     (inngest::app, InngestApp),
+    (kernel::project, KERNELProject),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
