@@ -78,6 +78,7 @@ register_providers! {
     (cloudflare::workers_ai, CloudflareWorkersAi),
     (agentmail::api, AgentMailApi),
     (agentphone::number, AgentPhoneNumber),
+    (algolia::application, AlgoliaApplication),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
