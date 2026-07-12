@@ -92,6 +92,7 @@ register_providers! {
     (e2b::sandbox, E2BSandbox),
     (elevenlabs::tts, ElevenLabsTts),
     (exa::api, ExaApi),
+    (firecrawl::api, FirecrawlApi),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {

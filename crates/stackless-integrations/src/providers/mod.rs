@@ -14,6 +14,7 @@ pub mod daytona;
 pub mod e2b;
 pub mod elevenlabs;
 pub mod exa;
+pub mod firecrawl;
 
 #[cfg(test)]
 mod tests {
@@ -22,7 +23,7 @@ mod tests {
 
     use crate::providers::{
         agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel, browserbase,
-        chroma, clickhouse, cloudflare, daytona, e2b, elevenlabs, exa,
+        chroma, clickhouse, cloudflare, daytona, e2b, elevenlabs, exa, firecrawl,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -62,5 +63,6 @@ mod tests {
         assert_outputs_match::<e2b::sandbox::E2BSandbox>();
         assert_outputs_match::<elevenlabs::tts::ElevenLabsTts>();
         assert_outputs_match::<exa::api::ExaApi>();
+        assert_outputs_match::<firecrawl::api::FirecrawlApi>();
     }
 }
