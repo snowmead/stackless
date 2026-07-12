@@ -17,6 +17,9 @@ pub const RESOURCE_KIND: &str = "integration-algolia";
 pub struct AlgoliaApplicationConfig {
     pub accept_terms: String,
     pub name: String,
+    /// Paid-pricing tier selector (`build` / `grow` / `grow-plus`). Not in
+    /// configuration_schema; required to match a catalog paid_pricing entry.
+    pub plan: String,
     pub region: String,
 }
 
@@ -49,6 +52,8 @@ impl FamilyResource for AlgoliaApplication {
         Ok(AlgoliaApplicationConfig {
             accept_terms: super::interp_required(ctx, &config, "accept_terms")?,
             name: super::interp_required(ctx, &config, "name")?,
+            plan: super::interp_optional(ctx, &config, "plan")?
+                .unwrap_or_else(|| "build".to_owned()),
             region: super::interp_required(ctx, &config, "region")?,
         })
     }
@@ -97,6 +102,7 @@ mod tests {
             &AlgoliaApplicationConfig {
                 accept_terms: "test-accept_terms".into(),
                 name: "test-name".into(),
+                plan: "build".into(),
                 region: "EU West".into(),
             },
         );
@@ -107,7 +113,7 @@ mod tests {
         );
     }
 
-    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_application","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_algolia","provider_name":"Algolia","service_id":"application","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"paid"},"configuration_schema":{"properties":{"accept_terms":{"type":"string"},"name":{"description":"Name of your Algolia application","type":"string"},"region":{"description":"Where your Algolia application will be created. This cannot be changed after provisioning.","enum":["EU West","US Central","US East","US West","United Kingdom"],"type":"string"}},"required":["name","region","accept_terms"],"type":"object"}}]}}"##;
+    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_application","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_algolia","provider_name":"Algolia","service_id":"application","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"paid","paid_pricing":[{"type":"free","configuration":{"accept_terms":"test-accept_terms","plan":"build"}}]},"configuration_schema":{"properties":{"accept_terms":{"type":"string"},"name":{"description":"Name of your Algolia application","type":"string"},"region":{"description":"Where your Algolia application will be created. This cannot be changed after provisioning.","enum":["EU West","US Central","US East","US West","United Kingdom"],"type":"string"}},"required":["name","region","accept_terms"],"type":"object"}}]}}"##;
 
     fn test_def() -> StackDef {
         StackDef::parse(
@@ -118,6 +124,7 @@ name = "atto"
 project = "project_1"
 [integrations.res]
 provider = "algolia"
+plan = "build"
 accept_terms = "test-accept_terms"
 name = "test-name"
 region = "EU West"
