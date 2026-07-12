@@ -32,6 +32,7 @@ pub mod postalform;
 pub mod posthog;
 pub mod prisma;
 pub mod privy;
+pub mod railway;
 pub mod runloop;
 pub mod supermemory;
 pub mod turso;
@@ -48,8 +49,8 @@ mod tests {
         agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel, browserbase,
         chroma, clickhouse, cloudflare, daytona, e2b, elevenlabs, exa, firecrawl, flyio, gitlab,
         heygen, huggingface, inngest, kernel, laravel_cloud, metronome, mixpanel, neon, openrouter,
-        parallel, planetscale, postalform, posthog, prisma, privy, runloop, supermemory, turso,
-        upstash, wix, workos,
+        parallel, planetscale, postalform, posthog, prisma, privy, railway, runloop, supermemory,
+        turso, upstash, wix, workos,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -112,6 +113,11 @@ mod tests {
         assert_outputs_match::<posthog::analytics::PostHogAnalytics>();
         assert_outputs_match::<prisma::database::PrismaDatabase>();
         assert_outputs_match::<privy::app::PrivyApp>();
+        assert_outputs_match::<railway::bucket::RailwayBucket>();
+        assert_outputs_match::<railway::hosting::RailwayHosting>();
+        assert_outputs_match::<railway::mongo::RailwayMongo>();
+        assert_outputs_match::<railway::postgres::RailwayPostgres>();
+        assert_outputs_match::<railway::redis::RailwayRedis>();
         assert_outputs_match::<runloop::sandbox::RunloopSandbox>();
         assert_outputs_match::<supermemory::memory::SupermemoryMemory>();
         assert_outputs_match::<turso::database::TursoDatabase>();
