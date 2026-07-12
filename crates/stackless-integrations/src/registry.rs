@@ -122,6 +122,8 @@ register_providers! {
     (railway::redis, RailwayRedis),
     (render_db::postgres, RenderPostgres),
     (runloop::sandbox, RunloopSandbox),
+    (sentry::project, SentryProject),
+    (sentry::seer, SentrySeer),
     (supabase::project, SupabaseProject),
     (supermemory::memory, SupermemoryMemory),
     (turso::database, TursoDatabase),

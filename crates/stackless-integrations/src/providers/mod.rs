@@ -35,6 +35,7 @@ pub mod privy;
 pub mod railway;
 pub mod render_db;
 pub mod runloop;
+pub mod sentry;
 pub mod supabase;
 pub mod supermemory;
 pub mod turso;
@@ -53,7 +54,7 @@ mod tests {
         chroma, clickhouse, cloudflare, daytona, e2b, elevenlabs, exa, firecrawl, flyio, gitlab,
         heygen, huggingface, inngest, kernel, laravel_cloud, metronome, mixpanel, neon, openrouter,
         parallel, planetscale, postalform, posthog, prisma, privy, railway, render_db, runloop,
-        supabase, supermemory, turso, upstash, wix, wordpress_com, workos,
+        sentry, supabase, supermemory, turso, upstash, wix, wordpress_com, workos,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -123,6 +124,8 @@ mod tests {
         assert_outputs_match::<railway::redis::RailwayRedis>();
         assert_outputs_match::<render_db::postgres::RenderPostgres>();
         assert_outputs_match::<runloop::sandbox::RunloopSandbox>();
+        assert_outputs_match::<sentry::project::SentryProject>();
+        assert_outputs_match::<sentry::seer::SentrySeer>();
         assert_outputs_match::<supabase::project::SupabaseProject>();
         assert_outputs_match::<supermemory::memory::SupermemoryMemory>();
         assert_outputs_match::<turso::database::TursoDatabase>();
