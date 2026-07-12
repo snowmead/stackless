@@ -82,6 +82,8 @@ register_providers! {
     (amplitude::analytics, AmplitudeAnalytics),
     (auth0::client, Auth0Client),
     (base44_projects::app, Base44ProjectsApp),
+    (blaxel::agent_drive, BlaxelAgentDrive),
+    (blaxel::sandbox, BlaxelSandbox),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
