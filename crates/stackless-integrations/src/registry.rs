@@ -96,6 +96,7 @@ register_providers! {
     (flyio::mpg, FlyioMpg),
     (flyio::sprite, FlyioSprite),
     (gitlab::project, GitLabProject),
+    (heygen::api, HeyGenApi),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
