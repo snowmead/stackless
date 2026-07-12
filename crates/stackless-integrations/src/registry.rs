@@ -86,6 +86,8 @@ register_providers! {
     (blaxel::sandbox, BlaxelSandbox),
     (browserbase::project, BrowserbaseProject),
     (chroma::database, ChromaDatabase),
+    (clickhouse::cluster, ClickHouseClickhouse),
+    (clickhouse::postgres, ClickHousePostgres),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {

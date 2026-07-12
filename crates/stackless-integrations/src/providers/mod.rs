@@ -8,6 +8,7 @@ pub mod blaxel;
 pub mod browserbase;
 pub mod chroma;
 pub mod clerk;
+pub mod clickhouse;
 pub mod cloudflare;
 
 #[cfg(test)]
@@ -17,7 +18,7 @@ mod tests {
 
     use crate::providers::{
         agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel, browserbase,
-        chroma, cloudflare,
+        chroma, clickhouse, cloudflare,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -51,5 +52,7 @@ mod tests {
         assert_outputs_match::<blaxel::sandbox::BlaxelSandbox>();
         assert_outputs_match::<browserbase::project::BrowserbaseProject>();
         assert_outputs_match::<chroma::database::ChromaDatabase>();
+        assert_outputs_match::<clickhouse::cluster::ClickHouseClickhouse>();
+        assert_outputs_match::<clickhouse::postgres::ClickHousePostgres>();
     }
 }
