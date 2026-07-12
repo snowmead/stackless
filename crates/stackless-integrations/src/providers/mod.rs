@@ -18,6 +18,7 @@ pub mod firecrawl;
 pub mod flyio;
 pub mod gitlab;
 pub mod heygen;
+pub mod huggingface;
 
 #[cfg(test)]
 mod tests {
@@ -27,7 +28,7 @@ mod tests {
     use crate::providers::{
         agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel, browserbase,
         chroma, clickhouse, cloudflare, daytona, e2b, elevenlabs, exa, firecrawl, flyio, gitlab,
-        heygen,
+        heygen, huggingface,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -72,5 +73,7 @@ mod tests {
         assert_outputs_match::<flyio::sprite::FlyioSprite>();
         assert_outputs_match::<gitlab::project::GitLabProject>();
         assert_outputs_match::<heygen::api::HeyGenApi>();
+        assert_outputs_match::<huggingface::bucket::HuggingFaceBucket>();
+        assert_outputs_match::<huggingface::platform::HuggingFacePlatform>();
     }
 }

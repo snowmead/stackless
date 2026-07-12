@@ -97,6 +97,8 @@ register_providers! {
     (flyio::sprite, FlyioSprite),
     (gitlab::project, GitLabProject),
     (heygen::api, HeyGenApi),
+    (huggingface::bucket, HuggingFaceBucket),
+    (huggingface::platform, HuggingFacePlatform),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
