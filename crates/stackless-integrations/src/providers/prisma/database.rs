@@ -1,0 +1,146 @@
+//! `prisma/database` integration.
+
+use std::collections::BTreeMap;
+
+use serde::Serialize;
+use stackless_stripe_projects::catalog::verify::CatalogService;
+use stackless_stripe_projects::provision::ProvisionContext;
+
+use super::FamilyResource;
+use crate::error::IntegrationError;
+use crate::hostable::{ConfigScope, Hostable, IntegrationHosting};
+use crate::registry;
+
+pub const RESOURCE_KIND: &str = "integration-prisma";
+
+#[derive(Debug, Serialize)]
+pub struct PrismaDatabaseConfig {
+    pub region: String,
+}
+
+impl CatalogService for PrismaDatabaseConfig {
+    const REFERENCE: &'static str = "prisma/database";
+}
+
+#[derive(Debug)]
+pub struct PrismaDatabase;
+
+impl Hostable for PrismaDatabase {
+    const PROVIDER: &'static str = "prisma";
+    const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
+    const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
+    const RESOURCE_KIND: &'static str = RESOURCE_KIND;
+    const OUTPUTS: &'static [&'static str] = &["database_url"];
+}
+
+impl FamilyResource for PrismaDatabase {
+    type Config = PrismaDatabaseConfig;
+    const PROVIDER_PREFIX: &'static str = "PRISMA";
+    // Provisional until pinned by `mise run discover prisma/database`.
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
+        &[("DATABASE_URL", "database_url", true)];
+
+    fn build_config(ctx: &ProvisionContext<'_>) -> Result<PrismaDatabaseConfig, IntegrationError> {
+        let config = super::integration_config(ctx)?;
+        Ok(PrismaDatabaseConfig {
+            region: super::interp_required(ctx, &config, "region")?,
+        })
+    }
+}
+
+pub fn validate_config(
+    name: &str,
+    config: &BTreeMap<String, toml::Value>,
+) -> Result<(), IntegrationError> {
+    registry::config_string(config, "region").map_err(|err| IntegrationError::ConfigInvalid {
+        location: format!("integrations.{name}.region"),
+        detail: err.to_string(),
+    })?;
+    let _ = (name, config);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ProviderOps;
+    use crate::resource::ResourcePayload;
+    use stackless_core::def::StackDef;
+    use stackless_stripe_projects::stripe::StripeProjects;
+    use stackless_stripe_projects::test_support;
+
+    #[test]
+    fn config_matches_catalog() {
+        const FIXTURE: &str = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../stackless-stripe-projects/tests/fixtures/catalog.json"
+        ));
+        let catalog = stackless_stripe_projects::Catalog::from_json_envelope(FIXTURE).unwrap();
+        let failures = stackless_stripe_projects::verify_service(
+            &catalog,
+            &PrismaDatabaseConfig {
+                region: "us-east-1".into(),
+            },
+        );
+        assert!(
+            failures.is_empty(),
+            "prisma/database catalog gaps:\n{}",
+            failures.join("\n")
+        );
+    }
+
+    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_database","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_prisma","provider_name":"Prisma","service_id":"database","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"component"},"configuration_schema":{"additionalProperties":false,"properties":{"region":{"default":"us-east-1","description":"Prisma Postgres region identifier (Defaults to \"us-east-1\").","enum":["us-east-1","us-west-1","eu-west-3","eu-central-1","ap-northeast-1","ap-southeast-1"],"type":"string"}},"required":["region"],"type":"object"}}]}}"##;
+
+    fn test_def() -> StackDef {
+        StackDef::parse(
+            r#"
+[stack]
+name = "atto"
+[stack.projects.stripe]
+project = "project_1"
+[integrations.res]
+provider = "prisma"
+region = "us-east-1"
+[services.api]
+source = { repo = "r", ref = "main" }
+env = { OUT = "${integrations.res.database_url}" }
+health = { path = "/health" }
+[services.api.local]
+run = "true"
+"#,
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn provision_records_outputs() {
+        let runner = test_support::provision_script(
+            CATALOG_ENVELOPE,
+            serde_json::json!({"PRISMA_DATABASE_URL": "val_database_url"}),
+            0,
+        );
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("stackless.toml"),
+            "[stack]\nname=\"atto\"\n",
+        )
+        .unwrap();
+        let stripe = StripeProjects::new(&runner, dir.path());
+
+        let resource = PrismaDatabase
+            .provision(
+                &stripe.as_dyn(),
+                &test_def(),
+                dir.path(),
+                "demo",
+                "res",
+                "local",
+                false,
+            )
+            .await
+            .unwrap();
+        assert_eq!(resource.resource_kind, "integration-prisma");
+        let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
+        assert_eq!(payload.outputs["database_url"], "val_database_url");
+    }
+}

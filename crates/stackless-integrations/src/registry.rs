@@ -102,6 +102,7 @@ register_providers! {
     (inngest::app, InngestApp),
     (kernel::project, KERNELProject),
     (metronome::sandbox, MetronomeSandbox),
+    (prisma::database, PrismaDatabase),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {

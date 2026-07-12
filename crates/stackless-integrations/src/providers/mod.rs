@@ -22,6 +22,7 @@ pub mod huggingface;
 pub mod inngest;
 pub mod kernel;
 pub mod metronome;
+pub mod prisma;
 
 #[cfg(test)]
 mod tests {
@@ -31,7 +32,7 @@ mod tests {
     use crate::providers::{
         agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel, browserbase,
         chroma, clickhouse, cloudflare, daytona, e2b, elevenlabs, exa, firecrawl, flyio, gitlab,
-        heygen, huggingface, inngest, kernel, metronome,
+        heygen, huggingface, inngest, kernel, metronome, prisma,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -81,5 +82,6 @@ mod tests {
         assert_outputs_match::<inngest::app::InngestApp>();
         assert_outputs_match::<kernel::project::KERNELProject>();
         assert_outputs_match::<metronome::sandbox::MetronomeSandbox>();
+        assert_outputs_match::<prisma::database::PrismaDatabase>();
     }
 }
