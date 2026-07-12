@@ -89,6 +89,7 @@ register_providers! {
     (clickhouse::cluster, ClickHouseClickhouse),
     (clickhouse::postgres, ClickHousePostgres),
     (daytona::sandbox, DaytonaSandbox),
+    (e2b::sandbox, E2BSandbox),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
