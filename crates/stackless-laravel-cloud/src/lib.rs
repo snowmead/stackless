@@ -234,7 +234,8 @@ impl<R: CommandRunner> LaravelCloudSubstrate<R> {
             &ctx,
             &cfg,
             PROVIDER_PREFIX,
-            &[("LARAVEL_CLOUD_APP_ID", "app_id", true)],
+            // Suffix only — resolved as LARAVEL_CLOUD_APP_ID / {RESOURCE}_APP_ID.
+            &[("APP_ID", "app_id", true)],
         )
         .await
         .map_err(projects_fault)?;
@@ -300,6 +301,16 @@ impl<R: CommandRunner> Substrate for LaravelCloudSubstrate<R> {
     fn validate_definition(&self, def: &StackDef) -> Result<(), SubstrateFault> {
         for service in def.services.keys() {
             config::service_laravel_cloud(def, service).map_err(fault)?;
+            let service_name = Self::resource_name(def, "i", service);
+            if !config::is_valid_service_name(&service_name) {
+                return Err(fault(LaravelCloudError::ConfigInvalid {
+                    location: format!("services.{service}"),
+                    detail: format!(
+                        "derived Laravel Cloud application name {service_name:?} is not DNS-safe; \
+                         shorten the stack/service name"
+                    ),
+                }));
+            }
         }
         Ok(())
     }

@@ -32,6 +32,21 @@ impl CatalogService for LaravelCloudApplicationConfig {
     const REFERENCE: &'static str = "laravel_cloud/application";
 }
 
+/// Whether `name` is a legal Laravel Cloud app label: lowercase letter then
+/// 2..=62 of `[a-z0-9-]` (DNS-safe, matches the cloud name rule).
+pub fn is_valid_service_name(name: &str) -> bool {
+    let len = name.len();
+    if !(3..=63).contains(&len) {
+        return false;
+    }
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_lowercase() => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
 /// Read and shape-check `[services.<service>.laravel-cloud]`.
 pub fn service_laravel_cloud(
     def: &StackDef,
@@ -162,6 +177,15 @@ repository = "laravel/cloud"
             LaravelCloudApplicationConfig::REFERENCE,
             "laravel_cloud/application"
         );
+    }
+
+    #[test]
+    fn dns_safe_service_names() {
+        assert!(is_valid_service_name("atto-demo-web"));
+        assert!(!is_valid_service_name("ab"));
+        assert!(!is_valid_service_name("1abc"));
+        assert!(!is_valid_service_name("Abc"));
+        assert!(!is_valid_service_name(&"a".repeat(64)));
     }
 
     #[test]
