@@ -23,6 +23,7 @@ pub mod inngest;
 pub mod kernel;
 pub mod laravel_cloud;
 pub mod metronome;
+pub mod mixpanel;
 pub mod neon;
 pub mod openrouter;
 pub mod parallel;
@@ -46,9 +47,9 @@ mod tests {
     use crate::providers::{
         agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel, browserbase,
         chroma, clickhouse, cloudflare, daytona, e2b, elevenlabs, exa, firecrawl, flyio, gitlab,
-        heygen, huggingface, inngest, kernel, laravel_cloud, metronome, neon, openrouter, parallel,
-        planetscale, postalform, posthog, prisma, privy, runloop, supermemory, turso, upstash, wix,
-        workos,
+        heygen, huggingface, inngest, kernel, laravel_cloud, metronome, mixpanel, neon, openrouter,
+        parallel, planetscale, postalform, posthog, prisma, privy, runloop, supermemory, turso,
+        upstash, wix, workos,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -101,6 +102,7 @@ mod tests {
         assert_outputs_match::<laravel_cloud::mysql::LaravelCloudMysql>();
         assert_outputs_match::<laravel_cloud::valkey::LaravelCloudValkey>();
         assert_outputs_match::<metronome::sandbox::MetronomeSandbox>();
+        assert_outputs_match::<mixpanel::analytics::MixpanelAnalytics>();
         assert_outputs_match::<neon::postgres::NeonPostgres>();
         assert_outputs_match::<openrouter::api::OpenRouterApi>();
         assert_outputs_match::<parallel::api::ParallelApi>();

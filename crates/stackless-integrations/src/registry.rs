@@ -105,6 +105,7 @@ register_providers! {
     (laravel_cloud::mysql, LaravelCloudMysql),
     (laravel_cloud::valkey, LaravelCloudValkey),
     (metronome::sandbox, MetronomeSandbox),
+    (mixpanel::analytics, MixpanelAnalytics),
     (neon::postgres, NeonPostgres),
     (openrouter::api, OpenRouterApi),
     (parallel::api, ParallelApi),
