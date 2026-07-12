@@ -80,6 +80,7 @@ register_providers! {
     (agentphone::number, AgentPhoneNumber),
     (algolia::application, AlgoliaApplication),
     (amplitude::analytics, AmplitudeAnalytics),
+    (auth0::client, Auth0Client),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
