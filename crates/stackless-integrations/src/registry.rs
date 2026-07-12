@@ -91,6 +91,7 @@ register_providers! {
     (daytona::sandbox, DaytonaSandbox),
     (e2b::sandbox, E2BSandbox),
     (elevenlabs::tts, ElevenLabsTts),
+    (exa::api, ExaApi),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
