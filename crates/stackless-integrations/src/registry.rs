@@ -107,6 +107,7 @@ register_providers! {
     (metronome::sandbox, MetronomeSandbox),
     (neon::postgres, NeonPostgres),
     (openrouter::api, OpenRouterApi),
+    (parallel::api, ParallelApi),
     (prisma::database, PrismaDatabase),
     (workos::auth, WorkOSAuth),
 }
