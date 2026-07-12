@@ -120,6 +120,7 @@ register_providers! {
     (railway::mongo, RailwayMongo),
     (railway::postgres, RailwayPostgres),
     (railway::redis, RailwayRedis),
+    (render_db::postgres, RenderPostgres),
     (runloop::sandbox, RunloopSandbox),
     (supabase::project, SupabaseProject),
     (supermemory::memory, SupermemoryMemory),
