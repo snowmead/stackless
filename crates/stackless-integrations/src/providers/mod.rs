@@ -5,6 +5,7 @@ pub mod amplitude;
 pub mod auth0;
 pub mod base44_projects;
 pub mod blaxel;
+pub mod browserbase;
 pub mod clerk;
 pub mod cloudflare;
 
@@ -14,7 +15,8 @@ mod tests {
     use stackless_provider_sdk::Hostable;
 
     use crate::providers::{
-        agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel, cloudflare,
+        agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel, browserbase,
+        cloudflare,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -46,5 +48,6 @@ mod tests {
         assert_outputs_match::<base44_projects::app::Base44ProjectsApp>();
         assert_outputs_match::<blaxel::agent_drive::BlaxelAgentDrive>();
         assert_outputs_match::<blaxel::sandbox::BlaxelSandbox>();
+        assert_outputs_match::<browserbase::project::BrowserbaseProject>();
     }
 }

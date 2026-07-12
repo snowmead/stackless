@@ -84,6 +84,7 @@ register_providers! {
     (base44_projects::app, Base44ProjectsApp),
     (blaxel::agent_drive, BlaxelAgentDrive),
     (blaxel::sandbox, BlaxelSandbox),
+    (browserbase::project, BrowserbaseProject),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
