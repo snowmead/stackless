@@ -68,14 +68,14 @@ macro_rules! register_providers {
 
 register_providers! {
     (clerk, ClerkAuth),
-    (cloudflare::r2, CloudflareR2),
-    (cloudflare::kv, CloudflareKv),
+    (cloudflare::browser_run, CloudflareBrowserRun),
     (cloudflare::d1, CloudflareD1),
-    (cloudflare::queues, CloudflareQueues),
     (cloudflare::hyperdrive, CloudflareHyperdrive),
+    (cloudflare::kv, CloudflareKv),
+    (cloudflare::queues, CloudflareQueues),
+    (cloudflare::r2, CloudflareR2),
     (cloudflare::workers, CloudflareWorkers),
     (cloudflare::workers_ai, CloudflareWorkersAi),
-    (cloudflare::browser_run, CloudflareBrowserRun),
     (agentmail::api, AgentMailApi),
 }
 
