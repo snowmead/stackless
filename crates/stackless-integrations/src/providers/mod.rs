@@ -27,6 +27,7 @@ pub mod neon;
 pub mod openrouter;
 pub mod parallel;
 pub mod planetscale;
+pub mod postalform;
 pub mod prisma;
 pub mod privy;
 pub mod runloop;
@@ -41,7 +42,7 @@ mod tests {
         agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel, browserbase,
         chroma, clickhouse, cloudflare, daytona, e2b, elevenlabs, exa, firecrawl, flyio, gitlab,
         heygen, huggingface, inngest, kernel, laravel_cloud, metronome, neon, openrouter, parallel,
-        planetscale, prisma, privy, runloop, workos,
+        planetscale, postalform, prisma, privy, runloop, workos,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -99,6 +100,7 @@ mod tests {
         assert_outputs_match::<parallel::api::ParallelApi>();
         assert_outputs_match::<planetscale::mysql::PlanetScaleMysql>();
         assert_outputs_match::<planetscale::postgresql::PlanetScalePostgresql>();
+        assert_outputs_match::<postalform::mail::PostalFormMail>();
         assert_outputs_match::<prisma::database::PrismaDatabase>();
         assert_outputs_match::<privy::app::PrivyApp>();
         assert_outputs_match::<runloop::sandbox::RunloopSandbox>();

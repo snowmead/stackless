@@ -110,6 +110,7 @@ register_providers! {
     (parallel::api, ParallelApi),
     (planetscale::mysql, PlanetScaleMysql),
     (planetscale::postgresql, PlanetScalePostgresql),
+    (postalform::mail, PostalFormMail),
     (prisma::database, PrismaDatabase),
     (privy::app, PrivyApp),
     (runloop::sandbox, RunloopSandbox),
