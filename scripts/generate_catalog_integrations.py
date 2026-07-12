@@ -14,22 +14,6 @@ CATALOG = json.loads(
     (ROOT / "crates/stackless-stripe-projects/tests/fixtures/catalog.json").read_text()
 )
 
-IMPLEMENTED = {
-    "clerk/auth",
-    "cloudflare/r2:bucket",
-    "cloudflare/kv",
-    "cloudflare/d1",
-    "cloudflare/queues",
-    "cloudflare/hyperdrive",
-    "cloudflare/workers",
-    "cloudflare/workers-ai",
-    "cloudflare/browser-run",
-    "render/web-service",
-    "render/static-site",
-    "vercel/project",
-    "flyio/app",
-    "netlify/project",
-}
 EXCL = {
     "cloudflare/containers",
     "cloudflare/registrar:domain",
@@ -96,6 +80,26 @@ SHORT_PROVIDER = {
     "laravel_cloud/valkey": "laravel-cloud-valkey",
     "flyio/mpg": "flyio-mpg",
     "flyio/sprite": "flyio-sprite",
+}
+
+# Skip refs that already have adapters. Includes SHORT_PROVIDER keys so a regen
+# does not overwrite hand-written family modules.
+IMPLEMENTED = {
+    "clerk/auth",
+    "cloudflare/r2:bucket",
+    "cloudflare/kv",
+    "cloudflare/d1",
+    "cloudflare/queues",
+    "cloudflare/hyperdrive",
+    "cloudflare/workers",
+    "cloudflare/workers-ai",
+    "cloudflare/browser-run",
+    "render/web-service",
+    "render/static-site",
+    "vercel/project",
+    "flyio/app",
+    "netlify/project",
+    *SHORT_PROVIDER,
 }
 
 OUTPUT_HINTS = {
@@ -279,8 +283,6 @@ def main() -> None:
             ref = ref_of(s)
             sid = s["service_id"].replace(":", "_").replace("-", "_")
             type_base = camel(s["provider_name"].replace(".", " ")) + camel(s["service_id"])
-            if type_base.startswith("WordpressCom"):
-                type_base = type_base.replace("WordpressCom", "WordpressCom", 1)
             config_type = f"{type_base}Config"
             provider_key = SHORT_PROVIDER.get(
                 ref,
@@ -403,6 +405,44 @@ def main() -> None:
                     else:
                         build_fields.append(
                             f'            {rust_key}: super::bool_optional(ctx, &config, "{key}")?,'
+                        )
+                        sample_fields.append(f"                {rust_key}: None,")
+                elif ty == "number":
+                    # toml floats; accept integer literals too.
+                    if req:
+                        build_fields.append(
+                            f'            {rust_key}: config.get("{key}")'
+                            f".and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64)))"
+                            f".ok_or_else(|| IntegrationError::ConfigInvalid {{"
+                            f'                location: format!("integrations.{{}}.{key}", ctx.logical_name),'
+                            f'                detail: "{key} is required and must be a number".into(),'
+                            f"            }})?,"
+                        )
+                        validate_lines.append(
+                            f'    if config.get("{key}").and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64))).is_none() {{\n'
+                            f"        return Err(IntegrationError::ConfigInvalid {{\n"
+                            f'            location: format!("integrations.{{name}}.{key}"),\n'
+                            f'            detail: "{key} is required and must be a number".into(),\n'
+                            f"        }});\n"
+                            f"    }}"
+                        )
+                        default = prop.get("default")
+                        sample_fields.append(
+                            f"                {rust_key}: {float(default) if default is not None else 1.0},"
+                        )
+                        toml_lines.append(
+                            f"{key} = {float(default) if default is not None else 1.0}"
+                        )
+                    else:
+                        build_fields.append(
+                            f'            {rust_key}: match config.get("{key}") {{'
+                            f" None => None,"
+                            f" Some(v) => Some(v.as_float().or_else(|| v.as_integer().map(|i| i as f64))"
+                            f".ok_or_else(|| IntegrationError::ConfigInvalid {{"
+                            f'                location: format!("integrations.{{}}.{key}", ctx.logical_name),'
+                            f'                detail: "{key} must be a number when set".into(),'
+                            f"            }})?),"
+                            f" }},"
                         )
                         sample_fields.append(f"                {rust_key}: None,")
                 else:
