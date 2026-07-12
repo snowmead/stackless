@@ -21,6 +21,7 @@ pub mod heygen;
 pub mod huggingface;
 pub mod inngest;
 pub mod kernel;
+pub mod laravel_cloud;
 pub mod metronome;
 pub mod prisma;
 pub mod workos;
@@ -33,7 +34,7 @@ mod tests {
     use crate::providers::{
         agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel, browserbase,
         chroma, clickhouse, cloudflare, daytona, e2b, elevenlabs, exa, firecrawl, flyio, gitlab,
-        heygen, huggingface, inngest, kernel, metronome, prisma, workos,
+        heygen, huggingface, inngest, kernel, laravel_cloud, metronome, prisma, workos,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -82,6 +83,9 @@ mod tests {
         assert_outputs_match::<huggingface::platform::HuggingFacePlatform>();
         assert_outputs_match::<inngest::app::InngestApp>();
         assert_outputs_match::<kernel::project::KERNELProject>();
+        assert_outputs_match::<laravel_cloud::application::LaravelCloudApplication>();
+        assert_outputs_match::<laravel_cloud::mysql::LaravelCloudMysql>();
+        assert_outputs_match::<laravel_cloud::valkey::LaravelCloudValkey>();
         assert_outputs_match::<metronome::sandbox::MetronomeSandbox>();
         assert_outputs_match::<prisma::database::PrismaDatabase>();
         assert_outputs_match::<workos::auth::WorkOSAuth>();
