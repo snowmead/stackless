@@ -658,81 +658,11 @@ run = "true"
         (fam_path / "mod.rs").write_text("\n".join(mod_lines))
         top_mods.append(fam)
 
-    # Update providers/mod.rs
-    mod_rs = [
-        "pub mod clerk;",
-        "pub mod cloudflare;",
-    ]
-    for fam in sorted(top_mods):
-        mod_rs.append(f"pub mod {fam};")
-    mod_rs.append("")
-    mod_rs.append(
-        """#[cfg(test)]
-mod tests {
-    use stackless_provider_sdk::CatalogResource;
-    use stackless_provider_sdk::Hostable;
-
-    use crate::providers::{cloudflare, """
-        + ", ".join(sorted(top_mods))
-        + """};
-
-    /// `Hostable::OUTPUTS` must stay in lockstep with `OUTPUT_FIELDS` names.
-    fn assert_outputs_match<T: CatalogResource>() {
-        let fields: Vec<&str> = T::OUTPUT_FIELDS.iter().map(|(_, name, _)| *name).collect();
-        let outputs: Vec<&str> = <T as Hostable>::OUTPUTS.to_vec();
-        assert_eq!(
-            outputs,
-            fields,
-            "{}: Hostable::OUTPUTS drifted from CatalogResource::OUTPUT_FIELDS names",
-            T::PROVIDER
-        );
-    }
-
-    #[test]
-    fn catalog_outputs_match_output_fields() {
-        assert_outputs_match::<cloudflare::r2::CloudflareR2>();
-        assert_outputs_match::<cloudflare::kv::CloudflareKv>();
-        assert_outputs_match::<cloudflare::d1::CloudflareD1>();
-        assert_outputs_match::<cloudflare::queues::CloudflareQueues>();
-        assert_outputs_match::<cloudflare::hyperdrive::CloudflareHyperdrive>();
-        assert_outputs_match::<cloudflare::workers::CloudflareWorkers>();
-        assert_outputs_match::<cloudflare::workers_ai::CloudflareWorkersAi>();
-        assert_outputs_match::<cloudflare::browser_run::CloudflareBrowserRun>();
-"""
-    )
-    for line in assert_lines:
-        mod_rs[-1] += "\n" + line
-    mod_rs[-1] += "\n    }\n}\n"
-    (PROVIDERS / "mod.rs").write_text("\n".join(mod_rs) + "\n")
-
-    # Update registry.rs — replace register_providers! block
-    reg_path = ROOT / "crates/stackless-integrations/src/registry.rs"
-    reg = reg_path.read_text()
-    rows = [
-        "    (clerk, ClerkAuth),",
-        "    (cloudflare::r2, CloudflareR2),",
-        "    (cloudflare::kv, CloudflareKv),",
-        "    (cloudflare::d1, CloudflareD1),",
-        "    (cloudflare::queues, CloudflareQueues),",
-        "    (cloudflare::hyperdrive, CloudflareHyperdrive),",
-        "    (cloudflare::workers, CloudflareWorkers),",
-        "    (cloudflare::workers_ai, CloudflareWorkersAi),",
-        "    (cloudflare::browser_run, CloudflareBrowserRun),",
-    ]
-    for path_mod, type_name in sorted(registry_rows, key=lambda x: x[0]):
-        rows.append(f"    ({path_mod}, {type_name}),")
-    new_block = "register_providers! {\n" + "\n".join(rows) + "\n}"
-    reg = re.sub(
-        r"register_providers! \{.*?\n\}",
-        new_block,
-        reg,
-        count=1,
-        flags=re.S,
-    )
-    reg_path.write_text(reg)
-
-    print(f"generated {len(services)} services across {len(by_family)} families")
-    print(f"registry rows: {len(rows)}")
+    # Do not rewrite providers/mod.rs or registry.rs — those are maintained
+    # per-PR (union-sort on land). Rewriting here drops landed providers.
+    _ = (assert_lines, registry_rows, top_mods)
+    print(f"generated {len(services)} services across {len(by_family)} families under {PROVIDERS}")
+    print("skipping providers/mod.rs and registry.rs rewrites (maintain by hand)")
 
 
 if __name__ == "__main__":
