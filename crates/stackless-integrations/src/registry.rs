@@ -101,6 +101,7 @@ register_providers! {
     (huggingface::platform, HuggingFacePlatform),
     (inngest::app, InngestApp),
     (kernel::project, KERNELProject),
+    (metronome::sandbox, MetronomeSandbox),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
