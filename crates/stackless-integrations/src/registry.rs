@@ -112,6 +112,7 @@ register_providers! {
     (planetscale::postgresql, PlanetScalePostgresql),
     (prisma::database, PrismaDatabase),
     (privy::app, PrivyApp),
+    (runloop::sandbox, RunloopSandbox),
     (workos::auth, WorkOSAuth),
 }
 
