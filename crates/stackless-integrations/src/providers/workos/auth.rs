@@ -44,9 +44,10 @@ impl FamilyResource for WorkOSAuth {
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<WorkOSAuthConfig, IntegrationError> {
         let config = super::integration_config(ctx)?;
-        Ok(WorkOSAuthConfig {
-            environment: super::interp_optional(ctx, &config, "environment")?,
-        })
+        // Catalog default + paid_pricing free tier key on environment=sandbox.
+        let environment = super::interp_optional(ctx, &config, "environment")?
+            .or_else(|| Some("sandbox".to_owned()));
+        Ok(WorkOSAuthConfig { environment })
     }
 }
 
@@ -76,7 +77,9 @@ mod tests {
         let catalog = stackless_stripe_projects::Catalog::from_json_envelope(FIXTURE).unwrap();
         let failures = stackless_stripe_projects::verify_service(
             &catalog,
-            &WorkOSAuthConfig { environment: None },
+            &WorkOSAuthConfig {
+                environment: Some("sandbox".into()),
+            },
         );
         assert!(
             failures.is_empty(),
