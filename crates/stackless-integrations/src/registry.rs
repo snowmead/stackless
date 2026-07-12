@@ -111,6 +111,7 @@ register_providers! {
     (planetscale::mysql, PlanetScaleMysql),
     (planetscale::postgresql, PlanetScalePostgresql),
     (prisma::database, PrismaDatabase),
+    (privy::app, PrivyApp),
     (workos::auth, WorkOSAuth),
 }
 
