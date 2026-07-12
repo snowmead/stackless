@@ -111,6 +111,7 @@ register_providers! {
     (planetscale::mysql, PlanetScaleMysql),
     (planetscale::postgresql, PlanetScalePostgresql),
     (postalform::mail, PostalFormMail),
+    (posthog::analytics, PostHogAnalytics),
     (prisma::database, PrismaDatabase),
     (privy::app, PrivyApp),
     (runloop::sandbox, RunloopSandbox),
