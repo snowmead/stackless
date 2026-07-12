@@ -79,6 +79,7 @@ register_providers! {
     (agentmail::api, AgentMailApi),
     (agentphone::number, AgentPhoneNumber),
     (algolia::application, AlgoliaApplication),
+    (amplitude::analytics, AmplitudeAnalytics),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {

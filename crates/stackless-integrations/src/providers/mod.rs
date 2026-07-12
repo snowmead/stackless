@@ -1,6 +1,7 @@
 pub mod agentmail;
 pub mod agentphone;
 pub mod algolia;
+pub mod amplitude;
 pub mod clerk;
 pub mod cloudflare;
 
@@ -9,7 +10,7 @@ mod tests {
     use stackless_provider_sdk::CatalogResource;
     use stackless_provider_sdk::Hostable;
 
-    use crate::providers::{agentmail, agentphone, algolia, cloudflare};
+    use crate::providers::{agentmail, agentphone, algolia, amplitude, cloudflare};
 
     fn assert_outputs_match<T: CatalogResource>() {
         let fields: Vec<&str> = T::OUTPUT_FIELDS.iter().map(|(_, name, _)| *name).collect();
@@ -35,5 +36,6 @@ mod tests {
         assert_outputs_match::<agentmail::api::AgentMailApi>();
         assert_outputs_match::<agentphone::number::AgentPhoneNumber>();
         assert_outputs_match::<algolia::application::AlgoliaApplication>();
+        assert_outputs_match::<amplitude::analytics::AmplitudeAnalytics>();
     }
 }
