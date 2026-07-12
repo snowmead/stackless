@@ -129,6 +129,7 @@ register_providers! {
     (upstash::search, UpstashSearch),
     (upstash::vector, UpstashVector),
     (wix::headless, WixHeadless),
+    (wordpress_com::site, WordPressComSite),
     (workos::auth, WorkOSAuth),
 }
 

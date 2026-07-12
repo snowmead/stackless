@@ -39,6 +39,7 @@ pub mod supermemory;
 pub mod turso;
 pub mod upstash;
 pub mod wix;
+pub mod wordpress_com;
 pub mod workos;
 
 #[cfg(test)]
@@ -51,7 +52,7 @@ mod tests {
         chroma, clickhouse, cloudflare, daytona, e2b, elevenlabs, exa, firecrawl, flyio, gitlab,
         heygen, huggingface, inngest, kernel, laravel_cloud, metronome, mixpanel, neon, openrouter,
         parallel, planetscale, postalform, posthog, prisma, privy, railway, runloop, supabase,
-        supermemory, turso, upstash, wix, workos,
+        supermemory, turso, upstash, wix, wordpress_com, workos,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -128,6 +129,7 @@ mod tests {
         assert_outputs_match::<upstash::search::UpstashSearch>();
         assert_outputs_match::<upstash::vector::UpstashVector>();
         assert_outputs_match::<wix::headless::WixHeadless>();
+        assert_outputs_match::<wordpress_com::site::WordPressComSite>();
         assert_outputs_match::<workos::auth::WorkOSAuth>();
     }
 }
