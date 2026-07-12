@@ -121,6 +121,7 @@ register_providers! {
     (railway::postgres, RailwayPostgres),
     (railway::redis, RailwayRedis),
     (runloop::sandbox, RunloopSandbox),
+    (supabase::project, SupabaseProject),
     (supermemory::memory, SupermemoryMemory),
     (turso::database, TursoDatabase),
     (upstash::qstash, UpstashQstash),

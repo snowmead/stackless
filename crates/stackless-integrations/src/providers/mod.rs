@@ -34,6 +34,7 @@ pub mod prisma;
 pub mod privy;
 pub mod railway;
 pub mod runloop;
+pub mod supabase;
 pub mod supermemory;
 pub mod turso;
 pub mod upstash;
@@ -49,8 +50,8 @@ mod tests {
         agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel, browserbase,
         chroma, clickhouse, cloudflare, daytona, e2b, elevenlabs, exa, firecrawl, flyio, gitlab,
         heygen, huggingface, inngest, kernel, laravel_cloud, metronome, mixpanel, neon, openrouter,
-        parallel, planetscale, postalform, posthog, prisma, privy, railway, runloop, supermemory,
-        turso, upstash, wix, workos,
+        parallel, planetscale, postalform, posthog, prisma, privy, railway, runloop, supabase,
+        supermemory, turso, upstash, wix, workos,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -119,6 +120,7 @@ mod tests {
         assert_outputs_match::<railway::postgres::RailwayPostgres>();
         assert_outputs_match::<railway::redis::RailwayRedis>();
         assert_outputs_match::<runloop::sandbox::RunloopSandbox>();
+        assert_outputs_match::<supabase::project::SupabaseProject>();
         assert_outputs_match::<supermemory::memory::SupermemoryMemory>();
         assert_outputs_match::<turso::database::TursoDatabase>();
         assert_outputs_match::<upstash::qstash::UpstashQstash>();
