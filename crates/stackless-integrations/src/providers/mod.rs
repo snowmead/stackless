@@ -12,6 +12,7 @@ pub mod clickhouse;
 pub mod cloudflare;
 pub mod daytona;
 pub mod e2b;
+pub mod elevenlabs;
 
 #[cfg(test)]
 mod tests {
@@ -20,7 +21,7 @@ mod tests {
 
     use crate::providers::{
         agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel, browserbase,
-        chroma, clickhouse, cloudflare, daytona, e2b,
+        chroma, clickhouse, cloudflare, daytona, e2b, elevenlabs,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -58,5 +59,6 @@ mod tests {
         assert_outputs_match::<clickhouse::postgres::ClickHousePostgres>();
         assert_outputs_match::<daytona::sandbox::DaytonaSandbox>();
         assert_outputs_match::<e2b::sandbox::E2BSandbox>();
+        assert_outputs_match::<elevenlabs::tts::ElevenLabsTts>();
     }
 }
