@@ -116,6 +116,7 @@ register_providers! {
     (privy::app, PrivyApp),
     (runloop::sandbox, RunloopSandbox),
     (supermemory::memory, SupermemoryMemory),
+    (turso::database, TursoDatabase),
     (workos::auth, WorkOSAuth),
 }
 
