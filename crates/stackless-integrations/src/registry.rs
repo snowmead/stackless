@@ -108,6 +108,8 @@ register_providers! {
     (neon::postgres, NeonPostgres),
     (openrouter::api, OpenRouterApi),
     (parallel::api, ParallelApi),
+    (planetscale::mysql, PlanetScaleMysql),
+    (planetscale::postgresql, PlanetScalePostgresql),
     (prisma::database, PrismaDatabase),
     (workos::auth, WorkOSAuth),
 }

@@ -26,6 +26,7 @@ pub mod metronome;
 pub mod neon;
 pub mod openrouter;
 pub mod parallel;
+pub mod planetscale;
 pub mod prisma;
 pub mod workos;
 
@@ -38,7 +39,7 @@ mod tests {
         agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel, browserbase,
         chroma, clickhouse, cloudflare, daytona, e2b, elevenlabs, exa, firecrawl, flyio, gitlab,
         heygen, huggingface, inngest, kernel, laravel_cloud, metronome, neon, openrouter, parallel,
-        prisma, workos,
+        planetscale, prisma, workos,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -94,6 +95,8 @@ mod tests {
         assert_outputs_match::<neon::postgres::NeonPostgres>();
         assert_outputs_match::<openrouter::api::OpenRouterApi>();
         assert_outputs_match::<parallel::api::ParallelApi>();
+        assert_outputs_match::<planetscale::mysql::PlanetScaleMysql>();
+        assert_outputs_match::<planetscale::postgresql::PlanetScalePostgresql>();
         assert_outputs_match::<prisma::database::PrismaDatabase>();
         assert_outputs_match::<workos::auth::WorkOSAuth>();
     }
