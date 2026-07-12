@@ -9,7 +9,7 @@ destroyed. A Rust workspace (edition 2024); `crates/stackless` is the CLI.
   code comments cite it as `§N`. Read before touching core / engine / the
   `Substrate` & integration seams.
 - **[VISION.md](VISION.md)** — founding vision: what stackless is and why.
-- **[README.md](README.md)** — overview + quickstart.
+- **[README.md](README.md)** — What / Why / How (agent-first overview).
 - **[docs/SCHEMA.md](docs/SCHEMA.md)** — the complete `stackless.toml` schema
   reference (what the parser/validator actually enforce).
 - **[docs/SELFTEST.md](docs/SELFTEST.md)** — the two-tier testing strategy
