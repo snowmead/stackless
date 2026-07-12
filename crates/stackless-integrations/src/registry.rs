@@ -117,6 +117,10 @@ register_providers! {
     (runloop::sandbox, RunloopSandbox),
     (supermemory::memory, SupermemoryMemory),
     (turso::database, TursoDatabase),
+    (upstash::qstash, UpstashQstash),
+    (upstash::redis, UpstashRedis),
+    (upstash::search, UpstashSearch),
+    (upstash::vector, UpstashVector),
     (workos::auth, WorkOSAuth),
 }
 
