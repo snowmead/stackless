@@ -93,6 +93,8 @@ register_providers! {
     (elevenlabs::tts, ElevenLabsTts),
     (exa::api, ExaApi),
     (firecrawl::api, FirecrawlApi),
+    (flyio::mpg, FlyioMpg),
+    (flyio::sprite, FlyioSprite),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {

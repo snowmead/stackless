@@ -15,6 +15,7 @@ pub mod e2b;
 pub mod elevenlabs;
 pub mod exa;
 pub mod firecrawl;
+pub mod flyio;
 
 #[cfg(test)]
 mod tests {
@@ -23,7 +24,7 @@ mod tests {
 
     use crate::providers::{
         agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel, browserbase,
-        chroma, clickhouse, cloudflare, daytona, e2b, elevenlabs, exa, firecrawl,
+        chroma, clickhouse, cloudflare, daytona, e2b, elevenlabs, exa, firecrawl, flyio,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -64,5 +65,7 @@ mod tests {
         assert_outputs_match::<elevenlabs::tts::ElevenLabsTts>();
         assert_outputs_match::<exa::api::ExaApi>();
         assert_outputs_match::<firecrawl::api::FirecrawlApi>();
+        assert_outputs_match::<flyio::mpg::FlyioMpg>();
+        assert_outputs_match::<flyio::sprite::FlyioSprite>();
     }
 }
