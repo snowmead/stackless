@@ -99,6 +99,7 @@ register_providers! {
     (heygen::api, HeyGenApi),
     (huggingface::bucket, HuggingFaceBucket),
     (huggingface::platform, HuggingFacePlatform),
+    (inngest::app, InngestApp),
 }
 
 fn lookup(provider: &str) -> Option<&'static ProviderEntry> {
