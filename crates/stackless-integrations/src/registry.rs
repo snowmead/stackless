@@ -121,6 +121,7 @@ register_providers! {
     (upstash::redis, UpstashRedis),
     (upstash::search, UpstashSearch),
     (upstash::vector, UpstashVector),
+    (wix::headless, WixHeadless),
     (workos::auth, WorkOSAuth),
 }
 

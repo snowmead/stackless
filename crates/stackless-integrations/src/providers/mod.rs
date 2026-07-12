@@ -35,6 +35,7 @@ pub mod runloop;
 pub mod supermemory;
 pub mod turso;
 pub mod upstash;
+pub mod wix;
 pub mod workos;
 
 #[cfg(test)]
@@ -46,7 +47,7 @@ mod tests {
         agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel, browserbase,
         chroma, clickhouse, cloudflare, daytona, e2b, elevenlabs, exa, firecrawl, flyio, gitlab,
         heygen, huggingface, inngest, kernel, laravel_cloud, metronome, neon, openrouter, parallel,
-        planetscale, postalform, posthog, prisma, privy, runloop, supermemory, turso, upstash,
+        planetscale, postalform, posthog, prisma, privy, runloop, supermemory, turso, upstash, wix,
         workos,
     };
 
@@ -116,6 +117,7 @@ mod tests {
         assert_outputs_match::<upstash::redis::UpstashRedis>();
         assert_outputs_match::<upstash::search::UpstashSearch>();
         assert_outputs_match::<upstash::vector::UpstashVector>();
+        assert_outputs_match::<wix::headless::WixHeadless>();
         assert_outputs_match::<workos::auth::WorkOSAuth>();
     }
 }
