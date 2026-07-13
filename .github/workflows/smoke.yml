@@ -95,6 +95,116 @@ jobs:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: mise run smoke-${{ matrix.provider }}
 
+  # Catalog integration smokes: one job per Stripe vendor, serial within the job.
+  # Runs all 67 integration fixtures under fixtures/smoke/integrations/.
+  smoke-integrations:
+    name: smoke-integrations (${{ matrix.vendor }})
+    if: ${{ github.repository_owner == 'snowmead' }}
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        vendor:
+          - agentmail
+          - agentphone
+          - algolia
+          - amplitude
+          - auth0
+          - base44_projects
+          - blaxel
+          - browserbase
+          - chroma
+          - clerk
+          - clickhouse
+          - cloudflare
+          - daytona
+          - e2b
+          - elevenlabs
+          - exa
+          - firecrawl
+          - flyio
+          - gitlab
+          - heygen
+          - huggingface
+          - inngest
+          - kernel
+          - laravel_cloud
+          - metronome
+          - mixpanel
+          - neon
+          - openrouter
+          - parallel
+          - planetscale
+          - postalform
+          - posthog
+          - prisma
+          - privy
+          - railway
+          - render
+          - runloop
+          - sentry
+          - supabase
+          - supermemory
+          - turso
+          - upstash
+          - wix
+          - wordpress.com
+          - workos
+    timeout-minutes: 360
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mise
+        uses: jdx/mise-action@v2
+        with:
+          install: false
+          cache: false
+      - name: Install tools (serial, retried)
+        env:
+          MISE_JOBS: "1"
+        shell: bash
+        run: |
+          mise install && exit 0
+          for i in 1 2; do echo "retry $i (force)"; sleep 10; mise install --force && exit 0; done
+          exit 1
+
+      - name: Rust / Cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Stripe CLI + projects plugin
+        run: |
+          curl -s https://packages.stripe.dev/api/security/keypair/stripe-cli-gpg/public \
+            | gpg --dearmor | sudo tee /usr/share/keyrings/stripe.gpg >/dev/null
+          echo "deb [signed-by=/usr/share/keyrings/stripe.gpg] https://packages.stripe.dev/stripe-cli-debian-local stable main" \
+            | sudo tee /etc/apt/sources.list.d/stripe.list
+          sudo apt-get update && sudo apt-get install -y stripe
+          stripe plugin install "projects@$(tr -d '[:space:]' < crates/stackless-stripe-projects/tests/fixtures/plugin-version.txt)"
+
+      - name: Stripe Projects snapshot gate (pinned)
+        run: |
+          pinned=$(tr -d '[:space:]' < crates/stackless-stripe-projects/tests/fixtures/plugin-version.txt)
+          installed=$(stripe projects --version | tr -d '[:space:]')
+          if [ "$installed" != "$pinned" ]; then
+            echo "::error::installed projects plugin $installed != pinned $pinned"; exit 1
+          fi
+          mise run stripe-refresh
+          git diff --exit-code -- \
+            crates/stackless-stripe-projects/tests/fixtures/command-surface.txt \
+            crates/stackless-stripe-projects/tests/fixtures/plugin-version.txt \
+            || { echo "::error::command surface is stale for plugin $pinned — run 'mise run stripe-refresh' and commit"; exit 1; }
+
+      - name: Stripe vendor link audit
+        env:
+          STRIPE_API_KEY: ${{ secrets.STRIPE_API_KEY }}
+        run: mise run smoke-integrations-audit
+
+      - name: Live integration smokes (${{ matrix.vendor }})
+        env:
+          STACKLESS_LIVE_SMOKE_REQUIRED: "1"
+          STRIPE_API_KEY: ${{ secrets.STRIPE_API_KEY }}
+        run: bash fixtures/smoke/run-integrations.sh --vendor ${{ matrix.vendor }}
+
   # Fleet state plane: run the CAS claim/lock tests against a live Turso
   # database. `mise run smoke-fleet` self-skips (exit 0) when the secrets are
   # absent, so this stays green on forks without them.

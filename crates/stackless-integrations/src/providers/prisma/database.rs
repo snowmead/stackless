@@ -36,7 +36,7 @@ impl Hostable for PrismaDatabase {
 impl FamilyResource for PrismaDatabase {
     type Config = PrismaDatabaseConfig;
     const PROVIDER_PREFIX: &'static str = "PRISMA";
-    // Provisional until pinned by `mise run discover prisma/database`.
+    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("DATABASE_URL", "database_url", true)];
 

@@ -37,7 +37,7 @@ impl Hostable for LaravelCloudValkey {
 impl FamilyResource for LaravelCloudValkey {
     type Config = LaravelCloudValkeyConfig;
     const PROVIDER_PREFIX: &'static str = "LARAVEL_CLOUD";
-    // Provisional until pinned by `mise run discover laravel_cloud/valkey`.
+    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("REDIS_URL", "redis_url", true)];
 

@@ -1,0 +1,23 @@
+# Live smoke: provisions `upstash/search` through Stripe Projects
+# under `--on local`. Run via:
+#   mise run smoke-integration-upstash-search
+# One-time: `stripe projects link upstash` (account-level).
+
+[stack]
+name = "smoke-upstash-search"
+
+[stack.projects]
+[stack.projects.stripe]
+# project anchor recorded on first successful `up`
+
+[integrations.search]
+provider = "upstash-search"
+
+[services.web]
+source      = { repo = "https://github.com/snowmead/stackless", ref = "main" }
+root_origin = true
+health      = { path = "/", contains = "stackless-smoke-ok" }
+env         = { PROBE = "${integrations.search.rest_url}" }
+
+[services.web.local]
+run = "sh -c 'd=$(mktemp -d); printf stackless-smoke-ok > \"$d/index.html\"; exec python3 -m http.server $PORT --bind 127.0.0.1 --directory \"$d\"'"

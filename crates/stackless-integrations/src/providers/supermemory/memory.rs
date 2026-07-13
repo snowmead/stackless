@@ -36,7 +36,7 @@ impl Hostable for SupermemoryMemory {
 impl FamilyResource for SupermemoryMemory {
     type Config = SupermemoryMemoryConfig;
     const PROVIDER_PREFIX: &'static str = "SUPERMEMORY";
-    // Provisional until pinned by `mise run discover supermemory/memory`.
+    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("API_KEY", "api_key", true)];
 

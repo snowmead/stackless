@@ -33,7 +33,7 @@ impl Hostable for MixpanelAnalytics {
 impl FamilyResource for MixpanelAnalytics {
     type Config = MixpanelAnalyticsConfig;
     const PROVIDER_PREFIX: &'static str = "MIXPANEL";
-    // Provisional until pinned by `mise run discover mixpanel/analytics`.
+    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("TOKEN", "token", true)];
 

@@ -36,7 +36,7 @@ impl Hostable for RailwayMongo {
 impl FamilyResource for RailwayMongo {
     type Config = RailwayMongoConfig;
     const PROVIDER_PREFIX: &'static str = "RAILWAY";
-    // Provisional until pinned by `mise run discover railway/mongo`.
+    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("DATABASE_URL", "database_url", true)];
 

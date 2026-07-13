@@ -40,7 +40,7 @@ impl Hostable for BlaxelAgentDrive {
 impl FamilyResource for BlaxelAgentDrive {
     type Config = BlaxelAgentDriveConfig;
     const PROVIDER_PREFIX: &'static str = "BLAXEL";
-    // Provisional until pinned by `mise run discover blaxel/agent-drive`.
+    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("API_KEY", "api_key", true)];
 

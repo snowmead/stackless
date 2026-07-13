@@ -50,7 +50,7 @@ impl Hostable for ClickHouseClickhouse {
 impl FamilyResource for ClickHouseClickhouse {
     type Config = ClickHouseClickhouseConfig;
     const PROVIDER_PREFIX: &'static str = "CLICKHOUSE";
-    // Provisional until pinned by `mise run discover clickhouse/clickhouse`.
+    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("CONNECTION_STRING", "connection_string", true)];
 

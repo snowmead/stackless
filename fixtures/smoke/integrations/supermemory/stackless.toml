@@ -1,0 +1,24 @@
+# Live smoke: provisions `supermemory/memory` through Stripe Projects
+# under `--on local`. Run via:
+#   mise run smoke-integration-supermemory
+# One-time: `stripe projects link supermemory` (account-level).
+
+[stack]
+name = "smoke-supermemory"
+
+[stack.projects]
+[stack.projects.stripe]
+# project anchor recorded on first successful `up`
+
+[integrations.memory]
+provider = "supermemory"
+plan     = "free"
+
+[services.web]
+source      = { repo = "https://github.com/snowmead/stackless", ref = "main" }
+root_origin = true
+health      = { path = "/", contains = "stackless-smoke-ok" }
+env         = { PROBE = "${integrations.memory.api_key}" }
+
+[services.web.local]
+run = "sh -c 'd=$(mktemp -d); printf stackless-smoke-ok > \"$d/index.html\"; exec python3 -m http.server $PORT --bind 127.0.0.1 --directory \"$d\"'"

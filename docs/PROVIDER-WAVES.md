@@ -31,8 +31,9 @@ Plan-tier catalog entries (`*/hobby`, `*/pro`, …) are not adapters.
    - its `register_providers!` row(s) and `pub mod` declarations
    - gap + hermetic tests
    - README/SCHEMA checklist tick for that family
-4. Keep `mise.toml` / `.github/workflows/smoke.yml` out of family PRs. Add smoke
-   fixtures and tasks in the **wave landing** commit when a provider is linked.
+4. Keep `mise.toml` / `.github/workflows/smoke.yml` out of family PRs unless
+   regenerating integration smoke fixtures for the landed wave (`mise run
+   generate-smoke-fixtures`).
 
 ## Landing
 
@@ -52,10 +53,10 @@ Do not invent codegen solely to avoid one-line registry conflicts.
 2. `Hostable` + `CatalogResource` (or Clerk-shaped bespoke `ProviderOps`).
 3. Registry row(s) + uniqueness tests green.
 4. Hermetic provision test via `provision_script`.
-5. `OUTPUT_FIELDS` pinned by live `mise run discover <ref>` when credentials
-   exist; otherwise provisional suffixes (same posture as Hyperdrive) with a
-   comment, and discover before first live smoke.
-6. Live smoke fixture **not** required per PR.
+5. `OUTPUT_FIELDS` pinned by live `mise run discover <ref>` + passing
+   `mise run smoke-integration-<slug>` (fixture under `fixtures/smoke/integrations/`).
+6. Live smoke fixture present and listed in `fixtures/smoke/integrations/manifest.json`
+   (required before wave landing; nightly CI runs vendor-sharded jobs).
 
 ## Suggested waves
 

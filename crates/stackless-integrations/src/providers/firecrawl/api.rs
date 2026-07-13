@@ -33,7 +33,7 @@ impl Hostable for FirecrawlApi {
 impl FamilyResource for FirecrawlApi {
     type Config = FirecrawlApiConfig;
     const PROVIDER_PREFIX: &'static str = "FIRECRAWL";
-    // Provisional until pinned by `mise run discover firecrawl/api`.
+    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("API_KEY", "api_key", true)];
 

@@ -33,7 +33,7 @@ impl Hostable for AmplitudeAnalytics {
 impl FamilyResource for AmplitudeAnalytics {
     type Config = AmplitudeAnalyticsConfig;
     const PROVIDER_PREFIX: &'static str = "AMPLITUDE";
-    // Provisional until pinned by `mise run discover amplitude/analytics`.
+    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("API_KEY", "api_key", true)];
 

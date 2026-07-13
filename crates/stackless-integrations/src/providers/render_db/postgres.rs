@@ -44,7 +44,7 @@ impl Hostable for RenderPostgres {
 impl FamilyResource for RenderPostgres {
     type Config = RenderPostgresConfig;
     const PROVIDER_PREFIX: &'static str = "RENDER";
-    // Provisional until pinned by `mise run discover render/postgres`.
+    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("DATABASE_URL", "database_url", true)];
 

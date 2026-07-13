@@ -1,0 +1,1073 @@
+{
+  "version": 1,
+  "count": 67,
+  "vendors": [
+    "agentmail",
+    "agentphone",
+    "algolia",
+    "amplitude",
+    "auth0",
+    "base44_projects",
+    "blaxel",
+    "browserbase",
+    "chroma",
+    "clerk",
+    "clickhouse",
+    "cloudflare",
+    "daytona",
+    "e2b",
+    "elevenlabs",
+    "exa",
+    "firecrawl",
+    "flyio",
+    "gitlab",
+    "heygen",
+    "huggingface",
+    "inngest",
+    "kernel",
+    "laravel_cloud",
+    "metronome",
+    "mixpanel",
+    "neon",
+    "openrouter",
+    "parallel",
+    "planetscale",
+    "postalform",
+    "posthog",
+    "prisma",
+    "privy",
+    "railway",
+    "render",
+    "runloop",
+    "sentry",
+    "supabase",
+    "supermemory",
+    "turso",
+    "upstash",
+    "wix",
+    "wordpress.com",
+    "workos"
+  ],
+  "integrations": [
+    {
+      "reference": "agentmail/api",
+      "slug": "agentmail",
+      "provider": "agentmail",
+      "vendor": "agentmail",
+      "paid": false,
+      "integration_name": "api",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.api.api_key}"
+      },
+      "fixture": "fixtures/smoke/integrations/agentmail/stackless.toml",
+      "prefix": "smoke-i-agentmail"
+    },
+    {
+      "reference": "agentphone/number",
+      "slug": "agentphone",
+      "provider": "agentphone",
+      "vendor": "agentphone",
+      "paid": true,
+      "integration_name": "phone",
+      "config": {
+        "agent_name": "stackless-smoke"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.phone.phone_number}"
+      },
+      "fixture": "fixtures/smoke/integrations/agentphone/stackless.toml",
+      "prefix": "smoke-i-agentphone"
+    },
+    {
+      "reference": "algolia/application",
+      "slug": "algolia",
+      "provider": "algolia",
+      "vendor": "algolia",
+      "paid": true,
+      "integration_name": "app",
+      "config": {
+        "name": "stackless-smoke-${instance.name}",
+        "region": "EU West",
+        "accept_terms": "stackless-smoke"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.app.app_id}"
+      },
+      "fixture": "fixtures/smoke/integrations/algolia/stackless.toml",
+      "prefix": "smoke-i-algolia"
+    },
+    {
+      "reference": "amplitude/analytics",
+      "slug": "amplitude",
+      "provider": "amplitude",
+      "vendor": "amplitude",
+      "paid": false,
+      "integration_name": "analytics",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.analytics.api_key}"
+      },
+      "fixture": "fixtures/smoke/integrations/amplitude/stackless.toml",
+      "prefix": "smoke-i-amplitude"
+    },
+    {
+      "reference": "auth0/client",
+      "slug": "auth0",
+      "provider": "auth0",
+      "vendor": "auth0",
+      "paid": false,
+      "integration_name": "auth",
+      "config": {
+        "name": "stackless-smoke-${instance.name}"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.auth.domain}"
+      },
+      "fixture": "fixtures/smoke/integrations/auth0/stackless.toml",
+      "prefix": "smoke-i-auth0"
+    },
+    {
+      "reference": "base44_projects/app",
+      "slug": "base44",
+      "provider": "base44",
+      "vendor": "base44_projects",
+      "paid": false,
+      "integration_name": "app",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.app.app_id}"
+      },
+      "fixture": "fixtures/smoke/integrations/base44/stackless.toml",
+      "prefix": "smoke-i-base44"
+    },
+    {
+      "reference": "blaxel/agent-drive",
+      "slug": "blaxel-agent-drive",
+      "provider": "blaxel-agent-drive",
+      "vendor": "blaxel",
+      "paid": false,
+      "integration_name": "resource",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.resource.api_key}"
+      },
+      "fixture": "fixtures/smoke/integrations/blaxel-agent-drive/stackless.toml",
+      "prefix": "smoke-i-blaxel-agent-drive"
+    },
+    {
+      "reference": "blaxel/sandbox",
+      "slug": "blaxel-sandbox",
+      "provider": "blaxel-sandbox",
+      "vendor": "blaxel",
+      "paid": false,
+      "integration_name": "sandbox",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.sandbox.api_key}"
+      },
+      "fixture": "fixtures/smoke/integrations/blaxel-sandbox/stackless.toml",
+      "prefix": "smoke-i-blaxel-sandbox"
+    },
+    {
+      "reference": "browserbase/project",
+      "slug": "browserbase",
+      "provider": "browserbase",
+      "vendor": "browserbase",
+      "paid": false,
+      "integration_name": "project",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.project.api_key}"
+      },
+      "fixture": "fixtures/smoke/integrations/browserbase/stackless.toml",
+      "prefix": "smoke-i-browserbase"
+    },
+    {
+      "reference": "chroma/database",
+      "slug": "chroma",
+      "provider": "chroma",
+      "vendor": "chroma",
+      "paid": true,
+      "integration_name": "db",
+      "config": {
+        "name": "stackless-smoke-${instance.name}"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.db.api_key}"
+      },
+      "fixture": "fixtures/smoke/integrations/chroma/stackless.toml",
+      "prefix": "smoke-i-chroma"
+    },
+    {
+      "reference": "clerk/auth",
+      "slug": "clerk",
+      "provider": "clerk",
+      "vendor": "clerk",
+      "paid": false,
+      "integration_name": "auth",
+      "config": {
+        "app_name": "stackless-smoke-${instance.name}",
+        "credential_set": "development"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.auth.secret_key}"
+      },
+      "fixture": "fixtures/smoke/integrations/clerk/stackless.toml",
+      "prefix": "smoke-i-clerk"
+    },
+    {
+      "reference": "clickhouse/clickhouse",
+      "slug": "clickhouse",
+      "provider": "clickhouse",
+      "vendor": "clickhouse",
+      "paid": false,
+      "integration_name": "resource",
+      "config": {
+        "name": "stackless-smoke-${instance.name}",
+        "region": "aws-us-west-2",
+        "minReplicaMemoryGb": "1",
+        "maxReplicaMemoryGb": "1"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.resource.connection_string}"
+      },
+      "fixture": "fixtures/smoke/integrations/clickhouse/stackless.toml",
+      "prefix": "smoke-i-clickhouse"
+    },
+    {
+      "reference": "clickhouse/postgres",
+      "slug": "clickhouse-postgres",
+      "provider": "clickhouse-postgres",
+      "vendor": "clickhouse",
+      "paid": false,
+      "integration_name": "db",
+      "config": {
+        "name": "stackless-smoke-${instance.name}",
+        "region": "aws-ap-northeast-1",
+        "size": "c6gd.large"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.db.connection_string}"
+      },
+      "fixture": "fixtures/smoke/integrations/clickhouse-postgres/stackless.toml",
+      "prefix": "smoke-i-clickhouse-postgres"
+    },
+    {
+      "reference": "cloudflare/browser-run",
+      "slug": "cloudflare-browser-run",
+      "provider": "cloudflare-browser-run",
+      "vendor": "cloudflare",
+      "paid": false,
+      "integration_name": "resource",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.resource.account_id}"
+      },
+      "fixture": "fixtures/smoke/integrations/cloudflare-browser-run/stackless.toml",
+      "prefix": "smoke-i-cloudflare-browser-run"
+    },
+    {
+      "reference": "cloudflare/d1",
+      "slug": "cloudflare-d1",
+      "provider": "cloudflare-d1",
+      "vendor": "cloudflare",
+      "paid": false,
+      "integration_name": "db",
+      "config": {
+        "name": "stackless-smoke-${instance.name}"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.db.database_id}"
+      },
+      "fixture": "fixtures/smoke/integrations/cloudflare-d1/stackless.toml",
+      "prefix": "smoke-i-cloudflare-d1"
+    },
+    {
+      "reference": "cloudflare/hyperdrive",
+      "slug": "cloudflare-hyperdrive",
+      "provider": "cloudflare-hyperdrive",
+      "vendor": "cloudflare",
+      "paid": false,
+      "integration_name": "hyperdrive",
+      "config": {
+        "name": "stackless-smoke-${instance.name}",
+        "database": "stackless-smoke",
+        "host": "stackless-smoke",
+        "password": "stackless-smoke",
+        "port": "1",
+        "scheme": "postgres",
+        "user": "stackless-smoke"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.hyperdrive.hyperdrive_id}"
+      },
+      "fixture": "fixtures/smoke/integrations/cloudflare-hyperdrive/stackless.toml",
+      "prefix": "smoke-i-cloudflare-hyperdrive"
+    },
+    {
+      "reference": "cloudflare/kv",
+      "slug": "cloudflare-kv",
+      "provider": "cloudflare-kv",
+      "vendor": "cloudflare",
+      "paid": false,
+      "integration_name": "cache",
+      "config": {
+        "title": "stackless-smoke-${instance.name}"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.cache.namespace_id}"
+      },
+      "fixture": "fixtures/smoke/integrations/cloudflare-kv/stackless.toml",
+      "prefix": "smoke-i-cloudflare-kv"
+    },
+    {
+      "reference": "cloudflare/queues",
+      "slug": "cloudflare-queues",
+      "provider": "cloudflare-queues",
+      "vendor": "cloudflare",
+      "paid": false,
+      "integration_name": "queues",
+      "config": {
+        "queue_name": "stackless-smoke"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.queues.queue_id}"
+      },
+      "fixture": "fixtures/smoke/integrations/cloudflare-queues/stackless.toml",
+      "prefix": "smoke-i-cloudflare-queues"
+    },
+    {
+      "reference": "cloudflare/r2:bucket",
+      "slug": "cloudflare-r2",
+      "provider": "cloudflare-r2",
+      "vendor": "cloudflare",
+      "paid": true,
+      "integration_name": "bucket",
+      "config": {
+        "name": "stackless-smoke-${instance.name}"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.bucket.account_id}"
+      },
+      "fixture": "fixtures/smoke/integrations/cloudflare-r2/stackless.toml",
+      "prefix": "smoke-i-cloudflare-r2"
+    },
+    {
+      "reference": "cloudflare/workers",
+      "slug": "cloudflare-workers",
+      "provider": "cloudflare-workers",
+      "vendor": "cloudflare",
+      "paid": false,
+      "integration_name": "workers",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.workers.account_id}"
+      },
+      "fixture": "fixtures/smoke/integrations/cloudflare-workers/stackless.toml",
+      "prefix": "smoke-i-cloudflare-workers"
+    },
+    {
+      "reference": "cloudflare/workers-ai",
+      "slug": "cloudflare-workers-ai",
+      "provider": "cloudflare-workers-ai",
+      "vendor": "cloudflare",
+      "paid": false,
+      "integration_name": "workers",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.workers.account_id}"
+      },
+      "fixture": "fixtures/smoke/integrations/cloudflare-workers-ai/stackless.toml",
+      "prefix": "smoke-i-cloudflare-workers-ai"
+    },
+    {
+      "reference": "daytona/sandbox",
+      "slug": "daytona",
+      "provider": "daytona",
+      "vendor": "daytona",
+      "paid": false,
+      "integration_name": "sandbox",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.sandbox.api_key}"
+      },
+      "fixture": "fixtures/smoke/integrations/daytona/stackless.toml",
+      "prefix": "smoke-i-daytona"
+    },
+    {
+      "reference": "e2b/sandbox",
+      "slug": "e2b",
+      "provider": "e2b",
+      "vendor": "e2b",
+      "paid": false,
+      "integration_name": "sandbox",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.sandbox.api_key}"
+      },
+      "fixture": "fixtures/smoke/integrations/e2b/stackless.toml",
+      "prefix": "smoke-i-e2b"
+    },
+    {
+      "reference": "elevenlabs/tts",
+      "slug": "elevenlabs",
+      "provider": "elevenlabs",
+      "vendor": "elevenlabs",
+      "paid": false,
+      "integration_name": "tts",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.tts.api_key}"
+      },
+      "fixture": "fixtures/smoke/integrations/elevenlabs/stackless.toml",
+      "prefix": "smoke-i-elevenlabs"
+    },
+    {
+      "reference": "exa/api",
+      "slug": "exa",
+      "provider": "exa",
+      "vendor": "exa",
+      "paid": false,
+      "integration_name": "api",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.api.api_key}"
+      },
+      "fixture": "fixtures/smoke/integrations/exa/stackless.toml",
+      "prefix": "smoke-i-exa"
+    },
+    {
+      "reference": "firecrawl/api",
+      "slug": "firecrawl",
+      "provider": "firecrawl",
+      "vendor": "firecrawl",
+      "paid": false,
+      "integration_name": "api",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.api.api_key}"
+      },
+      "fixture": "fixtures/smoke/integrations/firecrawl/stackless.toml",
+      "prefix": "smoke-i-firecrawl"
+    },
+    {
+      "reference": "flyio/mpg",
+      "slug": "flyio-mpg",
+      "provider": "flyio-mpg",
+      "vendor": "flyio",
+      "paid": true,
+      "integration_name": "db",
+      "config": {
+        "name": "stackless-smoke-${instance.name}",
+        "region": "ams",
+        "plan": "basic"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.db.database_url}"
+      },
+      "fixture": "fixtures/smoke/integrations/flyio-mpg/stackless.toml",
+      "prefix": "smoke-i-flyio-mpg"
+    },
+    {
+      "reference": "flyio/sprite",
+      "slug": "flyio-sprite",
+      "provider": "flyio-sprite",
+      "vendor": "flyio",
+      "paid": true,
+      "integration_name": "sprite",
+      "config": {
+        "name": "stackless-smoke-${instance.name}"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.sprite.sprite_url}"
+      },
+      "fixture": "fixtures/smoke/integrations/flyio-sprite/stackless.toml",
+      "prefix": "smoke-i-flyio-sprite"
+    },
+    {
+      "reference": "gitlab/project",
+      "slug": "gitlab",
+      "provider": "gitlab",
+      "vendor": "gitlab",
+      "paid": false,
+      "integration_name": "project",
+      "config": {
+        "name": "stackless-smoke-${instance.name}",
+        "visibility": "private"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.project.project_id}"
+      },
+      "fixture": "fixtures/smoke/integrations/gitlab/stackless.toml",
+      "prefix": "smoke-i-gitlab"
+    },
+    {
+      "reference": "heygen/api",
+      "slug": "heygen",
+      "provider": "heygen",
+      "vendor": "heygen",
+      "paid": true,
+      "integration_name": "api",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.api.api_key}"
+      },
+      "fixture": "fixtures/smoke/integrations/heygen/stackless.toml",
+      "prefix": "smoke-i-heygen"
+    },
+    {
+      "reference": "huggingface/platform",
+      "slug": "huggingface",
+      "provider": "huggingface",
+      "vendor": "huggingface",
+      "paid": false,
+      "integration_name": "platform",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.platform.token}"
+      },
+      "fixture": "fixtures/smoke/integrations/huggingface/stackless.toml",
+      "prefix": "smoke-i-huggingface"
+    },
+    {
+      "reference": "huggingface/bucket",
+      "slug": "huggingface-bucket",
+      "provider": "huggingface-bucket",
+      "vendor": "huggingface",
+      "paid": false,
+      "integration_name": "bucket",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.bucket.bucket_name}"
+      },
+      "fixture": "fixtures/smoke/integrations/huggingface-bucket/stackless.toml",
+      "prefix": "smoke-i-huggingface-bucket"
+    },
+    {
+      "reference": "inngest/app",
+      "slug": "inngest",
+      "provider": "inngest",
+      "vendor": "inngest",
+      "paid": false,
+      "integration_name": "app",
+      "config": {
+        "id": "stackless-smoke"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.app.event_key}"
+      },
+      "fixture": "fixtures/smoke/integrations/inngest/stackless.toml",
+      "prefix": "smoke-i-inngest"
+    },
+    {
+      "reference": "kernel/project",
+      "slug": "kernel",
+      "provider": "kernel",
+      "vendor": "kernel",
+      "paid": false,
+      "integration_name": "project",
+      "config": {
+        "name": "stackless-smoke-${instance.name}"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.project.api_key}"
+      },
+      "fixture": "fixtures/smoke/integrations/kernel/stackless.toml",
+      "prefix": "smoke-i-kernel"
+    },
+    {
+      "reference": "laravel_cloud/application",
+      "slug": "laravel-cloud",
+      "provider": "laravel-cloud",
+      "vendor": "laravel_cloud",
+      "paid": false,
+      "integration_name": "app",
+      "config": {
+        "name": "stackless-smoke-${instance.name}",
+        "repository": "stackless-smoke",
+        "region": "us-east-1"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.app.app_id}"
+      },
+      "fixture": "fixtures/smoke/integrations/laravel-cloud/stackless.toml",
+      "prefix": "smoke-i-laravel-cloud"
+    },
+    {
+      "reference": "laravel_cloud/mysql",
+      "slug": "laravel-cloud-mysql",
+      "provider": "laravel-cloud-mysql",
+      "vendor": "laravel_cloud",
+      "paid": false,
+      "integration_name": "db",
+      "config": {
+        "instance_size": "db-flex.m-1vcpu-512mb",
+        "region": "us-east-1"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.db.database_url}"
+      },
+      "fixture": "fixtures/smoke/integrations/laravel-cloud-mysql/stackless.toml",
+      "prefix": "smoke-i-laravel-cloud-mysql"
+    },
+    {
+      "reference": "laravel_cloud/valkey",
+      "slug": "laravel-cloud-valkey",
+      "provider": "laravel-cloud-valkey",
+      "vendor": "laravel_cloud",
+      "paid": false,
+      "integration_name": "cache",
+      "config": {
+        "instance_size": "valkey-flex-250mb",
+        "region": "us-east-1"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.cache.redis_url}"
+      },
+      "fixture": "fixtures/smoke/integrations/laravel-cloud-valkey/stackless.toml",
+      "prefix": "smoke-i-laravel-cloud-valkey"
+    },
+    {
+      "reference": "metronome/sandbox",
+      "slug": "metronome",
+      "provider": "metronome",
+      "vendor": "metronome",
+      "paid": false,
+      "integration_name": "sandbox",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.sandbox.api_key}"
+      },
+      "fixture": "fixtures/smoke/integrations/metronome/stackless.toml",
+      "prefix": "smoke-i-metronome"
+    },
+    {
+      "reference": "mixpanel/analytics",
+      "slug": "mixpanel",
+      "provider": "mixpanel",
+      "vendor": "mixpanel",
+      "paid": false,
+      "integration_name": "analytics",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.analytics.token}"
+      },
+      "fixture": "fixtures/smoke/integrations/mixpanel/stackless.toml",
+      "prefix": "smoke-i-mixpanel"
+    },
+    {
+      "reference": "neon/postgres",
+      "slug": "neon",
+      "provider": "neon",
+      "vendor": "neon",
+      "paid": false,
+      "integration_name": "db",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.db.database_url}"
+      },
+      "fixture": "fixtures/smoke/integrations/neon/stackless.toml",
+      "prefix": "smoke-i-neon"
+    },
+    {
+      "reference": "openrouter/api",
+      "slug": "openrouter",
+      "provider": "openrouter",
+      "vendor": "openrouter",
+      "paid": false,
+      "integration_name": "api",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.api.api_key}"
+      },
+      "fixture": "fixtures/smoke/integrations/openrouter/stackless.toml",
+      "prefix": "smoke-i-openrouter"
+    },
+    {
+      "reference": "parallel/api",
+      "slug": "parallel",
+      "provider": "parallel",
+      "vendor": "parallel",
+      "paid": true,
+      "integration_name": "api",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.api.api_key}"
+      },
+      "fixture": "fixtures/smoke/integrations/parallel/stackless.toml",
+      "prefix": "smoke-i-parallel"
+    },
+    {
+      "reference": "planetscale/mysql",
+      "slug": "planetscale-mysql",
+      "provider": "planetscale-mysql",
+      "vendor": "planetscale",
+      "paid": true,
+      "integration_name": "db",
+      "config": {
+        "name": "stackless-smoke-${instance.name}",
+        "cluster": "PS-10",
+        "region": "aws-ap-northeast"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.db.database_url}"
+      },
+      "fixture": "fixtures/smoke/integrations/planetscale-mysql/stackless.toml",
+      "prefix": "smoke-i-planetscale-mysql"
+    },
+    {
+      "reference": "planetscale/postgresql",
+      "slug": "planetscale-postgresql",
+      "provider": "planetscale-postgresql",
+      "vendor": "planetscale",
+      "paid": true,
+      "integration_name": "db",
+      "config": {
+        "name": "stackless-smoke-${instance.name}",
+        "cluster": "PS-5",
+        "region": "aws-ap-northeast"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.db.database_url}"
+      },
+      "fixture": "fixtures/smoke/integrations/planetscale-postgresql/stackless.toml",
+      "prefix": "smoke-i-planetscale-postgresql"
+    },
+    {
+      "reference": "postalform/mail",
+      "slug": "postalform",
+      "provider": "postalform",
+      "vendor": "postalform",
+      "paid": true,
+      "integration_name": "mail",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.mail.api_key}"
+      },
+      "fixture": "fixtures/smoke/integrations/postalform/stackless.toml",
+      "prefix": "smoke-i-postalform"
+    },
+    {
+      "reference": "posthog/analytics",
+      "slug": "posthog",
+      "provider": "posthog",
+      "vendor": "posthog",
+      "paid": false,
+      "integration_name": "analytics",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.analytics.api_key}"
+      },
+      "fixture": "fixtures/smoke/integrations/posthog/stackless.toml",
+      "prefix": "smoke-i-posthog"
+    },
+    {
+      "reference": "prisma/database",
+      "slug": "prisma",
+      "provider": "prisma",
+      "vendor": "prisma",
+      "paid": false,
+      "integration_name": "db",
+      "config": {
+        "region": "us-east-1"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.db.database_url}"
+      },
+      "fixture": "fixtures/smoke/integrations/prisma/stackless.toml",
+      "prefix": "smoke-i-prisma"
+    },
+    {
+      "reference": "privy/app",
+      "slug": "privy",
+      "provider": "privy",
+      "vendor": "privy",
+      "paid": false,
+      "integration_name": "app",
+      "config": {
+        "app_name": "stackless-smoke-${instance.name}"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.app.app_id}"
+      },
+      "fixture": "fixtures/smoke/integrations/privy/stackless.toml",
+      "prefix": "smoke-i-privy"
+    },
+    {
+      "reference": "railway/bucket",
+      "slug": "railway-bucket",
+      "provider": "railway-bucket",
+      "vendor": "railway",
+      "paid": false,
+      "integration_name": "bucket",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.bucket.bucket}"
+      },
+      "fixture": "fixtures/smoke/integrations/railway-bucket/stackless.toml",
+      "prefix": "smoke-i-railway-bucket"
+    },
+    {
+      "reference": "railway/hosting",
+      "slug": "railway-hosting",
+      "provider": "railway-hosting",
+      "vendor": "railway",
+      "paid": false,
+      "integration_name": "hosting",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.hosting.project_id}"
+      },
+      "fixture": "fixtures/smoke/integrations/railway-hosting/stackless.toml",
+      "prefix": "smoke-i-railway-hosting"
+    },
+    {
+      "reference": "railway/mongo",
+      "slug": "railway-mongo",
+      "provider": "railway-mongo",
+      "vendor": "railway",
+      "paid": false,
+      "integration_name": "db",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.db.database_url}"
+      },
+      "fixture": "fixtures/smoke/integrations/railway-mongo/stackless.toml",
+      "prefix": "smoke-i-railway-mongo"
+    },
+    {
+      "reference": "railway/postgres",
+      "slug": "railway-postgres",
+      "provider": "railway-postgres",
+      "vendor": "railway",
+      "paid": false,
+      "integration_name": "db",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.db.database_url}"
+      },
+      "fixture": "fixtures/smoke/integrations/railway-postgres/stackless.toml",
+      "prefix": "smoke-i-railway-postgres"
+    },
+    {
+      "reference": "railway/redis",
+      "slug": "railway-redis",
+      "provider": "railway-redis",
+      "vendor": "railway",
+      "paid": false,
+      "integration_name": "cache",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.cache.redis_url}"
+      },
+      "fixture": "fixtures/smoke/integrations/railway-redis/stackless.toml",
+      "prefix": "smoke-i-railway-redis"
+    },
+    {
+      "reference": "render/postgres",
+      "slug": "render-postgres",
+      "provider": "render-postgres",
+      "vendor": "render",
+      "paid": true,
+      "integration_name": "db",
+      "config": {
+        "name": "stackless-smoke-${instance.name}"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.db.database_url}"
+      },
+      "fixture": "fixtures/smoke/integrations/render-postgres/stackless.toml",
+      "prefix": "smoke-i-render-postgres"
+    },
+    {
+      "reference": "runloop/sandbox",
+      "slug": "runloop",
+      "provider": "runloop",
+      "vendor": "runloop",
+      "paid": false,
+      "integration_name": "sandbox",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.sandbox.api_key}"
+      },
+      "fixture": "fixtures/smoke/integrations/runloop/stackless.toml",
+      "prefix": "smoke-i-runloop"
+    },
+    {
+      "reference": "sentry/project",
+      "slug": "sentry",
+      "provider": "sentry",
+      "vendor": "sentry",
+      "paid": false,
+      "integration_name": "project",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.project.dsn}"
+      },
+      "fixture": "fixtures/smoke/integrations/sentry/stackless.toml",
+      "prefix": "smoke-i-sentry"
+    },
+    {
+      "reference": "sentry/seer",
+      "slug": "sentry-seer",
+      "provider": "sentry-seer",
+      "vendor": "sentry",
+      "paid": false,
+      "integration_name": "seer",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.seer.auth_token}"
+      },
+      "fixture": "fixtures/smoke/integrations/sentry-seer/stackless.toml",
+      "prefix": "smoke-i-sentry-seer"
+    },
+    {
+      "reference": "supabase/project",
+      "slug": "supabase",
+      "provider": "supabase",
+      "vendor": "supabase",
+      "paid": false,
+      "integration_name": "project",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.project.url}"
+      },
+      "fixture": "fixtures/smoke/integrations/supabase/stackless.toml",
+      "prefix": "smoke-i-supabase"
+    },
+    {
+      "reference": "supermemory/memory",
+      "slug": "supermemory",
+      "provider": "supermemory",
+      "vendor": "supermemory",
+      "paid": true,
+      "integration_name": "memory",
+      "config": {
+        "plan": "free"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.memory.api_key}"
+      },
+      "fixture": "fixtures/smoke/integrations/supermemory/stackless.toml",
+      "prefix": "smoke-i-supermemory"
+    },
+    {
+      "reference": "turso/database",
+      "slug": "turso",
+      "provider": "turso",
+      "vendor": "turso",
+      "paid": false,
+      "integration_name": "db",
+      "config": {
+        "name": "stackless-smoke-${instance.name}",
+        "location": "aws-us-east-1"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.db.database_url}"
+      },
+      "fixture": "fixtures/smoke/integrations/turso/stackless.toml",
+      "prefix": "smoke-i-turso"
+    },
+    {
+      "reference": "upstash/qstash",
+      "slug": "upstash-qstash",
+      "provider": "upstash-qstash",
+      "vendor": "upstash",
+      "paid": true,
+      "integration_name": "queue",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.queue.token}"
+      },
+      "fixture": "fixtures/smoke/integrations/upstash-qstash/stackless.toml",
+      "prefix": "smoke-i-upstash-qstash"
+    },
+    {
+      "reference": "upstash/redis",
+      "slug": "upstash-redis",
+      "provider": "upstash-redis",
+      "vendor": "upstash",
+      "paid": true,
+      "integration_name": "cache",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.cache.redis_url}"
+      },
+      "fixture": "fixtures/smoke/integrations/upstash-redis/stackless.toml",
+      "prefix": "smoke-i-upstash-redis"
+    },
+    {
+      "reference": "upstash/search",
+      "slug": "upstash-search",
+      "provider": "upstash-search",
+      "vendor": "upstash",
+      "paid": true,
+      "integration_name": "search",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.search.rest_url}"
+      },
+      "fixture": "fixtures/smoke/integrations/upstash-search/stackless.toml",
+      "prefix": "smoke-i-upstash-search"
+    },
+    {
+      "reference": "upstash/vector",
+      "slug": "upstash-vector",
+      "provider": "upstash-vector",
+      "vendor": "upstash",
+      "paid": true,
+      "integration_name": "vector",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.vector.rest_url}"
+      },
+      "fixture": "fixtures/smoke/integrations/upstash-vector/stackless.toml",
+      "prefix": "smoke-i-upstash-vector"
+    },
+    {
+      "reference": "wix/headless",
+      "slug": "wix",
+      "provider": "wix",
+      "vendor": "wix",
+      "paid": true,
+      "integration_name": "headless",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.headless.app_id}"
+      },
+      "fixture": "fixtures/smoke/integrations/wix/stackless.toml",
+      "prefix": "smoke-i-wix"
+    },
+    {
+      "reference": "wordpress.com/site",
+      "slug": "wordpress-com",
+      "provider": "wordpress-com",
+      "vendor": "wordpress.com",
+      "paid": true,
+      "integration_name": "site",
+      "config": {
+        "plan": "free"
+      },
+      "probe_env": {
+        "PROBE": "${integrations.site.site_url}"
+      },
+      "fixture": "fixtures/smoke/integrations/wordpress-com/stackless.toml",
+      "prefix": "smoke-i-wordpress-com"
+    },
+    {
+      "reference": "workos/auth",
+      "slug": "workos",
+      "provider": "workos",
+      "vendor": "workos",
+      "paid": true,
+      "integration_name": "auth",
+      "config": {},
+      "probe_env": {
+        "PROBE": "${integrations.auth.api_key}"
+      },
+      "fixture": "fixtures/smoke/integrations/workos/stackless.toml",
+      "prefix": "smoke-i-workos"
+    }
+  ]
+}

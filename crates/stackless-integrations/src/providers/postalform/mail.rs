@@ -38,7 +38,7 @@ impl Hostable for PostalFormMail {
 impl FamilyResource for PostalFormMail {
     type Config = PostalFormMailConfig;
     const PROVIDER_PREFIX: &'static str = "POSTALFORM";
-    // Provisional until pinned by `mise run discover postalform/mail`.
+    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("API_KEY", "api_key", true)];
 

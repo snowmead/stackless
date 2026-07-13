@@ -33,7 +33,7 @@ impl Hostable for ElevenLabsTts {
 impl FamilyResource for ElevenLabsTts {
     type Config = ElevenLabsTtsConfig;
     const PROVIDER_PREFIX: &'static str = "ELEVENLABS";
-    // Provisional until pinned by `mise run discover elevenlabs/tts`.
+    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("API_KEY", "api_key", true)];
 

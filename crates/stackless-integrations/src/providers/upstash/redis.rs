@@ -46,7 +46,7 @@ impl Hostable for UpstashRedis {
 impl FamilyResource for UpstashRedis {
     type Config = UpstashRedisConfig;
     const PROVIDER_PREFIX: &'static str = "UPSTASH";
-    // Provisional until pinned by `mise run discover upstash/redis`.
+    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
         ("REDIS_URL", "redis_url", true),
         ("REST_TOKEN", "rest_token", false),

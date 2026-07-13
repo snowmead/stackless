@@ -38,7 +38,7 @@ impl Hostable for FlyioMpg {
 impl FamilyResource for FlyioMpg {
     type Config = FlyioMpgConfig;
     const PROVIDER_PREFIX: &'static str = "FLYIO";
-    // Provisional until pinned by `mise run discover flyio/mpg`.
+    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("DATABASE_URL", "database_url", true)];
 

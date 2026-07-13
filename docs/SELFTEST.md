@@ -34,8 +34,13 @@ fixtures/smoke/
   render/stackless.toml   # render static site publishing fixtures/smoke/site
   flyio/stackless.toml    # Fly Machines image deploy (paid; --confirm-paid)
   netlify/stackless.toml  # Netlify file-digest static upload
-  cloudflare/stackless.toml  # integrations on --on local
+  cloudflare/stackless.toml  # deprecated combined fixture; use integrations/
+  integrations/            # one stackless.toml per catalog integration (67)
 ```
+
+Substrate smokes run on **every PR** via `ci.yml` (`live-smoke`). Catalog
+integration smokes (67 fixtures under `fixtures/smoke/integrations/`) run
+**nightly** via `smoke.yml` `smoke-integrations` (vendor-sharded matrix).
 
 Run locally (reads creds from `.stackless.env`):
 
@@ -44,20 +49,24 @@ mise run smoke-vercel     # up smoke-v --on vercel, then down, fail if either fa
 mise run smoke-render
 mise run smoke-fly        # paid Fly app — needs --confirm-paid in the fixture runner
 mise run smoke-netlify
-mise run smoke            # vercel + render (see mise.toml for the full set)
+mise run smoke-cloudflare # all cloudflare integration smokes (serial, spaced)
+mise run smoke            # substrate smokes only (see mise.toml)
+mise run smoke-integration-neon   # one catalog integration
+mise run smoke-integrations       # full integration manifest
+mise run smoke-integrations-audit # stripe projects link audit
 ```
 
-In CI: `ci.yml` runs one gated job per provider on every PR to `main` (plus a
-`live-fleet` job for Turso). Secrets: `STRIPE_API_KEY` / `VERCEL_TOKEN` /
-`RENDER_API_KEY` / `FLY_API_TOKEN` / `STACKLESS_STATE_URL` /
-`STACKLESS_STATE_TOKEN`. `.github/workflows/smoke.yml` repeats the provider
-matrix nightly and on demand.
+In CI: `ci.yml` runs one gated job per **substrate** on every PR to `main` (plus
+`live-fleet` for Turso). `.github/workflows/smoke.yml` repeats the substrate
+matrix nightly and runs the full **integration** vendor matrix (`smoke-integrations`
+job). Secrets: `STRIPE_API_KEY` / `VERCEL_TOKEN` / `RENDER_API_KEY` /
+`FLY_API_TOKEN` / `STACKLESS_STATE_URL` / `STACKLESS_STATE_TOKEN`.
 
 ### Prerequisites (one-time, human)
 
-- The Stripe Project must have the provider **linked**: `stripe projects link
-  vercel` / `render` / `cloudflare` / `fly` / `netlify` (account-level; new projects inherit it).
-  Check with `stripe projects status`.
+- The Stripe account must have each integration vendor **linked**:
+  `mise run smoke-integrations-audit` lists missing `stripe projects link <vendor>`
+  steps (account-level; interactive OAuth).
 - The provider API token must belong to the **linked** account/team. For Vercel,
   the substrate already reads the Stripe-managed token + `VERCEL_ORG_ID` from the
   instance env — see the **Vercel notes** at the end of this doc.
@@ -71,13 +80,15 @@ matrix nightly and on demand.
    `docs/ADDING-A-PROVIDER.md` for the full checklist.
 2. Add Tier-1 hermetic tests (mock the provider API + Stripe runner) and a
    catalog-gap test (`verify_service`) per config.
-3. Drop a `fixtures/smoke/<name>/stackless.toml`. A **substrate** deploys
-   `fixtures/smoke/site`; a **catalog integration** (Clerk, Cloudflare R2/KV/…)
-   has no deploy target, so it runs `--on local` and provisions the resource(s)
-   alongside a trivial local probe service (see `fixtures/smoke/cloudflare`). The
-   first live run is the source of truth for the credential output envelope —
-   reconcile the provider's `ENV_KEYS`/`parse_outputs` with what Stripe returns.
-4. Add a `mise run smoke-<name>` task and a matrix entry in `smoke.yml`.
+3. Regenerate or add a fixture under `fixtures/smoke/integrations/<slug>/` via
+   `mise run generate-smoke-fixtures` (catalog integrations), or
+   `fixtures/smoke/<name>/stackless.toml` for a **substrate** (deploys
+   `fixtures/smoke/site`). Integrations run `--on local` with a trivial probe
+   service (see `fixtures/smoke/integrations/README.md`). The first live run
+   pins the credential output envelope — reconcile `OUTPUT_FIELDS` with
+   `mise run discover <reference>`.
+4. Add a `mise run smoke-integration-<slug>` task (generated) or substrate
+   `smoke-<name>` task and a matrix entry in `smoke.yml`.
 
 ## Stripe Projects plugin snapshots (versioned, auto-watched)
 

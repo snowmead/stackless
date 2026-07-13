@@ -1,0 +1,23 @@
+# Live smoke: provisions `railway/hosting` through Stripe Projects
+# under `--on local`. Run via:
+#   mise run smoke-integration-railway-hosting
+# One-time: `stripe projects link railway` (account-level).
+
+[stack]
+name = "smoke-railway-hosting"
+
+[stack.projects]
+[stack.projects.stripe]
+# project anchor recorded on first successful `up`
+
+[integrations.hosting]
+provider = "railway-hosting"
+
+[services.web]
+source      = { repo = "https://github.com/snowmead/stackless", ref = "main" }
+root_origin = true
+health      = { path = "/", contains = "stackless-smoke-ok" }
+env         = { PROBE = "${integrations.hosting.project_id}" }
+
+[services.web.local]
+run = "sh -c 'd=$(mktemp -d); printf stackless-smoke-ok > \"$d/index.html\"; exec python3 -m http.server $PORT --bind 127.0.0.1 --directory \"$d\"'"

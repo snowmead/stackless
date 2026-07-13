@@ -44,7 +44,7 @@ impl Hostable for ParallelApi {
 impl FamilyResource for ParallelApi {
     type Config = ParallelApiConfig;
     const PROVIDER_PREFIX: &'static str = "PARALLEL";
-    // Provisional until pinned by `mise run discover parallel/api`.
+    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("API_KEY", "api_key", true)];
 

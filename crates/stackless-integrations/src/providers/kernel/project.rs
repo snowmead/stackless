@@ -36,7 +36,7 @@ impl Hostable for KERNELProject {
 impl FamilyResource for KERNELProject {
     type Config = KERNELProjectConfig;
     const PROVIDER_PREFIX: &'static str = "KERNEL";
-    // Provisional until pinned by `mise run discover kernel/project`.
+    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("API_KEY", "api_key", true)];
 

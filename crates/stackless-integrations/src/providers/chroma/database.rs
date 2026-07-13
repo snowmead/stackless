@@ -36,7 +36,7 @@ impl Hostable for ChromaDatabase {
 impl FamilyResource for ChromaDatabase {
     type Config = ChromaDatabaseConfig;
     const PROVIDER_PREFIX: &'static str = "CHROMA";
-    // Provisional until pinned by `mise run discover chroma/database`.
+    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("API_KEY", "api_key", true)];
 

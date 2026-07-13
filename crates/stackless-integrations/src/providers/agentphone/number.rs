@@ -40,7 +40,7 @@ impl Hostable for AgentPhoneNumber {
 impl FamilyResource for AgentPhoneNumber {
     type Config = AgentPhoneNumberConfig;
     const PROVIDER_PREFIX: &'static str = "AGENTPHONE";
-    // Provisional until pinned by `mise run discover agentphone/number`.
+    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("PHONE_NUMBER", "phone_number", true)];
 

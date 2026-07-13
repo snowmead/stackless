@@ -1,6 +1,6 @@
 //! Railway catalog resources via Stripe Projects.
 //!
-//! Output envelopes are provisional until pinned by `xtask discover`.
+//! Live smoke fixtures under fixtures/smoke/integrations/; pin OUTPUT_FIELDS via discover + smoke.
 
 pub mod bucket;
 pub mod hosting;

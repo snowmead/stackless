@@ -38,7 +38,7 @@ impl Hostable for HuggingFaceBucket {
 impl FamilyResource for HuggingFaceBucket {
     type Config = HuggingFaceBucketConfig;
     const PROVIDER_PREFIX: &'static str = "HUGGINGFACE";
-    // Provisional until pinned by `mise run discover huggingface/bucket`.
+    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("BUCKET_NAME", "bucket_name", true)];
 
