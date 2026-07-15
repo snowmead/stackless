@@ -6,6 +6,7 @@ pub mod auth0;
 pub mod base44_projects;
 pub mod blaxel;
 pub mod browserbase;
+pub mod chatbase;
 pub mod chroma;
 pub mod clerk;
 pub mod clickhouse;
@@ -51,10 +52,10 @@ mod tests {
 
     use crate::providers::{
         agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel, browserbase,
-        chroma, clickhouse, cloudflare, daytona, e2b, elevenlabs, exa, firecrawl, flyio, gitlab,
-        heygen, huggingface, inngest, kernel, laravel_cloud, metronome, mixpanel, neon, openrouter,
-        parallel, planetscale, postalform, posthog, prisma, privy, railway, render_db, runloop,
-        sentry, supabase, supermemory, turso, upstash, wix, wordpress_com, workos,
+        chatbase, chroma, clickhouse, cloudflare, daytona, e2b, elevenlabs, exa, firecrawl, flyio,
+        gitlab, heygen, huggingface, inngest, kernel, laravel_cloud, metronome, mixpanel, neon,
+        openrouter, parallel, planetscale, postalform, posthog, prisma, privy, railway, render_db,
+        runloop, sentry, supabase, supermemory, turso, upstash, wix, wordpress_com, workos,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -70,6 +71,7 @@ mod tests {
 
     #[test]
     fn catalog_outputs_match_output_fields() {
+        assert_outputs_match::<chatbase::agent::ChatbaseAgent>();
         assert_outputs_match::<cloudflare::r2::CloudflareR2>();
         assert_outputs_match::<cloudflare::kv::CloudflareKv>();
         assert_outputs_match::<cloudflare::d1::CloudflareD1>();

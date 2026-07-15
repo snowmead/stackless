@@ -68,6 +68,7 @@ macro_rules! register_providers {
 
 register_providers! {
     (clerk, ClerkAuth),
+    (chatbase::agent, ChatbaseAgent),
     (cloudflare::browser_run, CloudflareBrowserRun),
     (cloudflare::d1, CloudflareD1),
     (cloudflare::hyperdrive, CloudflareHyperdrive),
