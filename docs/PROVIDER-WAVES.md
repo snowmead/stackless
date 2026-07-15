@@ -67,3 +67,4 @@ Do not invent codegen solely to avoid one-line registry conflicts.
 | 4 | E2B, Daytona, Browserbase, Blaxel, Runloop, KERNEL, AgentMail, AgentPhone |
 | 5 | Railway, GitLab, Laravel_Cloud, WordPress.com (site), Base44_Projects, Wix, PostalForm, Metronome, Supermemory |
 | 6 | Render (`render/postgres`), Flyio (`flyio/mpg`, `flyio/sprite`) |
+| 7 | Chatbase, Composio, Customer.io, Depot, Pydantic Logfire, RevenueCat, Schematic, Steel, Tabstack (exclude Spaceship domain; NodeOps/Datadog/Klaviyo absent) |
