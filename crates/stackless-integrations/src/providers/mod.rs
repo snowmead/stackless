@@ -71,7 +71,6 @@ mod tests {
 
     #[test]
     fn catalog_outputs_match_output_fields() {
-        assert_outputs_match::<chatbase::agent::ChatbaseAgent>();
         assert_outputs_match::<cloudflare::r2::CloudflareR2>();
         assert_outputs_match::<cloudflare::kv::CloudflareKv>();
         assert_outputs_match::<cloudflare::d1::CloudflareD1>();
@@ -89,6 +88,7 @@ mod tests {
         assert_outputs_match::<blaxel::agent_drive::BlaxelAgentDrive>();
         assert_outputs_match::<blaxel::sandbox::BlaxelSandbox>();
         assert_outputs_match::<browserbase::project::BrowserbaseProject>();
+        assert_outputs_match::<chatbase::agent::ChatbaseAgent>();
         assert_outputs_match::<chroma::database::ChromaDatabase>();
         assert_outputs_match::<clickhouse::cluster::ClickHouseClickhouse>();
         assert_outputs_match::<clickhouse::postgres::ClickHousePostgres>();

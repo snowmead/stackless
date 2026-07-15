@@ -68,7 +68,6 @@ macro_rules! register_providers {
 
 register_providers! {
     (clerk, ClerkAuth),
-    (chatbase::agent, ChatbaseAgent),
     (cloudflare::browser_run, CloudflareBrowserRun),
     (cloudflare::d1, CloudflareD1),
     (cloudflare::hyperdrive, CloudflareHyperdrive),
@@ -86,6 +85,7 @@ register_providers! {
     (blaxel::agent_drive, BlaxelAgentDrive),
     (blaxel::sandbox, BlaxelSandbox),
     (browserbase::project, BrowserbaseProject),
+    (chatbase::agent, ChatbaseAgent),
     (chroma::database, ChromaDatabase),
     (clickhouse::cluster, ClickHouseClickhouse),
     (clickhouse::postgres, ClickHousePostgres),
