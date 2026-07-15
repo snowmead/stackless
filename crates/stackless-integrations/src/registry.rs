@@ -88,6 +88,7 @@ register_providers! {
     (chroma::database, ChromaDatabase),
     (clickhouse::cluster, ClickHouseClickhouse),
     (clickhouse::postgres, ClickHousePostgres),
+    (composio::project, ComposioProject),
     (daytona::sandbox, DaytonaSandbox),
     (e2b::sandbox, E2BSandbox),
     (elevenlabs::tts, ElevenLabsTts),
