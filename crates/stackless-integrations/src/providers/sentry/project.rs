@@ -38,7 +38,7 @@ impl Hostable for SentryProject {
 impl FamilyResource for SentryProject {
     type Config = SentryProjectConfig;
     const PROVIDER_PREFIX: &'static str = "SENTRY";
-    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
+    // Provisional until pinned by `mise run discover sentry/project`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[("DSN", "dsn", true)];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<SentryProjectConfig, IntegrationError> {

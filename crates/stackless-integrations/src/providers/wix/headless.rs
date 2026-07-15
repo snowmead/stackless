@@ -38,7 +38,7 @@ impl Hostable for WixHeadless {
 impl FamilyResource for WixHeadless {
     type Config = WixHeadlessConfig;
     const PROVIDER_PREFIX: &'static str = "WIX";
-    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
+    // Provisional until pinned by `mise run discover wix/headless`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("APP_ID", "app_id", true)];
 

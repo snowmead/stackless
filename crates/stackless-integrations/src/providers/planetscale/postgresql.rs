@@ -40,7 +40,7 @@ impl Hostable for PlanetScalePostgresql {
 impl FamilyResource for PlanetScalePostgresql {
     type Config = PlanetScalePostgresqlConfig;
     const PROVIDER_PREFIX: &'static str = "PLANETSCALE";
-    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
+    // Provisional until pinned by `mise run discover planetscale/postgresql`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("DATABASE_URL", "database_url", true)];
 

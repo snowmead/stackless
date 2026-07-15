@@ -36,7 +36,7 @@ impl Hostable for Base44ProjectsApp {
 impl FamilyResource for Base44ProjectsApp {
     type Config = Base44ProjectsAppConfig;
     const PROVIDER_PREFIX: &'static str = "BASE44";
-    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
+    // Provisional until pinned by `mise run discover base44_projects/app`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("APP_ID", "app_id", true)];
 

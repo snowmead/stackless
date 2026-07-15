@@ -37,7 +37,7 @@ impl Hostable for TursoDatabase {
 impl FamilyResource for TursoDatabase {
     type Config = TursoDatabaseConfig;
     const PROVIDER_PREFIX: &'static str = "TURSO";
-    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
+    // Provisional until pinned by `mise run discover turso/database`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
         ("DATABASE_URL", "database_url", true),
         ("AUTH_TOKEN", "auth_token", true),

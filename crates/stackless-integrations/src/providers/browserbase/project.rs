@@ -33,7 +33,7 @@ impl Hostable for BrowserbaseProject {
 impl FamilyResource for BrowserbaseProject {
     type Config = BrowserbaseProjectConfig;
     const PROVIDER_PREFIX: &'static str = "BROWSERBASE";
-    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
+    // Provisional until pinned by `mise run discover browserbase/project`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
         ("API_KEY", "api_key", true),
         ("PROJECT_ID", "project_id", true),

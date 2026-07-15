@@ -42,7 +42,7 @@ impl Hostable for LaravelCloudApplication {
 impl FamilyResource for LaravelCloudApplication {
     type Config = LaravelCloudApplicationConfig;
     const PROVIDER_PREFIX: &'static str = "LARAVEL_CLOUD";
-    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
+    // Provisional until pinned by `mise run discover laravel_cloud/application`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("APP_ID", "app_id", true)];
 

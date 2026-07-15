@@ -33,7 +33,7 @@ impl Hostable for RailwayHosting {
 impl FamilyResource for RailwayHosting {
     type Config = RailwayHostingConfig;
     const PROVIDER_PREFIX: &'static str = "RAILWAY";
-    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
+    // Provisional until pinned by `mise run discover railway/hosting`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("PROJECT_ID", "project_id", true)];
 

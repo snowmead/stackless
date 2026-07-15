@@ -38,7 +38,7 @@ impl Hostable for SupabaseProject {
 impl FamilyResource for SupabaseProject {
     type Config = SupabaseProjectConfig;
     const PROVIDER_PREFIX: &'static str = "SUPABASE";
-    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
+    // Provisional until pinned by `mise run discover supabase/project`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
         ("URL", "url", true),
         ("ANON_KEY", "anon_key", true),

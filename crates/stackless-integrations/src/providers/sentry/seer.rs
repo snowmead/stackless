@@ -33,7 +33,7 @@ impl Hostable for SentrySeer {
 impl FamilyResource for SentrySeer {
     type Config = SentrySeerConfig;
     const PROVIDER_PREFIX: &'static str = "SENTRY";
-    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
+    // Provisional until pinned by `mise run discover sentry/seer`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("AUTH_TOKEN", "auth_token", true)];
 

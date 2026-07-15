@@ -70,7 +70,7 @@ impl Hostable for DaytonaSandbox {
 impl FamilyResource for DaytonaSandbox {
     type Config = DaytonaSandboxConfig;
     const PROVIDER_PREFIX: &'static str = "DAYTONA";
-    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
+    // Provisional until pinned by `mise run discover daytona/sandbox`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("API_KEY", "api_key", true)];
 

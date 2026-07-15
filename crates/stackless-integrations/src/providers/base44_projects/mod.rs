@@ -1,6 +1,6 @@
 //! Base44_Projects catalog resources via Stripe Projects.
 //!
-//! Live smoke fixtures under fixtures/smoke/integrations/; pin OUTPUT_FIELDS via discover + smoke.
+//! Output envelopes are provisional until pinned by `xtask discover`.
 
 pub mod app;
 

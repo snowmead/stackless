@@ -36,7 +36,7 @@ impl Hostable for FlyioSprite {
 impl FamilyResource for FlyioSprite {
     type Config = FlyioSpriteConfig;
     const PROVIDER_PREFIX: &'static str = "FLYIO";
-    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
+    // Provisional until pinned by `mise run discover flyio/sprite`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("SPRITE_URL", "sprite_url", true)];
 

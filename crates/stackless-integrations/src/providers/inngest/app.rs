@@ -37,7 +37,7 @@ impl Hostable for InngestApp {
 impl FamilyResource for InngestApp {
     type Config = InngestAppConfig;
     const PROVIDER_PREFIX: &'static str = "INNGEST";
-    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
+    // Provisional until pinned by `mise run discover inngest/app`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
         ("EVENT_KEY", "event_key", true),
         ("SIGNING_KEY", "signing_key", false),

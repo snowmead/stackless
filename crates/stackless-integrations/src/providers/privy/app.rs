@@ -36,7 +36,7 @@ impl Hostable for PrivyApp {
 impl FamilyResource for PrivyApp {
     type Config = PrivyAppConfig;
     const PROVIDER_PREFIX: &'static str = "PRIVY";
-    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
+    // Provisional until pinned by `mise run discover privy/app`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
         ("APP_ID", "app_id", true),
         ("APP_SECRET", "app_secret", true),

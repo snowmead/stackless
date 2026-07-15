@@ -44,7 +44,7 @@ impl Hostable for ClickHousePostgres {
 impl FamilyResource for ClickHousePostgres {
     type Config = ClickHousePostgresConfig;
     const PROVIDER_PREFIX: &'static str = "CLICKHOUSE";
-    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
+    // Provisional until pinned by `mise run discover clickhouse/postgres`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("CONNECTION_STRING", "connection_string", true)];
 

@@ -33,7 +33,7 @@ impl Hostable for AgentMailApi {
 impl FamilyResource for AgentMailApi {
     type Config = AgentMailApiConfig;
     const PROVIDER_PREFIX: &'static str = "AGENTMAIL";
-    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
+    // Provisional until pinned by `mise run discover agentmail/api`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("API_KEY", "api_key", true)];
 

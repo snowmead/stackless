@@ -1,6 +1,4 @@
-# DEPRECATED: use per-service fixtures under integrations/ and
-# `mise run smoke-cloudflare` (runs all cloudflare vendor smokes serially).
-# Kept for reference until fully superseded.
+# Live smoke: provisions Cloudflare R2 + KV through Stripe Projects under
 # `--on local` (integrations provision under any substrate — no deploy target
 # needed), injects their outputs into a trivial local probe service, then tears
 # down and verifies the resources are gone.

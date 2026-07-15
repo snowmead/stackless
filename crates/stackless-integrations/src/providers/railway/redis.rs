@@ -36,7 +36,7 @@ impl Hostable for RailwayRedis {
 impl FamilyResource for RailwayRedis {
     type Config = RailwayRedisConfig;
     const PROVIDER_PREFIX: &'static str = "RAILWAY";
-    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
+    // Provisional until pinned by `mise run discover railway/redis`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("REDIS_URL", "redis_url", true)];
 

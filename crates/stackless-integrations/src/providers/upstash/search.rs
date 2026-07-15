@@ -40,7 +40,7 @@ impl Hostable for UpstashSearch {
 impl FamilyResource for UpstashSearch {
     type Config = UpstashSearchConfig;
     const PROVIDER_PREFIX: &'static str = "UPSTASH";
-    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
+    // Provisional until pinned by `mise run discover upstash/search`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
         ("REST_URL", "rest_url", true),
         ("REST_TOKEN", "rest_token", true),

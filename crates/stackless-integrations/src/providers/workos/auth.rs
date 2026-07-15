@@ -36,7 +36,7 @@ impl Hostable for WorkOSAuth {
 impl FamilyResource for WorkOSAuth {
     type Config = WorkOSAuthConfig;
     const PROVIDER_PREFIX: &'static str = "WORKOS";
-    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
+    // Provisional until pinned by `mise run discover workos/auth`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
         ("API_KEY", "api_key", true),
         ("CLIENT_ID", "client_id", true),

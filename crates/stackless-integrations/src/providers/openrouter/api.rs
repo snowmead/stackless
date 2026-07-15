@@ -33,7 +33,7 @@ impl Hostable for OpenRouterApi {
 impl FamilyResource for OpenRouterApi {
     type Config = OpenRouterApiConfig;
     const PROVIDER_PREFIX: &'static str = "OPENROUTER";
-    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
+    // Provisional until pinned by `mise run discover openrouter/api`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("API_KEY", "api_key", true)];
 

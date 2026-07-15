@@ -139,20 +139,13 @@ it differs materially between providers (extract only at a third substrate).
 ## Smoke
 
 A live smoke runs through the shared `fixtures/smoke/run.sh` (always tears down,
-unique per-run instance name).
-
-**Catalog integrations:** run `mise run generate-smoke-fixtures` to add
-`fixtures/smoke/integrations/<slug>/stackless.toml` and a `smoke-integration-<slug>`
-mise task. Smokes use `--on local` with a trivial probe service (see
-`fixtures/smoke/integrations/README.md`). Batch: `mise run smoke-integrations` or
-per-vendor `bash fixtures/smoke/run-integrations.sh --vendor <vendor>`.
-
-**Substrates:** add `fixtures/smoke/<name>/stackless.toml`, a `smoke-<name>` mise
-task, and a `smoke.yml` matrix entry.
-
-Before a provider's first smoke: `stripe projects link <vendor>` (account-level;
-see `mise run smoke-integrations-audit`). The fixture records
-`[stack.projects.stripe].project` on first successful `up`.
+unique per-run instance name). Add `fixtures/smoke/<name>/stackless.toml`, a
+`smoke-<name>` mise task calling `run.sh`, and a `smoke.yml` matrix entry.
+Catalog integrations have no deploy target, so they smoke under `--on local`
+with a trivial probe service (see `fixtures/smoke/cloudflare`). Before a new
+provider's first smoke, do the one-time `stripe projects init` + `link` from its
+fixture dir (see "One-time setup" above) — the smoke fails at the first
+`stripe projects add` otherwise.
 
 ---
 

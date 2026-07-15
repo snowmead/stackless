@@ -36,7 +36,7 @@ impl Hostable for WordPressComSite {
 impl FamilyResource for WordPressComSite {
     type Config = WordPressComSiteConfig;
     const PROVIDER_PREFIX: &'static str = "WORDPRESS_COM";
-    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
+    // Provisional until pinned by `mise run discover wordpress.com/site`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("SITE_URL", "site_url", true)];
 

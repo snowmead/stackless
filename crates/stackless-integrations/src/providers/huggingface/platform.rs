@@ -33,7 +33,7 @@ impl Hostable for HuggingFacePlatform {
 impl FamilyResource for HuggingFacePlatform {
     type Config = HuggingFacePlatformConfig;
     const PROVIDER_PREFIX: &'static str = "HUGGINGFACE";
-    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
+    // Provisional until pinned by `mise run discover huggingface/platform`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("TOKEN", "token", true)];
 

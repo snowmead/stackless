@@ -37,7 +37,7 @@ impl Hostable for GitLabProject {
 impl FamilyResource for GitLabProject {
     type Config = GitLabProjectConfig;
     const PROVIDER_PREFIX: &'static str = "GITLAB";
-    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
+    // Provisional until pinned by `mise run discover gitlab/project`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
         ("PROJECT_ID", "project_id", true),
         ("WEB_URL", "web_url", false),

@@ -36,7 +36,7 @@ impl Hostable for Auth0Client {
 impl FamilyResource for Auth0Client {
     type Config = Auth0ClientConfig;
     const PROVIDER_PREFIX: &'static str = "AUTH0";
-    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
+    // Provisional until pinned by `mise run discover auth0/client`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
         ("DOMAIN", "domain", true),
         ("CLIENT_ID", "client_id", true),

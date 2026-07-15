@@ -33,7 +33,7 @@ impl Hostable for NeonPostgres {
 impl FamilyResource for NeonPostgres {
     type Config = NeonPostgresConfig;
     const PROVIDER_PREFIX: &'static str = "NEON";
-    // Pin via `mise run discover` + `mise run smoke-integration-*`; see fixtures/smoke/integrations/.
+    // Provisional until pinned by `mise run discover neon/postgres`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
         ("DATABASE_URL", "database_url", true),
         ("HOST", "host", false),

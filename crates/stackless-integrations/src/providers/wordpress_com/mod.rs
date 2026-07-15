@@ -1,6 +1,6 @@
 //! WordPress.com catalog resources via Stripe Projects.
 //!
-//! Live smoke fixtures under fixtures/smoke/integrations/; pin OUTPUT_FIELDS via discover + smoke.
+//! Output envelopes are provisional until pinned by `xtask discover`.
 //! Excluded: `wordpress.com/domain` (non-refundable domain purchase).
 
 pub mod site;
