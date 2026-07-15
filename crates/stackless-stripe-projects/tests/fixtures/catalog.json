@@ -7,6 +7,1882 @@
     "provider_filter": null,
     "services": [
       {
+        "allowed_updates": [],
+        "availability": "available",
+        "categories": [
+          "browser"
+        ],
+        "configuration_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "description": "Project name (defaults to the orchestrator project)",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "constraints": [],
+        "created": null,
+        "description": "A Steel cloud browser workspace (Steel project + API key). Provision to get a STEEL_API_KEY for cloud browser sessions, scrape, screenshots, PDFs, and CAPTCHA solving. Usage is metered and billed to your active plan.",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61V2dzAtyhSbyzzY95Slc",
+        "kind": "deployable",
+        "livemode": true,
+        "llm_context": "https://docs.steel.dev/llm/steel-project.md",
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": {
+            "options": [
+              {
+                "is_default": null,
+                "paid": null,
+                "parent_services": [
+                  "plan-launch"
+                ],
+                "type": "free"
+              },
+              {
+                "is_default": null,
+                "paid": null,
+                "parent_services": [
+                  "plan-scale"
+                ],
+                "type": "free"
+              },
+              {
+                "is_default": true,
+                "paid": {
+                  "description": null,
+                  "freeform": "Usage-based: browser $0.10/hr, captcha $2/1k, proxy $5/GB, scrape $5/1k",
+                  "type": "freeform"
+                },
+                "parent_services": [],
+                "type": "paid"
+              }
+            ]
+          },
+          "paid": null,
+          "paid_pricing": [],
+          "type": "component"
+        },
+        "provider_configuration_schema": {
+          "properties": {},
+          "type": "object"
+        },
+        "provider_id": "prvdr_61V2d6KyQRdM5XHd4505o",
+        "provider_name": "Steel",
+        "scope": "project",
+        "service_id": "browser",
+        "updateable_to": [
+          "browser"
+        ]
+      },
+      {
+        "allowed_updates": [
+          {
+            "direction": "up",
+            "service": "plan-scale"
+          }
+        ],
+        "availability": "available",
+        "categories": [
+          "browser"
+        ],
+        "configuration_schema": {},
+        "constraints": [
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
+            "count": {
+              "at_most": 1
+            },
+            "type": "count"
+          }
+        ],
+        "created": null,
+        "description": "Steel Launch — usage-based cloud browsers. $30 free signup credit, then pay-as-you-go. Anti-bot/captcha unlocks once a payment method (your Stripe SPT) is on file.",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61V2dzArtl8YrMkcm5X5c",
+        "kind": "plan",
+        "livemode": true,
+        "llm_context": "https://docs.steel.dev/llm/steel.md",
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": null,
+          "paid_pricing": [],
+          "type": "free"
+        },
+        "provider_configuration_schema": {
+          "properties": {},
+          "type": "object"
+        },
+        "provider_id": "prvdr_61V2d6KyQRdM5XHd4505o",
+        "provider_name": "Steel",
+        "scope": "account",
+        "service_id": "plan-launch",
+        "updateable_to": [
+          "plan-scale",
+          "plan-launch"
+        ]
+      },
+      {
+        "allowed_updates": [
+          {
+            "direction": "down",
+            "service": "plan-launch"
+          }
+        ],
+        "availability": "available",
+        "categories": [
+          "browser"
+        ],
+        "configuration_schema": {},
+        "constraints": [
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
+            "count": {
+              "at_most": 1
+            },
+            "type": "count"
+          }
+        ],
+        "created": null,
+        "description": "Steel Scale — $250/mo platform fee, anti-bot included, higher concurrency, 30-day retention. Usage billed in arrears (browser $0.08/hr, captcha $1/1k, proxy $5/GB, scrape $5/1k).",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61V2dzAejBQcnMm4Y55Gq",
+        "kind": "plan",
+        "livemode": true,
+        "llm_context": "https://docs.steel.dev/llm/steel.md",
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": {
+            "description": "Platform fee billed monthly; usage billed in arrears.",
+            "freeform": "$250 / month platform fee + usage",
+            "type": "freeform"
+          },
+          "paid_pricing": [
+            {
+              "configuration": null,
+              "description": "Platform fee billed monthly; usage billed in arrears.",
+              "freeform": "$250 / month platform fee + usage",
+              "is_default": true,
+              "type": "freeform"
+            }
+          ],
+          "type": "paid"
+        },
+        "provider_configuration_schema": {
+          "properties": {},
+          "type": "object"
+        },
+        "provider_id": "prvdr_61V2d6KyQRdM5XHd4505o",
+        "provider_name": "Steel",
+        "scope": "account",
+        "service_id": "plan-scale",
+        "updateable_to": [
+          "plan-launch",
+          "plan-scale"
+        ]
+      },
+      {
+        "allowed_updates": [
+          {
+            "direction": "up",
+            "service": "schematic-growth"
+          }
+        ],
+        "availability": "available",
+        "categories": [
+          "feature_flags"
+        ],
+        "configuration_schema": {},
+        "constraints": [],
+        "created": null,
+        "description": "Schematic Free — feature flags, entitlements, and usage metering",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61V2dWGx8JIaTJnPU5DZ2",
+        "kind": "plan",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": null,
+          "paid_pricing": [],
+          "type": "free"
+        },
+        "provider_configuration_schema": {},
+        "provider_id": "prvdr_61V2MN5n5dVBeEEIX5S8m",
+        "provider_name": "Schematic",
+        "scope": "account",
+        "service_id": "schematic-free",
+        "updateable_to": [
+          "schematic-growth",
+          "schematic-free"
+        ]
+      },
+      {
+        "allowed_updates": [],
+        "availability": "available",
+        "categories": [
+          "feature_flags"
+        ],
+        "configuration_schema": {
+          "properties": {
+            "environment_type": {
+              "enum": [
+                "development",
+                "production"
+              ],
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "constraints": [],
+        "created": null,
+        "description": "A Schematic environment with API keys. Included with any active plan.",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61V2dWGRXN7Yxfrb15WUy",
+        "kind": "deployable",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": {
+            "options": [
+              {
+                "is_default": true,
+                "paid": null,
+                "parent_services": [
+                  "schematic-growth",
+                  "schematic-free"
+                ],
+                "type": "free"
+              }
+            ]
+          },
+          "paid": null,
+          "paid_pricing": [],
+          "type": "component"
+        },
+        "provider_configuration_schema": {},
+        "provider_id": "prvdr_61V2MN5n5dVBeEEIX5S8m",
+        "provider_name": "Schematic",
+        "scope": "project",
+        "service_id": "schematic-environment",
+        "updateable_to": [
+          "schematic-environment"
+        ]
+      },
+      {
+        "allowed_updates": [
+          {
+            "direction": "down",
+            "service": "schematic-free"
+          }
+        ],
+        "availability": "available",
+        "categories": [
+          "feature_flags"
+        ],
+        "configuration_schema": {},
+        "constraints": [],
+        "created": null,
+        "description": "Schematic Growth — advanced metering & usage-based pricing",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61V2dWG0UEpmqnbUc5Oyu",
+        "kind": "plan",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": {
+            "description": "Growth",
+            "freeform": "$200/month",
+            "type": "freeform"
+          },
+          "paid_pricing": [
+            {
+              "configuration": null,
+              "description": "Growth",
+              "freeform": "$200/month",
+              "is_default": null,
+              "type": "freeform"
+            }
+          ],
+          "type": "paid"
+        },
+        "provider_configuration_schema": {},
+        "provider_id": "prvdr_61V2MN5n5dVBeEEIX5S8m",
+        "provider_name": "Schematic",
+        "scope": "account",
+        "service_id": "schematic-growth",
+        "updateable_to": [
+          "schematic-free",
+          "schematic-growth"
+        ]
+      },
+      {
+        "allowed_updates": [
+          {
+            "direction": "up",
+            "service": "builder"
+          }
+        ],
+        "availability": "available",
+        "categories": [
+          "notification",
+          "email",
+          "messaging"
+        ],
+        "configuration_schema": {},
+        "constraints": [
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          }
+        ],
+        "created": null,
+        "description": "Unlimited email sends in sandbox mode to up to 10 verified recipients. Test your integration and build your product.",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61V2WUQsbKdrCxxPU57Lc",
+        "kind": "plan",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": null,
+          "paid_pricing": [],
+          "type": "free"
+        },
+        "provider_configuration_schema": {
+          "properties": {},
+          "type": "object"
+        },
+        "provider_id": "prvdr_61V0NO7jETrcGDKod57JY",
+        "provider_name": "customerio",
+        "scope": "account",
+        "service_id": "builder:sandbox",
+        "updateable_to": [
+          "builder",
+          "builder:sandbox"
+        ]
+      },
+      {
+        "allowed_updates": [],
+        "availability": "available",
+        "categories": [
+          "notification",
+          "email",
+          "messaging"
+        ],
+        "configuration_schema": {
+          "properties": {
+            "funding_amount": {
+              "description": "Message funding amount in USD ($10 = 25,000 messages). Minimum $10, maximum $1000.",
+              "maximum": 1000,
+              "minimum": 10,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "funding_amount"
+          ],
+          "type": "object"
+        },
+        "constraints": [
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          }
+        ],
+        "created": null,
+        "description": "Production messaging for email, in app messages, push notifications, and webhooks. Add funds to start sending.",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61V2WUQV8jewaowUm5S3c",
+        "kind": "plan",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": {
+            "description": null,
+            "freeform": "Message funding amount in USD ($10 = 25,000 messages)",
+            "type": "freeform"
+          },
+          "paid_pricing": [
+            {
+              "configuration": null,
+              "description": null,
+              "freeform": "Message funding amount in USD ($10 = 25,000 messages)",
+              "is_default": null,
+              "type": "freeform"
+            }
+          ],
+          "type": "paid"
+        },
+        "provider_configuration_schema": {
+          "properties": {},
+          "type": "object"
+        },
+        "provider_id": "prvdr_61V0NO7jETrcGDKod57JY",
+        "provider_name": "customerio",
+        "scope": "account",
+        "service_id": "builder",
+        "updateable_to": [
+          "builder"
+        ]
+      },
+      {
+        "allowed_updates": [],
+        "availability": "available",
+        "categories": [
+          "analytics",
+          "feature_flags",
+          "ai",
+          "observability"
+        ],
+        "configuration_schema": {},
+        "constraints": [
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
+            "count": {
+              "at_most": 1
+            },
+            "type": "count"
+          }
+        ],
+        "created": null,
+        "description": "Personal - your free Logfire account, one per email address. Up to 10M logs, spans and metrics per month; use Growth or Team for more seats, projects, retention and included usage.",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61V12i7uZrRfOBQYP52Yi",
+        "kind": "plan",
+        "livemode": true,
+        "llm_context": "https://pydantic.dev/docs/logfire/llms.md",
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": null,
+          "paid_pricing": [],
+          "type": "free"
+        },
+        "provider_configuration_schema": {
+          "properties": {
+            "account": {
+              "description": "Optional. The Logfire organization (account) name to create or sign in to. If omitted, you'll be asked for it before the account is created.",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "provider_id": "prvdr_61V0eUvURNJSjPY2J5WfY",
+        "provider_name": "Pydantic",
+        "scope": "account",
+        "service_id": "personal",
+        "updateable_to": [
+          "personal"
+        ]
+      },
+      {
+        "allowed_updates": [],
+        "availability": "available",
+        "categories": [
+          "analytics",
+          "feature_flags",
+          "ai",
+          "observability"
+        ],
+        "configuration_schema": {
+          "properties": {
+            "organization": {
+              "description": "Name of an existing organization you administer to target: a new project is created in it, or the plan applied to it. Defaults to your personal organization.",
+              "maxLength": 50,
+              "minLength": 2,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "type": "string"
+            },
+            "project_name": {
+              "description": "Name for the new Logfire project. Defaults to the organization name.",
+              "maxLength": 50,
+              "minLength": 2,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "constraints": [],
+        "created": null,
+        "description": "A Logfire project - where your traces, logs and metrics land. Provisioning it returns an OTLP write token to start sending data; billed via the account plan.",
+        "development": false,
+        "group": "logfire",
+        "id": "prvsvc_61V12i7NydI85Ccv85E6S",
+        "kind": "deployable",
+        "livemode": true,
+        "llm_context": "https://pydantic.dev/docs/logfire/llms.md",
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": {
+            "options": [
+              {
+                "is_default": true,
+                "paid": null,
+                "parent_services": [],
+                "type": "free"
+              },
+              {
+                "is_default": null,
+                "paid": null,
+                "parent_services": [
+                  "growth"
+                ],
+                "type": "free"
+              },
+              {
+                "is_default": null,
+                "paid": null,
+                "parent_services": [
+                  "team"
+                ],
+                "type": "free"
+              }
+            ]
+          },
+          "paid": null,
+          "paid_pricing": [],
+          "type": "component"
+        },
+        "provider_configuration_schema": {
+          "properties": {
+            "account": {
+              "description": "Optional. The Logfire organization (account) name to create or sign in to. If omitted, you'll be asked for it before the account is created.",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "provider_id": "prvdr_61V0eUvURNJSjPY2J5WfY",
+        "provider_name": "Pydantic",
+        "scope": "project",
+        "service_id": "logfire",
+        "updateable_to": [
+          "logfire"
+        ]
+      },
+      {
+        "allowed_updates": [],
+        "availability": "available",
+        "categories": [
+          "ai"
+        ],
+        "configuration_schema": {},
+        "constraints": [
+          {
+            "count": {
+              "at_most": 1
+            },
+            "type": "count"
+          }
+        ],
+        "created": null,
+        "description": "Composio Starter plan — account-level subscription with higher included usage",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61V0tIfxFydytUDQm5UeW",
+        "kind": "plan",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": {
+            "description": null,
+            "freeform": "$29/month, includes 200,000 tool calls, then $0.39 per 1,000 tool calls",
+            "type": "freeform"
+          },
+          "paid_pricing": [
+            {
+              "configuration": null,
+              "description": null,
+              "freeform": "$29/month, includes 200,000 tool calls, then $0.39 per 1,000 tool calls",
+              "is_default": null,
+              "type": "freeform"
+            }
+          ],
+          "type": "paid"
+        },
+        "provider_configuration_schema": {},
+        "provider_id": "prvdr_61V0tIZIwN9RMcR2T54Yi",
+        "provider_name": "Composio",
+        "scope": "account",
+        "service_id": "starter",
+        "updateable_to": [
+          "starter"
+        ]
+      },
+      {
+        "allowed_updates": [],
+        "availability": "available",
+        "categories": [
+          "ai"
+        ],
+        "configuration_schema": {},
+        "constraints": [
+          {
+            "count": {
+              "at_most": 1
+            },
+            "type": "count"
+          }
+        ],
+        "created": null,
+        "description": "Composio Hobby plan — free account tier",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61V0tIflMBu0sSocD5VNQ",
+        "kind": "plan",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": null,
+          "paid_pricing": [],
+          "type": "free"
+        },
+        "provider_configuration_schema": {},
+        "provider_id": "prvdr_61V0tIZIwN9RMcR2T54Yi",
+        "provider_name": "Composio",
+        "scope": "account",
+        "service_id": "hobby",
+        "updateable_to": [
+          "hobby"
+        ]
+      },
+      {
+        "allowed_updates": [],
+        "availability": "available",
+        "categories": [
+          "ai"
+        ],
+        "configuration_schema": {
+          "properties": {
+            "name": {
+              "description": "Optional Composio project name",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "constraints": [
+          {
+            "count": {
+              "at_most": 1
+            },
+            "type": "count"
+          }
+        ],
+        "created": null,
+        "description": "Composio project with project-scoped API credentials",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61V0tIfQT47YyzkHN565Y",
+        "kind": "deployable",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": null,
+          "paid_pricing": [],
+          "type": "free"
+        },
+        "provider_configuration_schema": {},
+        "provider_id": "prvdr_61V0tIZIwN9RMcR2T54Yi",
+        "provider_name": "Composio",
+        "scope": "project",
+        "service_id": "project",
+        "updateable_to": [
+          "project"
+        ]
+      },
+      {
+        "allowed_updates": [],
+        "availability": "available",
+        "categories": [
+          "notification",
+          "email",
+          "messaging"
+        ],
+        "configuration_schema": {},
+        "constraints": [],
+        "created": null,
+        "description": "Customer.io workspace — multi-channel messaging for email, push, SMS, and webhooks.",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61V0kuxEZ7sUx0YuJ5BGK",
+        "kind": "deployable",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": {
+            "options": [
+              {
+                "is_default": null,
+                "paid": null,
+                "parent_services": [
+                  "builder:sandbox"
+                ],
+                "type": "free"
+              },
+              {
+                "is_default": null,
+                "paid": null,
+                "parent_services": [
+                  "builder"
+                ],
+                "type": "free"
+              }
+            ]
+          },
+          "paid": null,
+          "paid_pricing": [],
+          "type": "component"
+        },
+        "provider_configuration_schema": {
+          "properties": {},
+          "type": "object"
+        },
+        "provider_id": "prvdr_61V0NO7jETrcGDKod57JY",
+        "provider_name": "customerio",
+        "scope": "project",
+        "service_id": "workspace",
+        "updateable_to": [
+          "workspace"
+        ]
+      },
+      {
+        "allowed_updates": [
+          {
+            "direction": "any",
+            "service": "beginner-monthly"
+          },
+          {
+            "direction": "any",
+            "service": "pro-monthly"
+          },
+          {
+            "direction": "any",
+            "service": "free"
+          }
+        ],
+        "availability": "available",
+        "categories": [
+          "compute"
+        ],
+        "configuration_schema": {},
+        "constraints": [],
+        "created": null,
+        "description": "Enterprise plan billed monthly at $200.",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61V0jywwVn7hm4HhA59xI",
+        "kind": "plan",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": {
+            "description": null,
+            "freeform": "$200/month",
+            "type": "freeform"
+          },
+          "paid_pricing": [
+            {
+              "configuration": null,
+              "description": null,
+              "freeform": "$200/month",
+              "is_default": null,
+              "type": "freeform"
+            }
+          ],
+          "type": "paid"
+        },
+        "provider_configuration_schema": {},
+        "provider_id": "prvdr_61V0eGC6sUPXoATb051se",
+        "provider_name": "createos",
+        "scope": "account",
+        "service_id": "enterprise-monthly",
+        "updateable_to": [
+          "beginner-monthly",
+          "pro-monthly",
+          "free",
+          "enterprise-monthly"
+        ]
+      },
+      {
+        "allowed_updates": [
+          {
+            "direction": "any",
+            "service": "pro-monthly"
+          },
+          {
+            "direction": "any",
+            "service": "enterprise-monthly"
+          },
+          {
+            "direction": "any",
+            "service": "free"
+          }
+        ],
+        "availability": "available",
+        "categories": [
+          "compute"
+        ],
+        "configuration_schema": {},
+        "constraints": [],
+        "created": null,
+        "description": "Beginner plan billed monthly at $10.",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61V0jywkAjWCKjzLa5IFk",
+        "kind": "plan",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": {
+            "description": null,
+            "freeform": "$10/month",
+            "type": "freeform"
+          },
+          "paid_pricing": [
+            {
+              "configuration": null,
+              "description": null,
+              "freeform": "$10/month",
+              "is_default": null,
+              "type": "freeform"
+            }
+          ],
+          "type": "paid"
+        },
+        "provider_configuration_schema": {},
+        "provider_id": "prvdr_61V0eGC6sUPXoATb051se",
+        "provider_name": "createos",
+        "scope": "account",
+        "service_id": "beginner-monthly",
+        "updateable_to": [
+          "pro-monthly",
+          "enterprise-monthly",
+          "free",
+          "beginner-monthly"
+        ]
+      },
+      {
+        "allowed_updates": [
+          {
+            "direction": "any",
+            "service": "beginner-monthly"
+          },
+          {
+            "direction": "any",
+            "service": "enterprise-monthly"
+          },
+          {
+            "direction": "any",
+            "service": "free"
+          }
+        ],
+        "availability": "available",
+        "categories": [
+          "compute"
+        ],
+        "configuration_schema": {},
+        "constraints": [],
+        "created": null,
+        "description": "Pro plan billed monthly at $75.",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61V0jywChbfFvuotG5H1E",
+        "kind": "plan",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": {
+            "description": null,
+            "freeform": "$75/month",
+            "type": "freeform"
+          },
+          "paid_pricing": [
+            {
+              "configuration": null,
+              "description": null,
+              "freeform": "$75/month",
+              "is_default": null,
+              "type": "freeform"
+            }
+          ],
+          "type": "paid"
+        },
+        "provider_configuration_schema": {},
+        "provider_id": "prvdr_61V0eGC6sUPXoATb051se",
+        "provider_name": "createos",
+        "scope": "account",
+        "service_id": "pro-monthly",
+        "updateable_to": [
+          "beginner-monthly",
+          "enterprise-monthly",
+          "free",
+          "pro-monthly"
+        ]
+      },
+      {
+        "allowed_updates": [
+          {
+            "direction": "any",
+            "service": "pro-monthly"
+          },
+          {
+            "direction": "any",
+            "service": "enterprise-monthly"
+          },
+          {
+            "direction": "any",
+            "service": "beginner-monthly"
+          }
+        ],
+        "availability": "available",
+        "categories": [
+          "compute"
+        ],
+        "configuration_schema": {},
+        "constraints": [],
+        "created": null,
+        "description": "Free tier with basic features.",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61V0jyw6BjHlfpQht54D2",
+        "kind": "plan",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": null,
+          "paid_pricing": [],
+          "type": "free"
+        },
+        "provider_configuration_schema": {},
+        "provider_id": "prvdr_61V0eGC6sUPXoATb051se",
+        "provider_name": "createos",
+        "scope": "account",
+        "service_id": "free",
+        "updateable_to": [
+          "pro-monthly",
+          "enterprise-monthly",
+          "beginner-monthly",
+          "free"
+        ]
+      },
+      {
+        "allowed_updates": [],
+        "availability": "available",
+        "categories": [
+          "compute"
+        ],
+        "configuration_schema": {},
+        "constraints": [],
+        "created": null,
+        "description": "Deploy and manage cloud workloads on CreateOS.",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61V0jyw0PpWSNAKA853No",
+        "kind": "deployable",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": {
+            "options": [
+              {
+                "is_default": null,
+                "paid": null,
+                "parent_services": [
+                  "pro-monthly",
+                  "enterprise-monthly",
+                  "beginner-monthly",
+                  "free"
+                ],
+                "type": "free"
+              }
+            ]
+          },
+          "paid": null,
+          "paid_pricing": [],
+          "type": "component"
+        },
+        "provider_configuration_schema": {},
+        "provider_id": "prvdr_61V0eGC6sUPXoATb051se",
+        "provider_name": "createos",
+        "scope": "project",
+        "service_id": "project",
+        "updateable_to": [
+          "project"
+        ]
+      },
+      {
+        "allowed_updates": [
+          {
+            "direction": "down",
+            "service": "team"
+          }
+        ],
+        "availability": "available",
+        "categories": [
+          "analytics",
+          "feature_flags",
+          "ai",
+          "observability"
+        ],
+        "configuration_schema": {
+          "properties": {
+            "organization": {
+              "description": "Name of an existing organization you administer to target: a new project is created in it, or the plan applied to it. Defaults to your personal organization.",
+              "maxLength": 50,
+              "minLength": 2,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "constraints": [
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
+            "count": {
+              "at_most": 1
+            },
+            "type": "count"
+          }
+        ],
+        "created": null,
+        "description": "Growth - for scaling teams. Enough seats, guests and projects for your AI Application, up to 90 days retention, priority support, self-service data deletion, HIPAA BAA.",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61V0eUwspn1wHvaW65Pc8",
+        "kind": "plan",
+        "livemode": true,
+        "llm_context": "https://pydantic.dev/docs/logfire/llms.md",
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": {
+            "description": "Enough seats, guests and projects for your AI Application.",
+            "freeform": "$249 per month",
+            "type": "freeform"
+          },
+          "paid_pricing": [
+            {
+              "configuration": null,
+              "description": "Enough seats, guests and projects for your AI Application.",
+              "freeform": "$249 per month",
+              "is_default": null,
+              "type": "freeform"
+            }
+          ],
+          "type": "paid"
+        },
+        "provider_configuration_schema": {
+          "properties": {
+            "account": {
+              "description": "Optional. The Logfire organization (account) name to create or sign in to. If omitted, you'll be asked for it before the account is created.",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "provider_id": "prvdr_61V0eUvURNJSjPY2J5WfY",
+        "provider_name": "Pydantic",
+        "scope": "account",
+        "service_id": "growth",
+        "updateable_to": [
+          "team",
+          "growth"
+        ]
+      },
+      {
+        "allowed_updates": [
+          {
+            "direction": "up",
+            "service": "growth"
+          }
+        ],
+        "availability": "available",
+        "categories": [
+          "analytics",
+          "feature_flags",
+          "ai",
+          "observability"
+        ],
+        "configuration_schema": {
+          "properties": {
+            "organization": {
+              "description": "Name of an existing organization you administer to target: a new project is created in it, or the plan applied to it. Defaults to your personal organization.",
+              "maxLength": 50,
+              "minLength": 2,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "type": "string"
+            },
+            "seats": {
+              "description": "Number of seats, 5-12. Defaults to 5.",
+              "maximum": 12,
+              "minimum": 5,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "constraints": [
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
+            "count": {
+              "at_most": 1
+            },
+            "type": "count"
+          }
+        ],
+        "created": null,
+        "description": "Team - for startups and small teams shipping to prod. 5 seats included (up to 12), 5 projects, 10M records/mo included, 30-day retention.",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61V0eUwLxYSJfqUHd581g",
+        "kind": "plan",
+        "livemode": true,
+        "llm_context": "https://pydantic.dev/docs/logfire/llms.md",
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": {
+            "description": "Includes 5 seats and 5 projects. Extra seats $25/month each, up to 12 seats.",
+            "freeform": "$49 per month (5 seats included + $25 per extra seat)",
+            "type": "freeform"
+          },
+          "paid_pricing": [
+            {
+              "configuration": null,
+              "description": "Includes 5 seats and 5 projects. Extra seats $25/month each, up to 12 seats.",
+              "freeform": "$49 per month (5 seats included + $25 per extra seat)",
+              "is_default": null,
+              "type": "freeform"
+            }
+          ],
+          "type": "paid"
+        },
+        "provider_configuration_schema": {
+          "properties": {
+            "account": {
+              "description": "Optional. The Logfire organization (account) name to create or sign in to. If omitted, you'll be asked for it before the account is created.",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "provider_id": "prvdr_61V0eUvURNJSjPY2J5WfY",
+        "provider_name": "Pydantic",
+        "scope": "account",
+        "service_id": "team",
+        "updateable_to": [
+          "growth",
+          "team"
+        ]
+      },
+      {
+        "allowed_updates": [
+          {
+            "direction": "down",
+            "service": "hobby"
+          },
+          {
+            "direction": "down",
+            "service": "standard"
+          }
+        ],
+        "availability": "available",
+        "categories": [
+          "ai"
+        ],
+        "configuration_schema": {},
+        "constraints": [
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
+            "count": {
+              "at_most": 1
+            },
+            "type": "count"
+          }
+        ],
+        "created": null,
+        "description": "Pro plan — 15,000 message credits/month, 1 AI agent, all features, advanced analytics, tickets",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61V0QJjkPuL7m9Z5g5UPA",
+        "kind": "plan",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": {
+            "description": null,
+            "freeform": "paid",
+            "type": "freeform"
+          },
+          "paid_pricing": [
+            {
+              "configuration": null,
+              "description": null,
+              "freeform": "paid",
+              "is_default": null,
+              "type": "freeform"
+            }
+          ],
+          "type": "paid"
+        },
+        "provider_configuration_schema": {
+          "properties": {},
+          "type": "object"
+        },
+        "provider_id": "prvdr_61V0Na4Yx14hBk8Yw5WG8",
+        "provider_name": "Chatbase",
+        "scope": "account",
+        "service_id": "pro",
+        "updateable_to": [
+          "hobby",
+          "standard",
+          "pro"
+        ]
+      },
+      {
+        "allowed_updates": [],
+        "availability": "available",
+        "categories": [
+          "ai"
+        ],
+        "configuration_schema": {
+          "properties": {
+            "name": {
+              "description": "Name for the chatbot agent",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "constraints": [],
+        "created": null,
+        "description": "AI chatbot agent — train on your data, deploy via API or embed widget",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61V0QJjWy7rNELDf459Xs",
+        "kind": "deployable",
+        "livemode": true,
+        "llm_context": "https://www.chatbase.co/llm-context.md",
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": {
+            "options": [
+              {
+                "is_default": null,
+                "paid": null,
+                "parent_services": [
+                  "hobby",
+                  "standard",
+                  "pro"
+                ],
+                "type": "free"
+              },
+              {
+                "is_default": true,
+                "paid": {
+                  "description": null,
+                  "freeform": "Included with any plan",
+                  "type": "freeform"
+                },
+                "parent_services": [],
+                "type": "paid"
+              }
+            ]
+          },
+          "paid": null,
+          "paid_pricing": [],
+          "type": "component"
+        },
+        "provider_configuration_schema": {
+          "properties": {},
+          "type": "object"
+        },
+        "provider_id": "prvdr_61V0Na4Yx14hBk8Yw5WG8",
+        "provider_name": "Chatbase",
+        "scope": "project",
+        "service_id": "agent",
+        "updateable_to": [
+          "agent"
+        ]
+      },
+      {
+        "allowed_updates": [
+          {
+            "direction": "up",
+            "service": "standard"
+          },
+          {
+            "direction": "up",
+            "service": "pro"
+          }
+        ],
+        "availability": "available",
+        "categories": [
+          "ai"
+        ],
+        "configuration_schema": {},
+        "constraints": [
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
+            "count": {
+              "at_most": 1
+            },
+            "type": "count"
+          }
+        ],
+        "created": null,
+        "description": "Hobby plan — 500 message credits/month, 1 AI agent, all AI models",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61V0QJisPzBp7q5cM5DTM",
+        "kind": "plan",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": {
+            "description": null,
+            "freeform": "paid",
+            "type": "freeform"
+          },
+          "paid_pricing": [
+            {
+              "configuration": null,
+              "description": null,
+              "freeform": "paid",
+              "is_default": null,
+              "type": "freeform"
+            }
+          ],
+          "type": "paid"
+        },
+        "provider_configuration_schema": {
+          "properties": {},
+          "type": "object"
+        },
+        "provider_id": "prvdr_61V0Na4Yx14hBk8Yw5WG8",
+        "provider_name": "Chatbase",
+        "scope": "account",
+        "service_id": "hobby",
+        "updateable_to": [
+          "standard",
+          "pro",
+          "hobby"
+        ]
+      },
+      {
+        "allowed_updates": [
+          {
+            "direction": "down",
+            "service": "hobby"
+          },
+          {
+            "direction": "up",
+            "service": "pro"
+          }
+        ],
+        "availability": "available",
+        "categories": [
+          "ai"
+        ],
+        "configuration_schema": {},
+        "constraints": [
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
+            "count": {
+              "at_most": 1
+            },
+            "type": "count"
+          }
+        ],
+        "created": null,
+        "description": "Standard plan — 4,000 message credits/month, 1 AI agent, API access, voice, telephony",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61V0QJiM0csMvqwVv52VM",
+        "kind": "plan",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": {
+            "description": null,
+            "freeform": "paid",
+            "type": "freeform"
+          },
+          "paid_pricing": [
+            {
+              "configuration": null,
+              "description": null,
+              "freeform": "paid",
+              "is_default": null,
+              "type": "freeform"
+            }
+          ],
+          "type": "paid"
+        },
+        "provider_configuration_schema": {
+          "properties": {},
+          "type": "object"
+        },
+        "provider_id": "prvdr_61V0Na4Yx14hBk8Yw5WG8",
+        "provider_name": "Chatbase",
+        "scope": "account",
+        "service_id": "standard",
+        "updateable_to": [
+          "hobby",
+          "pro",
+          "standard"
+        ]
+      },
+      {
+        "allowed_updates": [
+          {
+            "direction": "down",
+            "service": "developer-plan"
+          }
+        ],
+        "availability": "available",
+        "categories": [
+          "compute",
+          "cache",
+          "ci"
+        ],
+        "configuration_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "type": "object"
+        },
+        "constraints": [
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
+            "count": {
+              "at_most": 1
+            },
+            "type": "count"
+          }
+        ],
+        "created": null,
+        "description": "Depot Startup plan for accelerated builds, CI runners, and build cache.",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61Uxl19vtJDGu5CSV5V3I",
+        "kind": "plan",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": {
+            "description": "Startup plan",
+            "freeform": "Starting at $200/month plus pay-as-you-go usage.",
+            "type": "freeform"
+          },
+          "paid_pricing": [
+            {
+              "configuration": null,
+              "description": "Startup plan",
+              "freeform": "Starting at $200/month plus pay-as-you-go usage.",
+              "is_default": null,
+              "type": "freeform"
+            }
+          ],
+          "type": "paid"
+        },
+        "provider_configuration_schema": {},
+        "provider_id": "prvdr_61UwKuCVtXVMFgprf59Ng",
+        "provider_name": "Depot",
+        "scope": "account",
+        "service_id": "startup-plan",
+        "updateable_to": [
+          "developer-plan",
+          "startup-plan"
+        ]
+      },
+      {
+        "allowed_updates": [],
+        "availability": "available",
+        "categories": [
+          "compute",
+          "cache",
+          "ci"
+        ],
+        "configuration_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "type": "object"
+        },
+        "constraints": [],
+        "created": null,
+        "description": "Depot API access for automating builds, CI runners, cache, and sandbox workflows.",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61Uxl19am101iWj5C51yq",
+        "kind": "deployable",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": {
+            "options": [
+              {
+                "is_default": null,
+                "paid": null,
+                "parent_services": [
+                  "developer-plan",
+                  "startup-plan"
+                ],
+                "type": "free"
+              }
+            ]
+          },
+          "paid": null,
+          "paid_pricing": [],
+          "type": "component"
+        },
+        "provider_configuration_schema": {},
+        "provider_id": "prvdr_61UwKuCVtXVMFgprf59Ng",
+        "provider_name": "Depot",
+        "scope": "project",
+        "service_id": "api",
+        "updateable_to": [
+          "api"
+        ]
+      },
+      {
+        "allowed_updates": [
+          {
+            "direction": "up",
+            "service": "startup-plan"
+          }
+        ],
+        "availability": "available",
+        "categories": [
+          "compute",
+          "cache",
+          "ci"
+        ],
+        "configuration_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "type": "object"
+        },
+        "constraints": [
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
+            "count": {
+              "at_most": 1
+            },
+            "type": "count"
+          }
+        ],
+        "created": null,
+        "description": "Depot Developer plan for accelerated builds, CI runners, and build cache.",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61Uxl19MMtN0yWauS5BBw",
+        "kind": "plan",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": {
+            "description": "Developer plan",
+            "freeform": "Starting at $20/month plus pay-as-you-go usage.",
+            "type": "freeform"
+          },
+          "paid_pricing": [
+            {
+              "configuration": null,
+              "description": "Developer plan",
+              "freeform": "Starting at $20/month plus pay-as-you-go usage.",
+              "is_default": null,
+              "type": "freeform"
+            }
+          ],
+          "type": "paid"
+        },
+        "provider_configuration_schema": {},
+        "provider_id": "prvdr_61UwKuCVtXVMFgprf59Ng",
+        "provider_name": "Depot",
+        "scope": "account",
+        "service_id": "developer-plan",
+        "updateable_to": [
+          "startup-plan",
+          "developer-plan"
+        ]
+      },
+      {
+        "allowed_updates": [
+          {
+            "direction": "any",
+            "service": "api"
+          }
+        ],
+        "availability": "available",
+        "categories": [
+          "search",
+          "browser",
+          "ai"
+        ],
+        "configuration_schema": {
+          "properties": {
+            "plan": {
+              "description": "The plan tier to provision.",
+              "enum": [
+                "trial",
+                "individual",
+                "team",
+                "pro"
+              ],
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "constraints": [],
+        "created": null,
+        "description": "Research and web content for AI agents: deep research, URL to clean markdown and structured JSON, and browser automation.",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61Uvi7NEdFWhMUy4x589I",
+        "kind": "deployable",
+        "livemode": true,
+        "llm_context": "https://console.tabstack.ai/provisioning/services/api/llm_context",
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": {
+            "description": "10,000 credits included.",
+            "freeform": null,
+            "type": "free"
+          },
+          "paid_pricing": [
+            {
+              "configuration": {
+                "plan": "trial"
+              },
+              "description": "10,000 credits included.",
+              "freeform": null,
+              "is_default": true,
+              "type": "free"
+            },
+            {
+              "configuration": {
+                "plan": "individual"
+              },
+              "description": "$0.35 per 1,000 credits.",
+              "freeform": "Usage based",
+              "is_default": null,
+              "type": "freeform"
+            },
+            {
+              "configuration": {
+                "plan": "team"
+              },
+              "description": "500,000 credits included, then $0.30 per 1,000.",
+              "freeform": "$99/month",
+              "is_default": null,
+              "type": "freeform"
+            },
+            {
+              "configuration": {
+                "plan": "pro"
+              },
+              "description": "3,000,000 credits included, then $0.25 per 1,000.",
+              "freeform": "$499/month",
+              "is_default": null,
+              "type": "freeform"
+            }
+          ],
+          "type": "paid"
+        },
+        "provider_configuration_schema": {},
+        "provider_id": "prvdr_61Uuf4oXg8bVlDmma51z6",
+        "provider_name": "Tabstack",
+        "scope": "project",
+        "service_id": "api",
+        "updateable_to": [
+          "api"
+        ]
+      },
+      {
+        "allowed_updates": [],
+        "availability": "available",
+        "categories": [
+          "domains"
+        ],
+        "configuration_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "searchKeyword": {
+              "description": "Search for available domains using a keyword or domain name",
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "searchKeyword"
+          ],
+          "type": "object"
+        },
+        "constraints": [],
+        "created": null,
+        "description": "Find the perfect domain for your project with Spaceship powered domain registration.",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61UvZDkAzHDTuUOhF52ls",
+        "kind": "deployable",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": {
+            "description": null,
+            "freeform": "Domain prices vary by TLD. Search for your desired domain to see exact pricing.",
+            "type": "freeform"
+          },
+          "paid_pricing": [
+            {
+              "configuration": null,
+              "description": null,
+              "freeform": "Domain prices vary by TLD. Search for your desired domain to see exact pricing.",
+              "is_default": null,
+              "type": "freeform"
+            }
+          ],
+          "type": "paid"
+        },
+        "provider_configuration_schema": {},
+        "provider_id": "prvdr_61UvW0H6W4mhL335F54SW",
+        "provider_name": "Spaceship",
+        "scope": "project",
+        "service_id": "domain",
+        "updateable_to": [
+          "domain"
+        ]
+      },
+      {
+        "allowed_updates": [],
+        "availability": "available",
+        "categories": [
+          "analytics",
+          "payments"
+        ],
+        "configuration_schema": {},
+        "constraints": [],
+        "created": null,
+        "description": "RevenueCat app — in-app purchase management, subscription analytics, and paywall tools for your mobile or web app.",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61UvORy9I61c0aAaC53b6",
+        "kind": "deployable",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": null,
+          "paid_pricing": [],
+          "type": "free"
+        },
+        "provider_configuration_schema": {
+          "properties": {},
+          "type": "object"
+        },
+        "provider_id": "prvdr_61UvIBCNECigaYpha53zM",
+        "provider_name": "RevenueCat",
+        "scope": "project",
+        "service_id": "app",
+        "updateable_to": [
+          "app"
+        ]
+      },
+      {
         "allowed_updates": [
           {
             "direction": "any",
@@ -21,14 +1897,14 @@
         "configuration_schema": {},
         "constraints": [
           {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
             "count": {
               "at_most": 1
             },
             "type": "count"
-          },
-          {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -83,14 +1959,14 @@
         "configuration_schema": {},
         "constraints": [
           {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
             "count": {
               "at_most": 1
             },
             "type": "count"
-          },
-          {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -623,11 +2499,11 @@
         "allowed_updates": [
           {
             "direction": "down",
-            "service": "basic"
+            "service": "scale"
           },
           {
             "direction": "down",
-            "service": "scale"
+            "service": "basic"
           }
         ],
         "availability": "available",
@@ -675,8 +2551,8 @@
         "scope": "account",
         "service_id": "enterprise",
         "updateable_to": [
-          "basic",
           "scale",
+          "basic",
           "enterprise"
         ]
       },
@@ -833,15 +2709,7 @@
         "allowed_updates": [
           {
             "direction": "up",
-            "service": "tier-6"
-          },
-          {
-            "direction": "up",
-            "service": "tier-5"
-          },
-          {
-            "direction": "up",
-            "service": "tier-4"
+            "service": "tier-2"
           },
           {
             "direction": "up",
@@ -849,7 +2717,15 @@
           },
           {
             "direction": "up",
-            "service": "tier-2"
+            "service": "tier-4"
+          },
+          {
+            "direction": "up",
+            "service": "tier-5"
+          },
+          {
+            "direction": "up",
+            "service": "tier-6"
           }
         ],
         "availability": "available",
@@ -897,31 +2773,31 @@
         "scope": "account",
         "service_id": "tier-1",
         "updateable_to": [
-          "tier-6",
-          "tier-5",
-          "tier-4",
-          "tier-3",
           "tier-2",
+          "tier-3",
+          "tier-4",
+          "tier-5",
+          "tier-6",
           "tier-1"
         ]
       },
       {
         "allowed_updates": [
           {
-            "direction": "up",
-            "service": "tier-6"
-          },
-          {
-            "direction": "up",
-            "service": "tier-5"
+            "direction": "down",
+            "service": "tier-2"
           },
           {
             "direction": "down",
             "service": "tier-3"
           },
           {
-            "direction": "down",
-            "service": "tier-2"
+            "direction": "up",
+            "service": "tier-5"
+          },
+          {
+            "direction": "up",
+            "service": "tier-6"
           },
           {
             "direction": "down",
@@ -973,10 +2849,10 @@
         "scope": "account",
         "service_id": "tier-4",
         "updateable_to": [
-          "tier-6",
-          "tier-5",
-          "tier-3",
           "tier-2",
+          "tier-3",
+          "tier-5",
+          "tier-6",
           "tier-1",
           "tier-4"
         ]
@@ -984,12 +2860,8 @@
       {
         "allowed_updates": [
           {
-            "direction": "up",
-            "service": "tier-6"
-          },
-          {
             "direction": "down",
-            "service": "tier-4"
+            "service": "tier-2"
           },
           {
             "direction": "down",
@@ -997,7 +2869,11 @@
           },
           {
             "direction": "down",
-            "service": "tier-2"
+            "service": "tier-4"
+          },
+          {
+            "direction": "up",
+            "service": "tier-6"
           },
           {
             "direction": "down",
@@ -1049,10 +2925,10 @@
         "scope": "account",
         "service_id": "tier-5",
         "updateable_to": [
-          "tier-6",
-          "tier-4",
-          "tier-3",
           "tier-2",
+          "tier-3",
+          "tier-4",
+          "tier-6",
           "tier-1",
           "tier-5"
         ]
@@ -1061,11 +2937,7 @@
         "allowed_updates": [
           {
             "direction": "up",
-            "service": "tier-6"
-          },
-          {
-            "direction": "up",
-            "service": "tier-5"
+            "service": "tier-3"
           },
           {
             "direction": "up",
@@ -1073,7 +2945,11 @@
           },
           {
             "direction": "up",
-            "service": "tier-3"
+            "service": "tier-5"
+          },
+          {
+            "direction": "up",
+            "service": "tier-6"
           },
           {
             "direction": "down",
@@ -1125,10 +3001,10 @@
         "scope": "account",
         "service_id": "tier-2",
         "updateable_to": [
-          "tier-6",
-          "tier-5",
-          "tier-4",
           "tier-3",
+          "tier-4",
+          "tier-5",
+          "tier-6",
           "tier-1",
           "tier-2"
         ]
@@ -1137,11 +3013,7 @@
         "allowed_updates": [
           {
             "direction": "down",
-            "service": "tier-5"
-          },
-          {
-            "direction": "down",
-            "service": "tier-4"
+            "service": "tier-2"
           },
           {
             "direction": "down",
@@ -1149,7 +3021,11 @@
           },
           {
             "direction": "down",
-            "service": "tier-2"
+            "service": "tier-4"
+          },
+          {
+            "direction": "down",
+            "service": "tier-5"
           },
           {
             "direction": "down",
@@ -1201,10 +3077,10 @@
         "scope": "account",
         "service_id": "tier-6",
         "updateable_to": [
-          "tier-5",
-          "tier-4",
-          "tier-3",
           "tier-2",
+          "tier-3",
+          "tier-4",
+          "tier-5",
           "tier-1",
           "tier-6"
         ]
@@ -1212,8 +3088,12 @@
       {
         "allowed_updates": [
           {
+            "direction": "down",
+            "service": "tier-2"
+          },
+          {
             "direction": "up",
-            "service": "tier-6"
+            "service": "tier-4"
           },
           {
             "direction": "up",
@@ -1221,11 +3101,7 @@
           },
           {
             "direction": "up",
-            "service": "tier-4"
-          },
-          {
-            "direction": "down",
-            "service": "tier-2"
+            "service": "tier-6"
           },
           {
             "direction": "down",
@@ -1277,10 +3153,10 @@
         "scope": "account",
         "service_id": "tier-3",
         "updateable_to": [
-          "tier-6",
-          "tier-5",
-          "tier-4",
           "tier-2",
+          "tier-4",
+          "tier-5",
+          "tier-6",
           "tier-1",
           "tier-3"
         ]
@@ -1521,14 +3397,14 @@
         "configuration_schema": {},
         "constraints": [
           {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
             "count": {
               "at_most": 1
             },
             "type": "count"
-          },
-          {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -1582,14 +3458,14 @@
         "configuration_schema": {},
         "constraints": [
           {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
             "count": {
               "at_most": 1
             },
             "type": "count"
-          },
-          {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -1768,9 +3644,9 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
-                  "startup",
+                  "hobbyist",
                   "developer",
-                  "hobbyist"
+                  "startup"
                 ],
                 "type": "free"
               }
@@ -1807,14 +3683,14 @@
         "configuration_schema": {},
         "constraints": [
           {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
             "count": {
               "at_most": 1
             },
             "type": "count"
-          },
-          {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -1861,14 +3737,14 @@
         "configuration_schema": {},
         "constraints": [
           {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
             "count": {
               "at_most": 1
             },
             "type": "count"
-          },
-          {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -1927,14 +3803,14 @@
         "configuration_schema": {},
         "constraints": [
           {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
             "count": {
               "at_most": 1
             },
             "type": "count"
-          },
-          {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -2393,8 +4269,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "starter",
-                  "growth"
+                  "growth",
+                  "starter"
                 ],
                 "type": "paid"
               }
@@ -2495,8 +4371,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "starter",
-                  "growth"
+                  "growth",
+                  "starter"
                 ],
                 "type": "paid"
               }
@@ -2525,13 +4401,20 @@
           "properties": {
             "instance_size": {
               "enum": [
+                "mysql-flex-512mb",
                 "db-flex.m-1vcpu-512mb",
+                "mysql-flex-1gb",
                 "db-flex.m-1vcpu-1gb",
+                "mysql-flex-2gb",
                 "db-flex.m-1vcpu-2gb",
+                "mysql-pro-4gb",
                 "db-flex.m-1vcpu-4gb",
                 "db-pro.m-1vcpu-4gb",
+                "mysql-pro-8gb",
                 "db-pro.m-2vcpu-8gb",
+                "mysql-pro-16gb",
                 "db-pro.m-4vcpu-16gb",
+                "mysql-pro-32gb",
                 "db-pro.m-8vcpu-32gb"
               ],
               "type": "string"
@@ -2579,8 +4462,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "starter",
-                  "growth"
+                  "growth",
+                  "starter"
                 ],
                 "type": "paid"
               }
@@ -2906,9 +4789,9 @@
                 "paid": null,
                 "parent_services": [
                   "pro",
-                  "free",
+                  "starter",
                   "business",
-                  "starter"
+                  "free"
                 ],
                 "type": "free"
               }
@@ -2930,20 +4813,20 @@
       {
         "allowed_updates": [
           {
-            "direction": "any",
-            "service": "free"
-          },
-          {
             "direction": "up",
-            "service": "pro"
+            "service": "business"
           },
           {
             "direction": "up",
             "service": "starter"
           },
           {
+            "direction": "any",
+            "service": "free"
+          },
+          {
             "direction": "up",
-            "service": "business"
+            "service": "pro"
           }
         ],
         "availability": "available",
@@ -2973,21 +4856,17 @@
         "scope": "account",
         "service_id": "free",
         "updateable_to": [
-          "free",
-          "pro",
+          "business",
           "starter",
-          "business"
+          "free",
+          "pro"
         ]
       },
       {
         "allowed_updates": [
           {
-            "direction": "any",
-            "service": "business"
-          },
-          {
             "direction": "down",
-            "service": "free"
+            "service": "starter"
           },
           {
             "direction": "down",
@@ -2995,7 +4874,11 @@
           },
           {
             "direction": "down",
-            "service": "starter"
+            "service": "free"
+          },
+          {
+            "direction": "any",
+            "service": "business"
           }
         ],
         "availability": "available",
@@ -3037,29 +4920,29 @@
         "scope": "account",
         "service_id": "business",
         "updateable_to": [
-          "business",
-          "free",
+          "starter",
           "pro",
-          "starter"
+          "free",
+          "business"
         ]
       },
       {
         "allowed_updates": [
+          {
+            "direction": "up",
+            "service": "business"
+          },
           {
             "direction": "any",
             "service": "pro"
           },
           {
             "direction": "down",
-            "service": "free"
-          },
-          {
-            "direction": "up",
-            "service": "business"
+            "service": "starter"
           },
           {
             "direction": "down",
-            "service": "starter"
+            "service": "free"
           }
         ],
         "availability": "available",
@@ -3101,17 +4984,17 @@
         "scope": "account",
         "service_id": "pro",
         "updateable_to": [
-          "pro",
-          "free",
           "business",
-          "starter"
+          "pro",
+          "starter",
+          "free"
         ]
       },
       {
         "allowed_updates": [
           {
-            "direction": "any",
-            "service": "starter"
+            "direction": "up",
+            "service": "business"
           },
           {
             "direction": "up",
@@ -3122,8 +5005,8 @@
             "service": "free"
           },
           {
-            "direction": "up",
-            "service": "business"
+            "direction": "any",
+            "service": "starter"
           }
         ],
         "availability": "available",
@@ -3165,10 +5048,10 @@
         "scope": "account",
         "service_id": "starter",
         "updateable_to": [
-          "starter",
+          "business",
           "pro",
           "free",
-          "business"
+          "starter"
         ]
       },
       {
@@ -3300,14 +5183,14 @@
         },
         "constraints": [
           {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
             "count": {
               "at_most": 1
             },
             "type": "count"
-          },
-          {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -3371,9 +5254,9 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
-                  "startup",
+                  "free",
                   "developer",
-                  "free"
+                  "startup"
                 ],
                 "type": "free"
               }
@@ -3847,9 +5730,9 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
-                  "startup",
+                  "free",
                   "developer",
-                  "free"
+                  "startup"
                 ],
                 "type": "free"
               }
@@ -3876,7 +5759,7 @@
           },
           {
             "direction": "any",
-            "service": "b2c-essentials"
+            "service": "b2c-professional"
           },
           {
             "direction": "any",
@@ -3884,7 +5767,7 @@
           },
           {
             "direction": "any",
-            "service": "b2c-professional"
+            "service": "b2c-essentials"
           }
         ],
         "availability": "available",
@@ -3955,9 +5838,9 @@
         "service_id": "b2b-professional",
         "updateable_to": [
           "free",
-          "b2c-essentials",
-          "b2b-essentials",
           "b2c-professional",
+          "b2b-essentials",
+          "b2c-essentials",
           "b2b-professional"
         ]
       },
@@ -3969,7 +5852,7 @@
           },
           {
             "direction": "any",
-            "service": "b2c-essentials"
+            "service": "b2b-professional"
           },
           {
             "direction": "any",
@@ -3977,7 +5860,7 @@
           },
           {
             "direction": "any",
-            "service": "b2b-professional"
+            "service": "b2c-essentials"
           }
         ],
         "availability": "available",
@@ -4048,9 +5931,9 @@
         "service_id": "b2b-essentials",
         "updateable_to": [
           "free",
-          "b2c-essentials",
-          "b2c-professional",
           "b2b-professional",
+          "b2c-professional",
+          "b2c-essentials",
           "b2b-essentials"
         ]
       },
@@ -4062,7 +5945,7 @@
           },
           {
             "direction": "any",
-            "service": "b2c-essentials"
+            "service": "b2b-professional"
           },
           {
             "direction": "any",
@@ -4070,7 +5953,7 @@
           },
           {
             "direction": "any",
-            "service": "b2b-professional"
+            "service": "b2c-essentials"
           }
         ],
         "availability": "available",
@@ -4141,9 +6024,9 @@
         "service_id": "b2c-professional",
         "updateable_to": [
           "free",
-          "b2c-essentials",
-          "b2b-essentials",
           "b2b-professional",
+          "b2b-essentials",
+          "b2c-essentials",
           "b2c-professional"
         ]
       },
@@ -4151,11 +6034,7 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "b2c-essentials"
-          },
-          {
-            "direction": "any",
-            "service": "b2b-essentials"
+            "service": "b2b-professional"
           },
           {
             "direction": "any",
@@ -4163,7 +6042,11 @@
           },
           {
             "direction": "any",
-            "service": "b2b-professional"
+            "service": "b2b-essentials"
+          },
+          {
+            "direction": "any",
+            "service": "b2c-essentials"
           }
         ],
         "availability": "available",
@@ -4221,10 +6104,10 @@
         "scope": "project",
         "service_id": "free",
         "updateable_to": [
-          "b2c-essentials",
-          "b2b-essentials",
-          "b2c-professional",
           "b2b-professional",
+          "b2c-professional",
+          "b2b-essentials",
+          "b2c-essentials",
           "free"
         ]
       },
@@ -4236,7 +6119,7 @@
           },
           {
             "direction": "any",
-            "service": "b2b-essentials"
+            "service": "b2b-professional"
           },
           {
             "direction": "any",
@@ -4244,7 +6127,7 @@
           },
           {
             "direction": "any",
-            "service": "b2b-professional"
+            "service": "b2b-essentials"
           }
         ],
         "availability": "available",
@@ -4315,9 +6198,9 @@
         "service_id": "b2c-essentials",
         "updateable_to": [
           "free",
-          "b2b-essentials",
-          "b2c-professional",
           "b2b-professional",
+          "b2c-professional",
+          "b2b-essentials",
           "b2c-essentials"
         ]
       },
@@ -4994,7 +6877,7 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "top-up-0500"
+            "service": "top-up-0025"
           },
           {
             "direction": "any",
@@ -5002,7 +6885,7 @@
           },
           {
             "direction": "any",
-            "service": "top-up-0025"
+            "service": "top-up-0500"
           }
         ],
         "availability": "available",
@@ -5046,9 +6929,9 @@
         "scope": "project",
         "service_id": "top-up-1000",
         "updateable_to": [
-          "top-up-0500",
-          "top-up-2000",
           "top-up-0025",
+          "top-up-2000",
+          "top-up-0500",
           "top-up-1000"
         ]
       },
@@ -5056,7 +6939,7 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "top-up-0500"
+            "service": "top-up-1000"
           },
           {
             "direction": "any",
@@ -5064,7 +6947,7 @@
           },
           {
             "direction": "any",
-            "service": "top-up-1000"
+            "service": "top-up-0500"
           }
         ],
         "availability": "available",
@@ -5108,9 +6991,9 @@
         "scope": "project",
         "service_id": "top-up-0025",
         "updateable_to": [
-          "top-up-0500",
-          "top-up-2000",
           "top-up-1000",
+          "top-up-2000",
+          "top-up-0500",
           "top-up-0025"
         ]
       },
@@ -5118,15 +7001,15 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "top-up-0500"
-          },
-          {
-            "direction": "any",
             "service": "top-up-1000"
           },
           {
             "direction": "any",
             "service": "top-up-0025"
+          },
+          {
+            "direction": "any",
+            "service": "top-up-0500"
           }
         ],
         "availability": "available",
@@ -5170,9 +7053,9 @@
         "scope": "project",
         "service_id": "top-up-2000",
         "updateable_to": [
-          "top-up-0500",
           "top-up-1000",
           "top-up-0025",
+          "top-up-0500",
           "top-up-2000"
         ]
       },
@@ -5295,9 +7178,9 @@
                 },
                 "parent_services": [
                   "top-up-0025",
-                  "top-up-1000",
+                  "top-up-0500",
                   "top-up-2000",
-                  "top-up-0500"
+                  "top-up-1000"
                 ],
                 "type": "paid"
               }
@@ -5320,11 +7203,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "free"
+            "service": "team"
           },
           {
             "direction": "any",
-            "service": "team"
+            "service": "free"
           }
         ],
         "availability": "available",
@@ -5368,8 +7251,8 @@
         "scope": "project",
         "service_id": "pro",
         "updateable_to": [
-          "free",
           "team",
+          "free",
           "pro"
         ]
       },
@@ -5377,11 +7260,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "pro"
+            "service": "free"
           },
           {
             "direction": "any",
-            "service": "free"
+            "service": "pro"
           }
         ],
         "availability": "available",
@@ -5425,8 +7308,8 @@
         "scope": "project",
         "service_id": "team",
         "updateable_to": [
-          "pro",
           "free",
+          "pro",
           "team"
         ]
       },
@@ -5448,14 +7331,14 @@
         "configuration_schema": {},
         "constraints": [
           {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
             "count": {
               "at_most": 1
             },
             "type": "count"
-          },
-          {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -5502,14 +7385,14 @@
         "configuration_schema": {},
         "constraints": [
           {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
             "count": {
               "at_most": 1
             },
             "type": "count"
-          },
-          {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -5554,11 +7437,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "business"
+            "service": "developer"
           },
           {
             "direction": "any",
-            "service": "developer"
+            "service": "business"
           }
         ],
         "availability": "available",
@@ -5568,14 +7451,14 @@
         "configuration_schema": {},
         "constraints": [
           {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
             "count": {
               "at_most": 1
             },
             "type": "count"
-          },
-          {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -5611,8 +7494,8 @@
         "scope": "account",
         "service_id": "team",
         "updateable_to": [
-          "business",
           "developer",
+          "business",
           "team"
         ]
       },
@@ -5620,11 +7503,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "free"
+            "service": "startup"
           },
           {
             "direction": "any",
-            "service": "startup"
+            "service": "free"
           }
         ],
         "availability": "available",
@@ -5666,8 +7549,8 @@
         "scope": "project",
         "service_id": "developer",
         "updateable_to": [
-          "free",
           "startup",
+          "free",
           "developer"
         ]
       },
@@ -5955,15 +7838,15 @@
         "allowed_updates": [
           {
             "direction": "any",
+            "service": "plus-v3-10k-mtu-monthly"
+          },
+          {
+            "direction": "any",
             "service": "plus-v3-50k-mtu-monthly"
           },
           {
             "direction": "any",
             "service": "free"
-          },
-          {
-            "direction": "any",
-            "service": "plus-v3-10k-mtu-monthly"
           }
         ],
         "availability": "available",
@@ -6027,9 +7910,9 @@
         "scope": "project",
         "service_id": "plus-v3-25k-mtu-monthly",
         "updateable_to": [
+          "plus-v3-10k-mtu-monthly",
           "plus-v3-50k-mtu-monthly",
           "free",
-          "plus-v3-10k-mtu-monthly",
           "plus-v3-25k-mtu-monthly"
         ]
       },
@@ -6290,10 +8173,10 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
-                  "free",
-                  "scale",
+                  "core",
                   "enterprise",
-                  "core"
+                  "scale",
+                  "free"
                 ],
                 "type": "free"
               }
@@ -6328,11 +8211,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "free"
+            "service": "startup"
           },
           {
             "direction": "any",
-            "service": "startup"
+            "service": "free"
           }
         ],
         "availability": "available",
@@ -6376,8 +8259,8 @@
         "scope": "project",
         "service_id": "developer",
         "updateable_to": [
-          "free",
           "startup",
+          "free",
           "developer"
         ]
       },
@@ -6801,14 +8684,14 @@
         },
         "constraints": [
           {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
             "count": {
               "at_most": 1
             },
             "type": "count"
-          },
-          {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -6877,8 +8760,8 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
-                  "pro",
-                  "hobby"
+                  "hobby",
+                  "pro"
                 ],
                 "type": "free"
               }
@@ -6901,11 +8784,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "hobby"
+            "service": "pro"
           },
           {
             "direction": "any",
-            "service": "pro"
+            "service": "hobby"
           }
         ],
         "availability": "available",
@@ -6935,19 +8818,19 @@
         "scope": "project",
         "service_id": "hobby",
         "updateable_to": [
-          "hobby",
-          "pro"
+          "pro",
+          "hobby"
         ]
       },
       {
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "pro"
+            "service": "team"
           },
           {
             "direction": "any",
-            "service": "team"
+            "service": "pro"
           }
         ],
         "availability": "available",
@@ -6979,8 +8862,8 @@
         "scope": "project",
         "service_id": "free",
         "updateable_to": [
-          "pro",
           "team",
+          "pro",
           "free"
         ]
       },
@@ -7041,8 +8924,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "team",
-                  "pro"
+                  "pro",
+                  "team"
                 ],
                 "type": "paid"
               }
@@ -7065,11 +8948,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "workers:free"
+            "service": "workers:paid"
           },
           {
             "direction": "any",
-            "service": "workers:paid"
+            "service": "workers:free"
           }
         ],
         "availability": "available",
@@ -7122,8 +9005,8 @@
         "scope": "project",
         "service_id": "workers-ai",
         "updateable_to": [
-          "workers:free",
           "workers:paid",
+          "workers:free",
           "workers-ai"
         ]
       },
@@ -7131,11 +9014,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "workers:free"
+            "service": "workers:paid"
           },
           {
             "direction": "any",
-            "service": "workers:paid"
+            "service": "workers:free"
           }
         ],
         "availability": "available",
@@ -7192,8 +9075,8 @@
         "scope": "project",
         "service_id": "browser-run",
         "updateable_to": [
-          "workers:free",
           "workers:paid",
+          "workers:free",
           "browser-run"
         ]
       },
@@ -7201,11 +9084,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "workers:free"
+            "service": "workers:paid"
           },
           {
             "direction": "any",
-            "service": "workers:paid"
+            "service": "workers:free"
           }
         ],
         "availability": "available",
@@ -7347,8 +9230,8 @@
         "scope": "project",
         "service_id": "hyperdrive",
         "updateable_to": [
-          "workers:free",
           "workers:paid",
+          "workers:free",
           "hyperdrive"
         ]
       },
@@ -7356,11 +9239,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "workers:free"
+            "service": "workers:paid"
           },
           {
             "direction": "any",
-            "service": "workers:paid"
+            "service": "workers:free"
           }
         ],
         "availability": "available",
@@ -7426,8 +9309,8 @@
         "scope": "project",
         "service_id": "kv",
         "updateable_to": [
-          "workers:free",
           "workers:paid",
+          "workers:free",
           "kv"
         ]
       },
@@ -7435,11 +9318,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "workers:free"
+            "service": "workers:paid"
           },
           {
             "direction": "any",
-            "service": "workers:paid"
+            "service": "workers:free"
           }
         ],
         "availability": "available",
@@ -7517,8 +9400,8 @@
         "scope": "project",
         "service_id": "d1",
         "updateable_to": [
-          "workers:free",
           "workers:paid",
+          "workers:free",
           "d1"
         ]
       },
@@ -7526,11 +9409,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "workers:free"
+            "service": "workers:paid"
           },
           {
             "direction": "any",
-            "service": "workers:paid"
+            "service": "workers:free"
           }
         ],
         "availability": "available",
@@ -7596,8 +9479,8 @@
         "scope": "project",
         "service_id": "queues",
         "updateable_to": [
-          "workers:free",
           "workers:paid",
+          "workers:free",
           "queues"
         ]
       },
@@ -7605,11 +9488,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "workers:free"
+            "service": "workers:paid"
           },
           {
             "direction": "any",
-            "service": "workers:paid"
+            "service": "workers:free"
           }
         ],
         "availability": "available",
@@ -7658,8 +9541,8 @@
         "scope": "project",
         "service_id": "containers",
         "updateable_to": [
-          "workers:free",
           "workers:paid",
+          "workers:free",
           "containers"
         ]
       },
@@ -7699,10 +9582,10 @@
                 "paid": null,
                 "parent_services": [
                   "b2c-professional",
-                  "b2b-professional",
-                  "b2b-essentials",
+                  "free",
                   "b2c-essentials",
-                  "free"
+                  "b2b-essentials",
+                  "b2b-professional"
                 ],
                 "type": "free"
               }
@@ -7913,19 +9796,19 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "free"
-          },
-          {
-            "direction": "any",
             "service": "standard"
           },
           {
             "direction": "any",
-            "service": "api"
+            "service": "free"
           },
           {
             "direction": "any",
             "service": "hobby"
+          },
+          {
+            "direction": "any",
+            "service": "api"
           }
         ],
         "availability": "available",
@@ -7994,10 +9877,10 @@
         "scope": "project",
         "service_id": "growth",
         "updateable_to": [
-          "free",
           "standard",
-          "api",
+          "free",
           "hobby",
+          "api",
           "growth"
         ]
       },
@@ -8005,19 +9888,19 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "free"
-          },
-          {
-            "direction": "any",
             "service": "standard"
           },
           {
             "direction": "any",
-            "service": "growth"
+            "service": "free"
           },
           {
             "direction": "any",
             "service": "api"
+          },
+          {
+            "direction": "any",
+            "service": "growth"
           }
         ],
         "availability": "available",
@@ -8086,10 +9969,10 @@
         "scope": "project",
         "service_id": "hobby",
         "updateable_to": [
-          "free",
           "standard",
-          "growth",
+          "free",
           "api",
+          "growth",
           "hobby"
         ]
       },
@@ -8101,7 +9984,7 @@
           },
           {
             "direction": "any",
-            "service": "growth"
+            "service": "hobby"
           },
           {
             "direction": "any",
@@ -8109,7 +9992,7 @@
           },
           {
             "direction": "any",
-            "service": "hobby"
+            "service": "growth"
           }
         ],
         "availability": "available",
@@ -8179,9 +10062,9 @@
         "service_id": "standard",
         "updateable_to": [
           "free",
-          "growth",
-          "api",
           "hobby",
+          "api",
+          "growth",
           "standard"
         ]
       },
@@ -8227,19 +10110,19 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "free"
-          },
-          {
-            "direction": "any",
             "service": "standard"
           },
           {
             "direction": "any",
-            "service": "growth"
+            "service": "free"
           },
           {
             "direction": "any",
             "service": "hobby"
+          },
+          {
+            "direction": "any",
+            "service": "growth"
           }
         ],
         "availability": "available",
@@ -8280,9 +10163,9 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "growth",
+                  "hobby",
                   "standard",
-                  "hobby"
+                  "growth"
                 ],
                 "type": "paid"
               }
@@ -8298,10 +10181,10 @@
         "scope": "project",
         "service_id": "api",
         "updateable_to": [
-          "free",
           "standard",
-          "growth",
+          "free",
           "hobby",
+          "growth",
           "api"
         ]
       },
@@ -8313,7 +10196,7 @@
           },
           {
             "direction": "any",
-            "service": "growth"
+            "service": "hobby"
           },
           {
             "direction": "any",
@@ -8321,7 +10204,7 @@
           },
           {
             "direction": "any",
-            "service": "hobby"
+            "service": "growth"
           }
         ],
         "availability": "available",
@@ -8356,9 +10239,9 @@
         "service_id": "free",
         "updateable_to": [
           "standard",
-          "growth",
-          "api",
           "hobby",
+          "api",
+          "growth",
           "free"
         ]
       },
@@ -8466,11 +10349,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "hobby"
+            "service": "pro"
           },
           {
             "direction": "any",
-            "service": "pro"
+            "service": "hobby"
           }
         ],
         "availability": "available",
@@ -8500,19 +10383,19 @@
         "scope": "project",
         "service_id": "hobby",
         "updateable_to": [
-          "hobby",
-          "pro"
+          "pro",
+          "hobby"
         ]
       },
       {
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "hobby"
+            "service": "pro"
           },
           {
             "direction": "any",
-            "service": "pro"
+            "service": "hobby"
           }
         ],
         "availability": "available",
@@ -8554,8 +10437,8 @@
         "scope": "project",
         "service_id": "pro",
         "updateable_to": [
-          "hobby",
-          "pro"
+          "pro",
+          "hobby"
         ]
       },
       {
@@ -8617,11 +10500,7 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "plus-v3-50k-mtu-monthly"
-          },
-          {
-            "direction": "any",
-            "service": "plus-v3-10k-mtu-monthly"
+            "service": "plus-v3-25k-mtu-monthly"
           },
           {
             "direction": "any",
@@ -8629,7 +10508,11 @@
           },
           {
             "direction": "any",
-            "service": "plus-v3-25k-mtu-monthly"
+            "service": "plus-v3-50k-mtu-monthly"
+          },
+          {
+            "direction": "any",
+            "service": "plus-v3-10k-mtu-monthly"
           }
         ],
         "availability": "available",
@@ -8728,10 +10611,10 @@
         "scope": "project",
         "service_id": "analytics",
         "updateable_to": [
+          "plus-v3-25k-mtu-monthly",
+          "free",
           "plus-v3-50k-mtu-monthly",
           "plus-v3-10k-mtu-monthly",
-          "free",
-          "plus-v3-25k-mtu-monthly",
           "analytics"
         ]
       },
@@ -9573,11 +11456,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "hobby"
+            "service": "pro"
           },
           {
             "direction": "any",
-            "service": "pro"
+            "service": "hobby"
           }
         ],
         "availability": "available",
@@ -9619,19 +11502,19 @@
         "scope": "project",
         "service_id": "pro",
         "updateable_to": [
-          "hobby",
-          "pro"
+          "pro",
+          "hobby"
         ]
       },
       {
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "workers:free"
+            "service": "workers:paid"
           },
           {
             "direction": "any",
-            "service": "workers:paid"
+            "service": "workers:free"
           }
         ],
         "availability": "available",
@@ -9688,8 +11571,8 @@
         "scope": "project",
         "service_id": "workers",
         "updateable_to": [
-          "workers:free",
           "workers:paid",
+          "workers:free",
           "workers"
         ]
       },
@@ -9794,8 +11677,8 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
-                  "pro",
-                  "hobby"
+                  "hobby",
+                  "pro"
                 ],
                 "type": "free"
               }
@@ -12777,8 +14660,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "pro",
-                  "hobby"
+                  "hobby",
+                  "pro"
                 ],
                 "type": "paid"
               }
@@ -12842,8 +14725,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "pro",
-                  "hobby"
+                  "hobby",
+                  "pro"
                 ],
                 "type": "paid"
               }
@@ -12866,11 +14749,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "hobby"
+            "service": "pro"
           },
           {
             "direction": "any",
-            "service": "pro"
+            "service": "hobby"
           }
         ],
         "availability": "available",
@@ -12903,8 +14786,8 @@
         "scope": "project",
         "service_id": "free",
         "updateable_to": [
-          "hobby",
           "pro",
+          "hobby",
           "free"
         ]
       },
@@ -12952,8 +14835,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "pro",
-                  "hobby"
+                  "hobby",
+                  "pro"
                 ],
                 "type": "paid"
               }
@@ -13011,8 +14894,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "pro",
-                  "hobby"
+                  "hobby",
+                  "pro"
                 ],
                 "type": "paid"
               }
@@ -13075,8 +14958,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "pro",
-                  "hobby"
+                  "hobby",
+                  "pro"
                 ],
                 "type": "paid"
               }
@@ -13262,7 +15145,7 @@
           },
           {
             "direction": "any",
-            "service": "pro"
+            "service": "scaler"
           },
           {
             "direction": "any",
@@ -13270,7 +15153,7 @@
           },
           {
             "direction": "any",
-            "service": "scaler"
+            "service": "pro"
           },
           {
             "direction": "any",
@@ -13284,14 +15167,14 @@
         "configuration_schema": {},
         "constraints": [
           {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
             "count": {
               "at_most": 1
             },
             "type": "count"
-          },
-          {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -13328,9 +15211,9 @@
         "service_id": "developer",
         "updateable_to": [
           "pro_overages",
-          "pro",
-          "scaler_overages",
           "scaler",
+          "scaler_overages",
+          "pro",
           "developer_overages",
           "developer"
         ]
@@ -13339,11 +15222,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "pro"
+            "service": "pro_overages"
           },
           {
             "direction": "any",
-            "service": "pro_overages"
+            "service": "pro"
           }
         ],
         "availability": "available",
@@ -13353,14 +15236,14 @@
         "configuration_schema": {},
         "constraints": [
           {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
             "count": {
               "at_most": 1
             },
             "type": "count"
-          },
-          {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -13396,8 +15279,8 @@
         "scope": "account",
         "service_id": "scaler_overages",
         "updateable_to": [
-          "pro",
           "pro_overages",
+          "pro",
           "scaler_overages"
         ]
       },
@@ -13415,14 +15298,14 @@
         "configuration_schema": {},
         "constraints": [
           {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
             "count": {
               "at_most": 1
             },
             "type": "count"
-          },
-          {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -13466,7 +15349,7 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "pro_overages"
+            "service": "scaler_overages"
           },
           {
             "direction": "any",
@@ -13474,7 +15357,7 @@
           },
           {
             "direction": "any",
-            "service": "scaler_overages"
+            "service": "pro_overages"
           }
         ],
         "availability": "available",
@@ -13484,14 +15367,14 @@
         "configuration_schema": {},
         "constraints": [
           {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
             "count": {
               "at_most": 1
             },
             "type": "count"
-          },
-          {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -13527,9 +15410,9 @@
         "scope": "account",
         "service_id": "scaler",
         "updateable_to": [
-          "pro_overages",
-          "pro",
           "scaler_overages",
+          "pro",
+          "pro_overages",
           "scaler"
         ]
       },
@@ -13581,13 +15464,13 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
-                  "pro_overages",
                   "scaler_overages",
-                  "pro",
-                  "developer",
-                  "developer_overages",
+                  "pro_overages",
+                  "scaler",
                   "starter",
-                  "scaler"
+                  "developer_overages",
+                  "developer",
+                  "pro"
                 ],
                 "type": "free"
               }
@@ -13614,7 +15497,7 @@
           },
           {
             "direction": "any",
-            "service": "scaler_overages"
+            "service": "pro_overages"
           },
           {
             "direction": "any",
@@ -13622,7 +15505,7 @@
           },
           {
             "direction": "any",
-            "service": "pro_overages"
+            "service": "scaler_overages"
           }
         ],
         "availability": "available",
@@ -13632,14 +15515,14 @@
         "configuration_schema": {},
         "constraints": [
           {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
             "count": {
               "at_most": 1
             },
             "type": "count"
-          },
-          {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -13676,9 +15559,9 @@
         "service_id": "developer_overages",
         "updateable_to": [
           "pro",
-          "scaler_overages",
-          "scaler",
           "pro_overages",
+          "scaler",
+          "scaler_overages",
           "developer_overages"
         ]
       },
@@ -13691,14 +15574,14 @@
         "configuration_schema": {},
         "constraints": [
           {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
             "count": {
               "at_most": 1
             },
             "type": "count"
-          },
-          {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -13741,11 +15624,7 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "developer"
-          },
-          {
-            "direction": "any",
-            "service": "pro_overages"
+            "service": "developer_overages"
           },
           {
             "direction": "any",
@@ -13753,15 +15632,19 @@
           },
           {
             "direction": "any",
-            "service": "developer_overages"
-          },
-          {
-            "direction": "any",
-            "service": "pro"
+            "service": "pro_overages"
           },
           {
             "direction": "any",
             "service": "scaler_overages"
+          },
+          {
+            "direction": "any",
+            "service": "developer"
+          },
+          {
+            "direction": "any",
+            "service": "pro"
           }
         ],
         "availability": "available",
@@ -13771,14 +15654,14 @@
         "configuration_schema": {},
         "constraints": [
           {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
+          },
+          {
             "count": {
               "at_most": 1
             },
             "type": "count"
-          },
-          {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -13802,17 +15685,17 @@
         "scope": "account",
         "service_id": "starter",
         "updateable_to": [
-          "developer",
-          "pro_overages",
-          "scaler",
           "developer_overages",
-          "pro",
+          "scaler",
+          "pro_overages",
           "scaler_overages",
+          "developer",
+          "pro",
           "starter"
         ]
       }
     ],
-    "source": "api"
+    "source": "cache"
   },
   "meta": {
     "authenticated": true,
