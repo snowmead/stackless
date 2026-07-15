@@ -89,6 +89,7 @@ register_providers! {
     (clickhouse::cluster, ClickHouseClickhouse),
     (clickhouse::postgres, ClickHousePostgres),
     (daytona::sandbox, DaytonaSandbox),
+    (depot::api, DepotApi),
     (e2b::sandbox, E2BSandbox),
     (elevenlabs::tts, ElevenLabsTts),
     (exa::api, ExaApi),
