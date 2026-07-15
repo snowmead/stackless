@@ -34,6 +34,7 @@ pub mod prisma;
 pub mod privy;
 pub mod railway;
 pub mod render_db;
+pub mod revenuecat;
 pub mod runloop;
 pub mod sentry;
 pub mod supabase;
@@ -53,8 +54,8 @@ mod tests {
         agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel, browserbase,
         chroma, clickhouse, cloudflare, daytona, e2b, elevenlabs, exa, firecrawl, flyio, gitlab,
         heygen, huggingface, inngest, kernel, laravel_cloud, metronome, mixpanel, neon, openrouter,
-        parallel, planetscale, postalform, posthog, prisma, privy, railway, render_db, runloop,
-        sentry, supabase, supermemory, turso, upstash, wix, wordpress_com, workos,
+        parallel, planetscale, postalform, posthog, prisma, privy, railway, render_db, revenuecat,
+        runloop, sentry, supabase, supermemory, turso, upstash, wix, wordpress_com, workos,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -123,6 +124,7 @@ mod tests {
         assert_outputs_match::<railway::postgres::RailwayPostgres>();
         assert_outputs_match::<railway::redis::RailwayRedis>();
         assert_outputs_match::<render_db::postgres::RenderPostgres>();
+        assert_outputs_match::<revenuecat::app::RevenuecatApp>();
         assert_outputs_match::<runloop::sandbox::RunloopSandbox>();
         assert_outputs_match::<sentry::project::SentryProject>();
         assert_outputs_match::<sentry::seer::SentrySeer>();
