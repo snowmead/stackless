@@ -124,6 +124,7 @@ register_providers! {
     (runloop::sandbox, RunloopSandbox),
     (sentry::project, SentryProject),
     (sentry::seer, SentrySeer),
+    (steel::browser, SteelBrowser),
     (supabase::project, SupabaseProject),
     (supermemory::memory, SupermemoryMemory),
     (turso::database, TursoDatabase),
