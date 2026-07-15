@@ -1,0 +1,68 @@
+# stackless
+
+> Disposable software stacks: named, leased, isolated, proven, accounted for, destroyed. A CLI that owns the full lifecycle of a disposable stack for AI agents first. One stackless.toml describes the product. up spawns an isolated named copy with a URL. verify proves it. down or an expired lease destroys it verifiably.
+
+## Agent instructions
+
+- Always pass `--json`. Branch on `error.code` only, never on prose.
+- stdout is the final envelope: `{ "ok": true, … }` or `{ "ok": false, "error": { … } }`.
+- stderr carries NDJSON progress during `up --json`.
+- Every command is non-interactive and exits with codes an agent can branch on.
+- Point agents at the skill and schema before driving stacks by hand.
+- Hand humans the install step once, then hand the skill (or repo) to an agent.
+
+## Install
+
+```
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/latest/download/stackless-installer.sh | sh
+stackless --version
+```
+
+From source: `cargo build --release` → `target/release/stackless`.
+
+## Lifecycle
+
+```
+stackless check stackless.toml --on local --json
+stackless up --name demo --on local --json
+stackless verify demo --json
+stackless down demo --json
+```
+
+- `up [--name]` — create or resume; `--on` required at creation
+- `verify <name>` — run proof contract; renews lease
+- `down <name>` — verified teardown
+- `status` / `list` — staged truth / all instances
+- `logs <name>` — captured output (survives teardown)
+- `check <file>` — validate definition + derived graph
+- `init` / `adopt` / `doctor` — scaffold, detect, preflight
+
+Substrates at creation (`--on`): `local`, `render`, `vercel`, `fly`, `netlify`. Resume by name; substrate is fixed after create. Paid cloud resources need `--confirm-paid`.
+
+## Machine contract
+
+- stdout — final JSON envelope with `ok` true/false
+- stderr — NDJSON progress events during `up --json`
+- Errors carry what failed, why (observed), and remediation
+- Branch on `error.code` only
+
+## Parallel agents
+
+Same `stackless.toml`, many named instances. Prefer one git worktree per agent. For uncommitted local trees use `--source svc=PATH --dirty` (local only; cloud rejects `--source` / `--dirty` — commit and push). Optional fleet state plane via `STACKLESS_STATE_URL` + `STACKLESS_STATE_TOKEN`.
+
+- [AGENT-FLEETS](https://github.com/snowmead/stackless/blob/main/docs/AGENT-FLEETS.md): worktree vs dirty, naming, shared Turso state
+
+## Docs
+
+- [README](https://github.com/snowmead/stackless/blob/main/README.md): product overview, install, lifecycle
+- [VISION](https://github.com/snowmead/stackless/blob/main/VISION.md): why, invariants, trust boundary
+- [ARCHITECTURE](https://github.com/snowmead/stackless/blob/main/ARCHITECTURE.md): how it is built
+- [SCHEMA](https://github.com/snowmead/stackless/blob/main/docs/SCHEMA.md): stackless.toml reference
+- [AGENT-FLEETS](https://github.com/snowmead/stackless/blob/main/docs/AGENT-FLEETS.md): parallel agents and shared state
+- [Agent skill](https://github.com/snowmead/stackless/blob/main/.cursor/skills/stackless/SKILL.md): agent playbook
+- [CHANGELOG](https://github.com/snowmead/stackless/blob/main/CHANGELOG.md): releases
+- [Repository](https://github.com/snowmead/stackless): source and releases
+
+## Status
+
+v0 lifecycle, under active development. MIT license. stackless is not a PaaS, not IaC state management, and not a production orchestrator. It is the lifecycle layer between an agent and the stack it works on.
