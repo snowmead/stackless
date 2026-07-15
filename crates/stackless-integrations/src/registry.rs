@@ -122,6 +122,7 @@ register_providers! {
     (railway::redis, RailwayRedis),
     (render_db::postgres, RenderPostgres),
     (runloop::sandbox, RunloopSandbox),
+    (schematic::schematic_environment, SchematicEnvironment),
     (sentry::project, SentryProject),
     (sentry::seer, SentrySeer),
     (supabase::project, SupabaseProject),
