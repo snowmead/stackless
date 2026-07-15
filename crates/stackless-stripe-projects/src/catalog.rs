@@ -281,6 +281,7 @@ pub enum Category {
     Email,
     FeatureFlags,
     Messaging,
+    Notification,
     Observability,
     Payments,
     Queue,

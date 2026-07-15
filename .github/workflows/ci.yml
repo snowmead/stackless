@@ -179,16 +179,16 @@ jobs:
       - name: cargo vet
         run: mise run vet
 
-  # Tier-2 live smokes: real up/status/logs/down against each cloud provider.
+  # Tier-2 live smokes: real up/status/logs/down against hosting substrates.
   # Gated to the canonical repo (secrets live in GitHub Actions, not forks).
-  # Runs on every PR push to main — same matrix as smoke.yml's nightly sweep.
+  # Cloudflare is nightly-only (smoke.yml) — PR runs hit account rate limits.
   live-smoke:
     name: live-smoke (${{ matrix.provider }})
     if: ${{ github.repository_owner == 'snowmead' }}
     strategy:
       fail-fast: false
       matrix:
-        provider: [vercel, render, cloudflare, fly, netlify]
+        provider: [vercel, render, fly, netlify]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

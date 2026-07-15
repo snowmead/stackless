@@ -2,9 +2,10 @@ name: Live smoke
 
 # The GATED live tier: a real `stackless up`/`down` against each cloud provider,
 # deploying fixtures/smoke/<provider> (this repo's own source). It is slow, costs
-# real (free-tier) resources, and needs account secrets. The same matrix also
-# runs on every PR via ci.yml `live-smoke` / `live-fleet`; this workflow repeats
-# it nightly and on demand as a scheduled safety net.
+# real (free-tier) resources, and needs account secrets. vercel/render/fly/netlify
+# also run on every PR via ci.yml `live-smoke` / `live-fleet`; Cloudflare is
+# nightly-only here (PR runs hit account rate limits). This workflow repeats the
+# full matrix nightly and on demand as a scheduled safety net.
 #
 # Required repo secrets:
 #   STRIPE_API_KEY  — a Stripe secret key for the account whose Stripe Project has

@@ -23,9 +23,11 @@ envelope parses with `ok: true`, so the machine contract (including the
 per-substrate `logs` sources and `spend` fields) gets live coverage, not just
 the hermetic wiremock tier.
 
-On `snowmead/stackless`, these run on **every PR** via `ci.yml` (`live-smoke`
-and `live-fleet` jobs). Forks skip them (no secrets). `smoke.yml` repeats the
-same matrix nightly and on `workflow_dispatch` as a scheduled safety net.
+On `snowmead/stackless`, hosting substrate smokes (vercel / render / fly /
+netlify) plus `live-fleet` run on **every PR** via `ci.yml`. Cloudflare is
+nightly-only (`smoke.yml`) to avoid PR contention on account rate limits.
+Forks skip live smokes (no secrets). `smoke.yml` also repeats the full
+substrate matrix (including Cloudflare) on `workflow_dispatch`.
 
 ```
 fixtures/smoke/
@@ -47,11 +49,11 @@ mise run smoke-netlify
 mise run smoke            # vercel + render (see mise.toml for the full set)
 ```
 
-In CI: `ci.yml` runs one gated job per provider on every PR to `main` (plus a
-`live-fleet` job for Turso). Secrets: `STRIPE_API_KEY` / `VERCEL_TOKEN` /
-`RENDER_API_KEY` / `FLY_API_TOKEN` / `STACKLESS_STATE_URL` /
-`STACKLESS_STATE_TOKEN`. `.github/workflows/smoke.yml` repeats the provider
-matrix nightly and on demand.
+In CI: `ci.yml` runs gated jobs for vercel / render / fly / netlify on every
+PR to `main` (plus `live-fleet` for Turso). Cloudflare runs via
+`.github/workflows/smoke.yml` nightly and on demand (with the other
+substrates). Secrets: `STRIPE_API_KEY` / `VERCEL_TOKEN` / `RENDER_API_KEY` /
+`FLY_API_TOKEN` / `STACKLESS_STATE_URL` / `STACKLESS_STATE_TOKEN`.
 
 ### Prerequisites (one-time, human)
 
