@@ -6,11 +6,15 @@ pub mod auth0;
 pub mod base44_projects;
 pub mod blaxel;
 pub mod browserbase;
+pub mod chatbase;
 pub mod chroma;
 pub mod clerk;
 pub mod clickhouse;
 pub mod cloudflare;
+pub mod composio;
+pub mod customerio;
 pub mod daytona;
+pub mod depot;
 pub mod e2b;
 pub mod elevenlabs;
 pub mod exa;
@@ -32,9 +36,12 @@ pub mod postalform;
 pub mod posthog;
 pub mod prisma;
 pub mod privy;
+pub mod pydantic;
 pub mod railway;
 pub mod render_db;
+pub mod revenuecat;
 pub mod runloop;
+pub mod schematic;
 pub mod sentry;
 pub mod steel;
 pub mod supabase;
@@ -52,9 +59,10 @@ mod tests {
 
     use crate::providers::{
         agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel, browserbase,
-        chroma, clickhouse, cloudflare, daytona, e2b, elevenlabs, exa, firecrawl, flyio, gitlab,
-        heygen, huggingface, inngest, kernel, laravel_cloud, metronome, mixpanel, neon, openrouter,
-        parallel, planetscale, postalform, posthog, prisma, privy, railway, render_db, runloop,
+        chatbase, chroma, clickhouse, cloudflare, composio, customerio, daytona, depot, e2b,
+        elevenlabs, exa, firecrawl, flyio, gitlab, heygen, huggingface, inngest, kernel,
+        laravel_cloud, metronome, mixpanel, neon, openrouter, parallel, planetscale, postalform,
+        posthog, prisma, privy, pydantic, railway, render_db, revenuecat, runloop, schematic,
         sentry, steel, supabase, supermemory, turso, upstash, wix, wordpress_com, workos,
     };
 
@@ -88,10 +96,14 @@ mod tests {
         assert_outputs_match::<blaxel::agent_drive::BlaxelAgentDrive>();
         assert_outputs_match::<blaxel::sandbox::BlaxelSandbox>();
         assert_outputs_match::<browserbase::project::BrowserbaseProject>();
+        assert_outputs_match::<chatbase::agent::ChatbaseAgent>();
         assert_outputs_match::<chroma::database::ChromaDatabase>();
         assert_outputs_match::<clickhouse::cluster::ClickHouseClickhouse>();
         assert_outputs_match::<clickhouse::postgres::ClickHousePostgres>();
+        assert_outputs_match::<composio::project::ComposioProject>();
+        assert_outputs_match::<customerio::workspace::CustomerioWorkspace>();
         assert_outputs_match::<daytona::sandbox::DaytonaSandbox>();
+        assert_outputs_match::<depot::api::DepotApi>();
         assert_outputs_match::<e2b::sandbox::E2BSandbox>();
         assert_outputs_match::<elevenlabs::tts::ElevenLabsTts>();
         assert_outputs_match::<exa::api::ExaApi>();
@@ -118,13 +130,16 @@ mod tests {
         assert_outputs_match::<posthog::analytics::PostHogAnalytics>();
         assert_outputs_match::<prisma::database::PrismaDatabase>();
         assert_outputs_match::<privy::app::PrivyApp>();
+        assert_outputs_match::<pydantic::logfire::PydanticLogfire>();
         assert_outputs_match::<railway::bucket::RailwayBucket>();
         assert_outputs_match::<railway::hosting::RailwayHosting>();
         assert_outputs_match::<railway::mongo::RailwayMongo>();
         assert_outputs_match::<railway::postgres::RailwayPostgres>();
         assert_outputs_match::<railway::redis::RailwayRedis>();
         assert_outputs_match::<render_db::postgres::RenderPostgres>();
+        assert_outputs_match::<revenuecat::app::RevenuecatApp>();
         assert_outputs_match::<runloop::sandbox::RunloopSandbox>();
+        assert_outputs_match::<schematic::schematic_environment::SchematicEnvironment>();
         assert_outputs_match::<sentry::project::SentryProject>();
         assert_outputs_match::<sentry::seer::SentrySeer>();
         assert_outputs_match::<steel::browser::SteelBrowser>();
