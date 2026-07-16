@@ -90,6 +90,7 @@ register_providers! {
     (clickhouse::cluster, ClickHouseClickhouse),
     (clickhouse::postgres, ClickHousePostgres),
     (composio::project, ComposioProject),
+    (customerio::workspace, CustomerioWorkspace),
     (daytona::sandbox, DaytonaSandbox),
     (e2b::sandbox, E2BSandbox),
     (elevenlabs::tts, ElevenLabsTts),
