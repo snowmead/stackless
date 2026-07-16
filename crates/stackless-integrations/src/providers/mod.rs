@@ -36,6 +36,7 @@ pub mod postalform;
 pub mod posthog;
 pub mod prisma;
 pub mod privy;
+pub mod pydantic;
 pub mod railway;
 pub mod render_db;
 pub mod runloop;
@@ -58,8 +59,8 @@ mod tests {
         chatbase, chroma, clickhouse, cloudflare, composio, customerio, daytona, depot, e2b,
         elevenlabs, exa, firecrawl, flyio, gitlab, heygen, huggingface, inngest, kernel,
         laravel_cloud, metronome, mixpanel, neon, openrouter, parallel, planetscale, postalform,
-        posthog, prisma, privy, railway, render_db, runloop, sentry, supabase, supermemory, turso,
-        upstash, wix, wordpress_com, workos,
+        posthog, prisma, privy, pydantic, railway, render_db, runloop, sentry, supabase,
+        supermemory, turso, upstash, wix, wordpress_com, workos,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -126,6 +127,7 @@ mod tests {
         assert_outputs_match::<posthog::analytics::PostHogAnalytics>();
         assert_outputs_match::<prisma::database::PrismaDatabase>();
         assert_outputs_match::<privy::app::PrivyApp>();
+        assert_outputs_match::<pydantic::logfire::PydanticLogfire>();
         assert_outputs_match::<railway::bucket::RailwayBucket>();
         assert_outputs_match::<railway::hosting::RailwayHosting>();
         assert_outputs_match::<railway::mongo::RailwayMongo>();

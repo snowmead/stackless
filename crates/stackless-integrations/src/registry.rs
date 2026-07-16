@@ -119,6 +119,7 @@ register_providers! {
     (posthog::analytics, PostHogAnalytics),
     (prisma::database, PrismaDatabase),
     (privy::app, PrivyApp),
+    (pydantic::logfire, PydanticLogfire),
     (railway::bucket, RailwayBucket),
     (railway::hosting, RailwayHosting),
     (railway::mongo, RailwayMongo),
