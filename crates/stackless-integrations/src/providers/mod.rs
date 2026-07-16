@@ -11,6 +11,7 @@ pub mod chroma;
 pub mod clerk;
 pub mod clickhouse;
 pub mod cloudflare;
+pub mod composio;
 pub mod daytona;
 pub mod e2b;
 pub mod elevenlabs;
@@ -52,10 +53,11 @@ mod tests {
 
     use crate::providers::{
         agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel, browserbase,
-        chatbase, chroma, clickhouse, cloudflare, daytona, e2b, elevenlabs, exa, firecrawl, flyio,
-        gitlab, heygen, huggingface, inngest, kernel, laravel_cloud, metronome, mixpanel, neon,
-        openrouter, parallel, planetscale, postalform, posthog, prisma, privy, railway, render_db,
-        runloop, sentry, supabase, supermemory, turso, upstash, wix, wordpress_com, workos,
+        chatbase, chroma, clickhouse, cloudflare, composio, daytona, e2b, elevenlabs, exa,
+        firecrawl, flyio, gitlab, heygen, huggingface, inngest, kernel, laravel_cloud, metronome,
+        mixpanel, neon, openrouter, parallel, planetscale, postalform, posthog, prisma, privy,
+        railway, render_db, runloop, sentry, supabase, supermemory, turso, upstash, wix,
+        wordpress_com, workos,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -92,6 +94,7 @@ mod tests {
         assert_outputs_match::<chroma::database::ChromaDatabase>();
         assert_outputs_match::<clickhouse::cluster::ClickHouseClickhouse>();
         assert_outputs_match::<clickhouse::postgres::ClickHousePostgres>();
+        assert_outputs_match::<composio::project::ComposioProject>();
         assert_outputs_match::<daytona::sandbox::DaytonaSandbox>();
         assert_outputs_match::<e2b::sandbox::E2BSandbox>();
         assert_outputs_match::<elevenlabs::tts::ElevenLabsTts>();
