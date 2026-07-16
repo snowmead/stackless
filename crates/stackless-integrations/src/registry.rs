@@ -126,6 +126,7 @@ register_providers! {
     (railway::postgres, RailwayPostgres),
     (railway::redis, RailwayRedis),
     (render_db::postgres, RenderPostgres),
+    (revenuecat::app, RevenuecatApp),
     (runloop::sandbox, RunloopSandbox),
     (sentry::project, SentryProject),
     (sentry::seer, SentrySeer),
