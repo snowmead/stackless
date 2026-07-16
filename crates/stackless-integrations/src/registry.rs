@@ -131,6 +131,7 @@ register_providers! {
     (schematic::schematic_environment, SchematicEnvironment),
     (sentry::project, SentryProject),
     (sentry::seer, SentrySeer),
+    (steel::browser, SteelBrowser),
     (supabase::project, SupabaseProject),
     (supermemory::memory, SupermemoryMemory),
     (turso::database, TursoDatabase),
