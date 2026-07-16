@@ -85,6 +85,7 @@ register_providers! {
     (blaxel::agent_drive, BlaxelAgentDrive),
     (blaxel::sandbox, BlaxelSandbox),
     (browserbase::project, BrowserbaseProject),
+    (chatbase::agent, ChatbaseAgent),
     (chroma::database, ChromaDatabase),
     (clickhouse::cluster, ClickHouseClickhouse),
     (clickhouse::postgres, ClickHousePostgres),
