@@ -92,6 +92,7 @@ register_providers! {
     (composio::project, ComposioProject),
     (customerio::workspace, CustomerioWorkspace),
     (daytona::sandbox, DaytonaSandbox),
+    (depot::api, DepotApi),
     (e2b::sandbox, E2BSandbox),
     (elevenlabs::tts, ElevenLabsTts),
     (exa::api, ExaApi),
