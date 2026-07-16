@@ -128,6 +128,7 @@ register_providers! {
     (render_db::postgres, RenderPostgres),
     (revenuecat::app, RevenuecatApp),
     (runloop::sandbox, RunloopSandbox),
+    (schematic::schematic_environment, SchematicEnvironment),
     (sentry::project, SentryProject),
     (sentry::seer, SentrySeer),
     (supabase::project, SupabaseProject),
