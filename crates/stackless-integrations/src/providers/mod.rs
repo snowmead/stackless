@@ -46,6 +46,7 @@ pub mod sentry;
 pub mod steel;
 pub mod supabase;
 pub mod supermemory;
+pub mod tabstack;
 pub mod turso;
 pub mod upstash;
 pub mod wix;
@@ -63,7 +64,7 @@ mod tests {
         elevenlabs, exa, firecrawl, flyio, gitlab, heygen, huggingface, inngest, kernel,
         laravel_cloud, metronome, mixpanel, neon, openrouter, parallel, planetscale, postalform,
         posthog, prisma, privy, pydantic, railway, render_db, revenuecat, runloop, schematic,
-        sentry, steel, supabase, supermemory, turso, upstash, wix, wordpress_com, workos,
+        sentry, steel, supabase, supermemory, tabstack, turso, upstash, wix, wordpress_com, workos,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -145,6 +146,7 @@ mod tests {
         assert_outputs_match::<steel::browser::SteelBrowser>();
         assert_outputs_match::<supabase::project::SupabaseProject>();
         assert_outputs_match::<supermemory::memory::SupermemoryMemory>();
+        assert_outputs_match::<tabstack::api::TabstackApi>();
         assert_outputs_match::<turso::database::TursoDatabase>();
         assert_outputs_match::<upstash::qstash::UpstashQstash>();
         assert_outputs_match::<upstash::redis::UpstashRedis>();

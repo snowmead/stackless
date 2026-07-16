@@ -134,6 +134,7 @@ register_providers! {
     (steel::browser, SteelBrowser),
     (supabase::project, SupabaseProject),
     (supermemory::memory, SupermemoryMemory),
+    (tabstack::api, TabstackApi),
     (turso::database, TursoDatabase),
     (upstash::qstash, UpstashQstash),
     (upstash::redis, UpstashRedis),
