@@ -25,3 +25,8 @@ fixtures/smoke/*/.projects/
 
 # Cursor /orchestrate run state (plan.json, state.json, handoffs — local to a planner session)
 .orchestrate/
+
+# Marketing site (web/)
+node_modules/
+dist/
+.vercel/
