@@ -97,9 +97,10 @@ pub async fn run_with(paths: &Paths, proxy_port: TcpPort, role: DaemonRole) -> s
     // daemon was down (start/wake), then a tick every minute. Operator only.
     if role == DaemonRole::Operator {
         let reaper_paths = paths.clone();
+        let reaper_port = proxy_port;
         tokio::spawn(async move {
-            crate::reaper::tick_once(&reaper_paths).await;
-            crate::reaper::run(reaper_paths).await;
+            crate::reaper::tick_once(&reaper_paths, reaper_port).await;
+            crate::reaper::run(reaper_paths, reaper_port).await;
         });
     }
 

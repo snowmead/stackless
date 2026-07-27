@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+use stackless_core::paths::Paths;
+use stackless_core::types::TcpPort;
 
 use crate::bind_cmd;
 use crate::client::{Client, UpArgs};
@@ -18,6 +20,12 @@ struct Cli {
     /// Emit machine-readable JSON on stdout.
     #[arg(long, global = true)]
     json: bool,
+    /// Override state root (hidden; used by the daemon reaper).
+    #[arg(long, global = true, hide = true)]
+    state_dir: Option<PathBuf>,
+    /// Override reverse-proxy port (hidden; used by the daemon reaper).
+    #[arg(long, global = true, hide = true)]
+    proxy_port: Option<u16>,
     #[command(subcommand)]
     command: Command,
 }
@@ -156,6 +164,10 @@ pub fn run() -> ExitCode {
         };
     }
     let mut output = Output::new(cli.json);
+    let layout = ClientLayout {
+        state_dir: cli.state_dir,
+        proxy_port: cli.proxy_port,
+    };
     let result = match cli.command {
         Command::Up {
             name,
@@ -176,19 +188,22 @@ pub fn run() -> ExitCode {
                 confirm_paid,
             },
             &mut output,
+            &layout,
         ),
-        Command::Down { name } => run_down(&name, &output),
+        Command::Down { name } => run_down(&name, &output, &layout),
         Command::Verify { name, tier } => {
             verify::verify(verify::VerifyArgs { name, tier }, &output)
         }
-        Command::Status { name } => run_status(&name, &output),
-        Command::List => run_list(&output),
+        Command::Status { name } => run_status(&name, &output, &layout),
+        Command::List => run_list(&output, &layout),
         Command::Logs {
             name,
             service,
             tail,
-        } => run_logs(&name, service.as_deref(), tail, &output),
-        Command::Check { file, substrate } => run_check(&file, substrate.as_deref(), &output),
+        } => run_logs(&name, service.as_deref(), tail, &output, &layout),
+        Command::Check { file, substrate } => {
+            run_check(&file, substrate.as_deref(), &output, &layout)
+        }
         Command::Init { name, file, force } => {
             init::init(init::InitArgs { name, file, force }, &output)
         }
@@ -238,43 +253,73 @@ pub fn run() -> ExitCode {
     }
 }
 
-fn run_up(args: UpArgs, output: &mut Output) -> Result<(), Error> {
-    let client = Client::system()?;
+struct ClientLayout {
+    state_dir: Option<PathBuf>,
+    proxy_port: Option<u16>,
+}
+
+fn client_for(layout: &ClientLayout) -> Result<Client, Error> {
+    let mut builder = Client::builder();
+    if let Some(dir) = &layout.state_dir {
+        builder = builder.paths(Paths::new(dir.clone()));
+    }
+    if let Some(port) = layout.proxy_port {
+        builder = builder.proxy_port(TcpPort::try_new(port).map_err(|err| Error::BadArgument {
+            argument: "--proxy-port".into(),
+            detail: err.to_string(),
+        })?);
+    }
+    builder.build()
+}
+
+fn run_up(args: UpArgs, output: &mut Output, layout: &ClientLayout) -> Result<(), Error> {
+    let client = client_for(layout)?;
     let outcome = client.up_from_args_with_progress(args, Some(output))?;
     output::render_up(output, &outcome);
     Ok(())
 }
 
-fn run_down(name: &str, output: &Output) -> Result<(), Error> {
-    let client = Client::system()?;
+fn run_down(name: &str, output: &Output, layout: &ClientLayout) -> Result<(), Error> {
+    let client = client_for(layout)?;
     let outcome = client.down(name)?;
     output::render_down(output, &outcome);
     Ok(())
 }
 
-fn run_status(name: &str, output: &Output) -> Result<(), Error> {
-    let client = Client::system()?;
+fn run_status(name: &str, output: &Output, layout: &ClientLayout) -> Result<(), Error> {
+    let client = client_for(layout)?;
     let report = client.status(name)?;
     output::render_status(output, &report, client.paths());
     Ok(())
 }
 
-fn run_list(output: &Output) -> Result<(), Error> {
-    let client = Client::system()?;
+fn run_list(output: &Output, layout: &ClientLayout) -> Result<(), Error> {
+    let client = client_for(layout)?;
     let reports = client.list()?;
     output::render_list(output, &reports, client.paths());
     Ok(())
 }
 
-fn run_logs(name: &str, service: Option<&str>, tail: usize, output: &Output) -> Result<(), Error> {
-    let client = Client::system()?;
+fn run_logs(
+    name: &str,
+    service: Option<&str>,
+    tail: usize,
+    output: &Output,
+    layout: &ClientLayout,
+) -> Result<(), Error> {
+    let client = client_for(layout)?;
     let outcome = client.logs(name, service, tail)?;
     output::render_logs(output, &outcome);
     Ok(())
 }
 
-fn run_check(file: &Path, substrate: Option<&str>, output: &Output) -> Result<(), Error> {
-    let client = Client::system()?;
+fn run_check(
+    file: &Path,
+    substrate: Option<&str>,
+    output: &Output,
+    layout: &ClientLayout,
+) -> Result<(), Error> {
+    let client = client_for(layout)?;
     let outcome = client.check(file, substrate)?;
     output::render_check(output, file, &outcome)?;
     Ok(())

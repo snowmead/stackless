@@ -24,20 +24,21 @@ use std::time::Duration;
 
 use stackless_core::paths::Paths;
 use stackless_core::state::{ReapAttempt, ReapDecision, Store};
+use stackless_core::types::TcpPort;
 use tokio::time::{self, MissedTickBehavior};
 
 const TICK: Duration = Duration::from_secs(60);
 
 /// Run the reaper until the process exits. Opens the store fresh each
 /// tick (short-lived; the store is multi-process-safe rusqlite).
-pub async fn run(paths: Paths) {
+pub async fn run(paths: Paths, proxy_port: TcpPort) {
     let mut interval = time::interval(TICK);
     // A slow tick (a hung `down` subprocess held us) must not burst-fire
     // to catch up — one pass per period is the contract.
     interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
     loop {
         interval.tick().await;
-        tick(&paths).await;
+        tick(&paths, proxy_port).await;
     }
 }
 
@@ -49,12 +50,12 @@ pub async fn run(paths: Paths) {
 /// store is multi-process-safe and these are short-lived): decide the
 /// worklist, drop the store, run the subprocess `down`s, then re-open to
 /// record outcomes.
-async fn tick(paths: &Paths) {
+async fn tick(paths: &Paths, proxy_port: TcpPort) {
     let worklist = plan_reaps(paths);
     let exe = std::env::current_exe().map_err(|err| format!("cannot resolve binary path: {err}"));
     for instance in worklist {
         let outcome = match &exe {
-            Ok(path) => run_down(&instance, path).await,
+            Ok(path) => run_down(&instance, path, paths, proxy_port).await,
             Err(err) => Err(err.clone()),
         };
         record_outcome(paths, &instance, outcome);
@@ -118,9 +119,22 @@ fn record_outcome(paths: &Paths, instance: &str, outcome: Result<(), String>) {
 /// connects back to this daemon over the socket — a separate process,
 /// the daemon's accept loop runs concurrently, so there is no
 /// reentrancy. Exit zero is success; anything else carries the reason.
-async fn run_down(instance: &str, executable: &Path) -> Result<(), String> {
+///
+/// Passes `--state-dir` / `--proxy-port` so the child targets this
+/// daemon's layout, not `Paths::from_env()`.
+async fn run_down(
+    instance: &str,
+    executable: &Path,
+    paths: &Paths,
+    proxy_port: TcpPort,
+) -> Result<(), String> {
+    let port = proxy_port.get().to_string();
     let output = tokio::process::Command::new(executable)
         .args(["down", instance, "--json"])
+        .arg("--state-dir")
+        .arg(paths.state_dir())
+        .arg("--proxy-port")
+        .arg(&port)
         .output()
         .await
         .map_err(|err| format!("cannot spawn `down`: {err}"))?;
@@ -156,8 +170,8 @@ fn gc_tombstones(store: &Store, paths: &Paths) {
 
 /// Re-exported so the daemon's startup pass can run one immediate reap
 /// on boot/wake (the §6 "reaps overdue leases immediately on start").
-pub async fn tick_once(paths: &Paths) {
-    tick(paths).await;
+pub async fn tick_once(paths: &Paths, proxy_port: TcpPort) {
+    tick(paths, proxy_port).await;
 }
 
 #[cfg(test)]
