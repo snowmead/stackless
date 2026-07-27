@@ -74,9 +74,13 @@ impl ClientBuilder {
             Some(paths) => (paths, DaemonRole::Embedded),
             None => (Paths::from_env(), DaemonRole::Operator),
         };
-        let proxy_port = self
-            .proxy_port
-            .unwrap_or_else(stackless_daemon::proxy::proxy_port);
+        // Embedded layouts must not share the process-global proxy port
+        // (parallel tests / overlapping SDK clients).
+        let proxy_port = match self.proxy_port {
+            Some(port) => port,
+            None if daemon_role == DaemonRole::Embedded => free_proxy_port()?,
+            None => stackless_daemon::proxy::proxy_port(),
+        };
         Ok(Client {
             inner: Arc::new(ClientInner {
                 paths,
@@ -86,6 +90,13 @@ impl ClientBuilder {
             }),
         })
     }
+}
+
+fn free_proxy_port() -> Result<TcpPort, Error> {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").map_err(Error::Runtime)?;
+    let port = listener.local_addr().map_err(Error::Runtime)?.port();
+    drop(listener);
+    Ok(TcpPort::from_os(port))
 }
 
 /// Consent for paid cloud substrates. Prefer this over a bare `bool`.

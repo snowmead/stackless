@@ -203,9 +203,14 @@ fn spawn_daemon(
         // Someone else is spawning; wait for their daemon instead.
         Err(_) => return Ok(()),
     };
-    // Supervised start: operator only — kickstart would bring up the
-    // launchd agent on the process-global socket, not an injectable root.
-    if role == DaemonRole::Operator && crate::launchd::kickstart_if_supervised() {
+    // Supervised start: operator on the default proxy only — the LaunchAgent
+    // plist runs bare `daemon run` (env default port). Custom ports and
+    // embedded roots always direct-spawn with explicit flags.
+    let default_proxy = proxy::proxy_port();
+    if role == DaemonRole::Operator
+        && proxy_port == default_proxy
+        && crate::launchd::kickstart_if_supervised()
+    {
         return Ok(());
     }
     let log = std::fs::OpenOptions::new()
@@ -219,14 +224,14 @@ fn spawn_daemon(
         detail: err.to_string(),
     })?;
     let mut command = std::process::Command::new(executable);
-    command.args(["daemon", "run"]);
+    command
+        .args(["daemon", "run"])
+        .arg("--state-dir")
+        .arg(paths.state_dir())
+        .arg("--proxy-port")
+        .arg(proxy_port.get().to_string());
     if role == DaemonRole::Embedded {
-        command
-            .arg("--state-dir")
-            .arg(paths.state_dir())
-            .arg("--proxy-port")
-            .arg(proxy_port.get().to_string())
-            .arg("--embedded");
+        command.arg("--embedded");
     }
     command
         .stdin(std::process::Stdio::null())
