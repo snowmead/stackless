@@ -191,9 +191,7 @@ pub fn run() -> ExitCode {
             &layout,
         ),
         Command::Down { name } => run_down(&name, &output, &layout),
-        Command::Verify { name, tier } => {
-            verify::verify(verify::VerifyArgs { name, tier }, &output)
-        }
+        Command::Verify { name, tier } => run_verify(&name, tier.as_deref(), &output, &layout),
         Command::Status { name } => run_status(&name, &output, &layout),
         Command::List => run_list(&output, &layout),
         Command::Logs {
@@ -222,7 +220,7 @@ pub fn run() -> ExitCode {
             &output,
         ),
         Command::Doctor { file, substrate } => {
-            doctor::doctor(doctor::DoctorArgs { file, substrate }, &output)
+            run_doctor(file, substrate.as_deref(), &output, &layout)
         }
         Command::Bind {
             file,
@@ -284,6 +282,40 @@ fn run_down(name: &str, output: &Output, layout: &ClientLayout) -> Result<(), Er
     let outcome = client.down(name)?;
     output::render_down(output, &outcome);
     Ok(())
+}
+
+fn run_verify(
+    name: &str,
+    tier: Option<&str>,
+    output: &Output,
+    layout: &ClientLayout,
+) -> Result<(), Error> {
+    let client = client_for(layout)?;
+    verify::verify(
+        verify::VerifyArgs {
+            name: name.to_owned(),
+            tier: tier.map(str::to_owned),
+        },
+        output,
+        &client,
+    )
+}
+
+fn run_doctor(
+    file: Option<PathBuf>,
+    substrate: Option<&str>,
+    output: &Output,
+    layout: &ClientLayout,
+) -> Result<(), Error> {
+    let client = client_for(layout)?;
+    doctor::doctor(
+        doctor::DoctorArgs {
+            file,
+            substrate: substrate.map(str::to_owned),
+        },
+        output,
+        &client,
+    )
 }
 
 fn run_status(name: &str, output: &Output, layout: &ClientLayout) -> Result<(), Error> {

@@ -269,7 +269,10 @@ fn dispatch_tool(name: &str, args: &Value) -> Result<Value, String> {
         "stackless_doctor" => {
             let file = optional_path(args, "file");
             let substrate = optional_str(args, "substrate");
-            run_command(|output| doctor::doctor(doctor::DoctorArgs { file, substrate }, output))
+            run_command(|output| {
+                let client = Client::system()?;
+                doctor::doctor(doctor::DoctorArgs { file, substrate }, output, &client)
+            })
         }
         "stackless_up" => {
             let name = optional_str(args, "name");
@@ -312,7 +315,10 @@ fn dispatch_tool(name: &str, args: &Value) -> Result<Value, String> {
         "stackless_verify" => {
             let name = require_str(args, "name")?.to_owned();
             let tier = optional_str(args, "tier");
-            run_command(|output| verify::verify(verify::VerifyArgs { name, tier }, output))
+            run_command(|output| {
+                let client = Client::system()?;
+                verify::verify(verify::VerifyArgs { name, tier }, output, &client)
+            })
         }
         "stackless_status" => {
             let name = require_str(args, "name")?;

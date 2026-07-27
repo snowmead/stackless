@@ -327,6 +327,17 @@ impl Client {
         self.inner.proxy_port
     }
 
+    /// Connect to (or spawn) the daemon for this client's layout.
+    pub(crate) fn ensure_daemon(&self) -> Result<stackless_daemon::DaemonClient, Error> {
+        let exe = std::env::current_exe().map_err(Error::Runtime)?;
+        Ok(stackless_daemon::DaemonClient::ensure_with(
+            &self.inner.paths,
+            &exe,
+            self.inner.proxy_port,
+            self.inner.daemon_role,
+        )?)
+    }
+
     pub(crate) fn runtime(&self) -> Result<&tokio::runtime::Runtime, Error> {
         if let Some(rt) = self.inner.runtime.get() {
             return Ok(rt);

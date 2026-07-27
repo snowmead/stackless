@@ -46,9 +46,8 @@ pub struct VerifyArgs {
     pub tier: Option<String>,
 }
 
-pub fn verify(args: VerifyArgs, output: &Output) -> Result<(), Error> {
-    let client = Client::system()?;
-    let outcome = verify_inner(&client, &args.name, args.tier.as_deref(), Some(output))?;
+pub fn verify(args: VerifyArgs, output: &Output, client: &Client) -> Result<(), Error> {
+    let outcome = verify_inner(client, &args.name, args.tier.as_deref(), Some(output))?;
     output::render_verify(output, &outcome);
     Ok(())
 }
