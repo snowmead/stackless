@@ -47,7 +47,7 @@ Humans: install once, then hand the skill (or this repo) to an agent.
 ```console
 $ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/latest/download/stackless-installer.sh | sh
 $ stackless --version
-stackless 0.1.4
+stackless 0.1.5
 ```
 
 From source: `cargo build --release` → `target/release/stackless`.

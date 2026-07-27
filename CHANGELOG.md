@@ -15,6 +15,109 @@ Generate with:
 
 ## Unreleased
 
+## v0.1.5 — 2026-07-27
+
+Catalog integrations wave, phase-2 substrates, crate SDK / typed IDL, and
+agent-first docs/site.
+
+### Added
+
+- Dozens of Stripe catalog provider families under `[integrations.*]`
+  (agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel,
+  browserbase, chatbase, chroma, clickhouse, composio, customerio, daytona,
+  depot, e2b, elevenlabs, exa, firecrawl, flyio, gitlab, heygen, huggingface,
+  inngest, kernel, laravel_cloud, metronome, mixpanel, neon, openrouter,
+  parallel, planetscale, postalform, posthog, prisma, privy, pydantic,
+  railway, render_db, revenuecat, runloop, schematic, sentry, steel, supabase,
+  supermemory, tabstack, turso, upstash, wix, wordpress_com, workos, …).
+- Hosting substrates: `railway`, `gitlab`, `laravel-cloud`, `wordpress`,
+  `cloudflare` (phase 2).
+- Publishable crate SDK (`Client` / `TestContext`) plus `stackless bind` typed
+  stack IDL and language projections (`stackless-idl`, `stackless-bindgen`).
+- Agent-first marketing site under `web/` (Vite + React + shadcn).
+
+### Changed
+
+- Root README rewritten as agent-first What/Why/How.
+- Stripe Projects fixtures blessed for plugin v0.25.0.
+- Cloudflare dropped from PR live-smoke (still a substrate).
+
+### Removed
+
+- First-class datastore support; datastores go through catalog integrations /
+  substrates instead (#19).
+
+### Commits
+
+- [cb05344](https://github.com/snowmead/stackless/commit/cb05344316765a0b8e0d1422828d1567849d845c) Remove first-class datastore support (#19)
+- [a7fcfd4](https://github.com/snowmead/stackless/commit/a7fcfd4585832c89ef4ebf4dff6aa53fd722b691) feat(integrations): add agentmail Stripe catalog provider family
+- [5d157bd](https://github.com/snowmead/stackless/commit/5d157bd7fd28036e42d873565c69b1b4dcd2f321) Merge PR #22 (feat/integration-agentphone)
+- [9202e3e](https://github.com/snowmead/stackless/commit/9202e3e3a353c9871b17128c2f62cb0dc62a95f1) Merge PR #23 (feat/integration-algolia)
+- [6fca05c](https://github.com/snowmead/stackless/commit/6fca05ce0943bc5c37b7f36d6c3efe9b4e4895e4) Merge PR #24 (feat/integration-amplitude)
+- [55b2772](https://github.com/snowmead/stackless/commit/55b2772e091789ce89f0d5449910e3c9680ef145) Merge PR #25 (feat/integration-auth0)
+- [994de2c](https://github.com/snowmead/stackless/commit/994de2c268a9f10cd1af2a59ae8066a359e87792) Merge PR #26 (feat/integration-base44-projects)
+- [27cd938](https://github.com/snowmead/stackless/commit/27cd938c646932ebf0699be1e7834c362faf6348) Merge PR #27 (feat/integration-blaxel)
+- [3489cf0](https://github.com/snowmead/stackless/commit/3489cf07988cc71c4c7eea89d5ffa51b7899590d) Merge PR #28 (feat/integration-browserbase)
+- [c361c14](https://github.com/snowmead/stackless/commit/c361c140f33e7fff537f573e579410327099ee55) Merge PR #29 (feat/integration-chroma)
+- [4bf6864](https://github.com/snowmead/stackless/commit/4bf6864070a5d8b01d0be0f9d5c7b1430fcea846) Merge PR #30 (feat/integration-clickhouse)
+- [d267811](https://github.com/snowmead/stackless/commit/d267811d7091bfc572504b8f5d2fecca169cddc3) Merge PR #31 (feat/integration-daytona)
+- [15de193](https://github.com/snowmead/stackless/commit/15de193432da0180456c64dee37be49f7fb7a8a6) Merge PR #32 (feat/integration-e2b)
+- [9ab14f5](https://github.com/snowmead/stackless/commit/9ab14f56d45f82ec1ce53ce66dd6668f53414a04) Merge PR #33 (feat/integration-elevenlabs)
+- [87c8ed7](https://github.com/snowmead/stackless/commit/87c8ed781fcc8cef5bae9d67e3b4fe247c82a771) Merge PR #34 (feat/integration-exa)
+- [7ad9ad2](https://github.com/snowmead/stackless/commit/7ad9ad28680e72a9ef30cc808916378175869577) Merge PR #35 (feat/integration-firecrawl)
+- [7485c54](https://github.com/snowmead/stackless/commit/7485c54354c113e3ded5143781545f339dd2eb47) Merge PR #36 (feat/integration-flyio)
+- [8a5cd9a](https://github.com/snowmead/stackless/commit/8a5cd9aebb99c0177085e8024933e5943887795f) Merge PR #37 (feat/integration-gitlab)
+- [baa6fab](https://github.com/snowmead/stackless/commit/baa6fab99c96a8447aefa69925eb4a0f083e21ae) Merge PR #38 (feat/integration-heygen)
+- [bc733bb](https://github.com/snowmead/stackless/commit/bc733bbabb47f8c8ac2f15b135b152275ea6d454) Merge PR #39 (feat/integration-huggingface)
+- [2290fc3](https://github.com/snowmead/stackless/commit/2290fc361df1eea9dbb2ff87fdf44d938375de3e) Merge PR #40 (feat/integration-inngest)
+- [65250a1](https://github.com/snowmead/stackless/commit/65250a10e10b2672fdce4461ced826eeb32ad481) Merge PR #41 (feat/integration-kernel)
+- [d82d786](https://github.com/snowmead/stackless/commit/d82d7860310ddfca4777fb4af4a44fbd52c47f92) Merge PR #43 (feat/integration-metronome)
+- [1eccecd](https://github.com/snowmead/stackless/commit/1eccecd2ab75346e0d187de4410b9707e7148b78) Merge PR #51 (feat/integration-prisma)
+- [3770e87](https://github.com/snowmead/stackless/commit/3770e872680649bac95275239c3fd2efde716f22) Merge PR #63 (feat/integration-workos)
+- [538b548](https://github.com/snowmead/stackless/commit/538b548ec1ae08ebaa0e08f35ba7295806142c83) Merge PR #64 (feat/substrates-phase2)
+- [38b029a](https://github.com/snowmead/stackless/commit/38b029a2e2b744871ea90a64b39a70756f3c0e25) Merge PR #42 (feat/integration-laravel-cloud)
+- [d86a91d](https://github.com/snowmead/stackless/commit/d86a91de202462d00df86be78cbd2d9c44eda1f0) Merge PR #45 (feat/integration-neon)
+- [3a5ec07](https://github.com/snowmead/stackless/commit/3a5ec07bd295135deace4ab8799af17ee69e7ad6) Merge PR #46 (feat/integration-openrouter)
+- [a1fae30](https://github.com/snowmead/stackless/commit/a1fae3066fc2e6c358ddde35b184d3da213d9dba) Merge PR #47 (feat/integration-parallel)
+- [75c0c13](https://github.com/snowmead/stackless/commit/75c0c132358972b44a1b59c9746f1a8ab03fe897) Merge PR #48 (feat/integration-planetscale)
+- [b011033](https://github.com/snowmead/stackless/commit/b011033757bb3d91de67cfb3b1ebf41800fc563b) Merge PR #52 (feat/integration-privy)
+- [929ff65](https://github.com/snowmead/stackless/commit/929ff65f85def8a7d3618371f4b6d6b8a2ddd29a) Merge PR #55 (feat/integration-runloop)
+- [3c065fa](https://github.com/snowmead/stackless/commit/3c065facea160de3828038abcd3ab1e6320f489f) Merge PR #49 (feat/integration-postalform)
+- [d9393fe](https://github.com/snowmead/stackless/commit/d9393fe58751e48e7cf92bac423b6538c2c45292) Merge PR #50 (feat/integration-posthog)
+- [463d9ef](https://github.com/snowmead/stackless/commit/463d9ef7c00d7c917dae9346c1f5f23c51ed1570) Merge PR #58 (feat/integration-supermemory)
+- [4506988](https://github.com/snowmead/stackless/commit/4506988ba856130a46716bb564e317ea83ea17ef) Merge PR #59 (feat/integration-turso)
+- [49b4c31](https://github.com/snowmead/stackless/commit/49b4c31573c6a83a7d94a5dcc9d66d76559f8d72) Merge PR #60 (feat/integration-upstash)
+- [aa3d42c](https://github.com/snowmead/stackless/commit/aa3d42c9e5fca90a87849f032931c6a1fb413231) Merge PR #61 (feat/integration-wix)
+- [72d872d](https://github.com/snowmead/stackless/commit/72d872d75283a0ada91c7cc39389afcb5846b3fa) Merge PR #44 (feat/integration-mixpanel)
+- [5864827](https://github.com/snowmead/stackless/commit/5864827896da3930c1199428cf05ba874c2187cb) Merge PR #53 (feat/integration-railway)
+- [00b5254](https://github.com/snowmead/stackless/commit/00b5254d1c3c53c956f3c31d06303deed893547a) Merge PR #57 (feat/integration-supabase)
+- [6e56590](https://github.com/snowmead/stackless/commit/6e565903381213f9851f434e62735f4eb74dd882) Merge PR #62 (feat/integration-wordpress-com)
+- [0545719](https://github.com/snowmead/stackless/commit/05457199f28316a5f2d99553ec7848a79d5ba1cb) Merge PR #54 (feat/integration-render-db)
+- [bcf0c9a](https://github.com/snowmead/stackless/commit/bcf0c9abef7fc5feeb63839da69b9143cdda24df) Merge PR #56 (feat/integration-sentry)
+- [5737a57](https://github.com/snowmead/stackless/commit/5737a57d4ef8fd4301a2e2c0d7c4f4b23408d54f) Rewrite root README as agent-first What/Why/How. (#65)
+- [ebf688a](https://github.com/snowmead/stackless/commit/ebf688aac2ffefebc471424c5315e0f4a102d977) Drop Cloudflare from PR live-smoke (#66)
+- [b672d75](https://github.com/snowmead/stackless/commit/b672d755d0f846df9aeb6fbc936b32f10d42d44a) Add agent-first marketing site under web/.
+- [21cfde6](https://github.com/snowmead/stackless/commit/21cfde61aefc46db2284cb00bc28171415bddc86) Merge pull request #67 from snowmead/chore/stripe-projects-refresh
+- [19e1669](https://github.com/snowmead/stackless/commit/19e1669c63c88dead3f57b4683e894781b5fd638) Merge pull request #68 from snowmead/feat/integration-chatbase
+- [449ccf2](https://github.com/snowmead/stackless/commit/449ccf290a15365f5d2477ef521fe9c77845e4a4) Merge pull request #69 from snowmead/feat/integration-composio
+- [70825fc](https://github.com/snowmead/stackless/commit/70825fc3c0da449973d7ff93b3960614f4d46fd2) Merge pull request #70 from snowmead/feat/integration-customerio
+- [0d9e815](https://github.com/snowmead/stackless/commit/0d9e81544a9e30a1506bbbf7843310e9e15e0988) Fix providers/mod.rs corrupted by merge conflict resolution.
+- [8e17af4](https://github.com/snowmead/stackless/commit/8e17af42b6afde9186d159d1cdddfcc517a891b9) Merge pull request #71 from snowmead/feat/integration-depot
+- [b9b78bb](https://github.com/snowmead/stackless/commit/b9b78bb3afd0978187f7f03606d8648e8516bad6) Merge pull request #72 from snowmead/feat/integration-pydantic
+- [31ba0d9](https://github.com/snowmead/stackless/commit/31ba0d984fe5be5855b27c12fee6d7a6be4d9f40) Merge pull request #73 from snowmead/feat/integration-revenuecat
+- [7e6b675](https://github.com/snowmead/stackless/commit/7e6b675d66311c42258d33efc42d16bbdec3c225) Merge pull request #74 from snowmead/feat/integration-schematic
+- [339d680](https://github.com/snowmead/stackless/commit/339d6806ea109626c2e19e61dd81e325b13b5d93) Merge pull request #75 from snowmead/feat/integration-steel
+- [81a23b0](https://github.com/snowmead/stackless/commit/81a23b0cb4b7c5a7e33e28e86a1cf166cd03f8f5) Merge pull request #76 from snowmead/feat/integration-tabstack
+- [4727677](https://github.com/snowmead/stackless/commit/472767786eafc26e2e3390d8687c36087ded283e) Refactor marketing site to Vite, React, and shadcn. (#77)
+- [9d2ee0c](https://github.com/snowmead/stackless/commit/9d2ee0c9ddd662f02a0d385e99b352fd36aa078f) Add crate SDK and typed stack IDL (#78)
+
+### Install
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/download/v0.1.5/stackless-installer.sh | sh
+stackless --version
+```
+
 ## v0.1.4 — 2026-07-10
 
 Strict state decoding, fail-closed cloud checkpoints, and internal cleanup.
