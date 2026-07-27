@@ -10,6 +10,7 @@ pub mod engine;
 pub mod fault;
 pub mod lockfile;
 pub mod names;
+pub mod paths;
 pub mod process;
 pub mod state;
 pub mod substrate;

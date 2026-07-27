@@ -19,8 +19,9 @@ use serde::{Deserialize, Serialize};
 use stackless_core::checkpoint::StartCheckpoint;
 use stackless_core::def::{Namespace, StackDef};
 use stackless_core::engine::StepKind;
+use stackless_core::paths::Paths;
 use stackless_core::process::ProcessStamp;
-use stackless_core::state::Checkpoint;
+use stackless_core::state::{Checkpoint, Store};
 use stackless_core::substrate::{
     NamespacePurpose, Observation, ServiceLog, StepContext, StepResource, Substrate, SubstrateFault,
 };
@@ -37,6 +38,10 @@ pub const SUBSTRATE_NAME: &str = "local";
 #[derive(Debug)]
 pub struct LocalSubstrate {
     pub proxy_port: TcpPort,
+    /// State root for materialize checkouts, logs, and daemon socket lookup.
+    pub state_root: PathBuf,
+    /// Operator (launchd + reaper) vs Embedded (hermetic / custom state root).
+    pub daemon_role: stackless_daemon::DaemonRole,
     /// Resolved secrets (M5: vault pull + env-file overlay). Empty in M4.
     pub secrets: BTreeMap<String, String>,
     /// Where the definition lives; hosted integrations run Stripe
@@ -48,6 +53,8 @@ impl Default for LocalSubstrate {
     fn default() -> Self {
         Self {
             proxy_port: stackless_daemon::proxy::proxy_port(),
+            state_root: Store::state_dir(),
+            daemon_role: stackless_daemon::DaemonRole::Operator,
             secrets: BTreeMap::new(),
             definition_dir: std::env::current_dir().unwrap_or_default(),
         }
@@ -233,7 +240,19 @@ impl LocalSubstrate {
     }
 
     fn daemon(&self) -> Result<DaemonClient, SubstrateFault> {
-        DaemonClient::ensure().map_err(|err| SubstrateFault::from_fault(&err))
+        let paths = Paths::new(&self.state_root);
+        let exe = std::env::current_exe().map_err(|err| SubstrateFault {
+            code: stackless_core::fault::codes::DAEMON_SPAWN_FAILED,
+            message: format!("cannot resolve daemon executable: {err}"),
+            remediation: "run from a real binary".into(),
+            context: Box::default(),
+        })?;
+        DaemonClient::ensure_with(&paths, &exe, self.proxy_port, self.daemon_role)
+            .map_err(|err| SubstrateFault::from_fault(&err))
+    }
+
+    fn spawner<'a>(&'a self, instance: &'a str) -> Spawner<'a> {
+        Spawner::new(&self.state_root, instance)
     }
 }
 
@@ -335,10 +354,8 @@ impl Substrate for LocalSubstrate {
                     if ctx.dirty {
                         let instance = ctx.instance.to_owned();
                         let service_owned = service.to_owned();
-                        let dest = materialize::Materializer::new(
-                            &stackless_core::state::Store::state_dir(),
-                        )
-                        .source_dir(&instance, &service_owned);
+                        let dest = materialize::Materializer::new(&self.state_root)
+                            .source_dir(&instance, &service_owned);
                         let source_path = canonical.clone();
                         let snapshot_path = dest.display().to_string();
                         let commit = tokio::task::spawn_blocking(move || {
@@ -392,11 +409,12 @@ impl Substrate for LocalSubstrate {
                 let repo = spec.source.repo.clone();
                 let reference = spec.source.reference.clone();
                 let secrets = self.secrets.clone();
+                let state_root = self.state_root.clone();
                 // grit-lib's blocking network/checkout work must not run on the
                 // async executor (mirrors run_hook's spawn_blocking).
                 let (path, commit) = tokio::task::spawn_blocking(move || {
                     let auth = crate::git_auth::GitAuth::from_secrets(&secrets);
-                    materialize::Materializer::new(&stackless_core::state::Store::state_dir())
+                    materialize::Materializer::new(&state_root)
                         .with_auth(auth)
                         .materialize(&instance, &service_owned, &repo, &reference)
                 })
@@ -432,8 +450,15 @@ impl Substrate for LocalSubstrate {
                 let env = self.resolved_env(&ctx, service)?;
                 let instance = ctx.instance.to_owned();
                 let service_owned = service.to_owned();
+                let state_root = self.state_root.clone();
                 tokio::task::spawn_blocking(move || {
-                    Spawner::new(&instance).run_hook(&service_owned, hook, &command, &dir, &env)
+                    Spawner::new(&state_root, &instance).run_hook(
+                        &service_owned,
+                        hook,
+                        &command,
+                        &dir,
+                        &env,
+                    )
                 })
                 .await
                 .map_err(|err| SubstrateFault {
@@ -450,7 +475,7 @@ impl Substrate for LocalSubstrate {
                 let command = self.run_command(ctx.def, service)?;
                 let env = self.resolved_env(&ctx, service)?;
                 let port = Self::allocate_port()?;
-                let spawner = Spawner::new(ctx.instance);
+                let spawner = self.spawner(ctx.instance);
                 let stamp = spawner
                     .spawn_service(service, &command, &dir, &env, port)
                     .map_err(fault)?;
@@ -530,6 +555,7 @@ impl Substrate for LocalSubstrate {
                             .to_owned()
                     });
                 health::wait_healthy(
+                    &self.state_root,
                     ctx.instance,
                     service,
                     &host,
@@ -748,7 +774,7 @@ impl Substrate for LocalSubstrate {
         services: &[String],
         tail: usize,
     ) -> Result<Option<Vec<ServiceLog>>, SubstrateFault> {
-        let spawner = crate::spawn::Spawner::new(instance);
+        let spawner = self.spawner(instance);
         let logs = services
             .iter()
             .map(|service| {

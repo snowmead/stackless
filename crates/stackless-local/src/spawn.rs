@@ -10,7 +10,6 @@ use std::time::Duration;
 use rustix::process::Signal;
 use stackless_core::fault::FAILURE_LOG_TAIL_LINES;
 use stackless_core::process::ProcessStamp;
-use stackless_core::state::Store;
 use stackless_core::types::{Pid, TcpPort};
 
 use crate::error::LocalError;
@@ -21,16 +20,20 @@ const LOG_GENERATIONS: u32 = 3;
 /// Per-instance process spawn and log helpers (§3).
 #[derive(Debug)]
 pub struct Spawner<'a> {
+    state_root: &'a Path,
     instance: &'a str,
 }
 
 impl<'a> Spawner<'a> {
-    pub fn new(instance: &'a str) -> Self {
-        Self { instance }
+    pub fn new(state_root: &'a Path, instance: &'a str) -> Self {
+        Self {
+            state_root,
+            instance,
+        }
     }
 
     pub fn log_dir(&self) -> PathBuf {
-        Store::state_dir().join("logs").join(self.instance)
+        self.state_root.join("logs").join(self.instance)
     }
 
     pub fn log_path(&self, service: &str) -> PathBuf {

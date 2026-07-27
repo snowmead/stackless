@@ -56,13 +56,13 @@ impl std::fmt::Debug for UpRequest<'_> {
     }
 }
 
-#[derive(Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct StepTiming {
     pub id: String,
     pub duration_ms: u64,
 }
 
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct UpOutcome {
     pub executed: Vec<String>,
     pub skipped: Vec<String>,

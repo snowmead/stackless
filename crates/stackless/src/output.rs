@@ -6,7 +6,15 @@ use serde::Serialize;
 use stackless_core::def::{DependencyGraph, StackDef};
 use stackless_core::engine::{ProgressSink, StepProgress, StepProgressEvent, UpOutcome};
 use stackless_core::fault::{ErrorContext, Fault, Report};
+use stackless_core::paths::Paths;
 use stackless_core::substrate::SpendInfo;
+
+use crate::client::args::parse_and_validate;
+use crate::client::{
+    CheckOutcome, DownOutcome, InstanceReport, LogsOutcome, UpOutcome as ClientUpOutcome,
+    VerifyOutcome,
+};
+use crate::error::Error;
 
 const SCHEMA_VERSION: u32 = 1;
 
@@ -46,7 +54,7 @@ struct StatusEnvelope<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     persistence_warning: Option<&'a str>,
     #[serde(flatten)]
-    report: &'a crate::commands::InstanceStatusReport,
+    report: &'a InstanceReport,
 }
 
 /// `list --json`: the same warning alongside the instance array.
@@ -56,7 +64,7 @@ struct ListEnvelope<'a> {
     ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     persistence_warning: Option<&'a str>,
-    instances: &'a [crate::commands::InstanceStatusReport],
+    instances: &'a [InstanceReport],
 }
 
 impl Output {
@@ -208,11 +216,7 @@ impl Output {
         }
     }
 
-    pub fn doctor_failed(
-        &self,
-        checks: &[crate::doctor::DoctorCheck],
-        err: &crate::error::CliError,
-    ) {
+    pub fn doctor_failed(&self, checks: &[crate::doctor::DoctorCheck], err: &crate::error::Error) {
         if self.json {
             #[derive(Serialize)]
             struct DoctorFailed<'a> {
@@ -288,11 +292,7 @@ impl Output {
         }
     }
 
-    pub fn status(
-        &self,
-        report: &crate::commands::InstanceStatusReport,
-        persistence_warning: Option<&str>,
-    ) {
+    pub fn status(&self, report: &InstanceReport, persistence_warning: Option<&str>) {
         if self.json {
             self.emit(&StatusEnvelope {
                 schema_version: SCHEMA_VERSION,
@@ -307,7 +307,7 @@ impl Output {
     }
 
     /// One instance's human block (shared by `status` and `list`).
-    fn render_report(&self, report: &crate::commands::InstanceStatusReport) {
+    fn render_report(&self, report: &InstanceReport) {
         let lease = report
             .lease_remaining_secs
             .map(|secs| format!("{}m remaining", secs / 60))
@@ -340,11 +340,7 @@ impl Output {
         }
     }
 
-    pub fn list(
-        &self,
-        reports: &[crate::commands::InstanceStatusReport],
-        persistence_warning: Option<&str>,
-    ) {
+    pub fn list(&self, reports: &[InstanceReport], persistence_warning: Option<&str>) {
         if self.json {
             self.emit(&ListEnvelope {
                 schema_version: SCHEMA_VERSION,
@@ -570,10 +566,123 @@ impl Output {
     }
 }
 
+pub(crate) fn render_up(output: &mut Output, outcome: &ClientUpOutcome) {
+    let origins: Vec<(String, String)> = outcome
+        .origins
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    let engine_like = UpOutcome {
+        executed: outcome.executed.clone(),
+        skipped: outcome.skipped.clone(),
+        duration_ms: outcome.duration_ms,
+        steps: outcome.steps.clone(),
+    };
+    output.up_ok(
+        &outcome.name,
+        &outcome.substrate,
+        &engine_like,
+        &origins,
+        outcome.spend.as_ref(),
+    );
+    if !output.is_json()
+        && let Some(ref info) = outcome.spend
+    {
+        output.message(&info.summary);
+    }
+}
+
+pub(crate) fn render_down(output: &Output, outcome: &DownOutcome) {
+    output.down_ok(
+        &outcome.name,
+        outcome.status.as_str(),
+        outcome.spend.as_ref(),
+    );
+}
+
+pub(crate) fn render_status(output: &Output, report: &InstanceReport, paths: &Paths) {
+    output.status(
+        report,
+        stackless_daemon::launchd::degradation_warning(paths).as_deref(),
+    );
+}
+
+pub(crate) fn render_list(output: &Output, reports: &[InstanceReport], paths: &Paths) {
+    output.list(
+        reports,
+        stackless_daemon::launchd::degradation_warning(paths).as_deref(),
+    );
+}
+
+pub(crate) fn render_logs(output: &Output, outcome: &LogsOutcome) {
+    if !outcome.available {
+        let entries: Vec<LogService<'_>> = outcome
+            .services
+            .iter()
+            .map(|entry| LogService {
+                service: entry.service.as_str(),
+                source: entry.source.as_str(),
+                log_path: entry.log_path.clone(),
+                lines: entry.lines.clone(),
+                reason: entry.reason.as_deref(),
+            })
+            .collect();
+        output.logs_unavailable_json(&outcome.name, &outcome.substrate, &entries);
+        return;
+    }
+    let mut entries = Vec::new();
+    for log in &outcome.services {
+        if output.is_json() {
+            entries.push(LogService {
+                service: log.service.as_str(),
+                source: log.source.as_str(),
+                log_path: log.log_path.clone(),
+                lines: log.lines.clone(),
+                reason: None,
+            });
+        } else {
+            output.message(&format!("── {} ──", log.service));
+            if log.lines.is_empty() {
+                output.message("(no output captured)");
+            } else {
+                output.message(&log.lines.join("\n"));
+            }
+        }
+    }
+    if output.is_json() {
+        output.logs_json(&outcome.name, &entries);
+    }
+}
+
+pub(crate) fn render_check(
+    output: &Output,
+    file: &std::path::Path,
+    outcome: &CheckOutcome,
+) -> Result<(), Error> {
+    let text = std::fs::read_to_string(file).map_err(|source| Error::FileRead {
+        path: file.display().to_string(),
+        source,
+    })?;
+    let def = parse_and_validate(&text)?;
+    output.check_ok(&def, &outcome.graph, outcome.substrate.as_deref());
+    Ok(())
+}
+
+pub(crate) fn render_verify(output: &Output, outcome: &VerifyOutcome) {
+    output.verify_ok(
+        &outcome.name,
+        outcome.tier.as_deref(),
+        outcome.duration_ms,
+        outcome.exit_status,
+        &outcome.log_path,
+        outcome.lease_remaining_secs,
+    );
+}
+
 #[derive(Serialize)]
 pub struct LogService<'a> {
     pub service: &'a str,
-    pub source: &'static str,
+    pub source: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub log_path: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

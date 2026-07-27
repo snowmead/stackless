@@ -19,24 +19,26 @@
 //! and is literally the `down` verb. Exit code zero is a successful
 //! reap.
 
-use std::path::PathBuf;
+use std::path::Path;
 use std::time::Duration;
 
+use stackless_core::paths::Paths;
 use stackless_core::state::{ReapAttempt, ReapDecision, Store};
+use stackless_core::types::TcpPort;
 use tokio::time::{self, MissedTickBehavior};
 
 const TICK: Duration = Duration::from_secs(60);
 
 /// Run the reaper until the process exits. Opens the store fresh each
 /// tick (short-lived; the store is multi-process-safe rusqlite).
-pub async fn run() {
+pub async fn run(paths: Paths, proxy_port: TcpPort) {
     let mut interval = time::interval(TICK);
     // A slow tick (a hung `down` subprocess held us) must not burst-fire
     // to catch up — one pass per period is the contract.
     interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
     loop {
         interval.tick().await;
-        tick().await;
+        tick(&paths, proxy_port).await;
     }
 }
 
@@ -48,22 +50,26 @@ pub async fn run() {
 /// store is multi-process-safe and these are short-lived): decide the
 /// worklist, drop the store, run the subprocess `down`s, then re-open to
 /// record outcomes.
-async fn tick() {
-    let worklist = plan_reaps();
+async fn tick(paths: &Paths, proxy_port: TcpPort) {
+    let worklist = plan_reaps(paths);
+    let exe = std::env::current_exe().map_err(|err| format!("cannot resolve binary path: {err}"));
     for instance in worklist {
-        let outcome = run_down(&instance).await;
-        record_outcome(&instance, outcome);
+        let outcome = match &exe {
+            Ok(path) => run_down(&instance, path, paths, proxy_port).await,
+            Err(err) => Err(err.clone()),
+        };
+        record_outcome(paths, &instance, outcome);
     }
-    if let Ok(store) = Store::open_configured() {
-        gc_tombstones(&store);
+    if let Ok(store) = Store::open_with_paths(paths) {
+        gc_tombstones(&store, paths);
     }
 }
 
 /// The instances to reap this tick — the pure decision applied to each
 /// expired instance. The store is borrowed only here, never across an
 /// await.
-fn plan_reaps() -> Vec<String> {
-    let Ok(store) = Store::open_configured() else {
+fn plan_reaps(paths: &Paths) -> Vec<String> {
+    let Ok(store) = Store::open_with_paths(paths) else {
         return Vec::new();
     };
     let expired = store.expired_instances().unwrap_or_default();
@@ -84,8 +90,8 @@ fn plan_reaps() -> Vec<String> {
 /// Record a reap's result: clear the failure row on success (also done
 /// by the engine's `down`; this covers a row from an earlier tick), or
 /// advance the backoff and surface it on failure.
-fn record_outcome(instance: &str, outcome: Result<(), String>) {
-    let Ok(store) = Store::open_configured() else {
+fn record_outcome(paths: &Paths, instance: &str, outcome: Result<(), String>) {
+    let Ok(store) = Store::open_with_paths(paths) else {
         return;
     };
     match outcome {
@@ -113,11 +119,22 @@ fn record_outcome(instance: &str, outcome: Result<(), String>) {
 /// connects back to this daemon over the socket — a separate process,
 /// the daemon's accept loop runs concurrently, so there is no
 /// reentrancy. Exit zero is success; anything else carries the reason.
-async fn run_down(instance: &str) -> Result<(), String> {
-    let exe =
-        std::env::current_exe().map_err(|err| format!("cannot resolve binary path: {err}"))?;
-    let output = tokio::process::Command::new(exe)
+///
+/// Passes `--state-dir` / `--proxy-port` so the child targets this
+/// daemon's layout, not `Paths::from_env()`.
+async fn run_down(
+    instance: &str,
+    executable: &Path,
+    paths: &Paths,
+    proxy_port: TcpPort,
+) -> Result<(), String> {
+    let port = proxy_port.get().to_string();
+    let output = tokio::process::Command::new(executable)
         .args(["down", instance, "--json"])
+        .arg("--state-dir")
+        .arg(paths.state_dir())
+        .arg("--proxy-port")
+        .arg(&port)
         .output()
         .await
         .map_err(|err| format!("cannot spawn `down`: {err}"))?;
@@ -137,11 +154,11 @@ async fn run_down(instance: &str) -> Result<(), String> {
     Err(reason)
 }
 
-fn gc_tombstones(store: &Store) {
+fn gc_tombstones(store: &Store, paths: &Paths) {
     for instance in store.gc_due_tombstones().unwrap_or_default() {
         // Remove the logs dir first: if deleting the row fails, the next
         // tick retries and the (now-absent) logs are simply re-skipped.
-        let logs = logs_dir(&instance);
+        let logs = paths.logs_dir(&instance);
         if logs.exists() {
             let _ = std::fs::remove_dir_all(&logs);
         }
@@ -151,14 +168,10 @@ fn gc_tombstones(store: &Store) {
     }
 }
 
-fn logs_dir(instance: &str) -> PathBuf {
-    Store::state_dir().join("logs").join(instance)
-}
-
 /// Re-exported so the daemon's startup pass can run one immediate reap
 /// on boot/wake (the §6 "reaps overdue leases immediately on start").
-pub async fn tick_once() {
-    tick().await;
+pub async fn tick_once(paths: &Paths, proxy_port: TcpPort) {
+    tick(paths, proxy_port).await;
 }
 
 #[cfg(test)]
@@ -168,17 +181,18 @@ mod tests {
     use std::collections::BTreeMap;
     use std::time::SystemTime;
 
-    fn temp_store() -> (tempfile::TempDir, Store) {
+    fn temp_store() -> (tempfile::TempDir, Paths, Store) {
         let dir = tempfile::tempdir().expect("tempdir");
-        let store = Store::open(&dir.path().join("state.db")).expect("open");
-        (dir, store)
+        let paths = Paths::new(dir.path());
+        let store = Store::open_with_paths(&paths).expect("open");
+        (dir, paths, store)
     }
 
     const DEF: &str = "[stack]\nname = \"t\"\n[services.web]\nsource = { repo = \"https://example.invalid/x\", ref = \"main\" }\nhealth = { path = \"/\" }\n[services.web.mock]\nrun = \"true\"\n";
 
     #[test]
     fn reaper_skips_an_instance_holding_its_lock() {
-        let (_dir, store) = temp_store();
+        let (_dir, _paths, store) = temp_store();
         store
             .create_instance("held", "mock", DEF, &BTreeMap::new(), "", false)
             .expect("create");
@@ -199,7 +213,7 @@ mod tests {
 
     #[test]
     fn gc_removes_only_tombstones_past_the_window() {
-        let (_dir, store) = temp_store();
+        let (_dir, paths, store) = temp_store();
         store
             .create_instance("old", "mock", DEF, &BTreeMap::new(), "", false)
             .expect("create old");
@@ -224,7 +238,7 @@ mod tests {
             )
             .expect("backdate");
         assert_eq!(store.gc_due_tombstones().expect("due"), vec!["old"]);
-        gc_tombstones(&store);
+        gc_tombstones(&store, &paths);
         assert!(store.instance("old").expect("q").is_none());
         assert!(store.instance("recent").expect("q").is_some());
     }

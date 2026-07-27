@@ -15,9 +15,9 @@ use stackless_core::fault::FAILURE_LOG_TAIL_LINES;
 use stackless_core::state::{Checkpoint, Store};
 use stackless_core::substrate::{NamespacePurpose, SubstrateFault};
 
-use crate::commands::{SubstrateCtx, build_substrate, open_store};
-use crate::error::CliError;
-use crate::output::Output;
+use crate::client::{Client, VerifyOutcome, build_substrate};
+use crate::error::Error;
+use crate::output::{self, Output};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct SourceRefPayload {
@@ -38,6 +38,7 @@ struct VerifySourceContext<'a> {
     checkpoints: &'a [Checkpoint],
     namespace: &'a Namespace,
     secrets: &'a BTreeMap<String, String>,
+    state_root: &'a Path,
 }
 
 pub struct VerifyArgs {
@@ -45,30 +46,48 @@ pub struct VerifyArgs {
     pub tier: Option<String>,
 }
 
-pub fn verify(args: VerifyArgs, output: &Output) -> Result<(), CliError> {
-    let name = args.name.as_str();
-    let store = open_store()?;
+pub fn verify(args: VerifyArgs, output: &Output, client: &Client) -> Result<(), Error> {
+    let outcome = verify_inner(client, &args.name, args.tier.as_deref(), Some(output))?;
+    output::render_verify(output, &outcome);
+    Ok(())
+}
+
+pub(crate) fn verify_with_client(
+    client: &Client,
+    name: &str,
+    tier: Option<&str>,
+) -> Result<VerifyOutcome, Error> {
+    verify_inner(client, name, tier, None)
+}
+
+fn verify_inner(
+    client: &Client,
+    name: &str,
+    tier: Option<&str>,
+    output: Option<&Output>,
+) -> Result<VerifyOutcome, Error> {
+    let store = client.open_store()?;
     let record = store
         .instance(name)?
         .ok_or_else(|| stackless_core::state::StateError::InstanceNotFound { name: name.into() })?;
     let def = StackDef::parse_snapshot(&record.definition)?;
     let verify_root = def.stack.verify.as_ref().filter(|v| v.is_declared());
     let Some(verify_root) = verify_root else {
-        return Err(CliError::VerifyNotDeclared);
+        return Err(Error::VerifyNotDeclared);
     };
-    let tier_name = args.tier.as_deref();
+    let tier_name = tier;
     let spec = match verify_root.resolve(tier_name) {
         Some(spec) => spec,
         None if tier_name.is_none()
             && verify_root.run.is_none()
             && !verify_root.tiers.is_empty() =>
         {
-            return Err(CliError::VerifyTierRequired {
+            return Err(Error::VerifyTierRequired {
                 tiers: verify_root.tiers.keys().cloned().collect(),
             });
         }
         None => {
-            return Err(CliError::VerifyTierUnknown {
+            return Err(Error::VerifyTierUnknown {
                 tier: tier_name.unwrap_or("default").to_owned(),
             });
         }
@@ -81,17 +100,13 @@ pub fn verify(args: VerifyArgs, output: &Output) -> Result<(), CliError> {
     } else {
         PathBuf::from(&record.definition_dir)
     };
-    let rt = crate::commands::runtime()?;
-    crate::secrets::pull_vault_for_instance(&def, &def_dir, name, &rt)?;
+    let rt = client.runtime()?;
+    crate::secrets::pull_vault_for_instance(&def, &def_dir, name, rt)?;
     let secrets = crate::secrets::resolve(&def, &def_dir, Some(name))?;
     let checkpoints = store.checkpoints(name)?;
     let provider = build_substrate(
         record.substrate.as_str(),
-        SubstrateCtx {
-            secrets: secrets.clone(),
-            definition_dir: def_dir.clone(),
-            confirm_paid: false,
-        },
+        client.substrate_ctx(secrets.clone(), def_dir.clone(), false),
     )?;
     let namespace =
         provider.build_namespace(&def, name, &checkpoints, &secrets, NamespacePurpose::Verify);
@@ -102,7 +117,7 @@ pub fn verify(args: VerifyArgs, output: &Output) -> Result<(), CliError> {
         env.push((key.clone(), resolved));
     }
 
-    let anchor = anchor_service(&def).ok_or_else(|| CliError::VerifySourceUnavailable {
+    let anchor = anchor_service(&def).ok_or_else(|| Error::VerifySourceUnavailable {
         service: String::new(),
         detail: "the definition declares no services".into(),
     })?;
@@ -114,20 +129,23 @@ pub fn verify(args: VerifyArgs, output: &Output) -> Result<(), CliError> {
         checkpoints: &checkpoints,
         namespace: &namespace,
         secrets: &secrets,
+        state_root: client.paths().state_dir(),
     };
     let dir = verify_source_dir(&source, &anchor)?;
 
-    output.message(&format!(
-        "verify: running `{}` in {}",
-        spec.run,
-        dir.display()
-    ));
-    let log_path = verify_log_path(name);
+    if let Some(output) = output {
+        output.message(&format!(
+            "verify: running `{}` in {}",
+            spec.run,
+            dir.display()
+        ));
+    }
+    let log_path = client.paths().logs_dir(name).join("verify.log");
     let started = Instant::now();
     let run = run_verify_command(&spec, &dir, &env, &log_path, output)?;
     let duration_ms = started.elapsed().as_millis() as u64;
     if !run.success {
-        return Err(CliError::VerifyFailed {
+        return Err(Error::VerifyFailed {
             status: run.exit_status.to_string(),
             log_path: Some(log_path.display().to_string()),
             log_tail: run.log_tail,
@@ -144,15 +162,14 @@ pub fn verify(args: VerifyArgs, output: &Output) -> Result<(), CliError> {
         )
         .as_secs()
     });
-    output.verify_ok(
-        name,
-        tier_name,
+    Ok(VerifyOutcome {
+        name: name.to_owned(),
+        tier: tier_name.map(str::to_owned),
         duration_ms,
-        run.exit_status,
-        &log_path.display().to_string(),
+        exit_status: run.exit_status,
+        log_path: log_path.display().to_string(),
         lease_remaining_secs,
-    );
-    Ok(())
+    })
 }
 
 struct VerifyRunOutcome {
@@ -161,24 +178,17 @@ struct VerifyRunOutcome {
     log_tail: Option<String>,
 }
 
-fn verify_log_path(instance: &str) -> PathBuf {
-    Store::state_dir()
-        .join("logs")
-        .join(instance)
-        .join("verify.log")
-}
-
 fn run_verify_command(
     spec: &VerifySpec,
     dir: &Path,
     env: &[(String, String)],
     log_path: &Path,
-    output: &Output,
-) -> Result<VerifyRunOutcome, CliError> {
+    output: Option<&Output>,
+) -> Result<VerifyRunOutcome, Error> {
     if let Some(parent) = log_path.parent() {
-        std::fs::create_dir_all(parent).map_err(CliError::Runtime)?;
+        std::fs::create_dir_all(parent).map_err(Error::Runtime)?;
     }
-    let mut log_file = std::fs::File::create(log_path).map_err(CliError::Runtime)?;
+    let mut log_file = std::fs::File::create(log_path).map_err(Error::Runtime)?;
     let mut child = Command::new("/bin/sh")
         .args(["-c", &spec.run])
         .current_dir(dir)
@@ -186,39 +196,41 @@ fn run_verify_command(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(CliError::Runtime)?;
+        .map_err(Error::Runtime)?;
 
-    let mut stdout = child.stdout.take().ok_or_else(|| {
-        CliError::Runtime(std::io::Error::other("verify child stdout unavailable"))
-    })?;
-    let mut stderr = child.stderr.take().ok_or_else(|| {
-        CliError::Runtime(std::io::Error::other("verify child stderr unavailable"))
-    })?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| Error::Runtime(std::io::Error::other("verify child stdout unavailable")))?;
+    let mut stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| Error::Runtime(std::io::Error::other("verify child stderr unavailable")))?;
 
-    let (stdout_buf, stderr_buf, status) = std::thread::scope(|scope| -> Result<_, CliError> {
-        let stdout_handle = scope.spawn(|| -> Result<Vec<u8>, CliError> {
+    let (stdout_buf, stderr_buf, status) = std::thread::scope(|scope| -> Result<_, Error> {
+        let stdout_handle = scope.spawn(|| -> Result<Vec<u8>, Error> {
             let mut buf = Vec::new();
-            stdout.read_to_end(&mut buf).map_err(CliError::Runtime)?;
+            stdout.read_to_end(&mut buf).map_err(Error::Runtime)?;
             Ok(buf)
         });
-        let stderr_handle = scope.spawn(|| -> Result<Vec<u8>, CliError> {
+        let stderr_handle = scope.spawn(|| -> Result<Vec<u8>, Error> {
             let mut buf = Vec::new();
-            stderr.read_to_end(&mut buf).map_err(CliError::Runtime)?;
+            stderr.read_to_end(&mut buf).map_err(Error::Runtime)?;
             Ok(buf)
         });
-        let wait_handle = scope.spawn(|| -> Result<std::process::ExitStatus, CliError> {
-            child.wait().map_err(CliError::Runtime)
+        let wait_handle = scope.spawn(|| -> Result<std::process::ExitStatus, Error> {
+            child.wait().map_err(Error::Runtime)
         });
 
         let stdout_buf = stdout_handle.join().map_err(|_| {
-            CliError::Runtime(std::io::Error::other("verify stdout reader panicked"))
+            Error::Runtime(std::io::Error::other("verify stdout reader panicked"))
         })??;
         let stderr_buf = stderr_handle.join().map_err(|_| {
-            CliError::Runtime(std::io::Error::other("verify stderr reader panicked"))
+            Error::Runtime(std::io::Error::other("verify stderr reader panicked"))
         })??;
         let status = wait_handle
             .join()
-            .map_err(|_| CliError::Runtime(std::io::Error::other("verify wait panicked")))??;
+            .map_err(|_| Error::Runtime(std::io::Error::other("verify wait panicked")))??;
         Ok((stdout_buf, stderr_buf, status))
     })?;
 
@@ -230,21 +242,23 @@ fn run_verify_command(
         }
         combined.extend_from_slice(&stderr_buf);
     }
-    log_file.write_all(&combined).map_err(CliError::Runtime)?;
+    log_file.write_all(&combined).map_err(Error::Runtime)?;
 
-    if !output.is_json() {
-        if !stdout_buf.is_empty() {
-            print!("{}", String::from_utf8_lossy(&stdout_buf));
-        }
-        if !stderr_buf.is_empty() {
-            eprint!("{}", String::from_utf8_lossy(&stderr_buf));
-        }
-    } else {
-        if !stdout_buf.is_empty() {
-            eprint!("{}", String::from_utf8_lossy(&stdout_buf));
-        }
-        if !stderr_buf.is_empty() {
-            eprint!("{}", String::from_utf8_lossy(&stderr_buf));
+    if let Some(output) = output {
+        if !output.is_json() {
+            if !stdout_buf.is_empty() {
+                print!("{}", String::from_utf8_lossy(&stdout_buf));
+            }
+            if !stderr_buf.is_empty() {
+                eprint!("{}", String::from_utf8_lossy(&stderr_buf));
+            }
+        } else {
+            if !stdout_buf.is_empty() {
+                eprint!("{}", String::from_utf8_lossy(&stdout_buf));
+            }
+            if !stderr_buf.is_empty() {
+                eprint!("{}", String::from_utf8_lossy(&stderr_buf));
+            }
         }
     }
 
@@ -274,13 +288,13 @@ fn anchor_service(def: &StackDef) -> Option<String> {
         .or_else(|| def.services.keys().next().cloned())
 }
 
-fn verify_source_dir(ctx: &VerifySourceContext<'_>, service: &str) -> Result<PathBuf, CliError> {
+fn verify_source_dir(ctx: &VerifySourceContext<'_>, service: &str) -> Result<PathBuf, Error> {
     let step_id = format!("materialize:{service}");
     let checkpoint = ctx
         .checkpoints
         .iter()
         .find(|c| c.step_id == step_id)
-        .ok_or_else(|| CliError::VerifySourceUnavailable {
+        .ok_or_else(|| Error::VerifySourceUnavailable {
             service: service.to_owned(),
             detail: format!("missing checkpoint {step_id:?}"),
         })?;
@@ -294,12 +308,12 @@ fn verify_source_dir(ctx: &VerifySourceContext<'_>, service: &str) -> Result<Pat
         return cloud_verify_source_dir(ctx, checkpoint, service);
     }
 
-    let path = recorded_path(checkpoint).ok_or_else(|| CliError::VerifySourceUnavailable {
+    let path = recorded_path(checkpoint).ok_or_else(|| Error::VerifySourceUnavailable {
         service: service.to_owned(),
         detail: "the materialize checkpoint has no local path".into(),
     })?;
     if !path.is_dir() {
-        return Err(CliError::VerifySourceUnavailable {
+        return Err(Error::VerifySourceUnavailable {
             service: service.to_owned(),
             detail: format!("{} is not present", path.display()),
         });
@@ -311,10 +325,10 @@ fn cloud_verify_source_dir(
     ctx: &VerifySourceContext<'_>,
     checkpoint: &Checkpoint,
     service: &str,
-) -> Result<PathBuf, CliError> {
+) -> Result<PathBuf, Error> {
     let mut payload =
         serde_json::from_str::<SourceRefPayload>(&checkpoint.payload).map_err(|err| {
-            CliError::VerifySourceUnavailable {
+            Error::VerifySourceUnavailable {
                 service: service.to_owned(),
                 detail: format!("source-ref payload is invalid: {err}"),
             }
@@ -328,27 +342,18 @@ fn cloud_verify_source_dir(
     }
 
     let auth = stackless_local::git_auth::GitAuth::from_secrets(ctx.secrets);
-    let (path, commit) =
-        stackless_local::materialize::Materializer::new(&stackless_core::state::Store::state_dir())
-            .with_auth(auth)
-            .materialize(ctx.instance, service, &payload.repo, &payload.reference)
-            .map_err(|err| local_fault(err, ctx.instance))?;
-    if let Err(err) = run_setup(
-        ctx.def,
-        ctx.instance,
-        service,
-        &path,
-        ctx.substrate,
-        ctx.namespace,
-        ctx.secrets,
-    ) {
+    let (path, commit) = stackless_local::materialize::Materializer::new(ctx.state_root)
+        .with_auth(auth)
+        .materialize(ctx.instance, service, &payload.repo, &payload.reference)
+        .map_err(|err| local_fault(err, ctx.instance))?;
+    if let Err(err) = run_setup(ctx, service, &path) {
         let _ = stackless_local::materialize::destroy(&path);
         return Err(err);
     }
     payload.path = Some(path.display().to_string());
     payload.commit = Some(commit);
     let payload_json =
-        serde_json::to_string(&payload).map_err(|err| CliError::VerifySourceUnavailable {
+        serde_json::to_string(&payload).map_err(|err| Error::VerifySourceUnavailable {
             service: service.to_owned(),
             detail: format!("source-ref payload could not be encoded: {err}"),
         })?;
@@ -362,26 +367,19 @@ fn cloud_verify_source_dir(
     Ok(path)
 }
 
-fn run_setup(
-    def: &StackDef,
-    instance: &str,
-    service: &str,
-    dir: &Path,
-    substrate: &str,
-    namespace: &Namespace,
-    secrets: &BTreeMap<String, String>,
-) -> Result<(), CliError> {
-    let Some(command) = def
+fn run_setup(ctx: &VerifySourceContext<'_>, service: &str, dir: &Path) -> Result<(), Error> {
+    let Some(command) = ctx
+        .def
         .services
         .get(service)
         .and_then(|spec| spec.setup.as_ref())
     else {
         return Ok(());
     };
-    let env = service_env(def, service, substrate, namespace, secrets)?;
-    stackless_local::spawn::Spawner::new(instance)
+    let env = service_env(ctx.def, service, ctx.substrate, ctx.namespace, ctx.secrets)?;
+    stackless_local::spawn::Spawner::new(ctx.state_root, ctx.instance)
         .run_hook(service, "setup", command, dir, &env)
-        .map_err(|err| local_fault(err, instance))
+        .map_err(|err| local_fault(err, ctx.instance))
 }
 
 fn service_env(
@@ -390,7 +388,7 @@ fn service_env(
     substrate: &str,
     namespace: &Namespace,
     secrets: &BTreeMap<String, String>,
-) -> Result<BTreeMap<String, String>, CliError> {
+) -> Result<BTreeMap<String, String>, Error> {
     let Some(spec) = def.services.get(service) else {
         return Ok(BTreeMap::new());
     };
@@ -417,8 +415,8 @@ fn recorded_path(checkpoint: &Checkpoint) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-fn local_fault(err: stackless_local::error::LocalError, instance: &str) -> CliError {
-    CliError::substrate(SubstrateFault::from_fault(&err), Some(instance.to_owned()))
+fn local_fault(err: stackless_local::error::LocalError, instance: &str) -> Error {
+    Error::substrate(SubstrateFault::from_fault(&err), Some(instance.to_owned()))
 }
 
 #[cfg(test)]
@@ -484,6 +482,7 @@ health = { path = "/" }
             checkpoints: &checkpoints,
             namespace: &ns,
             secrets: &secrets,
+            state_root: store_dir.path(),
         };
         let err = verify_source_dir(&ctx, "web").unwrap_err();
         assert_eq!(

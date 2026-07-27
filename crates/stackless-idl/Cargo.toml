@@ -1,0 +1,30 @@
+[package]
+name                 = "stackless-idl"
+edition.workspace    = true
+version.workspace    = true
+license.workspace    = true
+repository.workspace = true
+description          = "Language-neutral stack IDL compile and emit for stackless"
+
+[lints]
+workspace = true
+
+[features]
+default = ["emit"]
+emit    = []
+compile = ["dep:stackless-core"]
+
+[dependencies]
+serde          = { version = "1.0.228", features = ["derive"] }
+serde_json     = "1.0.150"
+sha2           = "0.10.9"
+stackless-core = { workspace = true, optional = true }
+thiserror      = "2.0.18"
+
+[dev-dependencies]
+stackless-core = { workspace = true }
+tempfile       = "3.27.0"
+
+[[test]]
+name              = "golden_hello"
+required-features = ["compile"]

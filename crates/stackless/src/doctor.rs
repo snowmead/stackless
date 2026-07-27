@@ -6,10 +6,11 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use stackless_core::def::StackDef;
 use stackless_core::fault::{Fault, codes};
-use stackless_daemon::DaemonClient;
+use stackless_core::paths::Paths;
 
 use crate::authoring::{STRIPE_PROJECTS_PINNED, default_output_path, definition_dir};
-use crate::error::CliError;
+use crate::client::Client;
+use crate::error::Error;
 use crate::output::Output;
 use crate::secrets::{self, ENV_FILE};
 use stackless_stripe_projects::{
@@ -31,7 +32,7 @@ pub struct DoctorCheck {
     pub remediation: Option<String>,
 }
 
-pub fn doctor(args: DoctorArgs, output: &Output) -> Result<(), CliError> {
+pub fn doctor(args: DoctorArgs, output: &Output, client: &Client) -> Result<(), Error> {
     if let Some(name) = args.substrate.as_deref() {
         crate::substrates::ensure_known(name)?;
     }
@@ -73,8 +74,8 @@ pub fn doctor(args: DoctorArgs, output: &Output) -> Result<(), CliError> {
             }
         }
     }
-    checks.push(check_daemon());
-    checks.push(check_persistence());
+    checks.push(check_daemon(client));
+    checks.push(check_persistence(client.paths()));
 
     let all_ok = checks.iter().all(|c| c.ok);
     if all_ok {
@@ -86,22 +87,25 @@ pub fn doctor(args: DoctorArgs, output: &Output) -> Result<(), CliError> {
             .filter(|c| !c.ok)
             .map(|c| c.check.clone())
             .collect();
-        let err = CliError::DoctorFailed { failed };
+        let err = Error::DoctorFailed { failed };
         output.doctor_failed(&checks, &err);
         Err(err)
     }
 }
 
-fn parse_definition_file(file: &Path) -> Result<StackDef, CliError> {
-    let text = std::fs::read_to_string(file).map_err(|source| CliError::FileRead {
+fn parse_definition_file(file: &Path) -> Result<StackDef, Error> {
+    let text = std::fs::read_to_string(file).map_err(|source| Error::FileRead {
         path: file.display().to_string(),
         source,
     })?;
-    StackDef::parse(&text).map_err(CliError::Def)
+    StackDef::parse(&text).map_err(Error::Def)
 }
 
-fn check_daemon() -> DoctorCheck {
-    match DaemonClient::ensure().and_then(|mut client| client.ping().map(|_| ())) {
+fn check_daemon(client: &Client) -> DoctorCheck {
+    match client
+        .ensure_daemon()
+        .and_then(|mut daemon| daemon.ping().map(|_| ()).map_err(Error::Daemon))
+    {
         Ok(()) => DoctorCheck {
             check: "daemon".into(),
             ok: true,
@@ -132,7 +136,7 @@ fn needs_stripe(def: &StackDef, substrate: Option<&str>) -> bool {
     }
 }
 
-fn check_persistence() -> DoctorCheck {
+fn check_persistence(paths: &Paths) -> DoctorCheck {
     // Boot persistence is macOS launchd today (§3). Elsewhere `status`/`list`
     // warn but do not fail — doctor matches that posture.
     if !cfg!(target_os = "macos") {
@@ -154,7 +158,7 @@ fn check_persistence() -> DoctorCheck {
             remediation: None,
         };
     }
-    match stackless_daemon::launchd::degradation_warning() {
+    match stackless_daemon::launchd::degradation_warning(paths) {
         None => DoctorCheck {
             check: "persistence".into(),
             ok: true,
@@ -688,7 +692,7 @@ run = "true"
         if cfg!(target_os = "macos") {
             return;
         }
-        let check = check_persistence();
+        let check = check_persistence(&Paths::from_env());
         assert!(check.ok);
     }
 

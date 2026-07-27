@@ -91,9 +91,72 @@ Full agent playbook: [`.cursor/skills/stackless/SKILL.md`](.cursor/skills/stackl
 | `status` / `list` | Staged truth / all instances |
 | `logs <name>` | Captured output (survives teardown) |
 | `check <file>` | Validate definition + derived graph |
+| `bind` | Compile `stackless.toml` → IDL + typed TS/Rust bindings |
 | `init` / `adopt` / `doctor` | Scaffold, detect, preflight |
 
 Every command is non-interactive and exits with codes an agent can branch on.
+
+### Typed bindings
+
+`stackless bind` projects a stack definition into a language-neutral IDL
+(`.stackless/stack.idl.json`) and optional TypeScript / Rust origins bags so
+tests can name services and verify tiers without stringly DNS keys.
+
+```bash
+stackless bind --file stackless.toml \
+  --idl .stackless/stack.idl.json \
+  --ts e2e/stack.gen.ts \
+  --rs tests/support/stack_bind.rs
+
+# CI: fail if any output is stale
+stackless bind --file stackless.toml \
+  --idl .stackless/stack.idl.json \
+  --ts e2e/stack.gen.ts \
+  --rs tests/support/stack_bind.rs \
+  --check
+```
+
+Rust `build.rs` consumers that already check in the IDL can regenerate only
+`$OUT_DIR` via `stackless-bindgen` (no `stackless-core` / libsql link):
+
+```rust
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    stackless_bindgen::emit_rust(".stackless/stack.idl.json")?;
+    Ok(())
+}
+```
+
+### Rust SDK
+
+The `stackless` crate is both the CLI and a sync library. Depend on it to
+bring environments up and down from Rust (integration tests, CI tooling,
+or operators that prefer an in-process API over shelling out).
+
+```toml
+[dependencies]
+stackless = "0.1"
+
+# Hermetic local tests (embedded daemon + temp state dir):
+[dev-dependencies]
+stackless = { version = "0.1", features = ["test-support"] }
+```
+
+```rust
+use stackless::{Client, Create, UpRequest};
+
+let client = Client::system()?;
+let created = client.up(UpRequest::Create(
+    Create::new("stackless.toml", "local").named("demo"),
+))?;
+println!("{}", created.origin("web")?);
+client.verify(&created.name, None)?;
+client.down(&created.name)?;
+```
+
+Paid cloud substrates use `PaidConsent::confirmed()` (same gate as
+`--confirm-paid`). Feature flags select substrates (`local`, `render`,
+`cloud`, …); defaults match the full CLI. Publishing notes:
+[docs/PUBLISHING.md](docs/PUBLISHING.md).
 
 ## Docs
 
@@ -103,6 +166,7 @@ Every command is non-interactive and exits with codes an agent can branch on.
 - [docs/AGENT-FLEETS.md](docs/AGENT-FLEETS.md) — parallel agents and shared state
 - [`.cursor/skills/stackless/SKILL.md`](.cursor/skills/stackless/SKILL.md) — agent skill
 - [CLAUDE.md](CLAUDE.md) — contributor map (crates, mise, provider tooling)
+- [docs/PUBLISHING.md](docs/PUBLISHING.md) — crates.io publish order for the SDK wave
 - [CHANGELOG.md](CHANGELOG.md) — releases
 
 ## Status

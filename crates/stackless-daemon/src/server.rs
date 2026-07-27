@@ -4,24 +4,49 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use stackless_core::paths::Paths;
 use stackless_core::process::ProcessStamp;
-use stackless_core::state::Store;
+use stackless_core::types::{ProtocolVersion, TcpPort};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 
 use crate::proxy;
-use stackless_core::types::ProtocolVersion;
 
 use crate::rpc::{Envelope, Request, Response, ResponseBody, build_version};
 use crate::state::DaemonState;
 
+/// Whether this daemon is the operator process or an embedded/test instance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DaemonRole {
+    /// Operator daemon: register launchd and run the lease reaper.
+    Operator,
+    /// Embedded/test daemon: skip launchd registration and the reaper.
+    Embedded,
+}
+
 pub fn socket_path() -> PathBuf {
-    Store::state_dir().join("daemon.sock")
+    socket_path_for(&Paths::from_env())
+}
+
+pub fn socket_path_for(paths: &Paths) -> PathBuf {
+    paths.socket_path()
 }
 
 /// Run the daemon until told to shut down. Returns once drained.
 pub async fn run() -> std::io::Result<()> {
-    let path = socket_path();
+    run_with(
+        &Paths::from_env(),
+        proxy::proxy_port(),
+        DaemonRole::Operator,
+    )
+    .await
+}
+
+/// Like [`run`], but binds the socket under an injectable state layout,
+/// listens on an injectable proxy port, and selects operator vs embedded
+/// behavior via [`DaemonRole`].
+pub async fn run_with(paths: &Paths, proxy_port: TcpPort, role: DaemonRole) -> std::io::Result<()> {
+    let path = socket_path_for(paths);
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -38,7 +63,10 @@ pub async fn run() -> std::io::Result<()> {
 
     // Boot persistence (§3): register as a launchd user agent so leases
     // survive reboots/crashes. Refusal degrades loudly, never aborts.
-    crate::launchd::ensure_registered();
+    // Skip for embedded test daemons.
+    if role == DaemonRole::Operator {
+        crate::launchd::ensure_registered(paths);
+    }
 
     let state = Arc::new(DaemonState::default());
 
@@ -46,7 +74,7 @@ pub async fn run() -> std::io::Result<()> {
     // and supervision live only in memory, so they died with the prior
     // daemon — rebuild them from the journal before the proxy or socket
     // can field a request, so the first proxied call already routes.
-    let summary = crate::adopt::readopt(&state);
+    let summary = crate::adopt::readopt(&state, paths);
     if !summary.adopted.is_empty() || !summary.dead.is_empty() {
         eprintln!(
             "stackless daemon: re-adopted {} live process(es), noted {} dead",
@@ -55,23 +83,26 @@ pub async fn run() -> std::io::Result<()> {
         );
     }
 
-    let port = proxy::proxy_port();
     let proxy_state = state.clone();
     tokio::spawn(async move {
-        if let Err(err) = proxy::serve(proxy_state, port).await {
+        if let Err(err) = proxy::serve(proxy_state, proxy_port).await {
             eprintln!(
                 "stackless daemon: proxy failed to bind port {}: {err}",
-                port.get()
+                proxy_port.get()
             );
         }
     });
 
     // The reaper (§6): one immediate pass reaps leases overdue while the
-    // daemon was down (start/wake), then a tick every minute.
-    tokio::spawn(async {
-        crate::reaper::tick_once().await;
-        crate::reaper::run().await;
-    });
+    // daemon was down (start/wake), then a tick every minute. Operator only.
+    if role == DaemonRole::Operator {
+        let reaper_paths = paths.clone();
+        let reaper_port = proxy_port;
+        tokio::spawn(async move {
+            crate::reaper::tick_once(&reaper_paths, reaper_port).await;
+            crate::reaper::run(reaper_paths, reaper_port).await;
+        });
+    }
 
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
     loop {

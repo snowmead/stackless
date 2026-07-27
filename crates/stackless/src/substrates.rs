@@ -2,67 +2,57 @@
 //! (ground rule: core never names a substrate; the `Substrate` trait is the
 //! only seam). Adding a hosting provider is one row here plus its own crate.
 
-use stackless_cloudflare::{CloudflareSubstrate, SUBSTRATE_NAME as CLOUDFLARE};
 use stackless_core::substrate::Substrate;
-use stackless_fly::{FlySubstrate, SUBSTRATE_NAME as FLY};
-use stackless_gitlab::{GitLabSubstrate, SUBSTRATE_NAME as GITLAB};
-use stackless_laravel_cloud::{LaravelCloudSubstrate, SUBSTRATE_NAME as LARAVEL_CLOUD};
-use stackless_local::{LocalSubstrate, SUBSTRATE_NAME as LOCAL};
-use stackless_netlify::{NetlifySubstrate, SUBSTRATE_NAME as NETLIFY};
-use stackless_railway::{RailwaySubstrate, SUBSTRATE_NAME as RAILWAY};
-use stackless_render::{RenderSubstrate, SUBSTRATE_NAME as RENDER};
-use stackless_vercel::{SUBSTRATE_NAME as VERCEL, VercelSubstrate};
-use stackless_wordpress::{SUBSTRATE_NAME as WORDPRESS, WordPressSubstrate};
 
-use crate::commands::SubstrateCtx;
-use crate::error::CliError;
+use crate::client::SubstrateCtx;
+use crate::error::Error;
 
 /// One registered substrate: its `--on` name and how to construct it from the
 /// shared build context.
 struct SubstrateInfo {
     name: &'static str,
-    build: fn(SubstrateCtx) -> Result<Box<dyn Substrate>, CliError>,
+    build: fn(SubstrateCtx) -> Result<Box<dyn Substrate>, Error>,
 }
 
 static SUBSTRATES: &[SubstrateInfo] = &[
     SubstrateInfo {
-        name: LOCAL,
+        name: stackless_local::SUBSTRATE_NAME,
         build: build_local,
     },
     SubstrateInfo {
-        name: RENDER,
+        name: stackless_render::SUBSTRATE_NAME,
         build: build_render,
     },
     SubstrateInfo {
-        name: VERCEL,
+        name: stackless_vercel::SUBSTRATE_NAME,
         build: build_vercel,
     },
     SubstrateInfo {
-        name: FLY,
+        name: stackless_fly::SUBSTRATE_NAME,
         build: build_fly,
     },
     SubstrateInfo {
-        name: NETLIFY,
+        name: stackless_netlify::SUBSTRATE_NAME,
         build: build_netlify,
     },
     SubstrateInfo {
-        name: RAILWAY,
+        name: stackless_railway::SUBSTRATE_NAME,
         build: build_railway,
     },
     SubstrateInfo {
-        name: CLOUDFLARE,
+        name: stackless_cloudflare::SUBSTRATE_NAME,
         build: build_cloudflare,
     },
     SubstrateInfo {
-        name: WORDPRESS,
+        name: stackless_wordpress::SUBSTRATE_NAME,
         build: build_wordpress,
     },
     SubstrateInfo {
-        name: LARAVEL_CLOUD,
+        name: stackless_laravel_cloud::SUBSTRATE_NAME,
         build: build_laravel_cloud,
     },
     SubstrateInfo {
-        name: GITLAB,
+        name: stackless_gitlab::SUBSTRATE_NAME,
         build: build_gitlab,
     },
 ];
@@ -74,7 +64,7 @@ pub(crate) fn known_names() -> Vec<&'static str> {
 
 /// Error unless `name` is a registered substrate (used where no substrate is
 /// constructed, e.g. `check`; `build` enforces the same for `up`/`down`).
-pub(crate) fn ensure_known(name: &str) -> Result<(), CliError> {
+pub(crate) fn ensure_known(name: &str) -> Result<(), Error> {
     if SUBSTRATES.iter().any(|info| info.name == name) {
         Ok(())
     } else {
@@ -83,94 +73,98 @@ pub(crate) fn ensure_known(name: &str) -> Result<(), CliError> {
 }
 
 /// Construct a substrate by name, or report it unknown with the known set.
-pub(crate) fn build(name: &str, ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliError> {
+pub(crate) fn build(name: &str, ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, Error> {
     match SUBSTRATES.iter().find(|info| info.name == name) {
         Some(info) => (info.build)(ctx),
         None => Err(unknown(name)),
     }
 }
 
-fn unknown(name: &str) -> CliError {
-    CliError::SubstrateUnknown {
+fn unknown(name: &str) -> Error {
+    Error::SubstrateUnknown {
         substrate: name.to_owned(),
         known: known_names().iter().map(|s| (*s).to_owned()).collect(),
     }
 }
 
-fn build_local(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliError> {
-    Ok(Box::new(LocalSubstrate {
-        proxy_port: stackless_daemon::proxy::proxy_port(),
+fn build_local(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, Error> {
+    Ok(Box::new(stackless_local::LocalSubstrate {
+        proxy_port: ctx.proxy_port,
+        state_root: ctx.state_root,
+        daemon_role: ctx.daemon_role,
         secrets: ctx.secrets,
         definition_dir: ctx.definition_dir,
     }))
 }
 
-fn build_render(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliError> {
-    Ok(Box::new(RenderSubstrate::new(
+fn build_render(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, Error> {
+    Ok(Box::new(stackless_render::RenderSubstrate::new(
         ctx.definition_dir,
         ctx.secrets,
         ctx.confirm_paid,
     )))
 }
 
-fn build_vercel(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliError> {
-    Ok(Box::new(VercelSubstrate::new(
+fn build_vercel(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, Error> {
+    Ok(Box::new(stackless_vercel::VercelSubstrate::new(
         ctx.definition_dir,
         ctx.secrets,
         ctx.confirm_paid,
     )))
 }
 
-fn build_fly(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliError> {
-    Ok(Box::new(FlySubstrate::new(
+fn build_fly(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, Error> {
+    Ok(Box::new(stackless_fly::FlySubstrate::new(
         ctx.definition_dir,
         ctx.secrets,
         ctx.confirm_paid,
     )))
 }
 
-fn build_netlify(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliError> {
-    Ok(Box::new(NetlifySubstrate::new(
+fn build_netlify(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, Error> {
+    Ok(Box::new(stackless_netlify::NetlifySubstrate::new(
         ctx.definition_dir,
         ctx.secrets,
         ctx.confirm_paid,
     )))
 }
 
-fn build_laravel_cloud(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliError> {
-    Ok(Box::new(LaravelCloudSubstrate::new(
+fn build_laravel_cloud(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, Error> {
+    Ok(Box::new(
+        stackless_laravel_cloud::LaravelCloudSubstrate::new(
+            ctx.definition_dir,
+            ctx.secrets,
+            ctx.confirm_paid,
+        ),
+    ))
+}
+
+fn build_railway(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, Error> {
+    Ok(Box::new(stackless_railway::RailwaySubstrate::new(
         ctx.definition_dir,
         ctx.secrets,
         ctx.confirm_paid,
     )))
 }
 
-fn build_railway(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliError> {
-    Ok(Box::new(RailwaySubstrate::new(
+fn build_cloudflare(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, Error> {
+    Ok(Box::new(stackless_cloudflare::CloudflareSubstrate::new(
         ctx.definition_dir,
         ctx.secrets,
         ctx.confirm_paid,
     )))
 }
 
-fn build_cloudflare(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliError> {
-    Ok(Box::new(CloudflareSubstrate::new(
+fn build_wordpress(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, Error> {
+    Ok(Box::new(stackless_wordpress::WordPressSubstrate::new(
         ctx.definition_dir,
         ctx.secrets,
         ctx.confirm_paid,
     )))
 }
 
-fn build_wordpress(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliError> {
-    Ok(Box::new(WordPressSubstrate::new(
-        ctx.definition_dir,
-        ctx.secrets,
-        ctx.confirm_paid,
-    )))
-}
-
-fn build_gitlab(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, CliError> {
-    Ok(Box::new(GitLabSubstrate::new(
+fn build_gitlab(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, Error> {
+    Ok(Box::new(stackless_gitlab::GitLabSubstrate::new(
         ctx.definition_dir,
         ctx.secrets,
         ctx.confirm_paid,

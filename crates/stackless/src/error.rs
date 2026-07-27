@@ -1,4 +1,4 @@
-//! CLI-layer errors, mapped onto the §2 agent contract like every
+//! Library and CLI errors, mapped onto the §2 agent contract like every
 //! other layer's.
 
 use stackless_core::def::DefError;
@@ -7,7 +7,8 @@ use stackless_core::fault::{Fault, codes};
 use stackless_core::state::StateError;
 
 #[derive(Debug, thiserror::Error)]
-pub enum CliError {
+#[non_exhaustive]
+pub enum Error {
     #[error("cannot read {path}: {source}")]
     FileRead {
         path: String,
@@ -94,16 +95,21 @@ pub enum CliError {
     Runtime(std::io::Error),
 }
 
-impl CliError {
+impl Error {
     pub fn substrate(
         fault: stackless_core::substrate::SubstrateFault,
         instance: Option<String>,
     ) -> Self {
         Self::Substrate { fault, instance }
     }
+
+    /// Stable machine-readable code for agents and SDK callers.
+    pub fn error_code(&self) -> &'static str {
+        Fault::code(self)
+    }
 }
 
-impl Fault for CliError {
+impl Fault for Error {
     fn code(&self) -> &'static str {
         match self {
             Self::FileRead { .. } => codes::CLI_FILE_READ,
@@ -254,7 +260,7 @@ mod tests {
 
     #[test]
     fn engine_step_forwards_instance_and_step() {
-        let err = CliError::Engine(EngineError::Step {
+        let err = Error::Engine(EngineError::Step {
             instance: "git-auth-test".into(),
             step: "setup:web".into(),
             fault: SubstrateFault {

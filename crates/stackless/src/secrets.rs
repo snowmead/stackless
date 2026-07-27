@@ -10,7 +10,7 @@ use std::path::Path;
 use stackless_core::def::StackDef;
 use stackless_stripe_projects::{merge_env_lines, recorded_project_id, vault_env_from_dir};
 
-use crate::error::CliError;
+use crate::error::Error;
 
 pub const ENV_FILE: &str = ".stackless.env";
 
@@ -33,7 +33,7 @@ pub fn pull_vault_for_instance(
     def_dir: &Path,
     instance: &str,
     rt: &tokio::runtime::Runtime,
-) -> Result<(), CliError> {
+) -> Result<(), Error> {
     if recorded_project_id(def).is_none()
         || !stackless_stripe_projects::project_initialized_in_dir(def_dir)
     {
@@ -46,7 +46,7 @@ pub fn pull_vault_for_instance(
     rt.block_on(stackless_stripe_projects::sync_vault_pull_for_instance(
         &stripe, instance,
     ))
-    .map_err(|err| CliError::BadArgument {
+    .map_err(|err| Error::BadArgument {
         argument: "stripe projects env --pull".into(),
         detail: err.to_string(),
     })
@@ -56,7 +56,7 @@ pub fn resolve(
     def: &StackDef,
     def_dir: &Path,
     instance: Option<&str>,
-) -> Result<BTreeMap<String, String>, CliError> {
+) -> Result<BTreeMap<String, String>, Error> {
     let mut sources = Vec::new();
     let mut resolved = if recorded_project_id(def).is_some() {
         let vault = vault_env_from_dir(def_dir, instance);
@@ -87,7 +87,7 @@ pub fn resolve(
         .cloned()
         .collect();
     if !missing.is_empty() {
-        return Err(CliError::SecretsUnresolved { missing, sources });
+        return Err(Error::SecretsUnresolved { missing, sources });
     }
     Ok(resolved)
 }

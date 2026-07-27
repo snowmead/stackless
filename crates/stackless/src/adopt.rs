@@ -9,7 +9,7 @@ use crate::authoring::{
     GitSource, append_service_block, default_output_path, default_source, definition_dir,
     ensure_trailing_newline, resolve_stack_name, service_block_present, stack_section_present,
 };
-use crate::error::CliError;
+use crate::error::Error;
 use crate::output::Output;
 
 pub struct AdoptArgs {
@@ -26,7 +26,7 @@ struct DetectedService {
     root_origin: bool,
 }
 
-pub fn adopt(args: AdoptArgs, output: &Output) -> Result<(), CliError> {
+pub fn adopt(args: AdoptArgs, output: &Output) -> Result<(), Error> {
     let file = args.file.unwrap_or_else(default_output_path);
     let dir = definition_dir(&file);
     let stack = resolve_stack_name(args.name.as_deref(), &dir)?;
@@ -39,7 +39,7 @@ pub fn adopt(args: AdoptArgs, output: &Output) -> Result<(), CliError> {
                 false,
             )
         } else if args.merge {
-            let existing = std::fs::read_to_string(&file).map_err(|source| CliError::FileRead {
+            let existing = std::fs::read_to_string(&file).map_err(|source| Error::FileRead {
                 path: file.display().to_string(),
                 source,
             })?;
@@ -59,7 +59,7 @@ pub fn adopt(args: AdoptArgs, output: &Output) -> Result<(), CliError> {
             }
             (ensure_trailing_newline(&text), merged)
         } else {
-            return Err(CliError::AdoptExists {
+            return Err(Error::AdoptExists {
                 path: file.display().to_string(),
             });
         }
@@ -70,7 +70,7 @@ pub fn adopt(args: AdoptArgs, output: &Output) -> Result<(), CliError> {
         )
     };
     stackless_core::def::StackDef::parse(&text)?;
-    std::fs::write(&file, &text).map_err(|source| CliError::FileWrite {
+    std::fs::write(&file, &text).map_err(|source| Error::FileWrite {
         path: file.display().to_string(),
         source,
     })?;
@@ -132,7 +132,7 @@ fn detect_services(
     dir: &Path,
     stack: &str,
     source: &GitSource,
-) -> Result<Vec<DetectedService>, CliError> {
+) -> Result<Vec<DetectedService>, Error> {
     let mut services = Vec::new();
     let cargo = dir.join("Cargo.toml");
     let package = dir.join("package.json");

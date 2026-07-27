@@ -4,6 +4,7 @@ edition.workspace    = true
 version.workspace    = true
 license.workspace    = true
 repository.workspace = true
+description          = "Render hosting substrate for stackless"
 
 [lints]
 workspace = true
@@ -14,7 +15,7 @@ async-trait = "0.1.89"
 # DateTime that render-client returns (its own chrono dep omits `alloc`).
 # Load-bearing via feature unification even though no chrono path is named here.
 chrono = { version = "0.4.45", default-features = false, features = ["alloc"] }
-render-client = { path = "../render-client" }
+render-client = { path = "../render-client", version = "0.1.4" }
 reqwest = { version = "0.13.4", default-features = false, features = [
     "rustls",
     "charset",
