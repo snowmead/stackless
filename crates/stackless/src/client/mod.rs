@@ -19,6 +19,7 @@ use stackless_core::paths::Paths;
 use stackless_core::state::{InstanceStatus, Store};
 use stackless_core::substrate::SpendInfo;
 use stackless_core::types::TcpPort;
+use stackless_daemon::DaemonRole;
 
 use report::status_report;
 
@@ -33,6 +34,8 @@ pub struct Client {
 struct ClientInner {
     paths: Paths,
     proxy_port: TcpPort,
+    /// Operator for the default env layout; Embedded when paths were injected.
+    daemon_role: DaemonRole,
     runtime: OnceLock<tokio::runtime::Runtime>,
 }
 
@@ -41,6 +44,7 @@ impl std::fmt::Debug for ClientInner {
         f.debug_struct("ClientInner")
             .field("paths", &self.paths)
             .field("proxy_port", &self.proxy_port)
+            .field("daemon_role", &self.daemon_role)
             .finish_non_exhaustive()
     }
 }
@@ -64,7 +68,12 @@ impl ClientBuilder {
     }
 
     pub fn build(self) -> Result<Client, Error> {
-        let paths = self.paths.unwrap_or_else(Paths::from_env);
+        // Explicit paths ⇒ hermetic/SDK embed (no launchd/reaper). Default
+        // env layout ⇒ operator daemon with §6 lease enforcement.
+        let (paths, daemon_role) = match self.paths {
+            Some(paths) => (paths, DaemonRole::Embedded),
+            None => (Paths::from_env(), DaemonRole::Operator),
+        };
         let proxy_port = self
             .proxy_port
             .unwrap_or_else(stackless_daemon::proxy::proxy_port);
@@ -72,6 +81,7 @@ impl ClientBuilder {
             inner: Arc::new(ClientInner {
                 paths,
                 proxy_port,
+                daemon_role,
                 runtime: OnceLock::new(),
             }),
         })
@@ -336,6 +346,7 @@ impl Client {
             confirm_paid,
             state_root: self.inner.paths.state_dir().to_path_buf(),
             proxy_port: self.inner.proxy_port,
+            daemon_role: self.inner.daemon_role,
         }
     }
 
@@ -489,6 +500,7 @@ impl Client {
             &record,
             self.inner.paths.state_dir(),
             self.inner.proxy_port,
+            self.inner.daemon_role,
         )
     }
 
@@ -501,6 +513,7 @@ impl Client {
                 &record,
                 self.inner.paths.state_dir(),
                 self.inner.proxy_port,
+                self.inner.daemon_role,
             )?);
         }
         Ok(reports)

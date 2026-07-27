@@ -40,6 +40,8 @@ pub struct LocalSubstrate {
     pub proxy_port: TcpPort,
     /// State root for materialize checkouts, logs, and daemon socket lookup.
     pub state_root: PathBuf,
+    /// Operator (launchd + reaper) vs Embedded (hermetic / custom state root).
+    pub daemon_role: stackless_daemon::DaemonRole,
     /// Resolved secrets (M5: vault pull + env-file overlay). Empty in M4.
     pub secrets: BTreeMap<String, String>,
     /// Where the definition lives; hosted integrations run Stripe
@@ -52,6 +54,7 @@ impl Default for LocalSubstrate {
         Self {
             proxy_port: stackless_daemon::proxy::proxy_port(),
             state_root: Store::state_dir(),
+            daemon_role: stackless_daemon::DaemonRole::Operator,
             secrets: BTreeMap::new(),
             definition_dir: std::env::current_dir().unwrap_or_default(),
         }
@@ -244,13 +247,8 @@ impl LocalSubstrate {
             remediation: "run from a real binary".into(),
             context: Box::default(),
         })?;
-        DaemonClient::ensure_with(
-            &paths,
-            &exe,
-            self.proxy_port,
-            stackless_daemon::DaemonRole::Embedded,
-        )
-        .map_err(|err| SubstrateFault::from_fault(&err))
+        DaemonClient::ensure_with(&paths, &exe, self.proxy_port, self.daemon_role)
+            .map_err(|err| SubstrateFault::from_fault(&err))
     }
 
     fn spawner<'a>(&'a self, instance: &'a str) -> Spawner<'a> {

@@ -91,6 +91,7 @@ fn build_local(ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, Error> {
     Ok(Box::new(stackless_local::LocalSubstrate {
         proxy_port: ctx.proxy_port,
         state_root: ctx.state_root,
+        daemon_role: ctx.daemon_role,
         secrets: ctx.secrets,
         definition_dir: ctx.definition_dir,
     }))

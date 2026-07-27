@@ -7,6 +7,7 @@ use stackless_core::def::StackDef;
 use stackless_core::state::{InstanceRecord, InstanceStatus, Store};
 use stackless_core::substrate::Substrate;
 use stackless_core::types::TcpPort;
+use stackless_daemon::DaemonRole;
 
 use crate::error::Error;
 
@@ -23,6 +24,8 @@ pub(crate) struct SubstrateCtx {
     pub state_root: PathBuf,
     /// Reverse-proxy listen port (local origins and health checks).
     pub proxy_port: TcpPort,
+    /// Whether a local daemon spawn should register launchd + reaper.
+    pub daemon_role: DaemonRole,
 }
 
 /// Construct a substrate by name via the registry (ground rule: providers

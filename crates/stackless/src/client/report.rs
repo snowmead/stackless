@@ -37,6 +37,7 @@ pub(crate) fn status_report(
     record: &InstanceRecord,
     state_root: &Path,
     proxy_port: TcpPort,
+    daemon_role: stackless_daemon::DaemonRole,
 ) -> Result<InstanceReport, Error> {
     let def = StackDef::parse_snapshot(&record.definition)?;
     let def_dir = if record.definition_dir.is_empty() {
@@ -52,6 +53,7 @@ pub(crate) fn status_report(
             confirm_paid: false,
             state_root: state_root.to_path_buf(),
             proxy_port,
+            daemon_role,
         },
     )?;
     let checkpoints = store.checkpoints(record.name.as_str())?;
