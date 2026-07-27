@@ -244,7 +244,13 @@ impl LocalSubstrate {
             remediation: "run from a real binary".into(),
             context: Box::default(),
         })?;
-        DaemonClient::ensure_with(&paths, &exe).map_err(|err| SubstrateFault::from_fault(&err))
+        DaemonClient::ensure_with(
+            &paths,
+            &exe,
+            self.proxy_port,
+            stackless_daemon::DaemonRole::Embedded,
+        )
+        .map_err(|err| SubstrateFault::from_fault(&err))
     }
 
     fn spawner<'a>(&'a self, instance: &'a str) -> Spawner<'a> {

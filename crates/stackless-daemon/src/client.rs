@@ -10,11 +10,11 @@ use std::time::{Duration, Instant};
 
 use stackless_core::fault::{Fault, codes};
 use stackless_core::paths::Paths;
+use stackless_core::types::{ProtocolVersion, TcpPort};
 
-use stackless_core::types::ProtocolVersion;
-
+use crate::proxy;
 use crate::rpc::{Envelope, Request, Response, ResponseBody, build_version};
-use crate::server::socket_path_for;
+use crate::server::{DaemonRole, socket_path_for};
 
 #[derive(Debug, thiserror::Error)]
 pub enum DaemonError {
@@ -40,11 +40,10 @@ impl Fault for DaemonError {
     fn remediation(&self) -> String {
         match self {
             Self::Unreachable { .. } | Self::Spawn { .. } => format!(
-                "check `{} daemon run` starts in a terminal and that {} is writable",
+                "check `{} daemon run` starts in a terminal and that the state dir is writable",
                 std::env::current_exe()
                     .map(|p| p.display().to_string())
                     .unwrap_or_else(|_| "stackless".into()),
-                Paths::from_env().state_dir().display()
             ),
             Self::Request { .. } => {
                 "re-run the command; the daemon may have been restarting".into()
@@ -66,16 +65,23 @@ impl DaemonClient {
         let exe = std::env::current_exe().map_err(|err| DaemonError::Spawn {
             detail: err.to_string(),
         })?;
-        Self::ensure_with(&paths, &exe)
+        Self::ensure_with(&paths, &exe, proxy::proxy_port(), DaemonRole::Operator)
     }
 
-    /// Like [`Self::ensure`], but uses an injectable state layout and
-    /// daemon binary instead of process-global defaults.
-    pub fn ensure_with(paths: &Paths, executable: &Path) -> Result<Self, DaemonError> {
+    /// Like [`Self::ensure`], but uses an injectable state layout, proxy
+    /// port, daemon binary, and [`DaemonRole`] instead of process-global
+    /// defaults. Embedded spawns pass `--state-dir` / `--proxy-port` /
+    /// `--embedded` so the child binds the same layout the client waits on.
+    pub fn ensure_with(
+        paths: &Paths,
+        executable: &Path,
+        proxy_port: TcpPort,
+        role: DaemonRole,
+    ) -> Result<Self, DaemonError> {
         let mut client = match Self::connect_with(paths) {
             Ok(client) => client,
             Err(_) => {
-                spawn_daemon(paths, executable)?;
+                spawn_daemon(paths, executable, proxy_port, role)?;
                 Self::wait_for_socket(paths, Duration::from_secs(5))?
             }
         };
@@ -86,7 +92,7 @@ impl DaemonClient {
         if daemon_version != build_version() {
             let _ = client.call(Request::Shutdown);
             std::thread::sleep(Duration::from_millis(200));
-            spawn_daemon(paths, executable)?;
+            spawn_daemon(paths, executable, proxy_port, role)?;
             client = Self::wait_for_socket(paths, Duration::from_secs(5))?;
             client.ping()?;
         }
@@ -180,7 +186,12 @@ impl DaemonClient {
 ///
 /// Either path runs under the spawn lock so concurrent CLIs start one
 /// daemon, not a herd.
-fn spawn_daemon(paths: &Paths, executable: &Path) -> Result<(), DaemonError> {
+fn spawn_daemon(
+    paths: &Paths,
+    executable: &Path,
+    proxy_port: TcpPort,
+    role: DaemonRole,
+) -> Result<(), DaemonError> {
     let lock_path = paths.spawn_lock();
     if let Some(dir) = lock_path.parent() {
         std::fs::create_dir_all(dir).map_err(|err| DaemonError::Spawn {
@@ -192,8 +203,9 @@ fn spawn_daemon(paths: &Paths, executable: &Path) -> Result<(), DaemonError> {
         // Someone else is spawning; wait for their daemon instead.
         Err(_) => return Ok(()),
     };
-    // Supervised start: hand the daemon to launchd when the agent is ready.
-    if crate::launchd::kickstart_if_supervised() {
+    // Supervised start: operator only — kickstart would bring up the
+    // launchd agent on the process-global socket, not an injectable root.
+    if role == DaemonRole::Operator && crate::launchd::kickstart_if_supervised() {
         return Ok(());
     }
     let log = std::fs::OpenOptions::new()
@@ -206,8 +218,17 @@ fn spawn_daemon(paths: &Paths, executable: &Path) -> Result<(), DaemonError> {
     let log_err = log.try_clone().map_err(|err| DaemonError::Spawn {
         detail: err.to_string(),
     })?;
-    std::process::Command::new(executable)
-        .args(["daemon", "run"])
+    let mut command = std::process::Command::new(executable);
+    command.args(["daemon", "run"]);
+    if role == DaemonRole::Embedded {
+        command
+            .arg("--state-dir")
+            .arg(paths.state_dir())
+            .arg("--proxy-port")
+            .arg(proxy_port.get().to_string())
+            .arg("--embedded");
+    }
+    command
         .stdin(std::process::Stdio::null())
         .stdout(log)
         .stderr(log_err)

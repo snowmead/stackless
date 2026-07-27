@@ -3,14 +3,33 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::io::{Read, Write};
-use std::net::TcpStream;
-use std::path::Path;
+use std::net::{TcpListener, TcpStream};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use stackless::client::Create;
 use stackless::test_support::{GuardPolicy, TestContext};
+use stackless_core::paths::Paths;
+use stackless_core::types::TcpPort;
+use stackless_daemon::rpc::Request;
+use stackless_daemon::{DaemonClient, DaemonRole};
 
 include!(concat!(env!("OUT_DIR"), "/stack_bind.rs"));
+
+#[test]
+fn ensure_with_spawns_daemon_on_injectable_paths() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let paths = Paths::new(dir.path());
+    let proxy_port = {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        TcpPort::from_os(listener.local_addr().expect("addr").port())
+    };
+    let exe = PathBuf::from(env!("CARGO_BIN_EXE_stackless"));
+    let mut client = DaemonClient::ensure_with(&paths, &exe, proxy_port, DaemonRole::Embedded)
+        .expect("ensure_with should spawn on injectable paths");
+    client.ping().expect("ping");
+    client.call(Request::Shutdown).expect("shutdown");
+}
 
 #[test]
 fn hello_fixture_up_http_down() {
