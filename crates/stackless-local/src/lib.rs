@@ -40,9 +40,6 @@ pub struct LocalSubstrate {
     pub proxy_port: TcpPort,
     /// State root for materialize checkouts, logs, and daemon socket lookup.
     pub state_root: PathBuf,
-    /// Daemon binary for [`DaemonClient::ensure_with`]. Defaults to
-    /// [`std::env::current_exe`] when `None`.
-    pub daemon_exe: Option<PathBuf>,
     /// Resolved secrets (M5: vault pull + env-file overlay). Empty in M4.
     pub secrets: BTreeMap<String, String>,
     /// Where the definition lives; hosted integrations run Stripe
@@ -55,7 +52,6 @@ impl Default for LocalSubstrate {
         Self {
             proxy_port: stackless_daemon::proxy::proxy_port(),
             state_root: Store::state_dir(),
-            daemon_exe: None,
             secrets: BTreeMap::new(),
             definition_dir: std::env::current_dir().unwrap_or_default(),
         }
@@ -242,15 +238,12 @@ impl LocalSubstrate {
 
     fn daemon(&self) -> Result<DaemonClient, SubstrateFault> {
         let paths = Paths::new(&self.state_root);
-        let exe = match &self.daemon_exe {
-            Some(path) => path.clone(),
-            None => std::env::current_exe().map_err(|err| SubstrateFault {
-                code: stackless_core::fault::codes::DAEMON_SPAWN_FAILED,
-                message: format!("cannot resolve daemon executable: {err}"),
-                remediation: "pass an explicit daemon_exe or run from a real binary".into(),
-                context: Box::default(),
-            })?,
-        };
+        let exe = std::env::current_exe().map_err(|err| SubstrateFault {
+            code: stackless_core::fault::codes::DAEMON_SPAWN_FAILED,
+            message: format!("cannot resolve daemon executable: {err}"),
+            remediation: "run from a real binary".into(),
+            context: Box::default(),
+        })?;
         DaemonClient::ensure_with(&paths, &exe).map_err(|err| SubstrateFault::from_fault(&err))
     }
 

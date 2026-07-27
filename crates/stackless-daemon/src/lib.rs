@@ -12,3 +12,4 @@ pub mod server;
 pub mod state;
 
 pub use client::{DaemonClient, DaemonError};
+pub use server::DaemonRole;

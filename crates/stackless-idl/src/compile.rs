@@ -5,14 +5,15 @@ use stackless_core::def::StackDef;
 use crate::canonical::{fingerprint_for, sha256_hex_prefixed};
 use crate::error::IdlError;
 use crate::model::{
-    IntegrationEntry, InterfaceV1, KIND_V1, ServiceEntry, SourceMeta, TierEntry, VerifySection,
+    BodyV1, IntegrationEntry, InterfaceV1, KIND_V1, ServiceEntry, SourceMeta, TierEntry,
+    VerifySection,
 };
 use crate::remap::{IdentNamespace, check_collisions, remap_dns};
 
 #[derive(Debug)]
 pub struct Compiled {
     pub idl: InterfaceV1,
-    pub canonical_json: String,
+    pub pretty_json: String,
 }
 
 pub fn compile_source(text: &str, known_substrates: &[&str]) -> Result<Compiled, IdlError> {
@@ -21,11 +22,8 @@ pub fn compile_source(text: &str, known_substrates: &[&str]) -> Result<Compiled,
     let _graph = stackless_core::def::DependencyGraph::derive(&def)?;
     let toml_sha256 = sha256_hex_prefixed(text.as_bytes());
     let idl = compile(&def, &toml_sha256)?;
-    let canonical_json = crate::canonical::canonical_json(&idl)?;
-    Ok(Compiled {
-        idl,
-        canonical_json,
-    })
+    let pretty_json = crate::canonical::pretty_json(&idl)?;
+    Ok(Compiled { idl, pretty_json })
 }
 
 pub fn compile(def: &StackDef, toml_sha256: &str) -> Result<InterfaceV1, IdlError> {
@@ -86,14 +84,16 @@ pub fn compile(def: &StackDef, toml_sha256: &str) -> Result<InterfaceV1, IdlErro
     let mut idl = InterfaceV1 {
         kind: KIND_V1.to_owned(),
         fingerprint: String::new(),
-        source: SourceMeta {
-            stack_name: def.stack.name.as_str().to_owned(),
-            toml_sha256: toml_sha256.to_owned(),
+        body: BodyV1 {
+            source: SourceMeta {
+                stack_name: def.stack.name.as_str().to_owned(),
+                toml_sha256: toml_sha256.to_owned(),
+            },
+            services,
+            verify: VerifySection { has_default, tiers },
+            integrations,
+            secrets_required,
         },
-        services,
-        verify: VerifySection { has_default, tiers },
-        integrations,
-        secrets_required,
     };
     idl.fingerprint = fingerprint_for(&idl)?;
     Ok(idl)

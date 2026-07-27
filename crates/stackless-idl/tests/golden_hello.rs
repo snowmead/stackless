@@ -20,10 +20,10 @@ fn testdata(name: &str) -> String {
 #[test]
 fn compile_hello_matches_golden_idl() {
     let compiled = stackless_idl::compile_source(&hello_toml(), &["local"]).expect("compile");
-    assert_eq!(compiled.canonical_json, testdata("hello.idl.json"));
-    assert!(compiled.idl.verify.has_default);
-    assert_eq!(compiled.idl.verify.tiers.len(), 1);
-    assert_eq!(compiled.idl.verify.tiers[0].dns, "smoke");
+    assert_eq!(compiled.pretty_json, testdata("hello.idl.json"));
+    assert!(compiled.idl.body.verify.has_default);
+    assert_eq!(compiled.idl.body.verify.tiers.len(), 1);
+    assert_eq!(compiled.idl.body.verify.tiers[0].dns, "smoke");
 }
 
 #[test]

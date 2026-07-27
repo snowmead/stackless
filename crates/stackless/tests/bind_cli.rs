@@ -1,4 +1,4 @@
-//! CLI `stackless bind` write + `--check` against fixtures/hello.
+//! CLI `stackless bind` write + `--check`, and fixture IDL freshness.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -13,17 +13,18 @@ fn hello_toml() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/hello/stackless.toml")
 }
 
+fn hello_idl() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/hello/.stackless/stack.idl.json")
+}
+
 #[test]
-fn committed_support_bindings_match_idl_goldens() {
-    let idl_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../stackless-idl/testdata");
-    let support = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/support");
+fn fixture_hello_idl_matches_toml() {
+    let text = std::fs::read_to_string(hello_toml()).expect("read hello toml");
+    let compiled = stackless_idl::compile_source(&text, &["local"]).expect("compile");
+    let expected = std::fs::read_to_string(hello_idl()).expect("read fixture idl");
     assert_eq!(
-        std::fs::read_to_string(idl_root.join("hello.rs")).expect("idl rust golden"),
-        std::fs::read_to_string(support.join("hello_stack_bind.rs")).expect("support rust"),
-    );
-    assert_eq!(
-        std::fs::read_to_string(idl_root.join("hello.ts")).expect("idl ts golden"),
-        std::fs::read_to_string(support.join("hello_stack.gen.ts")).expect("support ts"),
+        compiled.pretty_json, expected,
+        "fixtures/hello/.stackless/stack.idl.json drifted from stackless.toml; re-run `stackless bind`"
     );
 }
 

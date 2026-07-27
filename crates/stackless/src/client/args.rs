@@ -1,18 +1,14 @@
-//! The lifecycle verbs (§2). The CLI runs the engine and holds the op
-//! lock (D8); the daemon owns routing and supervision.
+//! CLI/MCP argument parsing and up-context resolution.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use serde::Serialize;
 use stackless_core::def::StackDef;
 use stackless_core::state::{InstanceRecord, InstanceStatus, Store};
 use stackless_core::substrate::Substrate;
 use stackless_core::types::TcpPort;
 
-use crate::client::{self, Client};
 use crate::error::Error;
-use crate::output::Output;
 
 /// What a substrate needs to be constructed — the same context whether
 /// it is built for `up`, `down`, or `logs`.
@@ -36,7 +32,7 @@ pub(crate) fn build_substrate(name: &str, ctx: SubstrateCtx) -> Result<Box<dyn S
 }
 
 #[derive(Debug, Clone)]
-pub struct UpArgs {
+pub(crate) struct UpArgs {
     pub name: Option<String>,
     pub file: Option<PathBuf>,
     pub on: Option<String>,
@@ -234,156 +230,10 @@ pub(crate) fn definition_dir_for_up(
     std::fs::canonicalize(&def_dir).unwrap_or(def_dir)
 }
 
-pub fn up(args: UpArgs, output: &mut Output) -> Result<(), Error> {
-    let client = Client::system()?;
-    let outcome = client.up_from_args_with_progress(args, Some(output))?;
-    client::render_up(output, &outcome);
-    Ok(())
-}
-
-pub fn down(name: &str, output: &Output) -> Result<(), Error> {
-    let outcome = Client::system()?.down(name)?;
-    client::render_down(output, &outcome);
-    Ok(())
-}
-
-#[derive(Debug, Serialize)]
-pub struct ServiceStatus {
-    pub service: String,
-    pub stage: &'static str,
-    pub alive: Option<bool>,
-    pub origin: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct InstanceStatusReport {
-    pub name: String,
-    pub substrate: String,
-    pub status: &'static str,
-    pub lease_remaining_secs: Option<u64>,
-    pub services: Vec<ServiceStatus>,
-    /// A stuck reap, surfaced until a successful teardown clears it
-    /// (§6, invariant 4: silence is not success).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reap_failure: Option<String>,
-}
-
-pub fn status_report(
-    store: &Store,
-    record: &InstanceRecord,
-    state_root: &Path,
-    proxy_port: TcpPort,
-) -> Result<InstanceStatusReport, Error> {
-    let def = StackDef::parse_snapshot(&record.definition)?;
-    let def_dir = if record.definition_dir.is_empty() {
-        std::env::current_dir().unwrap_or_default()
-    } else {
-        PathBuf::from(&record.definition_dir)
-    };
-    let provider = build_substrate(
-        record.substrate.as_str(),
-        SubstrateCtx {
-            secrets: BTreeMap::new(),
-            definition_dir: def_dir,
-            confirm_paid: false,
-            state_root: state_root.to_path_buf(),
-            proxy_port,
-        },
-    )?;
-    let checkpoints = store.checkpoints(record.name.as_str())?;
-    let has = |id: &str| checkpoints.iter().any(|c| c.step_id == id);
-    let mut services = Vec::new();
-    for name in def.services.keys() {
-        let start_payload = checkpoints
-            .iter()
-            .find(|c| c.step_id == format!("start:{name}"))
-            .and_then(|c| {
-                serde_json::from_str::<stackless_core::checkpoint::StartCheckpoint>(&c.payload).ok()
-            });
-        let alive = start_payload.as_ref().map(|p| {
-            stackless_core::process::ProcessStamp {
-                pid: p.pid,
-                start_time: p.start_time,
-            }
-            .is_alive()
-        });
-        // Staged truth (§7): the stage actually reached, downgraded to
-        // observation: a dead process is not "started".
-        let stage = if has(&format!("health:{name}")) && alive == Some(true) {
-            "healthy"
-        } else if has(&format!("start:{name}")) && alive == Some(true) {
-            "started"
-        } else if has(&format!("prepare:{name}")) {
-            "prepared"
-        } else if has(&format!("materialize:{name}")) {
-            "provisioned"
-        } else {
-            "pending"
-        };
-        services.push(ServiceStatus {
-            service: name.clone(),
-            stage,
-            alive,
-            origin: provider.service_origin(&def, record.name.as_str(), name),
-        });
-    }
-    let lease = store.lease(record.name.as_str())?;
-    let reap_failure = store.reap_attempt(record.name.as_str())?.map(|attempt| {
-        format!(
-            "reap failed {} time(s): {} (retrying)",
-            attempt.attempts, attempt.last_error
-        )
-    });
-    Ok(InstanceStatusReport {
-        name: record.name.as_str().to_owned(),
-        substrate: record.substrate.as_str().to_owned(),
-        status: match record.status {
-            InstanceStatus::Active => "active",
-            InstanceStatus::Tombstoned => "tombstoned",
-        },
-        lease_remaining_secs: lease.map(|l| {
-            l.remaining(
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs() as i64)
-                    .unwrap_or(0),
-            )
-            .as_secs()
-        }),
-        services,
-        reap_failure,
-    })
-}
-
-pub fn status(name: &str, output: &Output) -> Result<(), Error> {
-    let report = Client::system()?.status(name)?;
-    client::render_status(output, &report);
-    Ok(())
-}
-
-pub fn list(output: &Output) -> Result<(), Error> {
-    let reports = Client::system()?.list()?;
-    client::render_list(output, &reports);
-    Ok(())
-}
-
-pub fn logs(name: &str, service: Option<&str>, tail: usize, output: &Output) -> Result<(), Error> {
-    let outcome = Client::system()?.logs(name, service, tail)?;
-    client::render_logs(output, &outcome);
-    Ok(())
-}
-
-pub fn parse_and_validate(text: &str) -> Result<StackDef, Error> {
+pub(crate) fn parse_and_validate(text: &str) -> Result<StackDef, Error> {
     let def = StackDef::parse(text)?;
     def.validate_hosts(&crate::substrates::known_names())?;
     Ok(def)
-}
-
-pub fn check(file: &Path, substrate: Option<&str>, output: &Output) -> Result<(), Error> {
-    let client = Client::system()?;
-    let outcome = client.check(file, substrate)?;
-    client::render_check(output, file, &outcome)?;
-    Ok(())
 }
 
 #[cfg(test)]

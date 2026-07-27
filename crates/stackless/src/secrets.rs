@@ -27,37 +27,29 @@ pub fn load(def_dir: &Path) -> BTreeMap<String, String> {
 }
 
 /// Pull the Stripe vault for an instance when a project is recorded and
-/// initialized under `def_dir`. No-op otherwise (and when `stripe-vault` is off).
+/// initialized under `def_dir`. No-op otherwise.
 pub fn pull_vault_for_instance(
     def: &StackDef,
     def_dir: &Path,
     instance: &str,
     rt: &tokio::runtime::Runtime,
 ) -> Result<(), Error> {
-    #[cfg(not(feature = "stripe-vault"))]
+    if recorded_project_id(def).is_none()
+        || !stackless_stripe_projects::project_initialized_in_dir(def_dir)
     {
-        let _ = (def, def_dir, instance, rt);
         return Ok(());
     }
-    #[cfg(feature = "stripe-vault")]
-    {
-        if recorded_project_id(def).is_none()
-            || !stackless_stripe_projects::project_initialized_in_dir(def_dir)
-        {
-            return Ok(());
-        }
-        let stripe = stackless_stripe_projects::StripeProjects::new(
-            stackless_stripe_projects::TokioRunner,
-            def_dir.to_path_buf(),
-        );
-        rt.block_on(stackless_stripe_projects::sync_vault_pull_for_instance(
-            &stripe, instance,
-        ))
-        .map_err(|err| Error::BadArgument {
-            argument: "stripe projects env --pull".into(),
-            detail: err.to_string(),
-        })
-    }
+    let stripe = stackless_stripe_projects::StripeProjects::new(
+        stackless_stripe_projects::TokioRunner,
+        def_dir.to_path_buf(),
+    );
+    rt.block_on(stackless_stripe_projects::sync_vault_pull_for_instance(
+        &stripe, instance,
+    ))
+    .map_err(|err| Error::BadArgument {
+        argument: "stripe projects env --pull".into(),
+        detail: err.to_string(),
+    })
 }
 
 pub fn resolve(

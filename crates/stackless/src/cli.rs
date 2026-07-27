@@ -1,15 +1,15 @@
 //! CLI entrypoint. Binary `main` is a one-liner over [`run`].
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
 use crate::bind_cmd;
-use crate::commands;
+use crate::client::{Client, UpArgs};
 use crate::daemon_cmd;
 use crate::error::Error;
-use crate::output::Output;
+use crate::output::{self, Output};
 use crate::{adopt, doctor, init, mcp, verify};
 
 #[derive(Parser)]
@@ -165,8 +165,8 @@ pub fn run() -> ExitCode {
             dirty,
             lease,
             confirm_paid,
-        } => commands::up(
-            commands::UpArgs {
+        } => run_up(
+            UpArgs {
                 name,
                 file,
                 on,
@@ -177,18 +177,18 @@ pub fn run() -> ExitCode {
             },
             &mut output,
         ),
-        Command::Down { name } => commands::down(&name, &output),
+        Command::Down { name } => run_down(&name, &output),
         Command::Verify { name, tier } => {
             verify::verify(verify::VerifyArgs { name, tier }, &output)
         }
-        Command::Status { name } => commands::status(&name, &output),
-        Command::List => commands::list(&output),
+        Command::Status { name } => run_status(&name, &output),
+        Command::List => run_list(&output),
         Command::Logs {
             name,
             service,
             tail,
-        } => commands::logs(&name, service.as_deref(), tail, &output),
-        Command::Check { file, substrate } => commands::check(&file, substrate.as_deref(), &output),
+        } => run_logs(&name, service.as_deref(), tail, &output),
+        Command::Check { file, substrate } => run_check(&file, substrate.as_deref(), &output),
         Command::Init { name, file, force } => {
             init::init(init::InitArgs { name, file, force }, &output)
         }
@@ -236,4 +236,46 @@ pub fn run() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+fn run_up(args: UpArgs, output: &mut Output) -> Result<(), Error> {
+    let client = Client::system()?;
+    let outcome = client.up_from_args_with_progress(args, Some(output))?;
+    output::render_up(output, &outcome);
+    Ok(())
+}
+
+fn run_down(name: &str, output: &Output) -> Result<(), Error> {
+    let client = Client::system()?;
+    let outcome = client.down(name)?;
+    output::render_down(output, &outcome);
+    Ok(())
+}
+
+fn run_status(name: &str, output: &Output) -> Result<(), Error> {
+    let client = Client::system()?;
+    let report = client.status(name)?;
+    output::render_status(output, &report, client.paths());
+    Ok(())
+}
+
+fn run_list(output: &Output) -> Result<(), Error> {
+    let client = Client::system()?;
+    let reports = client.list()?;
+    output::render_list(output, &reports, client.paths());
+    Ok(())
+}
+
+fn run_logs(name: &str, service: Option<&str>, tail: usize, output: &Output) -> Result<(), Error> {
+    let client = Client::system()?;
+    let outcome = client.logs(name, service, tail)?;
+    output::render_logs(output, &outcome);
+    Ok(())
+}
+
+fn run_check(file: &Path, substrate: Option<&str>, output: &Output) -> Result<(), Error> {
+    let client = Client::system()?;
+    let outcome = client.check(file, substrate)?;
+    output::render_check(output, file, &outcome)?;
+    Ok(())
 }

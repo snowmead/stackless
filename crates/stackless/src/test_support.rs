@@ -6,14 +6,13 @@
 
 use std::collections::BTreeMap;
 use std::net::TcpListener;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use stackless_core::paths::Paths;
 use stackless_core::types::TcpPort;
 use stackless_daemon::DaemonClient;
+use stackless_daemon::DaemonRole;
 use stackless_daemon::rpc::Request;
 use tempfile::TempDir;
 
@@ -33,7 +32,6 @@ pub struct TestContext {
     paths: Paths,
     client: Client,
     daemon: Option<JoinHandle<()>>,
-    shutdown: Arc<AtomicBool>,
 }
 
 impl std::fmt::Debug for TestContext {
@@ -50,8 +48,6 @@ impl TestContext {
         let temp = tempfile::tempdir().map_err(Error::Runtime)?;
         let paths = Paths::new(temp.path());
         let proxy_port = free_port()?;
-        let shutdown = Arc::new(AtomicBool::new(false));
-
         let paths_for_daemon = paths.clone();
         let daemon = std::thread::Builder::new()
             .name("stackless-embedded-daemon".into())
@@ -69,6 +65,7 @@ impl TestContext {
                 if let Err(err) = rt.block_on(stackless_daemon::server::run_with(
                     &paths_for_daemon,
                     proxy_port,
+                    DaemonRole::Embedded,
                 )) {
                     eprintln!("stackless test-support: embedded daemon exited: {err}");
                 }
@@ -87,7 +84,6 @@ impl TestContext {
             paths,
             client,
             daemon: Some(daemon),
-            shutdown,
         })
     }
 
@@ -112,9 +108,6 @@ impl TestContext {
 
 impl Drop for TestContext {
     fn drop(&mut self) {
-        if self.shutdown.swap(true, Ordering::SeqCst) {
-            return;
-        }
         if let Ok(mut client) = DaemonClient::connect_with(&self.paths) {
             let _ = client.call(Request::Shutdown);
         }

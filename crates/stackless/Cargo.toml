@@ -21,32 +21,6 @@ name = "stackless"
 path = "src/main.rs"
 
 [features]
-default = ["cli", "local", "cloud", "stripe-vault"]
-# Documents the CLI surface. Clap stays a hard dependency so `cargo install`
-# and default builds keep working without cfg churn in clap derives.
-cli = []
-local = []
-cloud = [
-    "render",
-    "vercel",
-    "fly",
-    "netlify",
-    "railway",
-    "cloudflare",
-    "wordpress",
-    "laravel-cloud",
-    "gitlab",
-]
-render = []
-vercel = []
-fly = []
-netlify = []
-railway = []
-cloudflare = []
-wordpress = []
-laravel-cloud = []
-gitlab = []
-stripe-vault = []
 test-support = ["dep:tempfile"]
 
 [dependencies]
@@ -73,8 +47,12 @@ tempfile                            = { version = "3.27.0", optional = true }
 thiserror                           = "2.0.18"
 tokio                               = { version = "1.52.3", features = ["rt-multi-thread"] }
 
+[build-dependencies]
+stackless-bindgen.workspace = true
+
 [dev-dependencies]
-tempfile = "3.27.0"
+stackless-idl = { workspace = true, features = ["compile", "emit"] }
+tempfile      = "3.27.0"
 
 [[test]]
 name              = "local_sdk_e2e"

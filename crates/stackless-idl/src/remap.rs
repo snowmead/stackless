@@ -245,36 +245,27 @@ pub fn check_collisions(
     let mut seen_ts_type: BTreeMap<&str, &str> = BTreeMap::new();
 
     for (dns, idents) in entries {
-        collision_insert(
-            &mut seen_field,
-            &idents.rust_field,
-            dns,
-            namespace,
-            "rust_field",
-        )?;
-        collision_insert(
-            &mut seen_variant,
-            &idents.rust_variant,
-            dns,
-            namespace,
-            "rust_variant",
-        )?;
-        collision_insert(
-            &mut seen_ts_prop,
-            &idents.ts_prop,
-            dns,
-            namespace,
-            "ts_prop",
-        )?;
-        collision_insert(
-            &mut seen_ts_type,
-            &idents.ts_type,
-            dns,
-            namespace,
-            "ts_type",
-        )?;
+        let mut maps: [(&str, &mut BTreeMap<&str, &str>); 4] = [
+            ("rust_field", &mut seen_field),
+            ("rust_variant", &mut seen_variant),
+            ("ts_prop", &mut seen_ts_prop),
+            ("ts_type", &mut seen_ts_type),
+        ];
+        for (slot, seen) in &mut maps {
+            collision_insert(seen, ident_for_slot(idents, slot), dns, namespace, slot)?;
+        }
     }
     Ok(())
+}
+
+fn ident_for_slot<'a>(idents: &'a Idents, slot: &str) -> &'a str {
+    match slot {
+        "rust_field" => &idents.rust_field,
+        "rust_variant" => &idents.rust_variant,
+        "ts_prop" => &idents.ts_prop,
+        "ts_type" => &idents.ts_type,
+        _ => unreachable!("collision slot"),
+    }
 }
 
 fn collision_insert<'a>(
@@ -282,11 +273,12 @@ fn collision_insert<'a>(
     ident: &'a str,
     dns: &'a str,
     namespace: IdentNamespace,
-    _slot: &str,
+    slot: &'static str,
 ) -> Result<(), IdlError> {
     if let Some(prior) = seen.insert(ident, dns) {
         return Err(IdlError::IdentCollision {
             ident: ident.to_owned(),
+            slot,
             left_kind: namespace.label(),
             left_dns: prior.to_owned(),
             right_kind: namespace.label(),

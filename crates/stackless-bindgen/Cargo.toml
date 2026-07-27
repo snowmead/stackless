@@ -10,7 +10,7 @@ description          = "build.rs helper: stack IDL JSON → Rust OUT_DIR (no sta
 workspace = true
 
 [dependencies]
-stackless-idl = { workspace = true, default-features = true }
+stackless-idl = { workspace = true }
 thiserror     = "2.0.18"
 
 [dev-dependencies]

@@ -12,10 +12,11 @@ pub enum IdlError {
     DefaultTierRejected,
 
     #[error(
-        "identifier collision on {ident:?} between {left_kind} {left_dns:?} and {right_kind} {right_dns:?}"
+        "identifier collision on {ident:?} ({slot}) between {left_kind} {left_dns:?} and {right_kind} {right_dns:?}"
     )]
     IdentCollision {
         ident: String,
+        slot: &'static str,
         left_kind: &'static str,
         left_dns: String,
         right_kind: &'static str,

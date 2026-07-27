@@ -6,28 +6,6 @@ use stackless_core::engine::EngineError;
 use stackless_core::fault::{Fault, codes};
 use stackless_core::state::StateError;
 
-/// Stable string error code from [`Fault::code`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ErrorCode(pub &'static str);
-
-impl ErrorCode {
-    pub fn as_str(self) -> &'static str {
-        self.0
-    }
-}
-
-impl std::fmt::Display for ErrorCode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.0)
-    }
-}
-
-impl AsRef<str> for ErrorCode {
-    fn as_ref(&self) -> &str {
-        self.0
-    }
-}
-
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
@@ -126,8 +104,8 @@ impl Error {
     }
 
     /// Stable machine-readable code for agents and SDK callers.
-    pub fn error_code(&self) -> ErrorCode {
-        ErrorCode(Fault::code(self))
+    pub fn error_code(&self) -> &'static str {
+        Fault::code(self)
     }
 }
 

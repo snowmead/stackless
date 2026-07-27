@@ -7,10 +7,10 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::commands::{self, UpArgs};
+use crate::client::{Client, UpArgs};
 use crate::doctor;
 use crate::error::Error;
-use crate::output::Output;
+use crate::output::{self, Output};
 use crate::verify;
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
@@ -261,7 +261,9 @@ fn dispatch_tool(name: &str, args: &Value) -> Result<Value, String> {
             let file = require_str(args, "file")?;
             let substrate = optional_str(args, "substrate");
             run_command(|output| {
-                commands::check(&PathBuf::from(file), substrate.as_deref(), output)
+                let client = Client::system()?;
+                let outcome = client.check(&PathBuf::from(file), substrate.as_deref())?;
+                output::render_check(output, &PathBuf::from(file), &outcome)
             })
         }
         "stackless_doctor" => {
@@ -281,7 +283,8 @@ fn dispatch_tool(name: &str, args: &Value) -> Result<Value, String> {
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
             run_command_mut(|output| {
-                commands::up(
+                let client = Client::system()?;
+                let outcome = client.up_from_args_with_progress(
                     UpArgs {
                         name,
                         file,
@@ -291,13 +294,20 @@ fn dispatch_tool(name: &str, args: &Value) -> Result<Value, String> {
                         lease,
                         confirm_paid,
                     },
-                    output,
-                )
+                    Some(output),
+                )?;
+                output::render_up(output, &outcome);
+                Ok(())
             })
         }
         "stackless_down" => {
             let name = require_str(args, "name")?;
-            run_command(|output| commands::down(name, output))
+            run_command(|output| {
+                let client = Client::system()?;
+                let outcome = client.down(name)?;
+                output::render_down(output, &outcome);
+                Ok(())
+            })
         }
         "stackless_verify" => {
             let name = require_str(args, "name")?.to_owned();
@@ -306,9 +316,19 @@ fn dispatch_tool(name: &str, args: &Value) -> Result<Value, String> {
         }
         "stackless_status" => {
             let name = require_str(args, "name")?;
-            run_command(|output| commands::status(name, output))
+            run_command(|output| {
+                let client = Client::system()?;
+                let report = client.status(name)?;
+                output::render_status(output, &report, client.paths());
+                Ok(())
+            })
         }
-        "stackless_list" => run_command(commands::list),
+        "stackless_list" => run_command(|output| {
+            let client = Client::system()?;
+            let reports = client.list()?;
+            output::render_list(output, &reports, client.paths());
+            Ok(())
+        }),
         "stackless_logs" => {
             let name = require_str(args, "name")?;
             let service = optional_str(args, "service");
@@ -317,7 +337,12 @@ fn dispatch_tool(name: &str, args: &Value) -> Result<Value, String> {
                 .and_then(Value::as_u64)
                 .map(|n| n as usize)
                 .unwrap_or(100);
-            run_command(|output| commands::logs(name, service.as_deref(), tail, output))
+            run_command(|output| {
+                let client = Client::system()?;
+                let outcome = client.logs(name, service.as_deref(), tail)?;
+                output::render_logs(output, &outcome);
+                Ok(())
+            })
         }
         other => Err(format!("unknown tool: {other}")),
     }

@@ -1,8 +1,14 @@
 //! Sync public lifecycle API. CLI and MCP adapt over the same path.
 
+pub(crate) mod args;
+mod report;
+
+pub(crate) use args::*;
+pub use report::{InstanceReport, ServiceStatus};
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use serde::Serialize;
 use stackless_core::def::{DependencyGraph, StackDef};
@@ -14,13 +20,9 @@ use stackless_core::state::{InstanceStatus, Store};
 use stackless_core::substrate::SpendInfo;
 use stackless_core::types::TcpPort;
 
-use crate::commands::{
-    InstanceStatusReport, SubstrateCtx, UpArgs, build_substrate, definition_dir_for_up,
-    parse_and_validate, parse_lease, parse_sources, resolve_up_context, status_report,
-    validate_dirty_flag,
-};
+use report::status_report;
+
 use crate::error::Error;
-use crate::output::Output;
 
 /// Handle to stackless lifecycle operations for one runtime layout.
 #[derive(Clone, Debug)]
@@ -31,7 +33,7 @@ pub struct Client {
 struct ClientInner {
     paths: Paths,
     proxy_port: TcpPort,
-    runtime: tokio::runtime::Runtime,
+    runtime: OnceLock<tokio::runtime::Runtime>,
 }
 
 impl std::fmt::Debug for ClientInner {
@@ -66,12 +68,11 @@ impl ClientBuilder {
         let proxy_port = self
             .proxy_port
             .unwrap_or_else(stackless_daemon::proxy::proxy_port);
-        let runtime = tokio::runtime::Runtime::new().map_err(Error::Runtime)?;
         Ok(Client {
             inner: Arc::new(ClientInner {
                 paths,
                 proxy_port,
-                runtime,
+                runtime: OnceLock::new(),
             }),
         })
     }
@@ -248,9 +249,6 @@ impl DownStatus {
     }
 }
 
-/// Per-instance status report (same shape as CLI `--json`).
-pub type InstanceReport = InstanceStatusReport;
-
 /// Result of a successful `verify`.
 #[derive(Debug, Clone, Serialize)]
 pub struct VerifyOutcome {
@@ -308,8 +306,18 @@ impl Client {
         self.inner.proxy_port
     }
 
-    pub(crate) fn runtime(&self) -> &tokio::runtime::Runtime {
-        &self.inner.runtime
+    pub(crate) fn runtime(&self) -> Result<&tokio::runtime::Runtime, Error> {
+        if let Some(rt) = self.inner.runtime.get() {
+            return Ok(rt);
+        }
+        let rt = tokio::runtime::Runtime::new().map_err(Error::Runtime)?;
+        match self.inner.runtime.set(rt) {
+            Ok(()) => {}
+            Err(_already) => {}
+        }
+        self.inner.runtime.get().ok_or_else(|| {
+            Error::Runtime(std::io::Error::other("tokio runtime missing after init"))
+        })
     }
 
     pub(crate) fn open_store(&self) -> Result<Store, Error> {
@@ -333,12 +341,6 @@ impl Client {
 
     pub fn up(&self, request: UpRequest) -> Result<UpOutcome, Error> {
         self.up_with_progress(request, None)
-    }
-
-    /// CLI create-or-resume path (engine invariant 3): same resolution as
-    /// today's `stackless up` args.
-    pub fn up_from_args(&self, args: UpArgs) -> Result<UpOutcome, Error> {
-        self.up_from_args_with_progress(args, None)
     }
 
     pub(crate) fn up_with_progress(
@@ -386,7 +388,7 @@ impl Client {
                 .ok_or_else(|| Error::SubstrateRequired { name: name.clone() })?,
         };
         let def_dir = definition_dir_for_up(args.file.as_ref(), existing.as_ref());
-        let rt = self.runtime();
+        let rt = self.runtime()?;
         crate::secrets::pull_vault_for_instance(&def, &def_dir, &name, rt)?;
         let secrets = crate::secrets::resolve(&def, &def_dir, Some(&name))?;
         let known = crate::substrates::known_names();
@@ -403,6 +405,9 @@ impl Client {
             store: &store,
             substrate: provider.as_ref(),
         };
+        // Two arms: a shared struct literal ties locals to the caller's
+        // `&mut dyn ProgressSink` lifetime (invariant), which outlives the
+        // `block_on` and blocks moving `name` afterward.
         let engine_outcome = match progress {
             Some(progress) => rt.block_on(engine.up(EngineUpRequest {
                 instance: &name,
@@ -460,7 +465,7 @@ impl Client {
             store: &store,
             substrate: provider.as_ref(),
         };
-        let rt = self.runtime();
+        let rt = self.runtime()?;
         let outcome = rt.block_on(engine.down(name))?;
         let spend = rt.block_on(provider.spend());
         let status = match outcome {
@@ -525,7 +530,7 @@ impl Client {
             record.substrate.as_str(),
             self.substrate_ctx(crate::secrets::load(&def_dir), def_dir, false),
         )?;
-        let rt = self.runtime();
+        let rt = self.runtime()?;
         let logs = rt
             .block_on(provider.fetch_logs(&def, name, &services, tail))
             .map_err(|err| Error::substrate(err, Some(name.to_owned())))?;
@@ -590,123 +595,6 @@ impl Client {
             graph,
         })
     }
-}
-
-/// Render helpers used by CLI/MCP after Client returns DTOs.
-pub(crate) fn render_up(output: &mut Output, outcome: &UpOutcome) {
-    let origins: Vec<(String, String)> = outcome
-        .origins
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-    let engine_like = stackless_core::engine::UpOutcome {
-        executed: outcome.executed.clone(),
-        skipped: outcome.skipped.clone(),
-        duration_ms: outcome.duration_ms,
-        steps: outcome.steps.clone(),
-    };
-    output.up_ok(
-        &outcome.name,
-        &outcome.substrate,
-        &engine_like,
-        &origins,
-        outcome.spend.as_ref(),
-    );
-    if !output.is_json()
-        && let Some(ref info) = outcome.spend
-    {
-        output.message(&info.summary);
-    }
-}
-
-pub(crate) fn render_down(output: &Output, outcome: &DownOutcome) {
-    output.down_ok(
-        &outcome.name,
-        outcome.status.as_str(),
-        outcome.spend.as_ref(),
-    );
-}
-
-pub(crate) fn render_status(output: &Output, report: &InstanceReport) {
-    output.status(
-        report,
-        stackless_daemon::launchd::degradation_warning().as_deref(),
-    );
-}
-
-pub(crate) fn render_list(output: &Output, reports: &[InstanceReport]) {
-    output.list(
-        reports,
-        stackless_daemon::launchd::degradation_warning().as_deref(),
-    );
-}
-
-pub(crate) fn render_logs(output: &Output, outcome: &LogsOutcome) {
-    use crate::output::LogService;
-
-    if !outcome.available {
-        let entries: Vec<LogService<'_>> = outcome
-            .services
-            .iter()
-            .map(|entry| LogService {
-                service: entry.service.as_str(),
-                source: entry.source.as_str(),
-                log_path: entry.log_path.clone(),
-                lines: entry.lines.clone(),
-                reason: entry.reason.as_deref(),
-            })
-            .collect();
-        output.logs_unavailable_json(&outcome.name, &outcome.substrate, &entries);
-        return;
-    }
-    let mut entries = Vec::new();
-    for log in &outcome.services {
-        if output.is_json() {
-            entries.push(LogService {
-                service: log.service.as_str(),
-                source: log.source.as_str(),
-                log_path: log.log_path.clone(),
-                lines: log.lines.clone(),
-                reason: None,
-            });
-        } else {
-            output.message(&format!("── {} ──", log.service));
-            if log.lines.is_empty() {
-                output.message("(no output captured)");
-            } else {
-                output.message(&log.lines.join("\n"));
-            }
-        }
-    }
-    if output.is_json() {
-        output.logs_json(&outcome.name, &entries);
-    }
-}
-
-pub(crate) fn render_check(
-    output: &Output,
-    file: &Path,
-    outcome: &CheckOutcome,
-) -> Result<(), Error> {
-    // Re-parse for Output.check_ok which wants StackDef + graph references.
-    let text = std::fs::read_to_string(file).map_err(|source| Error::FileRead {
-        path: file.display().to_string(),
-        source,
-    })?;
-    let def = parse_and_validate(&text)?;
-    output.check_ok(&def, &outcome.graph, outcome.substrate.as_deref());
-    Ok(())
-}
-
-pub(crate) fn render_verify(output: &Output, outcome: &VerifyOutcome) {
-    output.verify_ok(
-        &outcome.name,
-        outcome.tier.as_deref(),
-        outcome.duration_ms,
-        outcome.exit_status,
-        &outcome.log_path,
-        outcome.lease_remaining_secs,
-    );
 }
 
 #[cfg(test)]

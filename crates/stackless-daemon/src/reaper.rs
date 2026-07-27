@@ -30,14 +30,14 @@ const TICK: Duration = Duration::from_secs(60);
 
 /// Run the reaper until the process exits. Opens the store fresh each
 /// tick (short-lived; the store is multi-process-safe rusqlite).
-pub async fn run() {
+pub async fn run(paths: Paths) {
     let mut interval = time::interval(TICK);
     // A slow tick (a hung `down` subprocess held us) must not burst-fire
     // to catch up — one pass per period is the contract.
     interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
     loop {
         interval.tick().await;
-        tick().await;
+        tick(&paths).await;
     }
 }
 
@@ -49,26 +49,26 @@ pub async fn run() {
 /// store is multi-process-safe and these are short-lived): decide the
 /// worklist, drop the store, run the subprocess `down`s, then re-open to
 /// record outcomes.
-async fn tick() {
-    let worklist = plan_reaps();
+async fn tick(paths: &Paths) {
+    let worklist = plan_reaps(paths);
     let exe = std::env::current_exe().map_err(|err| format!("cannot resolve binary path: {err}"));
     for instance in worklist {
         let outcome = match &exe {
             Ok(path) => run_down(&instance, path).await,
             Err(err) => Err(err.clone()),
         };
-        record_outcome(&instance, outcome);
+        record_outcome(paths, &instance, outcome);
     }
-    if let Ok(store) = Store::open_configured() {
-        gc_tombstones(&store);
+    if let Ok(store) = Store::open_with_paths(paths) {
+        gc_tombstones(&store, paths);
     }
 }
 
 /// The instances to reap this tick — the pure decision applied to each
 /// expired instance. The store is borrowed only here, never across an
 /// await.
-fn plan_reaps() -> Vec<String> {
-    let Ok(store) = Store::open_configured() else {
+fn plan_reaps(paths: &Paths) -> Vec<String> {
+    let Ok(store) = Store::open_with_paths(paths) else {
         return Vec::new();
     };
     let expired = store.expired_instances().unwrap_or_default();
@@ -89,8 +89,8 @@ fn plan_reaps() -> Vec<String> {
 /// Record a reap's result: clear the failure row on success (also done
 /// by the engine's `down`; this covers a row from an earlier tick), or
 /// advance the backoff and surface it on failure.
-fn record_outcome(instance: &str, outcome: Result<(), String>) {
-    let Ok(store) = Store::open_configured() else {
+fn record_outcome(paths: &Paths, instance: &str, outcome: Result<(), String>) {
+    let Ok(store) = Store::open_with_paths(paths) else {
         return;
     };
     match outcome {
@@ -140,8 +140,7 @@ async fn run_down(instance: &str, executable: &Path) -> Result<(), String> {
     Err(reason)
 }
 
-fn gc_tombstones(store: &Store) {
-    let paths = Paths::from_env();
+fn gc_tombstones(store: &Store, paths: &Paths) {
     for instance in store.gc_due_tombstones().unwrap_or_default() {
         // Remove the logs dir first: if deleting the row fails, the next
         // tick retries and the (now-absent) logs are simply re-skipped.
@@ -157,8 +156,8 @@ fn gc_tombstones(store: &Store) {
 
 /// Re-exported so the daemon's startup pass can run one immediate reap
 /// on boot/wake (the §6 "reaps overdue leases immediately on start").
-pub async fn tick_once() {
-    tick().await;
+pub async fn tick_once(paths: &Paths) {
+    tick(paths).await;
 }
 
 #[cfg(test)]
@@ -168,17 +167,18 @@ mod tests {
     use std::collections::BTreeMap;
     use std::time::SystemTime;
 
-    fn temp_store() -> (tempfile::TempDir, Store) {
+    fn temp_store() -> (tempfile::TempDir, Paths, Store) {
         let dir = tempfile::tempdir().expect("tempdir");
-        let store = Store::open(&dir.path().join("state.db")).expect("open");
-        (dir, store)
+        let paths = Paths::new(dir.path());
+        let store = Store::open_with_paths(&paths).expect("open");
+        (dir, paths, store)
     }
 
     const DEF: &str = "[stack]\nname = \"t\"\n[services.web]\nsource = { repo = \"https://example.invalid/x\", ref = \"main\" }\nhealth = { path = \"/\" }\n[services.web.mock]\nrun = \"true\"\n";
 
     #[test]
     fn reaper_skips_an_instance_holding_its_lock() {
-        let (_dir, store) = temp_store();
+        let (_dir, _paths, store) = temp_store();
         store
             .create_instance("held", "mock", DEF, &BTreeMap::new(), "", false)
             .expect("create");
@@ -199,7 +199,7 @@ mod tests {
 
     #[test]
     fn gc_removes_only_tombstones_past_the_window() {
-        let (_dir, store) = temp_store();
+        let (_dir, paths, store) = temp_store();
         store
             .create_instance("old", "mock", DEF, &BTreeMap::new(), "", false)
             .expect("create old");
@@ -224,7 +224,7 @@ mod tests {
             )
             .expect("backdate");
         assert_eq!(store.gc_due_tombstones().expect("due"), vec!["old"]);
-        gc_tombstones(&store);
+        gc_tombstones(&store, &paths);
         assert!(store.instance("old").expect("q").is_none());
         assert!(store.instance("recent").expect("q").is_some());
     }

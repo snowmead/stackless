@@ -15,10 +15,9 @@ use stackless_core::fault::FAILURE_LOG_TAIL_LINES;
 use stackless_core::state::{Checkpoint, Store};
 use stackless_core::substrate::{NamespacePurpose, SubstrateFault};
 
-use crate::client::{self, Client, VerifyOutcome};
-use crate::commands::build_substrate;
+use crate::client::{Client, VerifyOutcome, build_substrate};
 use crate::error::Error;
-use crate::output::Output;
+use crate::output::{self, Output};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct SourceRefPayload {
@@ -50,7 +49,7 @@ pub struct VerifyArgs {
 pub fn verify(args: VerifyArgs, output: &Output) -> Result<(), Error> {
     let client = Client::system()?;
     let outcome = verify_inner(&client, &args.name, args.tier.as_deref(), Some(output))?;
-    client::render_verify(output, &outcome);
+    output::render_verify(output, &outcome);
     Ok(())
 }
 
@@ -102,7 +101,7 @@ fn verify_inner(
     } else {
         PathBuf::from(&record.definition_dir)
     };
-    let rt = client.runtime();
+    let rt = client.runtime()?;
     crate::secrets::pull_vault_for_instance(&def, &def_dir, name, rt)?;
     let secrets = crate::secrets::resolve(&def, &def_dir, Some(name))?;
     let checkpoints = store.checkpoints(name)?;

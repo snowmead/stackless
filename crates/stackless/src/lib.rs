@@ -26,7 +26,6 @@ pub mod cli;
 pub(crate) mod adopt;
 pub(crate) mod authoring;
 pub(crate) mod bind_cmd;
-pub(crate) mod commands;
 pub(crate) mod daemon_cmd;
 pub(crate) mod doctor;
 pub(crate) mod init;
@@ -41,9 +40,9 @@ pub mod test_support;
 
 pub use client::{
     CheckOutcome, Client, ClientBuilder, Create, DownOutcome, DownStatus, InstanceReport, LogEntry,
-    LogsOutcome, PaidConsent, Resume, UpOutcome, UpRequest, VerifyOutcome,
+    LogsOutcome, PaidConsent, Resume, ServiceStatus, UpOutcome, UpRequest, VerifyOutcome,
 };
-pub use error::{Error, ErrorCode};
+pub use error::Error;
 pub use stackless_core::paths::Paths;
 
 #[cfg(feature = "test-support")]

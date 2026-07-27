@@ -21,7 +21,9 @@ Publish leaf → root. Skip `xtask` (`publish = false`).
 8. `stackless-local` and each hosting substrate crate
    (`stackless-render`, `stackless-vercel`, `stackless-fly`, …)
 9. `stackless-integrations`
-10. `stackless`
+10. `stackless-idl`
+11. `stackless-bindgen`
+12. `stackless`
 
 ## Dry-run
 

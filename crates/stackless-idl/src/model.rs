@@ -5,10 +5,16 @@ use serde::{Deserialize, Serialize};
 pub const KIND_V1: &str = "stackless.stack-idl/v1";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct InterfaceV1 {
     pub kind: String,
     pub fingerprint: String,
+    #[serde(flatten)]
+    pub body: BodyV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BodyV1 {
     pub source: SourceMeta,
     pub services: Vec<ServiceEntry>,
     pub verify: VerifySection,

@@ -9,16 +9,18 @@ mod remap;
 mod compile;
 
 #[cfg(feature = "emit")]
+mod emit_common;
+#[cfg(feature = "emit")]
 mod emit_rust;
 #[cfg(feature = "emit")]
 mod emit_typescript;
 
 pub use canonical::{
-    canonical_json, fingerprint_for, parse_idl_json, round_trip, sha256_hex_prefixed,
+    fingerprint_for, parse_idl_json, pretty_json, round_trip, sha256_hex_prefixed,
 };
 pub use error::IdlError;
 pub use model::{
-    Idents, IntegrationEntry, InterfaceV1, KIND_V1, ServiceEntry, SourceMeta, TierEntry,
+    BodyV1, Idents, IntegrationEntry, InterfaceV1, KIND_V1, ServiceEntry, SourceMeta, TierEntry,
     VerifySection,
 };
 pub use remap::{IdentNamespace, check_collisions, remap_dns};
@@ -37,14 +39,14 @@ use std::path::{Path, PathBuf};
 #[cfg(feature = "emit")]
 pub fn emit_rust_from_idl(idl: &InterfaceV1) -> Result<String, IdlError> {
     let idl = round_trip(idl)?;
-    emit_rust(&idl)
+    Ok(emit_rust(&idl))
 }
 
 /// Emit only after a canonical JSON round-trip (IDL is the real boundary).
 #[cfg(feature = "emit")]
 pub fn emit_typescript_from_idl(idl: &InterfaceV1) -> Result<String, IdlError> {
     let idl = round_trip(idl)?;
-    emit_typescript(&idl)
+    Ok(emit_typescript(&idl))
 }
 
 pub fn write_atomic(path: &Path, contents: &str) -> Result<(), IdlError> {

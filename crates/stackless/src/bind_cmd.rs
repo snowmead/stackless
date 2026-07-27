@@ -26,7 +26,7 @@ pub fn bind(args: BindArgs, output: &Output) -> Result<(), Error> {
     })?;
     let known = crate::substrates::known_names();
     let compiled = compile_source(&text, &known).map_err(map_idl)?;
-    let idl_json = compiled.canonical_json;
+    let idl_json = compiled.pretty_json;
     let idl = compiled.idl;
 
     let mut planned: Vec<(PathBuf, String)> = Vec::new();

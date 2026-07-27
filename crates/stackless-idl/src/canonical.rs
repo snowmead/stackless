@@ -1,21 +1,18 @@
-//! Canonical JSON bytes and fingerprinting.
+//! Pretty JSON bytes and fingerprinting.
 
 use sha2::{Digest, Sha256};
 
 use crate::error::IdlError;
-use crate::model::{InterfaceV1, KIND_V1};
+use crate::model::{BodyV1, InterfaceV1, KIND_V1};
 
 #[derive(serde::Serialize)]
-struct FingerprintBody<'a> {
+struct FingerprintDoc<'a> {
     kind: &'a str,
-    source: &'a crate::model::SourceMeta,
-    services: &'a [crate::model::ServiceEntry],
-    verify: &'a crate::model::VerifySection,
-    integrations: &'a [crate::model::IntegrationEntry],
-    secrets_required: &'a [String],
+    #[serde(flatten)]
+    body: &'a BodyV1,
 }
 
-pub fn canonical_json(idl: &InterfaceV1) -> Result<String, IdlError> {
+pub fn pretty_json(idl: &InterfaceV1) -> Result<String, IdlError> {
     let mut bytes = serde_json::to_vec_pretty(idl).map_err(|err| IdlError::InvalidJson {
         message: err.to_string(),
     })?;
@@ -28,15 +25,11 @@ pub fn canonical_json(idl: &InterfaceV1) -> Result<String, IdlError> {
 }
 
 pub fn fingerprint_for(idl: &InterfaceV1) -> Result<String, IdlError> {
-    let body = FingerprintBody {
+    let doc = FingerprintDoc {
         kind: &idl.kind,
-        source: &idl.source,
-        services: &idl.services,
-        verify: &idl.verify,
-        integrations: &idl.integrations,
-        secrets_required: &idl.secrets_required,
+        body: &idl.body,
     };
-    let mut bytes = serde_json::to_vec_pretty(&body).map_err(|err| IdlError::InvalidJson {
+    let mut bytes = serde_json::to_vec_pretty(&doc).map_err(|err| IdlError::InvalidJson {
         message: err.to_string(),
     })?;
     if !bytes.ends_with(b"\n") {
@@ -80,6 +73,6 @@ pub fn parse_idl_json(text: &str) -> Result<InterfaceV1, IdlError> {
 }
 
 pub fn round_trip(idl: &InterfaceV1) -> Result<InterfaceV1, IdlError> {
-    let json = canonical_json(idl)?;
+    let json = pretty_json(idl)?;
     parse_idl_json(&json)
 }

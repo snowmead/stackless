@@ -154,7 +154,8 @@ fn check_persistence() -> DoctorCheck {
             remediation: None,
         };
     }
-    match stackless_daemon::launchd::degradation_warning() {
+    match stackless_daemon::launchd::degradation_warning(&stackless_core::paths::Paths::from_env())
+    {
         None => DoctorCheck {
             check: "persistence".into(),
             ok: true,

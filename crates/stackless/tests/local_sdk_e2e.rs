@@ -10,8 +10,7 @@ use std::time::Duration;
 use stackless::client::Create;
 use stackless::test_support::{GuardPolicy, TestContext};
 
-#[path = "support/hello_stack_bind.rs"]
-mod stack_bind;
+include!(concat!(env!("OUT_DIR"), "/stack_bind.rs"));
 
 #[test]
 fn hello_fixture_up_http_down() {
@@ -23,7 +22,7 @@ fn hello_fixture_up_http_down() {
     let env = ctx
         .environment(create, GuardPolicy::DownOnDrop)
         .expect("up");
-    let origins = stack_bind::Origins::from_map(env.origins()).expect("typed origins");
+    let origins = Origins::from_map(env.origins()).expect("typed origins");
     let body = http_get(&origins.web).expect("http get");
     assert!(
         body.contains("hello-fixture"),

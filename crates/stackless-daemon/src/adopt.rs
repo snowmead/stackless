@@ -10,6 +10,7 @@
 use std::sync::Arc;
 
 use stackless_core::checkpoint::StartCheckpoint;
+use stackless_core::paths::Paths;
 use stackless_core::process::ProcessStamp;
 use stackless_core::state::{InstanceStatus, Store};
 use stackless_core::types::DnsName;
@@ -27,9 +28,9 @@ pub struct AdoptionSummary {
 /// fresh (short-lived access; the store is multi-process-safe). Errors
 /// reading the store are non-fatal: re-adoption is best-effort recovery,
 /// and the daemon must come up regardless.
-pub fn readopt(state: &Arc<DaemonState>) -> AdoptionSummary {
+pub fn readopt(state: &Arc<DaemonState>, paths: &Paths) -> AdoptionSummary {
     let mut summary = AdoptionSummary::default();
-    let store = match Store::open_configured() {
+    let store = match Store::open_with_paths(paths) {
         Ok(store) => store,
         Err(_) => return summary,
     };

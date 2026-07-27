@@ -17,8 +17,8 @@ pub const LABEL: &str = "dev.stackless.daemon";
 
 /// The one-line file `status`/`list` read: "registered" on success, the
 /// failure reason otherwise.
-pub fn persistence_status_path() -> PathBuf {
-    Paths::from_env().persistence_marker()
+pub fn persistence_status_path(paths: &Paths) -> PathBuf {
+    paths.persistence_marker()
 }
 
 fn plist_path() -> Option<PathBuf> {
@@ -68,16 +68,17 @@ fn xml_escape(s: &str) -> String {
 /// Ensure the LaunchAgent exists and is bootstrapped. Records the
 /// outcome to `daemon.persistence` and never fails the daemon: a refused
 /// registration degrades loudly rather than aborting (§3).
-pub fn ensure_registered() {
+pub fn ensure_registered(paths: &Paths) {
     let outcome = register();
     let text = match &outcome {
         Ok(()) => "registered".to_owned(),
         Err(why) => why.clone(),
     };
-    if let Some(dir) = persistence_status_path().parent() {
+    let marker = persistence_status_path(paths);
+    if let Some(dir) = marker.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let _ = std::fs::write(persistence_status_path(), text);
+    let _ = std::fs::write(marker, text);
 }
 
 /// The actual registration work, returning a human reason on failure.
@@ -272,8 +273,8 @@ pub fn service_registered() -> bool {
 
 /// The degradation warning for `status`/`list` — `None` when persistence
 /// is registered (the steady state), `Some(line)` when it is degraded.
-pub fn degradation_warning() -> Option<String> {
-    let status = std::fs::read_to_string(persistence_status_path()).ok()?;
+pub fn degradation_warning(paths: &Paths) -> Option<String> {
+    let status = std::fs::read_to_string(persistence_status_path(paths)).ok()?;
     let status = status.trim();
     if status.is_empty() || status == "registered" {
         return None;
