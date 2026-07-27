@@ -1,4 +1,4 @@
-//! CLI-layer errors, mapped onto the §2 agent contract like every
+//! Library and CLI errors, mapped onto the §2 agent contract like every
 //! other layer's.
 
 use stackless_core::def::DefError;
@@ -6,8 +6,31 @@ use stackless_core::engine::EngineError;
 use stackless_core::fault::{Fault, codes};
 use stackless_core::state::StateError;
 
+/// Stable string error code from [`Fault::code`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ErrorCode(pub &'static str);
+
+impl ErrorCode {
+    pub fn as_str(self) -> &'static str {
+        self.0
+    }
+}
+
+impl std::fmt::Display for ErrorCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl AsRef<str> for ErrorCode {
+    fn as_ref(&self) -> &str {
+        self.0
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
-pub enum CliError {
+#[non_exhaustive]
+pub enum Error {
     #[error("cannot read {path}: {source}")]
     FileRead {
         path: String,
@@ -94,16 +117,21 @@ pub enum CliError {
     Runtime(std::io::Error),
 }
 
-impl CliError {
+impl Error {
     pub fn substrate(
         fault: stackless_core::substrate::SubstrateFault,
         instance: Option<String>,
     ) -> Self {
         Self::Substrate { fault, instance }
     }
+
+    /// Stable machine-readable code for agents and SDK callers.
+    pub fn error_code(&self) -> ErrorCode {
+        ErrorCode(Fault::code(self))
+    }
 }
 
-impl Fault for CliError {
+impl Fault for Error {
     fn code(&self) -> &'static str {
         match self {
             Self::FileRead { .. } => codes::CLI_FILE_READ,
@@ -254,7 +282,7 @@ mod tests {
 
     #[test]
     fn engine_step_forwards_instance_and_step() {
-        let err = CliError::Engine(EngineError::Step {
+        let err = Error::Engine(EngineError::Step {
             instance: "git-auth-test".into(),
             step: "setup:web".into(),
             fault: SubstrateFault {

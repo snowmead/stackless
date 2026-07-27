@@ -208,11 +208,7 @@ impl Output {
         }
     }
 
-    pub fn doctor_failed(
-        &self,
-        checks: &[crate::doctor::DoctorCheck],
-        err: &crate::error::CliError,
-    ) {
+    pub fn doctor_failed(&self, checks: &[crate::doctor::DoctorCheck], err: &crate::error::Error) {
         if self.json {
             #[derive(Serialize)]
             struct DoctorFailed<'a> {
@@ -573,7 +569,7 @@ impl Output {
 #[derive(Serialize)]
 pub struct LogService<'a> {
     pub service: &'a str,
-    pub source: &'static str,
+    pub source: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub log_path: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

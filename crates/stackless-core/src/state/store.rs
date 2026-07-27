@@ -30,6 +30,8 @@ use std::time::Duration;
 
 use rusqlite::Connection;
 
+use crate::paths::Paths;
+
 use super::error::StateError;
 use super::remote::{RemoteDb, from_libsql, rusqlite_shim, to_libsql_params};
 use super::row::Row;
@@ -115,33 +117,30 @@ impl Store {
     /// Route by config: `STACKLESS_STATE_URL` (+ `STACKLESS_STATE_TOKEN`)
     /// selects the remote fleet plane; absent, the local default file.
     pub fn open_configured() -> Result<Self, StateError> {
+        Self::open_with_paths(&Paths::from_env())
+    }
+
+    /// Like [`Self::open_configured`], but uses `paths.db_path()` for the
+    /// local backend when no remote URL is set.
+    pub fn open_with_paths(paths: &Paths) -> Result<Self, StateError> {
         match std::env::var("STACKLESS_STATE_URL") {
             Ok(url) if !url.is_empty() => {
                 let token = std::env::var("STACKLESS_STATE_TOKEN").unwrap_or_default();
                 Self::open_remote(&url, &token)
             }
-            _ => Self::open(&Self::default_path()),
+            _ => Self::open(&paths.db_path()),
         }
     }
 
     /// `$XDG_STATE_HOME/stackless`, falling back to `~/.local/state/stackless`.
     pub fn state_dir() -> PathBuf {
-        let base = std::env::var_os("XDG_STATE_HOME")
-            .map(PathBuf::from)
-            .filter(|p| p.is_absolute())
-            .unwrap_or_else(|| {
-                std::env::var_os("HOME")
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|| PathBuf::from("."))
-                    .join(".local/state")
-            });
-        base.join("stackless")
+        Paths::from_env().state_dir().to_path_buf()
     }
 
     /// The default per-user location: `$XDG_STATE_HOME/stackless/state.db`,
     /// falling back to `~/.local/state/stackless/state.db`.
     pub fn default_path() -> PathBuf {
-        Self::state_dir().join("state.db")
+        Paths::from_env().db_path()
     }
 
     fn migrate(&self) -> Result<(), StateError> {

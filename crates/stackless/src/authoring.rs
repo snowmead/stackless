@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use stackless_core::types::DnsName;
 
-use crate::error::CliError;
+use crate::error::Error;
 
 /// The Stripe Projects plugin version stackless is tested against.
 pub const STRIPE_PROJECTS_PINNED: &str = "0.23.0";
@@ -62,7 +62,7 @@ pub fn sanitize_dns_name(raw: &str) -> Option<String> {
     DnsName::try_new(&out).ok().map(DnsName::into_inner)
 }
 
-pub fn resolve_stack_name(name: Option<&str>, dir: &Path) -> Result<String, CliError> {
+pub fn resolve_stack_name(name: Option<&str>, dir: &Path) -> Result<String, Error> {
     let name = name
         .map(str::trim)
         .filter(|n| !n.is_empty())
@@ -70,7 +70,7 @@ pub fn resolve_stack_name(name: Option<&str>, dir: &Path) -> Result<String, CliE
         .unwrap_or_else(|| stack_name_from_dir(dir));
     DnsName::try_new(&name)
         .map(DnsName::into_inner)
-        .map_err(|err| CliError::InitNameInvalid {
+        .map_err(|err| Error::InitNameInvalid {
             name,
             detail: err.to_string(),
         })

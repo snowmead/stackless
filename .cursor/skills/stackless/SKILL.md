@@ -75,6 +75,16 @@ creation; set API keys (see doctor). Paid resources need `--confirm-paid`.
 **Local source pins:** `stackless up --name demo --on local --source web=. --json`
 (cloud substrates reject `--source`).
 
+**Typed bindings:** after the TOML stabilizes, generate a checked-in IDL and
+language projections (standalone `Origins` / `bindOrigins`, no Client wrap):
+
+```bash
+stackless bind --file stackless.toml \
+  --idl .stackless/stack.idl.json --ts e2e/stack.gen.ts --rs tests/support/stack_bind.rs
+stackless bind --file stackless.toml \
+  --idl .stackless/stack.idl.json --ts e2e/stack.gen.ts --rs tests/support/stack_bind.rs --check
+```
+
 ## Machine output contract
 
 | Stream | Content |

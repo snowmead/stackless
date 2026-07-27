@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use crate::commands::{self, UpArgs};
 use crate::doctor;
-use crate::error::CliError;
+use crate::error::Error;
 use crate::output::Output;
 use crate::verify;
 
@@ -323,19 +323,19 @@ fn dispatch_tool(name: &str, args: &Value) -> Result<Value, String> {
     }
 }
 
-fn run_command(f: impl FnOnce(&Output) -> Result<(), CliError>) -> Result<Value, String> {
+fn run_command(f: impl FnOnce(&Output) -> Result<(), Error>) -> Result<Value, String> {
     let output = Output::capturing_json();
     let result = f(&output);
     tool_result(output, result)
 }
 
-fn run_command_mut(f: impl FnOnce(&mut Output) -> Result<(), CliError>) -> Result<Value, String> {
+fn run_command_mut(f: impl FnOnce(&mut Output) -> Result<(), Error>) -> Result<Value, String> {
     let mut output = Output::capturing_json();
     let result = f(&mut output);
     tool_result(output, result)
 }
 
-fn tool_result(output: Output, result: Result<(), CliError>) -> Result<Value, String> {
+fn tool_result(output: Output, result: Result<(), Error>) -> Result<Value, String> {
     let (stdout, stderr) = output.take_capture();
     let is_error = result.is_err();
     let text = if let Err(err) = &result {

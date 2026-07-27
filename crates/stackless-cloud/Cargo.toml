@@ -4,6 +4,7 @@ edition.workspace    = true
 version.workspace    = true
 license.workspace    = true
 repository.workspace = true
+description          = "Shared cloud substrate helpers for stackless"
 
 [lints]
 workspace = true

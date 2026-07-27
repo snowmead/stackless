@@ -4,9 +4,50 @@ edition.workspace    = true
 version.workspace    = true
 license.workspace    = true
 repository.workspace = true
+description          = "Disposable software stacks — CLI and Rust SDK for up/down/verify"
+readme               = "../../README.md"
+keywords             = ["stackless", "ephemeral", "local-dev", "testing", "infrastructure"]
+categories           = ["command-line-utilities", "development-tools::testing"]
 
 [lints]
 workspace = true
+
+[lib]
+name = "stackless"
+path = "src/lib.rs"
+
+[[bin]]
+name = "stackless"
+path = "src/main.rs"
+
+[features]
+default = ["cli", "local", "cloud", "stripe-vault"]
+# Documents the CLI surface. Clap stays a hard dependency so `cargo install`
+# and default builds keep working without cfg churn in clap derives.
+cli = []
+local = []
+cloud = [
+    "render",
+    "vercel",
+    "fly",
+    "netlify",
+    "railway",
+    "cloudflare",
+    "wordpress",
+    "laravel-cloud",
+    "gitlab",
+]
+render = []
+vercel = []
+fly = []
+netlify = []
+railway = []
+cloudflare = []
+wordpress = []
+laravel-cloud = []
+gitlab = []
+stripe-vault = []
+test-support = ["dep:tempfile"]
 
 [dependencies]
 clap                                = { version = "4.6.1", features = ["derive"] }
@@ -15,6 +56,7 @@ serde                               = { version = "1.0.228", features = ["derive
 serde_json                          = "1.0.150"
 stackless-core.workspace            = true
 stackless-daemon.workspace          = true
+stackless-idl                       = { workspace = true, features = ["compile", "emit"] }
 stackless-integrations.workspace    = true
 stackless-local.workspace           = true
 stackless-render.workspace          = true
@@ -27,8 +69,13 @@ stackless-gitlab.workspace          = true
 stackless-wordpress.workspace       = true
 stackless-cloudflare.workspace      = true
 stackless-stripe-projects.workspace = true
+tempfile                            = { version = "3.27.0", optional = true }
 thiserror                           = "2.0.18"
 tokio                               = { version = "1.52.3", features = ["rt-multi-thread"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"
+
+[[test]]
+name              = "local_sdk_e2e"
+required-features = ["test-support"]

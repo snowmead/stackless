@@ -8,7 +8,7 @@ use stackless_core::types::{ProxyHost, TcpPort};
 use stackless_daemon::rpc::{Request, ResponseBody};
 use stackless_daemon::{DaemonClient, server};
 
-use crate::error::CliError;
+use crate::error::Error;
 use crate::output::Output;
 
 #[derive(Subcommand)]
@@ -27,11 +27,11 @@ pub enum DaemonCommand {
     Routes,
 }
 
-pub fn run(command: DaemonCommand, output: &Output) -> Result<(), CliError> {
+pub fn run(command: DaemonCommand, output: &Output) -> Result<(), Error> {
     match command {
         DaemonCommand::Run => {
-            let runtime = tokio::runtime::Runtime::new().map_err(CliError::Runtime)?;
-            runtime.block_on(server::run()).map_err(CliError::Runtime)?;
+            let runtime = tokio::runtime::Runtime::new().map_err(Error::Runtime)?;
+            runtime.block_on(server::run()).map_err(Error::Runtime)?;
             Ok(())
         }
         DaemonCommand::Ping => {
@@ -53,11 +53,11 @@ pub fn run(command: DaemonCommand, output: &Output) -> Result<(), CliError> {
         DaemonCommand::RouteSet { host, port } => {
             let mut client = DaemonClient::ensure()?;
             client.call(Request::RouteSet {
-                host: ProxyHost::try_new(host).map_err(|err| CliError::BadArgument {
+                host: ProxyHost::try_new(host).map_err(|err| Error::BadArgument {
                     argument: "host".into(),
                     detail: err.to_string(),
                 })?,
-                port: TcpPort::try_new(port).map_err(|err| CliError::BadArgument {
+                port: TcpPort::try_new(port).map_err(|err| Error::BadArgument {
                     argument: "port".into(),
                     detail: err.to_string(),
                 })?,
@@ -68,7 +68,7 @@ pub fn run(command: DaemonCommand, output: &Output) -> Result<(), CliError> {
         DaemonCommand::RouteDel { host } => {
             let mut client = DaemonClient::ensure()?;
             client.call(Request::RouteDelete {
-                host: ProxyHost::try_new(host).map_err(|err| CliError::BadArgument {
+                host: ProxyHost::try_new(host).map_err(|err| Error::BadArgument {
                     argument: "host".into(),
                     detail: err.to_string(),
                 })?,

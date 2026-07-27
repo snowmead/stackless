@@ -1,6 +1,12 @@
 [stack]
 name = "hello"
 
+[stack.verify]
+run = "true"
+
+[stack.verify.tiers.smoke]
+run = "true"
+
 [services.web]
 source      = { repo = "https://example.invalid/hello", ref = "main" }
 root_origin = true

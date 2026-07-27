@@ -3,6 +3,7 @@
 //! "healthy" proves. The checker dials 127.0.0.1 with an explicit Host
 //! header (it tests the proxy, not DNS).
 
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use stackless_core::def::Health;
@@ -20,6 +21,7 @@ pub const HEALTH_BUDGET: Duration = Duration::from_secs(300);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 
 pub async fn wait_healthy(
+    state_root: &Path,
     instance: &str,
     service: &str,
     host: &str,
@@ -27,7 +29,7 @@ pub async fn wait_healthy(
     health: &Health,
     process: ProcessStamp,
 ) -> Result<(), LocalError> {
-    let spawner = Spawner::new(instance);
+    let spawner = Spawner::new(state_root, instance);
     let log_path = spawner.log_path(service).display().to_string();
     let url = format!("http://127.0.0.1:{}{}", proxy_port.get(), health.path);
     let client = reqwest::Client::new();

@@ -19,9 +19,10 @@
 //! and is literally the `down` verb. Exit code zero is a successful
 //! reap.
 
-use std::path::PathBuf;
+use std::path::Path;
 use std::time::Duration;
 
+use stackless_core::paths::Paths;
 use stackless_core::state::{ReapAttempt, ReapDecision, Store};
 use tokio::time::{self, MissedTickBehavior};
 
@@ -50,8 +51,12 @@ pub async fn run() {
 /// record outcomes.
 async fn tick() {
     let worklist = plan_reaps();
+    let exe = std::env::current_exe().map_err(|err| format!("cannot resolve binary path: {err}"));
     for instance in worklist {
-        let outcome = run_down(&instance).await;
+        let outcome = match &exe {
+            Ok(path) => run_down(&instance, path).await,
+            Err(err) => Err(err.clone()),
+        };
         record_outcome(&instance, outcome);
     }
     if let Ok(store) = Store::open_configured() {
@@ -113,10 +118,8 @@ fn record_outcome(instance: &str, outcome: Result<(), String>) {
 /// connects back to this daemon over the socket — a separate process,
 /// the daemon's accept loop runs concurrently, so there is no
 /// reentrancy. Exit zero is success; anything else carries the reason.
-async fn run_down(instance: &str) -> Result<(), String> {
-    let exe =
-        std::env::current_exe().map_err(|err| format!("cannot resolve binary path: {err}"))?;
-    let output = tokio::process::Command::new(exe)
+async fn run_down(instance: &str, executable: &Path) -> Result<(), String> {
+    let output = tokio::process::Command::new(executable)
         .args(["down", instance, "--json"])
         .output()
         .await
@@ -138,10 +141,11 @@ async fn run_down(instance: &str) -> Result<(), String> {
 }
 
 fn gc_tombstones(store: &Store) {
+    let paths = Paths::from_env();
     for instance in store.gc_due_tombstones().unwrap_or_default() {
         // Remove the logs dir first: if deleting the row fails, the next
         // tick retries and the (now-absent) logs are simply re-skipped.
-        let logs = logs_dir(&instance);
+        let logs = paths.logs_dir(&instance);
         if logs.exists() {
             let _ = std::fs::remove_dir_all(&logs);
         }
@@ -149,10 +153,6 @@ fn gc_tombstones(store: &Store) {
             eprintln!("stackless reaper: GC of tombstone {instance:?} failed: {err}");
         }
     }
-}
-
-fn logs_dir(instance: &str) -> PathBuf {
-    Store::state_dir().join("logs").join(instance)
 }
 
 /// Re-exported so the daemon's startup pass can run one immediate reap

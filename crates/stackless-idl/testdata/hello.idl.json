@@ -1,0 +1,40 @@
+{
+  "kind": "stackless.stack-idl/v1",
+  "fingerprint": "sha256:447809cf4198d6d067e1c09b494b9d29cee10edc8734ec30d55df21cffa4f412",
+  "source": {
+    "stack_name": "hello",
+    "toml_sha256": "sha256:d0ef9ef1c961adfc264363373c7a1589d8657f51a2725953a53e576c630c1bd3"
+  },
+  "services": [
+    {
+      "dns": "web",
+      "root_origin": true,
+      "idents": {
+        "rust_field": "web",
+        "rust_variant": "Web",
+        "rust_const": "WEB",
+        "ts_prop": "web",
+        "ts_type": "Web",
+        "ts_const": "WEB"
+      }
+    }
+  ],
+  "verify": {
+    "has_default": true,
+    "tiers": [
+      {
+        "dns": "smoke",
+        "idents": {
+          "rust_field": "smoke",
+          "rust_variant": "Smoke",
+          "rust_const": "SMOKE",
+          "ts_prop": "smoke",
+          "ts_type": "Smoke",
+          "ts_const": "SMOKE"
+        }
+      }
+    ]
+  },
+  "integrations": [],
+  "secrets_required": []
+}

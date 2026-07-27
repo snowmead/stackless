@@ -10,7 +10,7 @@ use std::path::Path;
 use stackless_core::def::StackDef;
 use stackless_stripe_projects::{merge_env_lines, recorded_project_id, vault_env_from_dir};
 
-use crate::error::CliError;
+use crate::error::Error;
 
 pub const ENV_FILE: &str = ".stackless.env";
 
@@ -27,36 +27,44 @@ pub fn load(def_dir: &Path) -> BTreeMap<String, String> {
 }
 
 /// Pull the Stripe vault for an instance when a project is recorded and
-/// initialized under `def_dir`. No-op otherwise.
+/// initialized under `def_dir`. No-op otherwise (and when `stripe-vault` is off).
 pub fn pull_vault_for_instance(
     def: &StackDef,
     def_dir: &Path,
     instance: &str,
     rt: &tokio::runtime::Runtime,
-) -> Result<(), CliError> {
-    if recorded_project_id(def).is_none()
-        || !stackless_stripe_projects::project_initialized_in_dir(def_dir)
+) -> Result<(), Error> {
+    #[cfg(not(feature = "stripe-vault"))]
     {
+        let _ = (def, def_dir, instance, rt);
         return Ok(());
     }
-    let stripe = stackless_stripe_projects::StripeProjects::new(
-        stackless_stripe_projects::TokioRunner,
-        def_dir.to_path_buf(),
-    );
-    rt.block_on(stackless_stripe_projects::sync_vault_pull_for_instance(
-        &stripe, instance,
-    ))
-    .map_err(|err| CliError::BadArgument {
-        argument: "stripe projects env --pull".into(),
-        detail: err.to_string(),
-    })
+    #[cfg(feature = "stripe-vault")]
+    {
+        if recorded_project_id(def).is_none()
+            || !stackless_stripe_projects::project_initialized_in_dir(def_dir)
+        {
+            return Ok(());
+        }
+        let stripe = stackless_stripe_projects::StripeProjects::new(
+            stackless_stripe_projects::TokioRunner,
+            def_dir.to_path_buf(),
+        );
+        rt.block_on(stackless_stripe_projects::sync_vault_pull_for_instance(
+            &stripe, instance,
+        ))
+        .map_err(|err| Error::BadArgument {
+            argument: "stripe projects env --pull".into(),
+            detail: err.to_string(),
+        })
+    }
 }
 
 pub fn resolve(
     def: &StackDef,
     def_dir: &Path,
     instance: Option<&str>,
-) -> Result<BTreeMap<String, String>, CliError> {
+) -> Result<BTreeMap<String, String>, Error> {
     let mut sources = Vec::new();
     let mut resolved = if recorded_project_id(def).is_some() {
         let vault = vault_env_from_dir(def_dir, instance);
@@ -87,7 +95,7 @@ pub fn resolve(
         .cloned()
         .collect();
     if !missing.is_empty() {
-        return Err(CliError::SecretsUnresolved { missing, sources });
+        return Err(Error::SecretsUnresolved { missing, sources });
     }
     Ok(resolved)
 }

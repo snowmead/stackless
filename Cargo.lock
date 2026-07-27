@@ -2699,6 +2699,7 @@ dependencies = [
  "stackless-daemon",
  "stackless-fly",
  "stackless-gitlab",
+ "stackless-idl",
  "stackless-integrations",
  "stackless-laravel-cloud",
  "stackless-local",
@@ -2711,6 +2712,16 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+]
+
+[[package]]
+name = "stackless-bindgen"
+version = "0.1.4"
+dependencies = [
+ "serde_json",
+ "stackless-idl",
+ "tempfile",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -2820,6 +2831,18 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+]
+
+[[package]]
+name = "stackless-idl"
+version = "0.1.4"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "stackless-core",
+ "tempfile",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

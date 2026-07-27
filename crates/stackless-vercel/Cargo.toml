@@ -4,6 +4,7 @@ edition.workspace    = true
 version.workspace    = true
 license.workspace    = true
 repository.workspace = true
+description          = "Vercel hosting substrate for stackless"
 
 [lints]
 workspace = true
@@ -11,7 +12,7 @@ workspace = true
 [dependencies]
 async-trait = "0.1.89"
 base64 = "0.22.1"
-vercel-client = { path = "../vercel-client" }
+vercel-client = { path = "../vercel-client", version = "0.1.4" }
 reqwest = { version = "0.13.4", default-features = false, features = [
     "rustls",
     "charset",

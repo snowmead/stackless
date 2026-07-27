@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use crate::authoring::{
     self, default_output_path, default_source, definition_dir, static_web_template,
 };
-use crate::error::CliError;
+use crate::error::Error;
 use crate::output::Output;
 
 pub struct InitArgs {
@@ -14,10 +14,10 @@ pub struct InitArgs {
     pub force: bool,
 }
 
-pub fn init(args: InitArgs, output: &Output) -> Result<(), CliError> {
+pub fn init(args: InitArgs, output: &Output) -> Result<(), Error> {
     let file = args.file.unwrap_or_else(default_output_path);
     if file.exists() && !args.force {
-        return Err(CliError::InitExists {
+        return Err(Error::InitExists {
             path: file.display().to_string(),
         });
     }
@@ -26,7 +26,7 @@ pub fn init(args: InitArgs, output: &Output) -> Result<(), CliError> {
     let source = default_source(&dir);
     let text = static_web_template(&stack, &source);
     stackless_core::def::StackDef::parse(&text)?;
-    std::fs::write(&file, &text).map_err(|source| CliError::FileWrite {
+    std::fs::write(&file, &text).map_err(|source| Error::FileWrite {
         path: file.display().to_string(),
         source,
     })?;
@@ -83,6 +83,6 @@ mod tests {
             &Output::new(false),
         )
         .unwrap_err();
-        assert!(matches!(err, CliError::InitExists { .. }));
+        assert!(matches!(err, Error::InitExists { .. }));
     }
 }

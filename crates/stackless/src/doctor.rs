@@ -9,7 +9,7 @@ use stackless_core::fault::{Fault, codes};
 use stackless_daemon::DaemonClient;
 
 use crate::authoring::{STRIPE_PROJECTS_PINNED, default_output_path, definition_dir};
-use crate::error::CliError;
+use crate::error::Error;
 use crate::output::Output;
 use crate::secrets::{self, ENV_FILE};
 use stackless_stripe_projects::{
@@ -31,7 +31,7 @@ pub struct DoctorCheck {
     pub remediation: Option<String>,
 }
 
-pub fn doctor(args: DoctorArgs, output: &Output) -> Result<(), CliError> {
+pub fn doctor(args: DoctorArgs, output: &Output) -> Result<(), Error> {
     if let Some(name) = args.substrate.as_deref() {
         crate::substrates::ensure_known(name)?;
     }
@@ -86,18 +86,18 @@ pub fn doctor(args: DoctorArgs, output: &Output) -> Result<(), CliError> {
             .filter(|c| !c.ok)
             .map(|c| c.check.clone())
             .collect();
-        let err = CliError::DoctorFailed { failed };
+        let err = Error::DoctorFailed { failed };
         output.doctor_failed(&checks, &err);
         Err(err)
     }
 }
 
-fn parse_definition_file(file: &Path) -> Result<StackDef, CliError> {
-    let text = std::fs::read_to_string(file).map_err(|source| CliError::FileRead {
+fn parse_definition_file(file: &Path) -> Result<StackDef, Error> {
+    let text = std::fs::read_to_string(file).map_err(|source| Error::FileRead {
         path: file.display().to_string(),
         source,
     })?;
-    StackDef::parse(&text).map_err(CliError::Def)
+    StackDef::parse(&text).map_err(Error::Def)
 }
 
 fn check_daemon() -> DoctorCheck {
