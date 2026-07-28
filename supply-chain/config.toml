@@ -4,6 +4,72 @@
 [cargo-vet]
 version = "0.10"
 
+[policy.render-client]
+audit-as-crates-io = false
+
+[policy.stackless]
+audit-as-crates-io = false
+
+[policy.stackless-bindgen]
+audit-as-crates-io = false
+
+[policy.stackless-cloud]
+audit-as-crates-io = false
+
+[policy.stackless-cloudflare]
+audit-as-crates-io = false
+
+[policy.stackless-core]
+audit-as-crates-io = false
+
+[policy.stackless-daemon]
+audit-as-crates-io = false
+
+[policy.stackless-fly]
+audit-as-crates-io = false
+
+[policy.stackless-git]
+audit-as-crates-io = false
+
+[policy.stackless-gitlab]
+audit-as-crates-io = false
+
+[policy.stackless-idl]
+audit-as-crates-io = false
+
+[policy.stackless-integrations]
+audit-as-crates-io = false
+
+[policy.stackless-laravel-cloud]
+audit-as-crates-io = false
+
+[policy.stackless-local]
+audit-as-crates-io = false
+
+[policy.stackless-netlify]
+audit-as-crates-io = false
+
+[policy.stackless-provider-sdk]
+audit-as-crates-io = false
+
+[policy.stackless-railway]
+audit-as-crates-io = false
+
+[policy.stackless-render]
+audit-as-crates-io = false
+
+[policy.stackless-stripe-projects]
+audit-as-crates-io = false
+
+[policy.stackless-vercel]
+audit-as-crates-io = false
+
+[policy.stackless-wordpress]
+audit-as-crates-io = false
+
+[policy.vercel-client]
+audit-as-crates-io = false
+
 [[exemptions.adler2]]
 version = "2.0.1"
 criteria = "safe-to-deploy"
