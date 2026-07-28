@@ -91,10 +91,14 @@ impl DaemonClient {
         if let Ok(mut client) = Self::connect_with(paths) {
             let daemon_version = client.ping()?;
             // Only the CLI process may drain-and-replace on build mismatch.
+            // Spawn this process's current_exe — not resolve_daemon_bin(), which
+            // prefers STACKLESS_BIN and could respawn an older override forever.
             if crate::is_cli_process()
                 && should_replace_daemon(&daemon_version, build_version(), ResolveSource::SelfAsCli)
             {
-                let (exe, _) = resolve_daemon_bin()?;
+                let exe = std::env::current_exe().map_err(|err| DaemonError::Spawn {
+                    detail: format!("cannot resolve current executable: {err}"),
+                })?;
                 let _ = client.call(Request::Shutdown);
                 std::thread::sleep(Duration::from_millis(200));
                 spawn_daemon(paths, &exe, proxy_port, role)?;
