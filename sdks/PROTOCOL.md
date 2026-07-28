@@ -71,7 +71,8 @@ Success (relevant fields):
 
 `integrations` is omitted when empty. Values are credentials. Do not log the
 raw envelope in CI without redaction. Prefer verify-tier env injection when
-secrets must not appear on stdout.
+secrets must not appear on stdout. The same envelope is what MCP `stackless_up`
+returns in tool results (credentials may appear in agent transcripts).
 
 Map for generated bind:
 
@@ -82,7 +83,7 @@ Map for generated bind:
 
 Args: `<name>`
 
-Success includes `instance`, `status` (`destroyed` | `already_down`), optional
+Success includes `instance`, `outcome` (`destroyed` | `already_down`), optional
 `spend`.
 
 ### `verify`
@@ -108,7 +109,8 @@ Success: `{ "ok": true, "instances": [ … ], "persistence_warning"?: "…" }`.
 
 Args: `<name>`, optional `<service>`, `--tail <n>` (default 100)
 
-Success: `name`, `substrate`, `available`, `services` array of log tails.
+Success when logs are available: `instance`, `services` (array of log tails).
+When unavailable: same fields plus `substrate` (no separate `available` flag).
 
 ### `check`
 

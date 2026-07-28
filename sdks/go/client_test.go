@@ -3,6 +3,7 @@ package stackless
 import (
 	"encoding/json"
 	"errors"
+	"os/exec"
 	"testing"
 )
 
@@ -102,5 +103,33 @@ func TestListCheck(t *testing.T) {
 	check, err := c.Check("stackless.toml", "")
 	if err != nil || check.Stack != "demo" {
 		t.Fatalf("check: %v", err)
+	}
+}
+
+func TestDefaultRunnerDrainsStderrBeforeStdoutCloses(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 required")
+	}
+	// Flood stderr past typical pipe capacity, then emit stdout JSON — the old
+	// serial StdoutPipe/StderrPipe drain hung here.
+	stdout, stderr, code, err := defaultRunner{}.Run("python3", []string{"-c", `
+import sys
+sys.stderr.write("x" * 256000)
+sys.stderr.flush()
+sys.stdout.write('{"ok": true, "schema_version": 1}')
+sys.stdout.flush()
+`}, "")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("exit %d stderr=%q", code, stderr)
+	}
+	var data map[string]any
+	if json.Unmarshal(stdout, &data) != nil || data["ok"] != true {
+		t.Fatalf("stdout: %s", stdout)
+	}
+	if len(stderr) < 256000 {
+		t.Fatalf("stderr truncated: %d", len(stderr))
 	}
 }

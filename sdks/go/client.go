@@ -1,6 +1,7 @@
 package stackless
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -19,45 +20,22 @@ func (defaultRunner) Run(bin string, args []string, cwd string) ([]byte, []byte,
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
-	var stdout, stderr []byte
-	outBuf, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, nil, -1, err
-	}
-	errBuf, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, nil, -1, err
-	}
-	if err := cmd.Start(); err != nil {
-		return nil, nil, -1, err
-	}
-	stdout, _ = readAll(outBuf)
-	stderr, _ = readAll(errBuf)
-	waitErr := cmd.Wait()
+	// Buffer both streams (do not StdoutPipe then drain serially): `up --json`
+	// streams NDJSON progress on stderr while the success envelope waits on
+	// stdout, so a filled stderr pipe would deadlock the child.
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	waitErr := cmd.Run()
 	exitCode := 0
 	if waitErr != nil {
 		if ee, ok := waitErr.(*exec.ExitError); ok {
 			exitCode = ee.ExitCode()
 		} else {
-			return stdout, stderr, -1, waitErr
+			return stdout.Bytes(), stderr.Bytes(), -1, waitErr
 		}
 	}
-	return stdout, stderr, exitCode, nil
-}
-
-func readAll(r interface{ Read([]byte) (int, error) }) ([]byte, error) {
-	var out []byte
-	buf := make([]byte, 4096)
-	for {
-		n, err := r.Read(buf)
-		if n > 0 {
-			out = append(out, buf[:n]...)
-		}
-		if err != nil {
-			break
-		}
-	}
-	return out, nil
+	return stdout.Bytes(), stderr.Bytes(), exitCode, nil
 }
 
 type Client struct {
