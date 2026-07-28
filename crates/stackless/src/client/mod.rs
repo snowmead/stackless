@@ -311,6 +311,10 @@ pub struct CheckOutcome {
 
 impl Client {
     /// Operator default: [`Paths::from_env`] and a private Tokio runtime.
+    ///
+    /// Spawns/connects the **shared** user daemon via the installed stackless
+    /// CLI (`PATH` / `STACKLESS_BIN`), not this process. For hermetic tests
+    /// use [`ClientBuilder::paths`] or `test-support` / `TestContext`.
     pub fn system() -> Result<Self, Error> {
         Self::builder().build()
     }
@@ -328,11 +332,14 @@ impl Client {
     }
 
     /// Connect to (or spawn) the daemon for this client's layout.
+    ///
+    /// Operator mode resolves the installed stackless CLI (never this
+    /// process's `current_exe` unless it is the CLI). Hermetic layouts still
+    /// use the resolved CLI for out-of-process spawns; prefer
+    /// [`crate::test_support::TestContext`] for in-process embedded daemons.
     pub(crate) fn ensure_daemon(&self) -> Result<stackless_daemon::DaemonClient, Error> {
-        let exe = std::env::current_exe().map_err(Error::Runtime)?;
-        Ok(stackless_daemon::DaemonClient::ensure_with(
+        Ok(stackless_daemon::DaemonClient::ensure_resolved(
             &self.inner.paths,
-            &exe,
             self.inner.proxy_port,
             self.inner.daemon_role,
         )?)

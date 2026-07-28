@@ -1,6 +1,8 @@
 //! The CLI side: connect to the daemon, spawning it on demand under a
 //! lock file so concurrent commands race safely (§3). Carries the version
-//! handshake: a newer CLI tells an older daemon to drain and exit.
+//! handshake: a newer CLI tells an older daemon to drain and exit — but
+//! only when this process *is* the CLI (never when an SDK consumer resolved
+//! a PATH/env CLI binary).
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
@@ -12,6 +14,7 @@ use stackless_core::fault::{Fault, codes};
 use stackless_core::paths::Paths;
 use stackless_core::types::{ProtocolVersion, TcpPort};
 
+use crate::binary::{ResolveSource, resolve_daemon_bin, should_replace_daemon};
 use crate::proxy;
 use crate::rpc::{Envelope, Request, Response, ResponseBody, build_version};
 use crate::server::{DaemonRole, socket_path_for};
@@ -26,6 +29,9 @@ pub enum DaemonError {
 
     #[error("daemon spawn failed: {detail}")]
     Spawn { detail: String },
+
+    #[error("stackless CLI binary not found: {detail}")]
+    BinaryNotFound { detail: String },
 }
 
 impl Fault for DaemonError {
@@ -34,17 +40,24 @@ impl Fault for DaemonError {
             Self::Unreachable { .. } => codes::DAEMON_UNREACHABLE,
             Self::Request { .. } => codes::DAEMON_REQUEST_FAILED,
             Self::Spawn { .. } => codes::DAEMON_SPAWN_FAILED,
+            Self::BinaryNotFound { .. } => codes::DAEMON_BINARY_NOT_FOUND,
         }
     }
 
     fn remediation(&self) -> String {
         match self {
-            Self::Unreachable { .. } | Self::Spawn { .. } => format!(
-                "check `{} daemon run` starts in a terminal and that the state dir is writable",
-                std::env::current_exe()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|_| "stackless".into()),
-            ),
+            Self::BinaryNotFound { .. } => {
+                "install the stackless CLI, ensure `stackless` is on PATH, or set STACKLESS_BIN \
+                 to the CLI absolute path; for hermetic tests use Client::builder().paths(...) \
+                 / TestContext (feature test-support)"
+                    .into()
+            }
+            Self::Unreachable { .. } | Self::Spawn { .. } => {
+                "check `stackless daemon run` starts in a terminal and that the state dir is \
+                 writable; if using the SDK from another binary, install the CLI or set \
+                 STACKLESS_BIN"
+                    .into()
+            }
             Self::Request { .. } => {
                 "re-run the command; the daemon may have been restarting".into()
             }
@@ -58,25 +71,83 @@ pub struct DaemonClient {
 }
 
 impl DaemonClient {
-    /// Connect, spawning the daemon if nothing answers. Restarts an
-    /// older daemon (drain-and-exit) before returning.
+    /// Connect, spawning the daemon if nothing answers. Resolves the CLI
+    /// binary via [`resolve_daemon_bin`] (never assumes `current_exe` is the
+    /// CLI). Restarts an older daemon only when this process is the CLI.
     pub fn ensure() -> Result<Self, DaemonError> {
         let paths = Paths::from_env();
+        Self::ensure_resolved(&paths, proxy::proxy_port(), DaemonRole::Operator)
+    }
+
+    /// Like [`Self::ensure`], but with an injectable state layout and proxy
+    /// port. Resolves the CLI binary only when a spawn (or CLI self-upgrade)
+    /// is required — an already-running daemon (e.g. hermetic `TestContext`)
+    /// does not need `stackless` on `PATH`.
+    pub fn ensure_resolved(
+        paths: &Paths,
+        proxy_port: TcpPort,
+        role: DaemonRole,
+    ) -> Result<Self, DaemonError> {
+        let client = match Self::connect_with(paths) {
+            Ok(client) => client,
+            Err(_) => {
+                let (exe, _source) = resolve_daemon_bin()?;
+                spawn_daemon(paths, &exe, proxy_port, role)?;
+                Self::wait_for_socket(paths, Duration::from_secs(5))?
+            }
+        };
+        // Single replace policy for the operator path: only the CLI process
+        // may drain-and-replace, and it always respawns `current_exe` (never
+        // `resolve_daemon_bin()`, which prefers a possibly-stale STACKLESS_BIN).
+        Self::cli_self_upgrade_if_needed(client, paths, proxy_port, role)
+    }
+
+    /// Drain-and-replace a version-mismatched daemon with this process's
+    /// `current_exe` when we are the CLI. No-op for SDK consumers.
+    fn cli_self_upgrade_if_needed(
+        mut client: Self,
+        paths: &Paths,
+        proxy_port: TcpPort,
+        role: DaemonRole,
+    ) -> Result<Self, DaemonError> {
+        let daemon_version = client.ping()?;
+        if !crate::is_cli_process() || daemon_version == build_version() {
+            return Ok(client);
+        }
         let exe = std::env::current_exe().map_err(|err| DaemonError::Spawn {
-            detail: err.to_string(),
+            detail: format!("cannot resolve current executable: {err}"),
         })?;
-        Self::ensure_with(&paths, &exe, proxy::proxy_port(), DaemonRole::Operator)
+        let _ = client.call(Request::Shutdown);
+        std::thread::sleep(Duration::from_millis(200));
+        spawn_daemon(paths, &exe, proxy_port, role)?;
+        client = Self::wait_for_socket(paths, Duration::from_secs(5))?;
+        client.ping()?;
+        Ok(client)
     }
 
     /// Like [`Self::ensure`], but uses an injectable state layout, proxy
     /// port, daemon binary, and [`DaemonRole`] instead of process-global
     /// defaults. Embedded spawns pass `--state-dir` / `--proxy-port` /
     /// `--embedded` so the child binds the same layout the client waits on.
+    ///
+    /// Version kill-and-replace is disabled for this entry point (source
+    /// [`ResolveSource::Explicit`]): hermetic tests inject `CARGO_BIN_EXE`
+    /// and must not thrash a mismatched operator daemon.
     pub fn ensure_with(
         paths: &Paths,
         executable: &Path,
         proxy_port: TcpPort,
         role: DaemonRole,
+    ) -> Result<Self, DaemonError> {
+        Self::ensure_with_source(paths, executable, proxy_port, role, ResolveSource::Explicit)
+    }
+
+    fn ensure_with_source(
+        paths: &Paths,
+        executable: &Path,
+        proxy_port: TcpPort,
+        role: DaemonRole,
+        source: ResolveSource,
     ) -> Result<Self, DaemonError> {
         let mut client = match Self::connect_with(paths) {
             Ok(client) => client,
@@ -85,15 +156,13 @@ impl DaemonClient {
                 Self::wait_for_socket(paths, Duration::from_secs(5))?
             }
         };
-        // Version handshake: same binary, so equal versions are the
-        // steady state; anything older drains and the next connect
-        // starts the new binary.
         let daemon_version = client.ping()?;
-        if daemon_version != build_version() {
+        if should_replace_daemon(&daemon_version, build_version(), source) {
             let _ = client.call(Request::Shutdown);
             std::thread::sleep(Duration::from_millis(200));
             spawn_daemon(paths, executable, proxy_port, role)?;
             client = Self::wait_for_socket(paths, Duration::from_secs(5))?;
+            // One-shot: accept whatever answers after a single replace.
             client.ping()?;
         }
         Ok(client)

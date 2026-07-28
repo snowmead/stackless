@@ -69,6 +69,7 @@ pub mod codes {
     pub const DAEMON_UNREACHABLE: &str = "daemon.unreachable";
     pub const DAEMON_REQUEST_FAILED: &str = "daemon.request_failed";
     pub const DAEMON_SPAWN_FAILED: &str = "daemon.spawn_failed";
+    pub const DAEMON_BINARY_NOT_FOUND: &str = "daemon.binary_not_found";
     pub const CLI_RUNTIME: &str = "cli.runtime";
     pub const LOCAL_MATERIALIZE_UNAVAILABLE: &str = "local.materialize.unavailable";
     pub const LOCAL_SOURCE_PATH_INVALID: &str = "local.source_path.invalid";
@@ -155,6 +156,7 @@ pub mod codes {
         DAEMON_UNREACHABLE,
         DAEMON_REQUEST_FAILED,
         DAEMON_SPAWN_FAILED,
+        DAEMON_BINARY_NOT_FOUND,
         CLI_RUNTIME,
         LOCAL_MATERIALIZE_UNAVAILABLE,
         LOCAL_SOURCE_PATH_INVALID,

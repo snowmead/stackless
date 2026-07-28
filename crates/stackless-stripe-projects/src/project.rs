@@ -376,13 +376,34 @@ async fn refresh_vault<R: CommandRunner>(stripe: &StripeProjects<R>) -> Result<(
     Ok(())
 }
 
+const EMPTY_ENV_PULL_CODE: &str = "PROJECT_ENVIRONMENT_HAS_NO_RESOURCES";
+
 /// Select the target instance environment, then refresh its vault files.
+///
+/// An environment that exists but has no resources/variables yet
+/// (`PROJECT_ENVIRONMENT_HAS_NO_RESOURCES`) is a soft success: first `up` /
+/// post-`down` re-`up` must not fail before integrations can re-provision.
+/// Clears a stale `.env.<instance>` so prior credentials cannot leak.
+///
+/// Post-provision pulls via [`refresh_vault`] stay strict.
 pub async fn sync_vault_pull_for_instance<R: CommandRunner>(
     stripe: &StripeProjects<R>,
     instance: &str,
 ) -> Result<(), ProjectsError> {
     ensure_environment(stripe, instance).await?;
-    refresh_vault(stripe).await
+    match refresh_vault(stripe).await {
+        Ok(()) => Ok(()),
+        Err(ProjectsError::Failed { detail, .. }) if detail.contains(EMPTY_ENV_PULL_CODE) => {
+            clear_stale_instance_env(stripe.dir(), instance);
+            Ok(())
+        }
+        Err(err) => Err(err),
+    }
+}
+
+fn clear_stale_instance_env(definition_dir: &Path, instance: &str) {
+    let path = definition_dir.join(format!(".env.{instance}"));
+    let _ = std::fs::remove_file(&path);
 }
 
 /// Whether `.projects/` exists under `definition_dir` (created by `init`).
@@ -458,7 +479,9 @@ fn preflight_failure(command: &str, result: &crate::stripe::StripeResult) -> Pro
 mod tests {
     use super::*;
     use crate::stripe::{CommandOutput, CommandRunner, StripeProjects};
+    use crate::test_support::{ScriptedRunner, env_list, ok_empty};
     use async_trait::async_trait;
+    use serde_json::json;
 
     #[test]
     fn anchor_writeback_preserves_comments_and_adds_neutral_project() {
@@ -577,5 +600,58 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn sync_vault_pull_soft_succeeds_on_empty_environment() {
+        let dir = tempfile::tempdir().unwrap();
+        let stale = dir.path().join(".env.demo");
+        std::fs::write(&stale, "CLERK_AUTH_ENVIRONMENTS=stale\n").unwrap();
+        let runner = ScriptedRunner::new(vec![
+            env_list(&["demo"]),
+            ok_empty(), // env use
+            CommandOutput {
+                status: 0,
+                stdout: json!({
+                    "ok": false,
+                    "error": {
+                        "code": "PROJECT_ENVIRONMENT_HAS_NO_RESOURCES",
+                        "message": "environment has no resources"
+                    }
+                })
+                .to_string(),
+                stderr: String::new(),
+            },
+        ]);
+        let stripe = StripeProjects::new(&runner, dir.path());
+        sync_vault_pull_for_instance(&stripe, "demo").await.unwrap();
+        assert!(!stale.exists(), "stale instance env file must be cleared");
+    }
+
+    #[tokio::test]
+    async fn sync_vault_pull_still_fails_on_other_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let runner = ScriptedRunner::new(vec![
+            env_list(&["demo"]),
+            ok_empty(),
+            CommandOutput {
+                status: 0,
+                stdout: json!({
+                    "ok": false,
+                    "error": {
+                        "code": "SOME_OTHER_FAILURE",
+                        "message": "boom"
+                    }
+                })
+                .to_string(),
+                stderr: String::new(),
+            },
+        ]);
+        let stripe = StripeProjects::new(&runner, dir.path());
+        let err = sync_vault_pull_for_instance(&stripe, "demo")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, ProjectsError::Failed { .. }));
+        assert!(err.to_string().contains("SOME_OTHER_FAILURE"));
     }
 }

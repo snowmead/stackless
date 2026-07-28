@@ -19,10 +19,13 @@ are already present, and the `prek` git hooks are already wired.
   taplo), `mise run test` (`cargo nextest run --workspace --all-features`),
   `mise run ci` (adds the supply-chain audit/deny/vet). Plain `cargo build` /
   `cargo test` also work.
+- **Rust SDK `Client::system()`** needs the stackless CLI on `PATH` (or
+ `STACKLESS_BIN`); it does not spawn the linking consumer binary as the daemon.
+ Hermetic tests use `TestContext` / `Client::builder().paths(...)` instead.
 - **Running the product end-to-end (local substrate).** Build once
-  (`cargo build`) then drive `./target/debug/stackless`. The CLI auto-spawns its
-  own daemon (reverse proxy on `:4444`, supervision, lease reaper) on demand — no
-  manual daemon start. A working local smoke without a remote repo:
+ (`cargo build`) then drive `./target/debug/stackless`. The CLI auto-spawns its
+ own daemon (reverse proxy on `:4444`, supervision, lease reaper) on demand — no
+ manual daemon start. A working local smoke without a remote repo:
   `stackless up --name demo --on local --file fixtures/hello/stackless.toml --source web=<dir-with-index.html-containing "hello-fixture">`,
   then `curl http://demo.localhost:4444/`, then `stackless down demo`.
 - **`--source svc=PATH` pins a service to a local checkout**, bypassing git

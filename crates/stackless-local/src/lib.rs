@@ -241,13 +241,7 @@ impl LocalSubstrate {
 
     fn daemon(&self) -> Result<DaemonClient, SubstrateFault> {
         let paths = Paths::new(&self.state_root);
-        let exe = std::env::current_exe().map_err(|err| SubstrateFault {
-            code: stackless_core::fault::codes::DAEMON_SPAWN_FAILED,
-            message: format!("cannot resolve daemon executable: {err}"),
-            remediation: "run from a real binary".into(),
-            context: Box::default(),
-        })?;
-        DaemonClient::ensure_with(&paths, &exe, self.proxy_port, self.daemon_role)
+        DaemonClient::ensure_resolved(&paths, self.proxy_port, self.daemon_role)
             .map_err(|err| SubstrateFault::from_fault(&err))
     }
 

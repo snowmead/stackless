@@ -130,7 +130,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 The `stackless` crate is both the CLI and a sync library. Depend on it to
 bring environments up and down from Rust (integration tests, CI tooling,
-or operators that prefer an in-process API over shelling out).
+or operators that prefer an in-process API over shelling out). Linking
+the crate does **not** require your binary to implement CLI subcommands.
+
+Two modes:
+
+| Mode | API | Purpose |
+| --- | --- | --- |
+| **Operator / system** | `Client::system()` | Shared user daemon (`$XDG_STATE_HOME/stackless`), same as the CLI. Requires the **stackless CLI** installed (`stackless` on `PATH`, or `STACKLESS_BIN` pointing at it). |
+| **Hermetic / embed** | `Client::builder().paths(...)` + feature `test-support` / `TestContext` | Private state dir and embedded daemon for unit/integration tests. |
 
 ```toml
 [dependencies]
@@ -144,6 +152,8 @@ stackless = { version = "0.1", features = ["test-support"] }
 ```rust
 use stackless::{Client, Create, UpRequest};
 
+// Needs the stackless CLI on PATH (or STACKLESS_BIN). Spawns the CLI as
+// the operator daemon — not your test/CI binary.
 let client = Client::system()?;
 let created = client.up(UpRequest::Create(
     Create::new("stackless.toml", "local").named("demo"),
