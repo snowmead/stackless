@@ -184,10 +184,11 @@ fn provider_matches(row: &ServiceRef, provider: &str) -> bool {
 
 /// Resolve an existing service/plan to reuse for `reference`.
 ///
-/// Prefers an exact local `--name` match scoped to the reference's provider.
-/// Otherwise takes the sole provider-scoped row whose catalog `service_id`
-/// equals the reference's service id. Ambiguous multi-matches fall through
-/// (no invented ranking). Rows without `provider_name` never match.
+/// Prefers an exact local `--name` match that is also provider-scoped and
+/// catalog-`service_id`-scoped. Otherwise takes the sole provider-scoped row
+/// whose catalog `service_id` equals the reference's service id. Ambiguous
+/// multi-matches fall through (no invented ranking). Rows without
+/// `provider_name` / `service_id` never match.
 fn resolve_reusable<'a>(
     list: &'a ServicesListResponse,
     name: &str,
@@ -197,9 +198,11 @@ fn resolve_reusable<'a>(
     if provider.is_empty() {
         return None;
     }
+    let same_catalog = |r: &&ServiceRef| r.service_id.as_deref() == Some(catalog_id);
     let exact: Vec<&str> = list
         .iter()
         .filter(|r| provider_matches(r, provider))
+        .filter(same_catalog)
         .filter_map(|r| r.name.as_deref().filter(|n| *n == name))
         .collect();
     if exact.len() == 1 {
@@ -211,7 +214,7 @@ fn resolve_reusable<'a>(
     let by_id: Vec<&str> = list
         .iter()
         .filter(|r| provider_matches(r, provider))
-        .filter(|r| r.service_id.as_deref() == Some(catalog_id))
+        .filter(same_catalog)
         .filter_map(|r| r.name.as_deref())
         .collect();
     if by_id.len() == 1 {
@@ -919,6 +922,28 @@ mod tests {
         assert_eq!(
             resolve_reusable(&sole, "hobby", "clerk/hobby"),
             Some("clerk-plan")
+        );
+    }
+
+    #[test]
+    fn resolve_reusable_exact_name_requires_matching_service_id() {
+        let list: ServicesListResponse = serde_json::from_value(json!({
+            "services": [{
+                "name": "demo-web",
+                "service_id": "web-service",
+                "provider_name": "Render"
+            }],
+            "plans": []
+        }))
+        .unwrap();
+        assert_eq!(
+            resolve_reusable(&list, "demo-web", "render/static-site"),
+            None,
+            "same local name + provider must not reuse a different catalog service"
+        );
+        assert_eq!(
+            resolve_reusable(&list, "demo-web", "render/web-service"),
+            Some("demo-web")
         );
     }
 
