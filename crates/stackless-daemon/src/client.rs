@@ -88,27 +88,41 @@ impl DaemonClient {
         proxy_port: TcpPort,
         role: DaemonRole,
     ) -> Result<Self, DaemonError> {
-        if let Ok(mut client) = Self::connect_with(paths) {
-            let daemon_version = client.ping()?;
-            // Only the CLI process may drain-and-replace on build mismatch.
-            // Spawn this process's current_exe — not resolve_daemon_bin(), which
-            // prefers STACKLESS_BIN and could respawn an older override forever.
-            if crate::is_cli_process()
-                && should_replace_daemon(&daemon_version, build_version(), ResolveSource::SelfAsCli)
-            {
-                let exe = std::env::current_exe().map_err(|err| DaemonError::Spawn {
-                    detail: format!("cannot resolve current executable: {err}"),
-                })?;
-                let _ = client.call(Request::Shutdown);
-                std::thread::sleep(Duration::from_millis(200));
+        let client = match Self::connect_with(paths) {
+            Ok(client) => client,
+            Err(_) => {
+                let (exe, _source) = resolve_daemon_bin()?;
                 spawn_daemon(paths, &exe, proxy_port, role)?;
-                client = Self::wait_for_socket(paths, Duration::from_secs(5))?;
-                client.ping()?;
+                Self::wait_for_socket(paths, Duration::from_secs(5))?
             }
+        };
+        // Single replace policy for the operator path: only the CLI process
+        // may drain-and-replace, and it always respawns `current_exe` (never
+        // `resolve_daemon_bin()`, which prefers a possibly-stale STACKLESS_BIN).
+        Self::cli_self_upgrade_if_needed(client, paths, proxy_port, role)
+    }
+
+    /// Drain-and-replace a version-mismatched daemon with this process's
+    /// `current_exe` when we are the CLI. No-op for SDK consumers.
+    fn cli_self_upgrade_if_needed(
+        mut client: Self,
+        paths: &Paths,
+        proxy_port: TcpPort,
+        role: DaemonRole,
+    ) -> Result<Self, DaemonError> {
+        let daemon_version = client.ping()?;
+        if !crate::is_cli_process() || daemon_version == build_version() {
             return Ok(client);
         }
-        let (exe, source) = resolve_daemon_bin()?;
-        Self::ensure_with_source(paths, &exe, proxy_port, role, source)
+        let exe = std::env::current_exe().map_err(|err| DaemonError::Spawn {
+            detail: format!("cannot resolve current executable: {err}"),
+        })?;
+        let _ = client.call(Request::Shutdown);
+        std::thread::sleep(Duration::from_millis(200));
+        spawn_daemon(paths, &exe, proxy_port, role)?;
+        client = Self::wait_for_socket(paths, Duration::from_secs(5))?;
+        client.ping()?;
+        Ok(client)
     }
 
     /// Like [`Self::ensure`], but uses an injectable state layout, proxy

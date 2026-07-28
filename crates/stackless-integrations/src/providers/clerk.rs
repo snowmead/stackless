@@ -56,13 +56,13 @@ impl CatalogService for ClerkAuthConfig {
 
 /// Env blob key candidates for a Clerk resource, resource-prefixed first so
 /// multi-resource Stripe naming (`E2E_CLERK_ENVIRONMENTS`) wins over shared
-/// provider keys (`CLERK_ENVIRONMENTS`).
+/// provider keys (`CLERK_ENVIRONMENTS` / `CLERK_AUTH_ENVIRONMENTS`).
 fn clerk_env_keys(resource_name: &str) -> Vec<String> {
     let resource_prefix = resource_name.to_ascii_uppercase().replace('-', "_");
     vec![
         format!("{resource_prefix}_AUTH_ENVIRONMENTS"),
-        "CLERK_AUTH_ENVIRONMENTS".to_owned(),
         format!("{resource_prefix}_ENVIRONMENTS"),
+        "CLERK_AUTH_ENVIRONMENTS".to_owned(),
         "CLERK_ENVIRONMENTS".to_owned(),
     ]
 }
@@ -580,8 +580,8 @@ run = "true"
             clerk_env_keys("e2e-clerk"),
             [
                 "E2E_CLERK_AUTH_ENVIRONMENTS",
-                "CLERK_AUTH_ENVIRONMENTS",
                 "E2E_CLERK_ENVIRONMENTS",
+                "CLERK_AUTH_ENVIRONMENTS",
                 "CLERK_ENVIRONMENTS",
             ]
         );
@@ -615,6 +615,65 @@ run = "true"
                     "variables": {
                         "DEMO_CLERK_ENVIRONMENTS": resource_env,
                         "CLERK_ENVIRONMENTS": provider_env
+                    }
+                }
+            })
+            .to_string()),
+            out(r#"{"ok":true,"data":null}"#),
+        ]);
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("stackless.toml"),
+            "[stack]\nname=\"atto\"\n",
+        )
+        .unwrap();
+        let stripe = StripeProjects::new(&runner, dir.path());
+        let resource = provision_stripe(
+            &stripe,
+            &test_def(),
+            dir.path(),
+            "demo",
+            "clerk",
+            "local",
+            false,
+        )
+        .await
+        .unwrap();
+        let payload: ClerkPayload = serde_json::from_str(&resource.payload).unwrap();
+        assert_eq!(payload.outputs["secret_key"], "sk_resource");
+        assert_eq!(payload.outputs["publishable_key"], "pk_resource");
+    }
+
+    /// Shared `CLERK_AUTH_ENVIRONMENTS` must not shadow a resource-prefixed
+    /// `*_ENVIRONMENTS` blob (first-hit wins in `resolve_env_blob`).
+    #[tokio::test]
+    async fn provision_clerk_resource_env_wins_over_shared_auth_env() {
+        let resource_env = serde_json::json!({
+            "development": {
+                "publishable_key": "pk_resource",
+                "secret_key": "sk_resource"
+            }
+        })
+        .to_string();
+        let shared_auth_env = serde_json::json!({
+            "development": {
+                "publishable_key": "pk_shared_auth",
+                "secret_key": "sk_shared_auth"
+            }
+        })
+        .to_string();
+        let runner = ScriptedRunner::new(vec![
+            out(CLERK_CATALOG_ENVELOPE),
+            out(r#"{"ok":true,"data":{"project":{"id":"project_1"}}}"#),
+            out(r#"{"ok":true,"data":{"environments":[{"name":"demo"}]}}"#),
+            out(r#"{"ok":true,"data":null}"#),
+            out(r#"{"ok":true,"data":{"services":[]}}"#),
+            out(&serde_json::json!({
+                "ok": true,
+                "data": {
+                    "variables": {
+                        "DEMO_CLERK_ENVIRONMENTS": resource_env,
+                        "CLERK_AUTH_ENVIRONMENTS": shared_auth_env
                     }
                 }
             })
