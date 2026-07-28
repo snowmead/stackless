@@ -15,6 +15,11 @@ Generate with:
 
 ## Unreleased
 
+## v0.1.6 — 2026-07-27
+
+Fix `Client::system()` for third-party SDK consumers, plus Clerk/Stripe
+re-up hardening.
+
 ### Fixed
 
 - `Client::system()` resolves the operator daemon to the installed stackless
@@ -28,6 +33,17 @@ Generate with:
   without hand-seeded project variables.
 - Clerk credential blob resolution accepts resource-prefixed env keys
   (e.g. `E2E_CLERK_ENVIRONMENTS`) before provider-prefixed fallbacks.
+
+### Commits
+
+- [46c3254](https://github.com/snowmead/stackless/commit/46c32541aa8d76d5143fa4b9e411f78f1af7f274) Fix Client::system() for third-party SDK consumers (#79)
+
+### Install
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/download/v0.1.6/stackless-installer.sh | sh
+stackless --version
+```
 
 ## v0.1.5 — 2026-07-27
 

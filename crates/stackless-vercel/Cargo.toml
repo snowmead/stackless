@@ -12,7 +12,7 @@ workspace = true
 [dependencies]
 async-trait = "0.1.89"
 base64 = "0.22.1"
-vercel-client = { path = "../vercel-client", version = "0.1.5" }
+vercel-client = { path = "../vercel-client", version = "0.1.6" }
 reqwest = { version = "0.13.4", default-features = false, features = [
     "rustls",
     "charset",
