@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 use crate::catalog::Catalog;
 use crate::error::ProjectsError;
-use crate::project;
+use crate::project::{self, AddedResource};
 use crate::stripe::{CommandRunner, StripeProjects};
 
 /// A provisionable catalog service: a typed config bound to a catalog reference.
@@ -22,13 +22,13 @@ pub trait CatalogService: Serialize {
 
 /// Add a catalog resource: look up the reference, validate the serialized config
 /// against the catalog schema, derive paid confirmation from the selected tier,
-/// then `stripe projects add`. Returns the add payload (for credential search).
+/// then `stripe projects add`. Returns the attached local name and add payload.
 pub async fn add_catalog_resource<C, R>(
     stripe: &StripeProjects<R>,
     catalog: &Catalog,
     config: &C,
     resource_name: &str,
-) -> Result<Value, ProjectsError>
+) -> Result<AddedResource, ProjectsError>
 where
     C: CatalogService,
     R: CommandRunner,
@@ -44,7 +44,7 @@ pub async fn add_catalog_resource_with_paid<C, R>(
     config: &C,
     resource_name: &str,
     confirm_paid: bool,
-) -> Result<Value, ProjectsError>
+) -> Result<AddedResource, ProjectsError>
 where
     C: CatalogService,
     R: CommandRunner,

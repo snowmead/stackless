@@ -130,7 +130,6 @@ async fn cmd_discover(reference: &str, config: Option<&str>, dir: &Path) -> Resu
     let env_name = format!("disco-{stamp}");
     let env_file = format!(".env.{env_name}");
     let resource = format!("disco-{}", reference.replace(['/', ':'], "-"));
-    let resource_prefix = resource.to_ascii_uppercase().replace('-', "_");
     let provider_prefix = reference
         .split('/')
         .next()
@@ -152,7 +151,11 @@ async fn cmd_discover(reference: &str, config: Option<&str>, dir: &Path) -> Resu
     let env_text = std::fs::read_to_string(dir.join(&env_file)).unwrap_or_default();
 
     // Best-effort teardown before surfacing any provisioning error.
-    let _ = project::remove_resource(&stripe, &resource).await;
+    let attached_name = provisioned
+        .as_ref()
+        .map(|added| added.name.clone())
+        .unwrap_or_else(|_| resource.clone());
+    let _ = project::remove_resource(&stripe, &attached_name).await;
     let _ = stripe.json(&["env", "use", "default"]).await;
     let _ = stripe.json(&["env", "delete", &env_name, "--yes"]).await;
     let _ = std::fs::remove_file(dir.join(&env_file));
@@ -161,6 +164,8 @@ async fn cmd_discover(reference: &str, config: Option<&str>, dir: &Path) -> Resu
 
     // Stripe names a resource's vars `{RESOURCE}_{SUFFIX}` (or `{PROVIDER}_{SUFFIX}`
     // when unambiguous) — strip either prefix to recover the field suffix.
+    // Use the attached/reused local name, not the originally requested disco-* name.
+    let resource_prefix = attached_name.to_ascii_uppercase().replace('-', "_");
     let mut fields: Vec<String> = Vec::new();
     for line in env_text.lines() {
         let Some((key, _)) = line.split_once('=') else {
@@ -175,7 +180,7 @@ async fn cmd_discover(reference: &str, config: Option<&str>, dir: &Path) -> Resu
         }
     }
     if fields.is_empty() {
-        println!("no output env vars found for {reference} (resource {resource}).");
+        println!("no output env vars found for {reference} (resource {attached_name}).");
         return Ok(());
     }
     println!("\noutput fields for {reference}:");

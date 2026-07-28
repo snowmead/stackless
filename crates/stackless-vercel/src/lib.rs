@@ -387,9 +387,10 @@ impl<R: CommandRunner> VercelSubstrate<R> {
             name: vercel_name.clone(),
         };
         let catalog = self.stripe().catalog().await.map_err(projects_fault)?;
-        add_catalog_resource(&self.stripe(), &catalog, &config, &resource)
+        let resource = add_catalog_resource(&self.stripe(), &catalog, &config, &resource)
             .await
-            .map_err(projects_fault)?;
+            .map_err(projects_fault)?
+            .name;
 
         let vercel = self.vercel(Some(instance)).await?;
         let project_id = wait_for_project(&vercel, &vercel_name).await?;

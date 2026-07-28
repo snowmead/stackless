@@ -84,7 +84,39 @@ pub fn status(project_id: Option<&str>) -> CommandOutput {
 /// `stripe projects services list` data with the given registered service names.
 pub fn services(names: &[&str]) -> CommandOutput {
     let list: Vec<Value> = names.iter().map(|n| json!({ "name": n })).collect();
-    ok(json!({ "services": list }))
+    ok(json!({ "services": list, "plans": [] }))
+}
+
+/// `stripe projects services list` rows with catalog identity
+/// (`name`, `service_id`, `provider_name`).
+pub fn service_rows(entries: &[(&str, &str, &str)]) -> CommandOutput {
+    let list: Vec<Value> = entries
+        .iter()
+        .map(|(name, service_id, provider)| {
+            json!({
+                "name": name,
+                "service_id": service_id,
+                "provider_name": provider,
+            })
+        })
+        .collect();
+    ok(json!({ "services": list, "plans": [] }))
+}
+
+/// `stripe projects services list` companion plans
+/// (`name`, `service_id`, `provider_name`).
+pub fn plans(entries: &[(&str, &str, &str)]) -> CommandOutput {
+    let list: Vec<Value> = entries
+        .iter()
+        .map(|(name, service_id, provider)| {
+            json!({
+                "name": name,
+                "service_id": service_id,
+                "provider_name": provider,
+            })
+        })
+        .collect();
+    ok(json!({ "services": [], "plans": list }))
 }
 
 /// `stripe projects env list` data with the given environment names.
