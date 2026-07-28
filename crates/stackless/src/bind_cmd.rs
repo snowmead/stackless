@@ -2,10 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use stackless_idl::{
-    IdlError, check_bytes, compile_source, emit_rust_from_idl, emit_typescript_from_idl,
-    write_atomic,
-};
+use stackless_idl::{EmitTarget, IdlError, check_bytes, compile_source, emit_for, write_atomic};
 
 use crate::error::Error;
 use crate::output::Output;
@@ -14,8 +11,9 @@ use crate::output::Output;
 pub struct BindArgs {
     pub file: PathBuf,
     pub idl: PathBuf,
-    pub ts: Option<PathBuf>,
-    pub rs: Option<PathBuf>,
+    /// `(language, path)` pairs from `--emit LANG=PATH` plus `--rs` / `--ts` aliases.
+    pub emits: Vec<(String, PathBuf)>,
+    pub go_package: String,
     pub check: bool,
 }
 
@@ -32,13 +30,10 @@ pub fn bind(args: BindArgs, output: &Output) -> Result<(), Error> {
     let mut planned: Vec<(PathBuf, String)> = Vec::new();
     planned.push((args.idl.clone(), idl_json));
 
-    if let Some(path) = &args.rs {
-        let rust = emit_rust_from_idl(&idl).map_err(map_idl)?;
-        planned.push((path.clone(), rust));
-    }
-    if let Some(path) = &args.ts {
-        let ts = emit_typescript_from_idl(&idl).map_err(map_idl)?;
-        planned.push((path.clone(), ts));
+    for (language, path) in &args.emits {
+        let target = EmitTarget::parse(language, &args.go_package).map_err(map_idl)?;
+        let body = emit_for(&target, &idl).map_err(map_idl)?;
+        planned.push((path.clone(), body));
     }
 
     if args.check {
@@ -54,6 +49,27 @@ pub fn bind(args: BindArgs, output: &Output) -> Result<(), Error> {
         output.message(&format!("wrote {}", path.display()));
     }
     Ok(())
+}
+
+/// Parse `--emit LANG=PATH` values into language/path pairs.
+pub fn parse_emit_specs(specs: &[String]) -> Result<Vec<(String, PathBuf)>, Error> {
+    let mut out = Vec::new();
+    for spec in specs {
+        let Some((lang, path)) = spec.split_once('=') else {
+            return Err(Error::BadArgument {
+                argument: "bind --emit".into(),
+                detail: format!("expected LANG=PATH, got {spec:?}"),
+            });
+        };
+        if lang.is_empty() || path.is_empty() {
+            return Err(Error::BadArgument {
+                argument: "bind --emit".into(),
+                detail: format!("expected LANG=PATH, got {spec:?}"),
+            });
+        }
+        out.push((lang.to_owned(), PathBuf::from(path)));
+    }
+    Ok(out)
 }
 
 fn map_idl(err: IdlError) -> Error {

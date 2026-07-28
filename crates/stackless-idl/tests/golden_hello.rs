@@ -41,6 +41,20 @@ fn emit_typescript_matches_golden() {
 }
 
 #[test]
+fn emit_go_matches_golden() {
+    let compiled = stackless_idl::compile_source(&hello_toml(), &["local"]).expect("compile");
+    let go = stackless_idl::emit_go_from_idl(&compiled.idl, "stacklessbind").expect("emit go");
+    assert_eq!(go, testdata("hello.go"));
+}
+
+#[test]
+fn emit_python_matches_golden() {
+    let compiled = stackless_idl::compile_source(&hello_toml(), &["local"]).expect("compile");
+    let py = stackless_idl::emit_python_from_idl(&compiled.idl).expect("emit python");
+    assert_eq!(py, testdata("hello.py"));
+}
+
+#[test]
 fn default_tier_rejected() {
     let toml = r#"
 [stack]
@@ -58,6 +72,42 @@ run = "true"
 "#;
     let err = stackless_idl::compile_source(toml, &["local"]).expect_err("default tier");
     assert!(matches!(err, stackless_idl::IdlError::DefaultTierRejected));
+}
+
+#[test]
+fn unsafe_tier_key_rejected_at_compile() {
+    let toml = r#"
+[stack]
+name = "bad"
+
+[stack.verify.tiers."a);func init(){panic(1)};const(Z"]
+run = "true"
+
+[services.web]
+source = { repo = "https://example.invalid/x", ref = "main" }
+health = { path = "/" }
+
+[services.web.local]
+run = "true"
+"#;
+    let err = stackless_idl::compile_source(toml, &["local"]).expect_err("unsafe tier");
+    match err {
+        stackless_idl::IdlError::Def(stackless_core::def::DefError::NameInvalid {
+            kind: "verify tier",
+            ..
+        }) => {}
+        other => panic!("expected NameInvalid verify tier, got {other:?}"),
+    }
+}
+
+#[test]
+fn go_keyword_package_rejected() {
+    let compiled = stackless_idl::compile_source(&hello_toml(), &["local"]).expect("compile");
+    let err = stackless_idl::emit_go_from_idl(&compiled.idl, "type").expect_err("keyword pkg");
+    assert!(matches!(
+        err,
+        stackless_idl::IdlError::InvalidGoPackage { .. }
+    ));
 }
 
 #[test]
