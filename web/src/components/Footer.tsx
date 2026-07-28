@@ -5,7 +5,7 @@ export function Footer() {
     <footer className="footer">
       <div className="footer-row">
         <p className="footer-brand">stackless</p>
-        <p className="footer-meta">MIT · v0.1.6</p>
+        <p className="footer-meta">MIT · v0.1.7</p>
       </div>
       <Separator className="mb-4" />
       <nav className="footer-nav" aria-label="Documentation">

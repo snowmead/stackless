@@ -15,6 +15,11 @@ Generate with:
 
 ## Unreleased
 
+## v0.1.7 — 2026-07-28
+
+Go/Python IDL emitters, CLI-backed language SDKs, integration outputs, and
+Stripe Projects plan reuse.
+
 ### Changed
 
 - Stack IDL (`stackless.stack-idl/v1`) no longer embeds per-language `idents`.
@@ -30,12 +35,36 @@ Generate with:
 
 - Go and Python typed binding emitters (origins bags / verify tiers), matching
   the existing Rust and TypeScript projections.
+- Integration outputs on the stack IDL and language projections
+  (`bindIntegrations` / typed bags), plus `UpOutcome` credentials from CLI
+  JSON checkpoints.
+- CLI-backed TypeScript, Python, and Go SDKs under `sdks/` that shell
+  `stackless --json` (see `sdks/PROTOCOL.md`).
 
 ### Fixed
 
 - Reject non-DNS-safe verify tier keys before IDL compile/emit (closes Go
   `const` injection via crafted tier names). Reject Go keyword `--go-package`
   values.
+- Stripe Projects parent-plan ensure reuses existing plans/services by
+  provider-scoped name or sole catalog `service_id` match (avoids HTTP 500
+  from re-`add` on orphan clerk/hobby plans), then env-attaches and tracks
+  the resolved local name for vault keys and teardown.
+- `stackless` package `build.rs` skips the workspace hello fixture IDL when
+  absent so crates.io tarball verification succeeds.
+
+### Commits
+
+- [a06d246](https://github.com/snowmead/stackless/commit/a06d246a481755cab128a05eefa377570d50e6e7) Add Go and Python IDL binding emitters (#80)
+- [e9ef130](https://github.com/snowmead/stackless/commit/e9ef1300e135e4c7ded690080e9901292d2147d3) Reuse existing Stripe Projects plans on parent-plan ensure (#81)
+- [8d13980](https://github.com/snowmead/stackless/commit/8d13980ed4785c5c40cb56655a14dcafe8b3fa50) Expose integration outputs and CLI-backed language SDKs (#82)
+
+### Install
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/download/v0.1.7/stackless-installer.sh | sh
+stackless --version
+```
 
 ## v0.1.6 — 2026-07-27
 
