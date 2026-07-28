@@ -351,7 +351,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
         // confirmation is derived from the selected pricing tier (a web
         // service defaults to the free tier; a static site is free).
         let catalog = self.stripe().catalog().await.map_err(projects_fault)?;
-        match &render_cfg {
+        let resource = match &render_cfg {
             ServiceRender::Web {
                 runtime,
                 build,
@@ -373,7 +373,8 @@ impl<R: CommandRunner> RenderSubstrate<R> {
                 }
                 add_catalog_resource(&self.stripe(), &catalog, &config, &resource)
                     .await
-                    .map_err(projects_fault)?;
+                    .map_err(projects_fault)?
+                    .name
             }
             ServiceRender::Static { build, publish, .. } => {
                 let config = RenderStaticSiteConfig {
@@ -388,9 +389,10 @@ impl<R: CommandRunner> RenderSubstrate<R> {
                 }
                 add_catalog_resource(&self.stripe(), &catalog, &config, &resource)
                     .await
-                    .map_err(projects_fault)?;
+                    .map_err(projects_fault)?
+                    .name
             }
-        }
+        };
 
         // Resolve the Render service, push env, ensure rewrite, deploy.
         let render = self.render()?;

@@ -10,9 +10,17 @@ use stackless_core::def::StackDef;
 
 use crate::error::ProjectsError;
 use crate::responses::{
-    EnvListResponse, ServicesListResponse, StatusResponse, preflight_checks_from_parts,
+    EnvListResponse, ServiceRef, ServicesListResponse, StatusResponse, preflight_checks_from_parts,
 };
 use crate::stripe::{CommandRunner, StripeProjects};
+
+/// Result of [`add_resource`]: the Stripe local name that was env-attached and
+/// the `projects add` payload (null on reuse).
+#[derive(Debug)]
+pub struct AddedResource {
+    pub name: String,
+    pub data: Value,
+}
 
 /// Shared flags for `init --preflight` (doctor prefixes `projects` / `--json`;
 /// [`run_init_preflight`] uses `stripe.json` which supplies those).
@@ -145,17 +153,102 @@ pub async fn ensure_environment<R: CommandRunner>(
     Ok(())
 }
 
+async fn list_project_resources<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+) -> Result<ServicesListResponse, ProjectsError> {
+    let result = stripe.json(&["services", "list"]).await?;
+    if !result.ok {
+        return Ok(ServicesListResponse::default());
+    }
+    Ok(serde_json::from_value::<ServicesListResponse>(result.data).unwrap_or_default())
+}
+
+/// Whether a service or plan with this exact local name is already on the project.
 pub async fn resource_registered<R: CommandRunner>(
     stripe: &StripeProjects<R>,
     name: &str,
 ) -> Result<bool, ProjectsError> {
-    let result = stripe.json(&["services", "list"]).await?;
-    if !result.ok {
-        return Ok(false);
+    Ok(list_project_resources(stripe).await?.contains(name))
+}
+
+/// Split a `provider/service` reference into `(provider, catalog_service_id)`.
+fn split_reference(reference: &str) -> (&str, &str) {
+    reference.split_once('/').unwrap_or(("", reference))
+}
+
+fn provider_matches(row: &ServiceRef, provider: &str) -> bool {
+    row.provider_name
+        .as_deref()
+        .is_some_and(|have| have.eq_ignore_ascii_case(provider))
+}
+
+/// Resolve an existing service/plan to reuse for `reference`.
+///
+/// Prefers an exact local `--name` match that is also provider-scoped and
+/// catalog-`service_id`-scoped. Otherwise takes the sole provider-scoped row
+/// whose catalog `service_id` equals the reference's service id. Ambiguous
+/// multi-matches fall through (no invented ranking). Rows without
+/// `provider_name` / `service_id` never match.
+fn resolve_reusable<'a>(
+    list: &'a ServicesListResponse,
+    name: &str,
+    reference: &str,
+) -> Option<&'a str> {
+    let (provider, catalog_id) = split_reference(reference);
+    if provider.is_empty() {
+        return None;
     }
-    Ok(serde_json::from_value::<ServicesListResponse>(result.data)
-        .map(|response| response.contains(name))
-        .unwrap_or(false))
+    let same_catalog = |r: &&ServiceRef| r.service_id.as_deref() == Some(catalog_id);
+    let exact: Vec<&str> = list
+        .iter()
+        .filter(|r| provider_matches(r, provider))
+        .filter(same_catalog)
+        .filter_map(|r| r.name.as_deref().filter(|n| *n == name))
+        .collect();
+    if exact.len() == 1 {
+        return Some(exact[0]);
+    }
+    if !exact.is_empty() {
+        return None;
+    }
+    let by_id: Vec<&str> = list
+        .iter()
+        .filter(|r| provider_matches(r, provider))
+        .filter(same_catalog)
+        .filter_map(|r| r.name.as_deref())
+        .collect();
+    if by_id.len() == 1 {
+        Some(by_id[0])
+    } else {
+        None
+    }
+}
+
+/// Resolve an existing service/plan to reuse (exact name, else catalog `service_id`),
+/// always scoped to the provider in `reference`.
+pub async fn resolve_registered_resource<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+    name: &str,
+    reference: &str,
+) -> Result<Option<String>, ProjectsError> {
+    Ok(
+        resolve_reusable(&list_project_resources(stripe).await?, name, reference)
+            .map(str::to_owned),
+    )
+}
+
+async fn env_add_resource<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+    name: &str,
+) -> Result<(), ProjectsError> {
+    stripe
+        .run_ok(
+            &format!("env add {name}"),
+            &["env", "add", name, "--resource"],
+            &["--yes"],
+        )
+        .await?;
+    Ok(())
 }
 
 pub async fn add_resource<R: CommandRunner>(
@@ -164,9 +257,16 @@ pub async fn add_resource<R: CommandRunner>(
     name: &str,
     config: &Value,
     paid: bool,
-) -> Result<Value, ProjectsError> {
-    if resource_registered(stripe, name).await? {
-        return Ok(Value::Null);
+) -> Result<AddedResource, ProjectsError> {
+    // Reuse orphan plans/services (including `plans[]`) and always env-attach.
+    // Returning early without `env add` left parent plans project-scoped after
+    // teardown and forced another `projects add` into Stripe 500s.
+    if let Some(existing) = resolve_registered_resource(stripe, name, reference).await? {
+        env_add_resource(stripe, &existing).await?;
+        return Ok(AddedResource {
+            name: existing,
+            data: Value::Null,
+        });
     }
     let config_str = config.to_string();
     let mut args: Vec<&str> = vec![
@@ -190,14 +290,11 @@ pub async fn add_resource<R: CommandRunner>(
     let data = stripe
         .run_ok(&format!("add {reference}"), &args, &plain_extra)
         .await?;
-    stripe
-        .run_ok(
-            &format!("env add {name}"),
-            &["env", "add", name, "--resource"],
-            &["--yes"],
-        )
-        .await?;
-    Ok(data)
+    env_add_resource(stripe, name).await?;
+    Ok(AddedResource {
+        name: name.to_owned(),
+        data,
+    })
 }
 
 pub async fn refreshed_env_value<R: CommandRunner>(
@@ -479,7 +576,9 @@ fn preflight_failure(command: &str, result: &crate::stripe::StripeResult) -> Pro
 mod tests {
     use super::*;
     use crate::stripe::{CommandOutput, CommandRunner, StripeProjects};
-    use crate::test_support::{ScriptedRunner, env_list, ok_empty};
+    use crate::test_support::{
+        ScriptedRunner, env_list, ok, ok_empty, plans, service_rows, services,
+    };
     use async_trait::async_trait;
     use serde_json::json;
 
@@ -504,27 +603,6 @@ mod tests {
             doc["stack"]["projects"]["stripe"]["project"].as_str(),
             Some("project_abc123")
         );
-    }
-
-    struct ListRunner {
-        body: String,
-        calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
-    }
-
-    #[async_trait]
-    impl CommandRunner for ListRunner {
-        async fn run(
-            &self,
-            _args: &[String],
-            _cwd: &std::path::Path,
-        ) -> Result<CommandOutput, ProjectsError> {
-            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Ok(CommandOutput {
-                status: 0,
-                stdout: self.body.clone(),
-                stderr: String::new(),
-            })
-        }
     }
 
     #[tokio::test]
@@ -583,14 +661,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn add_resource_skips_when_already_registered() {
-        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let runner = ListRunner {
-            body: r#"{"ok":true,"data":{"services":[{"name":"atto-cloud-web"}]}}"#.to_owned(),
-            calls: calls.clone(),
-        };
-        let stripe = StripeProjects::new(runner, std::env::temp_dir());
-        add_resource(
+    async fn add_resource_env_attaches_when_already_registered() {
+        let runner = ScriptedRunner::new(vec![
+            service_rows(&[("atto-cloud-web", "static-site", "render")]), // list
+            ok_empty(),                                                   // env add --resource
+        ]);
+        let stripe = StripeProjects::new(&runner, std::env::temp_dir());
+        let added = add_resource(
             &stripe,
             "render/static-site",
             "atto-cloud-web",
@@ -599,7 +676,275 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(added.name, "atto-cloud-web");
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 2);
+        assert!(calls[0].windows(2).any(|w| w == ["services", "list"]));
+        assert!(calls[1].iter().any(|a| a == "--resource"));
+        assert!(
+            !calls
+                .iter()
+                .any(|c| c.iter().any(|a| a == "render/static-site")),
+            "must not projects-add when already registered"
+        );
+    }
+
+    #[tokio::test]
+    async fn add_resource_reuses_plan_by_name_without_projects_add() {
+        let runner = ScriptedRunner::new(vec![
+            plans(&[("hobby", "hobby", "Clerk")]), // list: orphan plan
+            ok_empty(),                            // env add hobby
+        ]);
+        let stripe = StripeProjects::new(&runner, std::env::temp_dir());
+        let added = add_resource(
+            &stripe,
+            "clerk/hobby",
+            "hobby",
+            &serde_json::json!({}),
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(added.name, "hobby");
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 2);
+        assert!(
+            !calls.iter().any(|c| c.iter().any(|a| a == "clerk/hobby")),
+            "must not projects-add clerk/hobby when plan hobby exists"
+        );
+        assert_eq!(
+            calls[1],
+            vec!["env", "add", "hobby", "--resource", "--json"]
+        );
+    }
+
+    #[tokio::test]
+    async fn add_resource_reuses_plan_by_service_id_without_projects_add() {
+        let runner = ScriptedRunner::new(vec![
+            plans(&[("clerk-plan", "hobby", "Clerk")]), // list: renamed plan
+            ok_empty(),                                 // env add clerk-plan
+        ]);
+        let stripe = StripeProjects::new(&runner, std::env::temp_dir());
+        let added = add_resource(
+            &stripe,
+            "clerk/hobby",
+            "hobby",
+            &serde_json::json!({}),
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(added.name, "clerk-plan");
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 2);
+        assert!(
+            !calls.iter().any(|c| c.iter().any(|a| a == "clerk/hobby")),
+            "must not projects-add when a service_id=hobby plan exists"
+        );
+        assert_eq!(
+            calls[1],
+            vec!["env", "add", "clerk-plan", "--resource", "--json"]
+        );
+    }
+
+    #[tokio::test]
+    async fn add_resource_reuses_deployable_by_catalog_service_id() {
+        let runner = ScriptedRunner::new(vec![
+            ok(json!({
+                "services": [{
+                    "name": "clerk-auth",
+                    "service_id": "auth",
+                    "provider_name": "Clerk"
+                }],
+                "plans": [{
+                    "name": "hobby",
+                    "service_id": "hobby",
+                    "provider_name": "Clerk"
+                }]
+            })),
+            ok_empty(), // env add clerk-auth
+        ]);
+        let stripe = StripeProjects::new(&runner, std::env::temp_dir());
+        let added = add_resource(
+            &stripe,
+            "clerk/auth",
+            "e2e-clerk",
+            &serde_json::json!({"app_name": "jinttai-e2e"}),
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(added.name, "clerk-auth");
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 2);
+        assert!(
+            !calls.iter().any(|c| c.iter().any(|a| a == "clerk/auth")),
+            "must not projects-add clerk/auth when clerk-auth already exists"
+        );
+        assert_eq!(
+            calls[1],
+            vec!["env", "add", "clerk-auth", "--resource", "--json"]
+        );
+    }
+
+    #[tokio::test]
+    async fn add_resource_does_not_reuse_other_provider_same_service_id() {
+        let runner = ScriptedRunner::new(vec![
+            ok(json!({
+                "services": [{
+                    "name": "demo-db",
+                    "service_id": "postgres",
+                    "provider_name": "Neon"
+                }],
+                "plans": []
+            })),
+            ok(json!({ "variables": { "K": "v" } })), // projects add
+            ok_empty(),                               // env add
+        ]);
+        let stripe = StripeProjects::new(&runner, std::env::temp_dir());
+        let added = add_resource(
+            &stripe,
+            "render/postgres",
+            "demo-pg",
+            &serde_json::json!({}),
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(added.name, "demo-pg");
+        let calls = runner.calls();
+        assert!(
+            calls
+                .iter()
+                .any(|c| c.iter().any(|a| a == "render/postgres")),
+            "must projects-add render/postgres instead of reusing Neon postgres"
+        );
+    }
+
+    #[tokio::test]
+    async fn add_resource_does_not_reuse_other_provider_same_plan_name() {
+        let runner = ScriptedRunner::new(vec![
+            plans(&[("hobby", "hobby", "Vercel")]),
+            ok(json!({ "variables": { "K": "v" } })), // projects add
+            ok_empty(),                               // env add
+        ]);
+        let stripe = StripeProjects::new(&runner, std::env::temp_dir());
+        let added = add_resource(
+            &stripe,
+            "clerk/hobby",
+            "hobby",
+            &serde_json::json!({}),
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(added.name, "hobby");
+        let calls = runner.calls();
+        assert!(
+            calls.iter().any(|c| c.iter().any(|a| a == "clerk/hobby")),
+            "must not env-attach Vercel hobby when ensuring clerk/hobby"
+        );
+    }
+
+    #[tokio::test]
+    async fn add_resource_falls_through_on_ambiguous_service_id_matches() {
+        let runner = ScriptedRunner::new(vec![
+            plans(&[
+                ("clerk-plan", "hobby", "Clerk"),
+                ("hobby-2", "hobby", "Clerk"),
+            ]),
+            ok(json!({ "variables": { "K": "v" } })),
+            ok_empty(),
+        ]);
+        let stripe = StripeProjects::new(&runner, std::env::temp_dir());
+        let added = add_resource(
+            &stripe,
+            "clerk/hobby",
+            "hobby",
+            &serde_json::json!({}),
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(added.name, "hobby");
+        let calls = runner.calls();
+        assert!(
+            calls.iter().any(|c| c.iter().any(|a| a == "clerk/hobby")),
+            "ambiguous service_id matches must not invent a ranking winner"
+        );
+    }
+
+    #[tokio::test]
+    async fn add_resource_still_adds_when_unregistered() {
+        let runner = ScriptedRunner::new(vec![
+            services(&[]),                            // list: empty
+            ok(json!({ "variables": { "K": "v" } })), // projects add
+            ok_empty(),                               // env add
+        ]);
+        let stripe = StripeProjects::new(&runner, std::env::temp_dir());
+        let added = add_resource(
+            &stripe,
+            "clerk/hobby",
+            "hobby",
+            &serde_json::json!({}),
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(added.name, "hobby");
+        assert_eq!(added.data["variables"]["K"], "v");
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 3);
+        assert!(calls[1].iter().any(|a| a == "clerk/hobby"));
+        assert_eq!(
+            calls[2],
+            vec!["env", "add", "hobby", "--resource", "--json"]
+        );
+    }
+
+    #[test]
+    fn resolve_reusable_requires_provider_and_sole_service_id_match() {
+        let list: ServicesListResponse = serde_json::from_value(json!({
+            "services": [],
+            "plans": [
+                {"name": "clerk-plan", "service_id": "hobby", "provider_name": "Clerk"},
+                {"name": "hobby-2", "service_id": "hobby", "provider_name": "Clerk"}
+            ]
+        }))
+        .unwrap();
+        assert_eq!(resolve_reusable(&list, "hobby", "clerk/hobby"), None);
+        let sole: ServicesListResponse = serde_json::from_value(json!({
+            "plans": [
+                {"name": "clerk-plan", "service_id": "hobby", "provider_name": "Clerk"}
+            ]
+        }))
+        .unwrap();
+        assert_eq!(
+            resolve_reusable(&sole, "hobby", "clerk/hobby"),
+            Some("clerk-plan")
+        );
+    }
+
+    #[test]
+    fn resolve_reusable_exact_name_requires_matching_service_id() {
+        let list: ServicesListResponse = serde_json::from_value(json!({
+            "services": [{
+                "name": "demo-web",
+                "service_id": "web-service",
+                "provider_name": "Render"
+            }],
+            "plans": []
+        }))
+        .unwrap();
+        assert_eq!(
+            resolve_reusable(&list, "demo-web", "render/static-site"),
+            None,
+            "same local name + provider must not reuse a different catalog service"
+        );
+        assert_eq!(
+            resolve_reusable(&list, "demo-web", "render/web-service"),
+            Some("demo-web")
+        );
     }
 
     #[tokio::test]

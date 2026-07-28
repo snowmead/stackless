@@ -61,11 +61,12 @@ where
         project::ensure_project(stripe, ctx.def, ctx.definition_dir).await?;
         project::ensure_environment(stripe, ctx.instance).await?;
     }
-    let resource_name = ctx.resource_name();
-    let add_data = add_catalog_resource(stripe, catalog, config, &resource_name).await?;
+    let requested = ctx.resource_name();
+    let added = add_catalog_resource(stripe, catalog, config, &requested).await?;
+    let resource_name = added.name;
     let raw = resolve_env_blob(
         stripe,
-        &add_data,
+        &added.data,
         ctx.instance,
         &resource_name,
         C::REFERENCE,
@@ -102,12 +103,13 @@ where
         project::ensure_project(stripe, ctx.def, ctx.definition_dir).await?;
         project::ensure_environment(stripe, ctx.instance).await?;
     }
-    let resource_name = ctx.resource_name();
-    let add_data = add_catalog_resource(stripe, catalog, config, &resource_name).await?;
+    let requested = ctx.resource_name();
+    let added = add_catalog_resource(stripe, catalog, config, &requested).await?;
+    let resource_name = added.name;
     let mut values = BTreeMap::new();
     let mut missing: Vec<&str> = Vec::new();
     for key in env_keys {
-        match find_env_value(&add_data, key) {
+        match find_env_value(&added.data, key) {
             Some(value) => {
                 values.insert((*key).to_owned(), value);
             }
@@ -135,6 +137,9 @@ where
 /// is unambiguous) — both forms are resolved. `fields` is `(env suffix, output
 /// name, required)`; a missing required field is an error. This is the default
 /// path for multi-output providers (Clerk's single-JSON-blob is the exception).
+///
+/// Env key prefixes are derived from the **attached** Stripe local name (which
+/// may differ from [`ProvisionContext::resource_name`] on reuse).
 pub async fn provision_outputs<C, R>(
     stripe: &StripeProjects<R>,
     catalog: &Catalog,
@@ -147,7 +152,14 @@ where
     C: CatalogService,
     R: CommandRunner,
 {
-    let resource_prefix = ctx.resource_name().to_ascii_uppercase().replace('-', "_");
+    if !ctx.skip_instance_context {
+        project::ensure_project(stripe, ctx.def, ctx.definition_dir).await?;
+        project::ensure_environment(stripe, ctx.instance).await?;
+    }
+    let requested = ctx.resource_name();
+    let added = add_catalog_resource(stripe, catalog, config, &requested).await?;
+    let resource_name = added.name;
+    let resource_prefix = resource_name.to_ascii_uppercase().replace('-', "_");
     let candidates: Vec<String> = fields
         .iter()
         .flat_map(|(suffix, _, _)| {
@@ -157,11 +169,24 @@ where
             ]
         })
         .collect();
-    let candidate_refs: Vec<&str> = candidates.iter().map(String::as_str).collect();
-    let ProvisionedEnv {
-        resource_name,
-        values,
-    } = provision_with_env(stripe, catalog, ctx, config, &candidate_refs).await?;
+    let mut values = BTreeMap::new();
+    let mut missing: Vec<&str> = Vec::new();
+    for key in &candidates {
+        match find_env_value(&added.data, key) {
+            Some(value) => {
+                values.insert(key.clone(), value);
+            }
+            None => missing.push(key.as_str()),
+        }
+    }
+    if !missing.is_empty() {
+        let pulled = project::pull_env_values(stripe, ctx.instance, &missing).await?;
+        for (idx, key) in missing.iter().enumerate() {
+            if let Some(value) = pulled.get(idx).cloned().flatten() {
+                values.insert((*key).to_owned(), value);
+            }
+        }
+    }
     let mut outputs = BTreeMap::new();
     for (suffix, output, required) in fields {
         let value = values

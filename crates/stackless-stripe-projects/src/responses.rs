@@ -95,18 +95,27 @@ impl EnvListResponse {
 }
 
 /// `stripe projects services list --json` data.
+///
+/// The CLI returns both deployable **services** and companion **plans** in one
+/// payload. Parent-plan ensure must consult `plans` — matching only `services`
+/// misses orphan `clerk/hobby` rows and retries `projects add` into a 500.
 #[derive(Debug, Default, Deserialize)]
 pub struct ServicesListResponse {
     #[serde(default)]
     pub services: Vec<ServiceRef>,
+    #[serde(default)]
+    pub plans: Vec<ServiceRef>,
 }
 
 impl ServicesListResponse {
-    /// Whether a registered service named `name` exists.
+    /// Whether a resource with this exact local name exists (service or plan).
     pub fn contains(&self, name: &str) -> bool {
-        self.services
-            .iter()
-            .any(|s| s.name.as_deref() == Some(name))
+        self.iter().any(|r| r.name.as_deref() == Some(name))
+    }
+
+    /// Iterate services and plans as one sequence (DTO stays policy-free).
+    pub fn iter(&self) -> impl Iterator<Item = &ServiceRef> {
+        self.services.iter().chain(self.plans.iter())
     }
 }
 
@@ -114,6 +123,12 @@ impl ServicesListResponse {
 pub struct ServiceRef {
     #[serde(default)]
     pub name: Option<String>,
+    /// Catalog service id (`hobby`, `auth`, …), distinct from the local `--name`.
+    #[serde(default)]
+    pub service_id: Option<String>,
+    /// Provider that owns the row (`Clerk`, `vercel`, …). Required to scope reuse.
+    #[serde(default, alias = "provider")]
+    pub provider_name: Option<String>,
 }
 
 /// Extract preflight rows from a full `{ok, data, error}` envelope.
@@ -240,5 +255,25 @@ mod tests {
             serde_json::from_value(json!({"services": [{"name": "atto-web"}]})).unwrap();
         assert!(r.contains("atto-web"));
         assert!(!r.contains("missing"));
+    }
+
+    #[test]
+    fn services_list_contains_plans_by_name() {
+        let r: ServicesListResponse = serde_json::from_value(json!({
+            "services": [{"name": "clerk-auth", "service_id": "auth", "provider_name": "Clerk"}],
+            "plans": [{"name": "hobby", "service_id": "hobby", "provider_name": "Clerk"}]
+        }))
+        .unwrap();
+        assert!(r.contains("hobby"));
+        assert!(r.contains("clerk-auth"));
+    }
+
+    #[test]
+    fn services_list_accepts_provider_alias() {
+        let r: ServicesListResponse = serde_json::from_value(json!({
+            "plans": [{"name": "hobby", "service_id": "hobby", "provider": "vercel"}]
+        }))
+        .unwrap();
+        assert_eq!(r.plans[0].provider_name.as_deref(), Some("vercel"));
     }
 }
