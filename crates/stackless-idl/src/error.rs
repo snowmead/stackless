@@ -1,4 +1,4 @@
-//! Errors from IDL compile, remap, emit, and check.
+//! Errors from IDL compile, naming, emit, and check.
 
 use std::path::PathBuf;
 
@@ -7,6 +7,15 @@ use std::path::PathBuf;
 pub enum IdlError {
     #[error("wire name {dns:?} is reserved and cannot be bound")]
     ReservedWireName { dns: String },
+
+    #[error("wire name {dns:?} is not DNS-safe")]
+    InvalidWireName { dns: String },
+
+    #[error("unknown emit language {language:?} (known: {known})")]
+    UnknownEmitLanguage { language: String, known: String },
+
+    #[error("invalid Go package name {name:?}")]
+    InvalidGoPackage { name: String },
 
     #[error("verify tier named \"default\" is rejected (shadowed by VerifyRoot::resolve)")]
     DefaultTierRejected,

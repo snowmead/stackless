@@ -34,7 +34,6 @@ pub struct SourceMeta {
 pub struct ServiceEntry {
     pub dns: String,
     pub root_origin: bool,
-    pub idents: Idents,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,7 +47,6 @@ pub struct VerifySection {
 #[serde(deny_unknown_fields)]
 pub struct TierEntry {
     pub dns: String,
-    pub idents: Idents,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -56,16 +54,4 @@ pub struct TierEntry {
 pub struct IntegrationEntry {
     pub dns: String,
     pub provider: String,
-    pub idents: Idents,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Idents {
-    pub rust_field: String,
-    pub rust_variant: String,
-    pub rust_const: String,
-    pub ts_prop: String,
-    pub ts_type: String,
-    pub ts_const: String,
 }

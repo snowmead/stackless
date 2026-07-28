@@ -91,7 +91,7 @@ Full agent playbook: [`.cursor/skills/stackless/SKILL.md`](.cursor/skills/stackl
 | `status` / `list` | Staged truth / all instances |
 | `logs <name>` | Captured output (survives teardown) |
 | `check <file>` | Validate definition + derived graph |
-| `bind` | Compile `stackless.toml` → IDL + typed TS/Rust bindings |
+| `bind` | Compile `stackless.toml` → IDL + typed language bindings |
 | `init` / `adopt` / `doctor` | Scaffold, detect, preflight |
 
 Every command is non-interactive and exits with codes an agent can branch on.
@@ -99,20 +99,27 @@ Every command is non-interactive and exits with codes an agent can branch on.
 ### Typed bindings
 
 `stackless bind` projects a stack definition into a language-neutral IDL
-(`.stackless/stack.idl.json`) and optional TypeScript / Rust origins bags so
-tests can name services and verify tiers without stringly DNS keys.
+(`.stackless/stack.idl.json`) and optional origins bags so tests can name
+services and verify tiers without stringly DNS keys. Emitters cover Rust,
+TypeScript, Go, and Python. Language identifiers are computed at emit time
+from DNS wire names (not stored in the IDL).
 
 ```bash
 stackless bind --file stackless.toml \
   --idl .stackless/stack.idl.json \
-  --ts e2e/stack.gen.ts \
-  --rs tests/support/stack_bind.rs
+  --emit typescript=e2e/stack.gen.ts \
+  --emit rust=tests/support/stack_bind.rs \
+  --emit go=internal/stack/origins.go \
+  --emit python=tests/stack_bind.py
+
+# Aliases still work: --ts PATH, --rs PATH
+# Go package defaults to stacklessbind; override with --go-package NAME
 
 # CI: fail if any output is stale
 stackless bind --file stackless.toml \
   --idl .stackless/stack.idl.json \
-  --ts e2e/stack.gen.ts \
-  --rs tests/support/stack_bind.rs \
+  --emit typescript=e2e/stack.gen.ts \
+  --emit rust=tests/support/stack_bind.rs \
   --check
 ```
 

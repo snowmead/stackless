@@ -76,13 +76,21 @@ creation; set API keys (see doctor). Paid resources need `--confirm-paid`.
 (cloud substrates reject `--source`).
 
 **Typed bindings:** after the TOML stabilizes, generate a checked-in IDL and
-language projections (standalone `Origins` / `bindOrigins`, no Client wrap):
+language projections (standalone `Origins` / `bindOrigins`, no Client wrap).
+Languages: `rust`, `typescript` (`ts`), `go`, `python` (`py`).
 
 ```bash
 stackless bind --file stackless.toml \
-  --idl .stackless/stack.idl.json --ts e2e/stack.gen.ts --rs tests/support/stack_bind.rs
+  --idl .stackless/stack.idl.json \
+  --emit typescript=e2e/stack.gen.ts \
+  --emit rust=tests/support/stack_bind.rs \
+  --emit go=internal/stack/origins.go \
+  --go-package stacklessbind
 stackless bind --file stackless.toml \
-  --idl .stackless/stack.idl.json --ts e2e/stack.gen.ts --rs tests/support/stack_bind.rs --check
+  --idl .stackless/stack.idl.json \
+  --emit typescript=e2e/stack.gen.ts \
+  --emit rust=tests/support/stack_bind.rs \
+  --check
 ```
 
 ## Machine output contract

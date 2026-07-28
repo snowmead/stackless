@@ -105,9 +105,9 @@ region = "iad"           # Fly region (default iad)
   (or the first service if none). Output is captured to a per-instance log file;
   `--json` success includes `duration_ms`, `exit_status`, and `log_path`.
   Named tiers live under `[stack.verify.tiers.<name>]` with the same `{run, env}`
-  shape. Unknown tiers fail with `verify.tier_unknown`. Declaring no
-  `[stack.verify]` and no tiers makes `stackless verify` fail with
-  `verify.not_declared`.
+  shape; `<name>` must be DNS-safe (same rules as service names). Unknown tiers
+  fail with `verify.tier_unknown`. Declaring no `[stack.verify]` and no tiers
+  makes `stackless verify` fail with `verify.not_declared`.
 - `projects.stripe.project` — optional. Stackless writes this after it
   creates or adopts the stack's Stripe Project. Local integrations and
   cloud resources (Render, Vercel, Clerk, …) share this anchor;

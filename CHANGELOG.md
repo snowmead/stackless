@@ -15,6 +15,28 @@ Generate with:
 
 ## Unreleased
 
+### Changed
+
+- Stack IDL (`stackless.stack-idl/v1`) no longer embeds per-language `idents`.
+  Naming is computed at emit time. Regenerating checked-in `.idl.json` files
+  updates fingerprints once; further languages do not churn the IDL.
+- `stackless bind` accepts repeatable `--emit LANG=PATH` for `rust`,
+  `typescript`, `go`, and `python` (aliases `rs`, `ts`, `py`). `--rs` / `--ts`
+  remain. Go package name defaults to `stacklessbind` (`--go-package`).
+- Emit registry is a typed `EmitTarget` enum (Go package lives on the Go
+  variant). Verify tier keys must be DNS-safe, matching service names.
+
+### Added
+
+- Go and Python typed binding emitters (origins bags / verify tiers), matching
+  the existing Rust and TypeScript projections.
+
+### Fixed
+
+- Reject non-DNS-safe verify tier keys before IDL compile/emit (closes Go
+  `const` injection via crafted tier names). Reject Go keyword `--go-package`
+  values.
+
 ## v0.1.6 — 2026-07-27
 
 Fix `Client::system()` for third-party SDK consumers, plus Clerk/Stripe

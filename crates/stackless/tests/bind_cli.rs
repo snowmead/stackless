@@ -84,3 +84,48 @@ fn bind_write_and_check() {
         .expect("run bind --check stale");
     assert!(!status.success(), "stale check should fail");
 }
+
+#[test]
+fn bind_emit_go_and_python() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let idl = dir.path().join("stack.idl.json");
+    let go = dir.path().join("origins.go");
+    let py = dir.path().join("origins.py");
+    let go_path = go.to_str().expect("utf8");
+    let py_path = py.to_str().expect("utf8");
+
+    let status = Command::new(stackless_bin())
+        .args([
+            "bind",
+            "--file",
+            hello_toml().to_str().expect("utf8"),
+            "--idl",
+            idl.to_str().expect("utf8"),
+            "--emit",
+            &format!("go={go_path}"),
+            "--emit",
+            &format!("python={py_path}"),
+        ])
+        .status()
+        .expect("run bind --emit");
+    assert!(status.success(), "bind --emit failed: {status}");
+    assert!(go.is_file(), "go output missing");
+    assert!(py.is_file(), "python output missing");
+
+    let status = Command::new(stackless_bin())
+        .args([
+            "bind",
+            "--file",
+            hello_toml().to_str().expect("utf8"),
+            "--idl",
+            idl.to_str().expect("utf8"),
+            "--emit",
+            &format!("go={go_path}"),
+            "--emit",
+            &format!("py={py_path}"),
+            "--check",
+        ])
+        .status()
+        .expect("run bind --emit --check");
+    assert!(status.success(), "bind --emit --check failed: {status}");
+}
