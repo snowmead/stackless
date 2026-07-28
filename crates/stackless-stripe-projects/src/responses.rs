@@ -95,18 +95,59 @@ impl EnvListResponse {
 }
 
 /// `stripe projects services list --json` data.
+///
+/// The CLI returns both deployable **services** and companion **plans** in one
+/// payload. Parent-plan ensure must consult `plans` — matching only `services`
+/// misses orphan `clerk/hobby` rows and retries `projects add` into a 500.
 #[derive(Debug, Default, Deserialize)]
 pub struct ServicesListResponse {
     #[serde(default)]
     pub services: Vec<ServiceRef>,
+    #[serde(default)]
+    pub plans: Vec<ServiceRef>,
 }
 
 impl ServicesListResponse {
-    /// Whether a registered service named `name` exists.
+    /// Whether a resource with this exact local name exists (service or plan).
     pub fn contains(&self, name: &str) -> bool {
-        self.services
+        self.iter().any(|r| r.name.as_deref() == Some(name))
+    }
+
+    /// Resolve an existing project resource to reuse.
+    ///
+    /// Prefers an exact local `--name` match in `services` or `plans`.
+    /// Otherwise picks a row whose catalog `service_id` equals `catalog_id`
+    /// (e.g. plan `clerk-plan` with `service_id: hobby`, or service
+    /// `clerk-auth` with `service_id: auth`). Among `service_id` matches,
+    /// prefer `name == catalog_id`, then names prefixed by `catalog_id`, then
+    /// lexicographic order.
+    pub fn resolve(&self, name: &str, catalog_id: &str) -> Option<&str> {
+        if let Some(found) = self
             .iter()
-            .any(|s| s.name.as_deref() == Some(name))
+            .find_map(|r| r.name.as_deref().filter(|n| *n == name))
+        {
+            return Some(found);
+        }
+        let mut candidates: Vec<&str> = self
+            .iter()
+            .filter(|r| r.service_id.as_deref() == Some(catalog_id))
+            .filter_map(|r| r.name.as_deref())
+            .collect();
+        candidates.sort_by_key(|candidate| {
+            let rank = if *candidate == catalog_id {
+                0u8
+            } else if candidate.starts_with(catalog_id) {
+                1
+            } else {
+                2
+            };
+            (rank, *candidate)
+        });
+        candidates.first().copied()
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &ServiceRef> {
+        self.services.iter().chain(self.plans.iter())
     }
 }
 
@@ -114,6 +155,9 @@ impl ServicesListResponse {
 pub struct ServiceRef {
     #[serde(default)]
     pub name: Option<String>,
+    /// Catalog service id (`hobby`, `auth`, …), distinct from the local `--name`.
+    #[serde(default)]
+    pub service_id: Option<String>,
 }
 
 /// Extract preflight rows from a full `{ok, data, error}` envelope.
@@ -240,5 +284,54 @@ mod tests {
             serde_json::from_value(json!({"services": [{"name": "atto-web"}]})).unwrap();
         assert!(r.contains("atto-web"));
         assert!(!r.contains("missing"));
+    }
+
+    #[test]
+    fn services_list_contains_plans_by_name() {
+        let r: ServicesListResponse = serde_json::from_value(json!({
+            "services": [{"name": "clerk-auth", "service_id": "auth"}],
+            "plans": [{"name": "hobby", "service_id": "hobby"}]
+        }))
+        .unwrap();
+        assert!(r.contains("hobby"));
+        assert!(r.contains("clerk-auth"));
+        assert_eq!(r.resolve("hobby", "hobby"), Some("hobby"));
+    }
+
+    #[test]
+    fn services_list_resolve_prefers_service_id_fallback() {
+        let r: ServicesListResponse = serde_json::from_value(json!({
+            "services": [],
+            "plans": [
+                {"name": "clerk-plan", "service_id": "hobby"},
+                {"name": "hobby-2", "service_id": "hobby"}
+            ]
+        }))
+        .unwrap();
+        assert!(!r.contains("hobby"));
+        assert_eq!(r.resolve("hobby", "hobby"), Some("hobby-2"));
+    }
+
+    #[test]
+    fn services_list_resolve_prefers_exact_name_over_service_id() {
+        let r: ServicesListResponse = serde_json::from_value(json!({
+            "plans": [
+                {"name": "clerk-plan", "service_id": "hobby"},
+                {"name": "hobby", "service_id": "hobby"},
+                {"name": "hobby-2", "service_id": "hobby"}
+            ]
+        }))
+        .unwrap();
+        assert_eq!(r.resolve("hobby", "hobby"), Some("hobby"));
+    }
+
+    #[test]
+    fn services_list_resolve_deployable_by_catalog_service_id() {
+        let r: ServicesListResponse = serde_json::from_value(json!({
+            "services": [{"name": "clerk-auth", "service_id": "auth"}],
+            "plans": [{"name": "hobby", "service_id": "hobby"}]
+        }))
+        .unwrap();
+        assert_eq!(r.resolve("e2e-clerk", "auth"), Some("clerk-auth"));
     }
 }

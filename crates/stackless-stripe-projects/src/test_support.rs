@@ -84,7 +84,16 @@ pub fn status(project_id: Option<&str>) -> CommandOutput {
 /// `stripe projects services list` data with the given registered service names.
 pub fn services(names: &[&str]) -> CommandOutput {
     let list: Vec<Value> = names.iter().map(|n| json!({ "name": n })).collect();
-    ok(json!({ "services": list }))
+    ok(json!({ "services": list, "plans": [] }))
+}
+
+/// `stripe projects services list` data with companion plans (`name` + `service_id`).
+pub fn plans(entries: &[(&str, &str)]) -> CommandOutput {
+    let list: Vec<Value> = entries
+        .iter()
+        .map(|(name, service_id)| json!({ "name": name, "service_id": service_id }))
+        .collect();
+    ok(json!({ "services": [], "plans": list }))
 }
 
 /// `stripe projects env list` data with the given environment names.

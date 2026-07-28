@@ -145,17 +145,57 @@ pub async fn ensure_environment<R: CommandRunner>(
     Ok(())
 }
 
+async fn list_project_resources<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+) -> Result<ServicesListResponse, ProjectsError> {
+    let result = stripe.json(&["services", "list"]).await?;
+    if !result.ok {
+        return Ok(ServicesListResponse::default());
+    }
+    Ok(serde_json::from_value::<ServicesListResponse>(result.data).unwrap_or_default())
+}
+
+/// Whether a service or plan with this exact local name is already on the project.
 pub async fn resource_registered<R: CommandRunner>(
     stripe: &StripeProjects<R>,
     name: &str,
 ) -> Result<bool, ProjectsError> {
-    let result = stripe.json(&["services", "list"]).await?;
-    if !result.ok {
-        return Ok(false);
-    }
-    Ok(serde_json::from_value::<ServicesListResponse>(result.data)
-        .map(|response| response.contains(name))
-        .unwrap_or(false))
+    Ok(list_project_resources(stripe).await?.contains(name))
+}
+
+/// Catalog service id from a `provider/service` reference (`clerk/hobby` → `hobby`).
+fn catalog_service_id(reference: &str) -> &str {
+    reference
+        .rsplit_once('/')
+        .map(|(_, id)| id)
+        .unwrap_or(reference)
+}
+
+/// Resolve an existing service/plan to reuse (exact name, else catalog `service_id`).
+pub async fn resolve_registered_resource<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+    name: &str,
+    reference: &str,
+) -> Result<Option<String>, ProjectsError> {
+    let catalog_id = catalog_service_id(reference);
+    Ok(list_project_resources(stripe)
+        .await?
+        .resolve(name, catalog_id)
+        .map(str::to_owned))
+}
+
+async fn env_add_resource<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+    name: &str,
+) -> Result<(), ProjectsError> {
+    stripe
+        .run_ok(
+            &format!("env add {name}"),
+            &["env", "add", name, "--resource"],
+            &["--yes"],
+        )
+        .await?;
+    Ok(())
 }
 
 pub async fn add_resource<R: CommandRunner>(
@@ -165,7 +205,11 @@ pub async fn add_resource<R: CommandRunner>(
     config: &Value,
     paid: bool,
 ) -> Result<Value, ProjectsError> {
-    if resource_registered(stripe, name).await? {
+    // Reuse orphan plans/services (including `plans[]`) and always env-attach.
+    // Returning early without `env add` left parent plans project-scoped after
+    // teardown and forced another `projects add` into Stripe 500s.
+    if let Some(existing) = resolve_registered_resource(stripe, name, reference).await? {
+        env_add_resource(stripe, &existing).await?;
         return Ok(Value::Null);
     }
     let config_str = config.to_string();
@@ -190,13 +234,7 @@ pub async fn add_resource<R: CommandRunner>(
     let data = stripe
         .run_ok(&format!("add {reference}"), &args, &plain_extra)
         .await?;
-    stripe
-        .run_ok(
-            &format!("env add {name}"),
-            &["env", "add", name, "--resource"],
-            &["--yes"],
-        )
-        .await?;
+    env_add_resource(stripe, name).await?;
     Ok(data)
 }
 
@@ -479,7 +517,7 @@ fn preflight_failure(command: &str, result: &crate::stripe::StripeResult) -> Pro
 mod tests {
     use super::*;
     use crate::stripe::{CommandOutput, CommandRunner, StripeProjects};
-    use crate::test_support::{ScriptedRunner, env_list, ok_empty};
+    use crate::test_support::{ScriptedRunner, env_list, ok, ok_empty, plans, services};
     use async_trait::async_trait;
     use serde_json::json;
 
@@ -504,27 +542,6 @@ mod tests {
             doc["stack"]["projects"]["stripe"]["project"].as_str(),
             Some("project_abc123")
         );
-    }
-
-    struct ListRunner {
-        body: String,
-        calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
-    }
-
-    #[async_trait]
-    impl CommandRunner for ListRunner {
-        async fn run(
-            &self,
-            _args: &[String],
-            _cwd: &std::path::Path,
-        ) -> Result<CommandOutput, ProjectsError> {
-            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Ok(CommandOutput {
-                status: 0,
-                stdout: self.body.clone(),
-                stderr: String::new(),
-            })
-        }
     }
 
     #[tokio::test]
@@ -583,13 +600,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn add_resource_skips_when_already_registered() {
-        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let runner = ListRunner {
-            body: r#"{"ok":true,"data":{"services":[{"name":"atto-cloud-web"}]}}"#.to_owned(),
-            calls: calls.clone(),
-        };
-        let stripe = StripeProjects::new(runner, std::env::temp_dir());
+    async fn add_resource_env_attaches_when_already_registered() {
+        let runner = ScriptedRunner::new(vec![
+            services(&["atto-cloud-web"]), // list
+            ok_empty(),                    // env add --resource
+        ]);
+        let stripe = StripeProjects::new(&runner, std::env::temp_dir());
         add_resource(
             &stripe,
             "render/static-site",
@@ -599,7 +615,130 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 2);
+        assert!(calls[0].windows(2).any(|w| w == ["services", "list"]));
+        assert!(calls[1].iter().any(|a| a == "--resource"));
+        assert!(
+            !calls
+                .iter()
+                .any(|c| c.iter().any(|a| a == "render/static-site")),
+            "must not projects-add when already registered"
+        );
+    }
+
+    #[tokio::test]
+    async fn add_resource_reuses_plan_by_name_without_projects_add() {
+        let runner = ScriptedRunner::new(vec![
+            plans(&[("hobby", "hobby")]), // list: orphan plan
+            ok_empty(),                   // env add hobby
+        ]);
+        let stripe = StripeProjects::new(&runner, std::env::temp_dir());
+        add_resource(
+            &stripe,
+            "clerk/hobby",
+            "hobby",
+            &serde_json::json!({}),
+            false,
+        )
+        .await
+        .unwrap();
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 2);
+        assert!(
+            !calls.iter().any(|c| c.iter().any(|a| a == "clerk/hobby")),
+            "must not projects-add clerk/hobby when plan hobby exists"
+        );
+        assert_eq!(
+            calls[1],
+            vec!["env", "add", "hobby", "--resource", "--json"]
+        );
+    }
+
+    #[tokio::test]
+    async fn add_resource_reuses_plan_by_service_id_without_projects_add() {
+        let runner = ScriptedRunner::new(vec![
+            plans(&[("clerk-plan", "hobby")]), // list: renamed plan
+            ok_empty(),                        // env add clerk-plan
+        ]);
+        let stripe = StripeProjects::new(&runner, std::env::temp_dir());
+        add_resource(
+            &stripe,
+            "clerk/hobby",
+            "hobby",
+            &serde_json::json!({}),
+            false,
+        )
+        .await
+        .unwrap();
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 2);
+        assert!(
+            !calls.iter().any(|c| c.iter().any(|a| a == "clerk/hobby")),
+            "must not projects-add when a service_id=hobby plan exists"
+        );
+        assert_eq!(
+            calls[1],
+            vec!["env", "add", "clerk-plan", "--resource", "--json"]
+        );
+    }
+
+    #[tokio::test]
+    async fn add_resource_reuses_deployable_by_catalog_service_id() {
+        let runner = ScriptedRunner::new(vec![
+            ok(json!({
+                "services": [{"name": "clerk-auth", "service_id": "auth"}],
+                "plans": [{"name": "hobby", "service_id": "hobby"}]
+            })),
+            ok_empty(), // env add clerk-auth
+        ]);
+        let stripe = StripeProjects::new(&runner, std::env::temp_dir());
+        add_resource(
+            &stripe,
+            "clerk/auth",
+            "e2e-clerk",
+            &serde_json::json!({"app_name": "jinttai-e2e"}),
+            false,
+        )
+        .await
+        .unwrap();
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 2);
+        assert!(
+            !calls.iter().any(|c| c.iter().any(|a| a == "clerk/auth")),
+            "must not projects-add clerk/auth when clerk-auth already exists"
+        );
+        assert_eq!(
+            calls[1],
+            vec!["env", "add", "clerk-auth", "--resource", "--json"]
+        );
+    }
+
+    #[tokio::test]
+    async fn add_resource_still_adds_when_unregistered() {
+        let runner = ScriptedRunner::new(vec![
+            services(&[]),                            // list: empty
+            ok(json!({ "variables": { "K": "v" } })), // projects add
+            ok_empty(),                               // env add
+        ]);
+        let stripe = StripeProjects::new(&runner, std::env::temp_dir());
+        let data = add_resource(
+            &stripe,
+            "clerk/hobby",
+            "hobby",
+            &serde_json::json!({}),
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(data["variables"]["K"], "v");
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 3);
+        assert!(calls[1].iter().any(|a| a == "clerk/hobby"));
+        assert_eq!(
+            calls[2],
+            vec!["env", "add", "hobby", "--resource", "--json"]
+        );
     }
 
     #[tokio::test]
