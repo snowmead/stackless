@@ -8,6 +8,12 @@ pub enum IdlError {
     #[error("wire name {dns:?} is reserved and cannot be bound")]
     ReservedWireName { dns: String },
 
+    #[error("unknown emit language {language:?} (known: {known})")]
+    UnknownEmitLanguage { language: String, known: String },
+
+    #[error("invalid Go package name {name:?}")]
+    InvalidGoPackage { name: String },
+
     #[error("verify tier named \"default\" is rejected (shadowed by VerifyRoot::resolve)")]
     DefaultTierRejected,
 

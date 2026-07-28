@@ -3,6 +3,7 @@
 mod canonical;
 mod error;
 mod model;
+mod naming;
 mod remap;
 
 #[cfg(feature = "compile")]
@@ -10,6 +11,12 @@ mod compile;
 
 #[cfg(feature = "emit")]
 mod emit_common;
+#[cfg(feature = "emit")]
+mod emit_go;
+#[cfg(feature = "emit")]
+mod emit_python;
+#[cfg(feature = "emit")]
+mod emit_registry;
 #[cfg(feature = "emit")]
 mod emit_rust;
 #[cfg(feature = "emit")]
@@ -20,14 +27,24 @@ pub use canonical::{
 };
 pub use error::IdlError;
 pub use model::{
-    BodyV1, Idents, IntegrationEntry, InterfaceV1, KIND_V1, ServiceEntry, SourceMeta, TierEntry,
+    BodyV1, IntegrationEntry, InterfaceV1, KIND_V1, ServiceEntry, SourceMeta, TierEntry,
     VerifySection,
 };
-pub use remap::{IdentNamespace, check_collisions, remap_dns};
+pub use naming::IdentNamespace;
+pub use remap::remap_dns;
 
 #[cfg(feature = "compile")]
 pub use compile::{Compiled, compile, compile_source};
 
+#[cfg(feature = "emit")]
+pub use emit_go::emit_go;
+#[cfg(feature = "emit")]
+pub use emit_python::emit_python;
+#[cfg(feature = "emit")]
+pub use emit_registry::{
+    EmitOptions, LANG_GO, LANG_PYTHON, LANG_RUST, LANG_TYPESCRIPT, emit_for, known_languages,
+    normalize_lang,
+};
 #[cfg(feature = "emit")]
 pub use emit_rust::emit_rust;
 #[cfg(feature = "emit")]
@@ -38,15 +55,31 @@ use std::path::{Path, PathBuf};
 /// Emit only after a canonical JSON round-trip (IDL is the real boundary).
 #[cfg(feature = "emit")]
 pub fn emit_rust_from_idl(idl: &InterfaceV1) -> Result<String, IdlError> {
-    let idl = round_trip(idl)?;
-    Ok(emit_rust(&idl))
+    emit_for(LANG_RUST, idl, &EmitOptions::default())
 }
 
 /// Emit only after a canonical JSON round-trip (IDL is the real boundary).
 #[cfg(feature = "emit")]
 pub fn emit_typescript_from_idl(idl: &InterfaceV1) -> Result<String, IdlError> {
-    let idl = round_trip(idl)?;
-    Ok(emit_typescript(&idl))
+    emit_for(LANG_TYPESCRIPT, idl, &EmitOptions::default())
+}
+
+/// Emit Go bindings after a canonical JSON round-trip.
+#[cfg(feature = "emit")]
+pub fn emit_go_from_idl(idl: &InterfaceV1, package: &str) -> Result<String, IdlError> {
+    emit_for(
+        LANG_GO,
+        idl,
+        &EmitOptions {
+            go_package: package.to_owned(),
+        },
+    )
+}
+
+/// Emit Python bindings after a canonical JSON round-trip.
+#[cfg(feature = "emit")]
+pub fn emit_python_from_idl(idl: &InterfaceV1) -> Result<String, IdlError> {
+    emit_for(LANG_PYTHON, idl, &EmitOptions::default())
 }
 
 pub fn write_atomic(path: &Path, contents: &str) -> Result<(), IdlError> {

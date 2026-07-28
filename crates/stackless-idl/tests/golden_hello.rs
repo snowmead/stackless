@@ -41,6 +41,20 @@ fn emit_typescript_matches_golden() {
 }
 
 #[test]
+fn emit_go_matches_golden() {
+    let compiled = stackless_idl::compile_source(&hello_toml(), &["local"]).expect("compile");
+    let go = stackless_idl::emit_go_from_idl(&compiled.idl, "stacklessbind").expect("emit go");
+    assert_eq!(go, testdata("hello.go"));
+}
+
+#[test]
+fn emit_python_matches_golden() {
+    let compiled = stackless_idl::compile_source(&hello_toml(), &["local"]).expect("compile");
+    let py = stackless_idl::emit_python_from_idl(&compiled.idl).expect("emit python");
+    assert_eq!(py, testdata("hello.py"));
+}
+
+#[test]
 fn default_tier_rejected() {
     let toml = r#"
 [stack]
