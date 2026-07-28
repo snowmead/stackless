@@ -365,9 +365,10 @@ Render keeps services alive and lease expiry there is enforced by the
 same reaper from the operator's machine.
 
 - **Same binary, no separate artifact.** The daemon is the `stackless`
-  binary running an internal `daemon run` subcommand. Distribution and
+  CLI binary running an internal `daemon run` subcommand. Distribution and
   upgrades are the CLI's story; there is no second thing to install or
-  version.
+  version. The Rust SDK's `Client::system()` resolves that CLI via
+  `STACKLESS_BIN` / `PATH` (it does not spawn the linking consumer binary).
 - **Spin-up is on demand.** Commands that need the daemon connect to a
   unix socket at a fixed path in the user's state dir. If nothing
   answers, the CLI spawns the daemon detached (under a lock file, so

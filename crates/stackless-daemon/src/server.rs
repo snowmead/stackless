@@ -45,7 +45,18 @@ pub async fn run() -> std::io::Result<()> {
 /// Like [`run`], but binds the socket under an injectable state layout,
 /// listens on an injectable proxy port, and selects operator vs embedded
 /// behavior via [`DaemonRole`].
+///
+/// Operator mode requires [`crate::mark_cli_process`]: launchd registration
+/// and the lease reaper shell out via `current_exe`, which must be the CLI.
 pub async fn run_with(paths: &Paths, proxy_port: TcpPort, role: DaemonRole) -> std::io::Result<()> {
+    if role == DaemonRole::Operator && !crate::is_cli_process() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "operator daemon requires the stackless CLI process \
+             (mark_cli_process); use DaemonRole::Embedded for in-process tests \
+             or spawn via the resolved CLI binary",
+        ));
+    }
     let path = socket_path_for(paths);
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;

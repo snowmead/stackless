@@ -15,6 +15,20 @@ Generate with:
 
 ## Unreleased
 
+### Fixed
+
+- `Client::system()` resolves the operator daemon to the installed stackless
+  CLI (`STACKLESS_BIN` → `PATH` → well-known install dirs), never the linking
+  consumer binary. Version handshake only kill-and-replaces when the process
+  is the CLI itself, so third-party SDK callers cannot thrash a healthy
+  daemon. Clarifying break if anything relied on “my binary is the daemon”
+  (unintentional).
+- Empty Stripe instance env pull (`PROJECT_ENVIRONMENT_HAS_NO_RESOURCES`) is
+  a soft success on startup vault sync so Clerk stacks survive `down` → `up`
+  without hand-seeded project variables.
+- Clerk credential blob resolution accepts resource-prefixed env keys
+  (e.g. `E2E_CLERK_ENVIRONMENTS`) before provider-prefixed fallbacks.
+
 ## v0.1.5 — 2026-07-27
 
 Catalog integrations wave, phase-2 substrates, crate SDK / typed IDL, and

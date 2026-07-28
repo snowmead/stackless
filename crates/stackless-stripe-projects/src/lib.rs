@@ -11,7 +11,7 @@ pub mod responses;
 pub mod stripe;
 pub mod surface;
 
-#[cfg(feature = "test-support")]
+#[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 
 pub use catalog::verify::{

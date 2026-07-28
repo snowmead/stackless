@@ -1,7 +1,11 @@
 //! Stackless library: sync [`Client`] lifecycle API plus the CLI entrypoint
 //! under [`cli`].
 //!
-//! # Quick start
+//! # Quick start (operator / system mode)
+//!
+//! [`Client::system`] talks to the shared user daemon — the same layout the
+//! CLI uses. Your binary does **not** need to implement `daemon run`; the
+//! installed stackless CLI is resolved via `PATH` or `STACKLESS_BIN`.
 //!
 //! ```no_run
 //! use stackless::{Client, Create, UpRequest};
@@ -15,8 +19,11 @@
 //! # Ok::<(), stackless::Error>(())
 //! ```
 //!
-//! For hermetic tests, enable feature `test-support` and use
-//! [`test_support::TestContext`].
+//! # Hermetic tests
+//!
+//! For private state + an embedded daemon, enable feature `test-support` and
+//! use [`test_support::TestContext`] (or `Client::builder().paths(...)`).
+//! That path does not require a CLI on `PATH`.
 
 pub mod client;
 pub mod error;

@@ -153,6 +153,9 @@ enum Command {
 
 /// Parse argv and run the selected verb.
 pub fn run() -> ExitCode {
+    // Operator daemon spawn / launchd / reaper require this process to be the
+    // CLI. SDK consumers linking the crate never call this entrypoint.
+    stackless_daemon::mark_cli_process();
     let cli = Cli::parse();
     if matches!(cli.command, Command::Mcp) {
         return match mcp::run_stdio_server() {
