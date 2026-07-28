@@ -12,8 +12,14 @@ pub const ROOT_ORIGIN_SERVICE: Option<&str> = Some("web");
 pub const SERVICE_DNS: &[&str] = &[
     "web",
 ];
+pub const INTEGRATION_DNS: &[&str] = &[
+];
 pub const SECRETS_REQUIRED: &[&str] = &[
 ];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Integrations {
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Origins {
@@ -23,12 +29,16 @@ pub struct Origins {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BindError {
     MissingService { dns: &'static str },
+    MissingIntegration { dns: &'static str },
+    MissingOutput { integration: &'static str, key: &'static str },
 }
 
 impl std::fmt::Display for BindError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MissingService { dns } => write!(f, "missing origin for service {dns}"),
+            Self::MissingIntegration { dns } => write!(f, "missing integration {dns}"),
+            Self::MissingOutput { integration, key } => write!(f, "missing output {key} for integration {integration}"),
         }
     }
 }
@@ -42,6 +52,13 @@ impl Origins {
                 .get("web")
                 .cloned()
                 .ok_or(BindError::MissingService { dns: "web" })?,
+        })
+    }
+}
+
+impl Integrations {
+    pub fn from_map(map: &BTreeMap<String, BTreeMap<String, String>>) -> Result<Self, BindError> {
+        Ok(Self {
         })
     }
 }

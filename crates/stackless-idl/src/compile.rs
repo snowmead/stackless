@@ -17,16 +17,35 @@ pub struct Compiled {
 }
 
 pub fn compile_source(text: &str, known_substrates: &[&str]) -> Result<Compiled, IdlError> {
+    compile_source_with_outputs(text, known_substrates, |_| None)
+}
+
+/// Like [`compile_source`], stamping each integration's known output keys via
+/// `outputs_for(provider)`.
+pub fn compile_source_with_outputs(
+    text: &str,
+    known_substrates: &[&str],
+    outputs_for: impl Fn(&str) -> Option<&'static [&'static str]>,
+) -> Result<Compiled, IdlError> {
     let def = StackDef::parse(text)?;
     def.validate_hosts(known_substrates)?;
     let _graph = stackless_core::def::DependencyGraph::derive(&def)?;
     let toml_sha256 = sha256_hex_prefixed(text.as_bytes());
-    let idl = compile(&def, &toml_sha256)?;
+    let idl = compile_with_outputs(&def, &toml_sha256, outputs_for)?;
     let pretty_json = crate::canonical::pretty_json(&idl)?;
     Ok(Compiled { idl, pretty_json })
 }
 
 pub fn compile(def: &StackDef, toml_sha256: &str) -> Result<InterfaceV1, IdlError> {
+    compile_with_outputs(def, toml_sha256, |_| None)
+}
+
+/// Like [`compile`], filling [`IntegrationEntry::outputs`] from `outputs_for`.
+pub fn compile_with_outputs(
+    def: &StackDef,
+    toml_sha256: &str,
+    outputs_for: impl Fn(&str) -> Option<&'static [&'static str]>,
+) -> Result<InterfaceV1, IdlError> {
     let mut services = Vec::new();
     for (dns, service) in &def.services {
         // Reject reserved wire names early so compile fails before emit.
@@ -57,9 +76,17 @@ pub fn compile(def: &StackDef, toml_sha256: &str) -> Result<InterfaceV1, IdlErro
     let mut integrations = Vec::new();
     for (dns, integration) in &def.integrations {
         Parts::from_dns(dns)?;
+        let mut outputs: Vec<String> = outputs_for(&integration.provider)
+            .unwrap_or(&[])
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
+        outputs.sort();
+        outputs.dedup();
         integrations.push(IntegrationEntry {
             dns: dns.clone(),
             provider: integration.provider.clone(),
+            outputs,
         });
     }
     integrations.sort_by(|a, b| a.dns.cmp(&b.dns));

@@ -193,6 +193,24 @@ organizations = true
 - Stackless does not create app-specific Clerk orgs/users. Tests or
   application setup own that fixture layer.
 
+### Delivering integration credentials to tests
+
+Stackless injects `${integrations.<name>.<output>}` into service and verify
+env. Out-of-process tests that need those values have two supported paths:
+
+1. **Verify-tier env (preferred when secrets must stay off stdout).** Put the
+   prove command under `[stack.verify]` (or a tier) and interpolate into its
+   `env` map. The child process receives credentials; the verify JSON envelope
+   does not echo them.
+2. **`up --json` / SDK `UpOutcome.integrations`.** After a successful `up`,
+   checkpoint outputs are returned as a nested object
+   (`{ "clerk": { "secret_key": "…", "publishable_key": "…" } }`, omitted when
+   empty). Generated `bindIntegrations` types that map. Capturing `up --json`
+   stdout captures credential values; redact CI logs or use path 1 instead.
+
+Do not scrape vault files or `state.db` for Clerk keys. That is unsupported
+glue, not a stackless API.
+
 ## `[services.<name>]`
 
 ```toml

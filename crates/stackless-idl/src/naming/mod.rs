@@ -17,6 +17,7 @@ pub enum IdentNamespace {
     Service,
     Tier,
     Integration,
+    IntegrationOutput,
 }
 
 impl IdentNamespace {
@@ -25,6 +26,7 @@ impl IdentNamespace {
             Self::Service => "service",
             Self::Tier => "tier",
             Self::Integration => "integration",
+            Self::IntegrationOutput => "integration output",
         }
     }
 }

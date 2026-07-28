@@ -49,23 +49,40 @@ const PYTHON_RESERVED: &[&str] = &[
     "IDL_FINGERPRINT",
     "STACK_NAME",
     "SERVICE_DNS",
+    "INTEGRATION_DNS",
+    "SECRETS_REQUIRED",
+    "Integrations",
+    "bind_integrations",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PyNames {
     pub field: String,
+    pub class_name: String,
     pub const_name: String,
 }
 
 impl PyNames {
     pub fn from_dns(dns: &str) -> Result<Self, IdlError> {
-        let parts = Parts::from_dns(dns)?;
+        Self::from_parts(Parts::from_dns(dns)?)
+    }
+
+    pub fn from_output_key(key: &str) -> Result<Self, IdlError> {
+        Self::from_parts(Parts::from_output_key(key)?)
+    }
+
+    fn from_parts(parts: Parts) -> Result<Self, IdlError> {
         let mut names = Self {
             field: parts.snake(),
+            class_name: parts.pascal(),
             const_name: parts.screaming(),
         };
-        if is_reserved(&names.field) || is_reserved(&names.const_name) {
+        if is_reserved(&names.field)
+            || is_reserved(&names.class_name)
+            || is_reserved(&names.const_name)
+        {
             names.field = format!("svc_{}", names.field);
+            names.class_name = format!("Svc{}", names.class_name);
             names.const_name = format!("SVC_{}", names.const_name);
         }
         Ok(names)

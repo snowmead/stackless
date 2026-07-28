@@ -185,6 +185,14 @@ impl Namespace {
         }
     }
 
+    pub fn integration_outputs_from_checkpoints(
+        checkpoints: &[crate::state::Checkpoint],
+    ) -> BTreeMap<String, BTreeMap<String, String>> {
+        let mut ns = Self::default();
+        ns.add_integration_checkpoints(checkpoints);
+        ns.integrations
+    }
+
     /// Reconstruct legacy `${datastores.X.url}` values from journaled
     /// `provision:` checkpoints.
     ///

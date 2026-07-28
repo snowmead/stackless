@@ -54,4 +54,6 @@ pub struct TierEntry {
 pub struct IntegrationEntry {
     pub dns: String,
     pub provider: String,
+    /// Known output wire keys for `provider` (e.g. `secret_key`), sorted.
+    pub outputs: Vec<String>,
 }

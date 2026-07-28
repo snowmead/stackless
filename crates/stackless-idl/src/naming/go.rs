@@ -41,6 +41,10 @@ const GO_RESERVED_EXPORTED: &[&str] = &[
     "IDLFingerprint",
     "StackName",
     "BindOrigins",
+    "Integrations",
+    "BindIntegrations",
+    "IntegrationDNS",
+    "SecretsRequired",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,12 +55,18 @@ pub struct GoNames {
 
 impl GoNames {
     pub fn from_dns(dns: &str) -> Result<Self, IdlError> {
-        let parts = Parts::from_dns(dns)?;
+        Self::from_parts(Parts::from_dns(dns)?)
+    }
+
+    pub fn from_output_key(key: &str) -> Result<Self, IdlError> {
+        Self::from_parts(Parts::from_output_key(key)?)
+    }
+
+    fn from_parts(parts: Parts) -> Result<Self, IdlError> {
         let mut names = Self {
             field: parts.pascal(),
             const_suffix: parts.pascal(),
         };
-        // Emitted slots are PascalCase; keywords never match those slots.
         if is_reserved_exported(&names.field) {
             names.field = format!("Svc{}", names.field);
             names.const_suffix = format!("Svc{}", names.const_suffix);

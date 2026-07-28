@@ -6,31 +6,60 @@ package stacklessbind
 const IDLFingerprint = "sha256:1228a24dc92b50568bb3d56fc8007b4ec7dd14d6e64d65f0a04973dbac5d5568"
 const StackName = "hello"
 
+var SecretsRequired = []string{}
+
 type ServiceDNS string
 
 const (
 	ServiceDNSWeb ServiceDNS = "web"
 )
 
+type IntegrationDNS string
+
+type Integrations struct {
+}
+
 type Origins struct {
 	Web string `json:"web"`
 }
 
+type BindErrorKind int
+
+const (
+	BindErrorMissingService BindErrorKind = iota
+	BindErrorMissingIntegration
+	BindErrorMissingOutput
+)
+
 type BindError struct {
-	DNS ServiceDNS
+	Kind BindErrorKind
+	DNS string
+	OutputKey string
 }
 
 func (e *BindError) Error() string {
-	return "missing origin for service " + string(e.DNS)
+	switch e.Kind {
+	case BindErrorMissingService:
+		return "missing origin for service " + e.DNS
+	case BindErrorMissingIntegration:
+		return "missing integration " + e.DNS
+	default:
+		return "missing output " + e.OutputKey + " for integration " + e.DNS
+	}
 }
 
 func BindOrigins(values map[string]string) (Origins, error) {
 	var out Origins
 	vWeb, ok := values["web"]
 	if !ok {
-		return Origins{}, &BindError{DNS: ServiceDNSWeb}
+		return Origins{}, &BindError{Kind: BindErrorMissingService, DNS: "web"}
 	}
 	out.Web = vWeb
+	return out, nil
+}
+
+func BindIntegrations(values map[string]map[string]string) (Integrations, error) {
+	var out Integrations
 	return out, nil
 }
 

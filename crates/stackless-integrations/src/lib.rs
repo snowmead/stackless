@@ -18,7 +18,7 @@ pub use stackless_provider_sdk::{
     config, error, hostable, observation, resource,
 };
 
-pub use registry::validate_all;
+pub use registry::{known_outputs, validate_all};
 
 pub async fn provision<R: CommandRunner>(
     substrate: &str,
