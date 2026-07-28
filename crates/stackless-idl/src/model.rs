@@ -55,5 +55,46 @@ pub struct IntegrationEntry {
     pub dns: String,
     pub provider: String,
     /// Known output wire keys for `provider` (e.g. `secret_key`), sorted.
+    /// Absent in pre-outputs IDL files; empty is omitted so fingerprints stay stable.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub outputs: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::canonical::{fingerprint_for, parse_idl_json, pretty_json};
+
+    #[test]
+    fn integration_outputs_absent_deserializes_and_fingerprints() {
+        let mut idl = InterfaceV1 {
+            kind: KIND_V1.to_owned(),
+            fingerprint: String::new(),
+            body: BodyV1 {
+                source: SourceMeta {
+                    stack_name: "t".into(),
+                    toml_sha256: "sha256:00".into(),
+                },
+                services: vec![],
+                verify: VerifySection {
+                    has_default: false,
+                    tiers: vec![],
+                },
+                integrations: vec![IntegrationEntry {
+                    dns: "clerk".into(),
+                    provider: "clerk".into(),
+                    outputs: vec![],
+                }],
+                secrets_required: vec![],
+            },
+        };
+        idl.fingerprint = fingerprint_for(&idl).expect("fingerprint");
+        let json = pretty_json(&idl).expect("pretty");
+        assert!(
+            !json.contains("\"outputs\""),
+            "empty outputs must be omitted for fingerprint stability: {json}"
+        );
+        let parsed = parse_idl_json(&json).expect("parse");
+        assert_eq!(parsed.body.integrations[0].outputs, Vec::<String>::new());
+    }
 }
