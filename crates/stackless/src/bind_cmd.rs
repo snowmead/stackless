@@ -2,9 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use stackless_idl::{
-    EmitOptions, IdlError, check_bytes, compile_source, emit_for, normalize_lang, write_atomic,
-};
+use stackless_idl::{EmitTarget, IdlError, check_bytes, compile_source, emit_for, write_atomic};
 
 use crate::error::Error;
 use crate::output::Output;
@@ -28,16 +26,13 @@ pub fn bind(args: BindArgs, output: &Output) -> Result<(), Error> {
     let compiled = compile_source(&text, &known).map_err(map_idl)?;
     let idl_json = compiled.pretty_json;
     let idl = compiled.idl;
-    let opts = EmitOptions {
-        go_package: args.go_package,
-    };
 
     let mut planned: Vec<(PathBuf, String)> = Vec::new();
     planned.push((args.idl.clone(), idl_json));
 
     for (language, path) in &args.emits {
-        let lang = normalize_lang(language).map_err(map_idl)?;
-        let body = emit_for(lang, &idl, &opts).map_err(map_idl)?;
+        let target = EmitTarget::parse(language, &args.go_package).map_err(map_idl)?;
+        let body = emit_for(&target, &idl).map_err(map_idl)?;
         planned.push((path.clone(), body));
     }
 

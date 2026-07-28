@@ -75,6 +75,42 @@ run = "true"
 }
 
 #[test]
+fn unsafe_tier_key_rejected_at_compile() {
+    let toml = r#"
+[stack]
+name = "bad"
+
+[stack.verify.tiers."a);func init(){panic(1)};const(Z"]
+run = "true"
+
+[services.web]
+source = { repo = "https://example.invalid/x", ref = "main" }
+health = { path = "/" }
+
+[services.web.local]
+run = "true"
+"#;
+    let err = stackless_idl::compile_source(toml, &["local"]).expect_err("unsafe tier");
+    match err {
+        stackless_idl::IdlError::Def(stackless_core::def::DefError::NameInvalid {
+            kind: "verify tier",
+            ..
+        }) => {}
+        other => panic!("expected NameInvalid verify tier, got {other:?}"),
+    }
+}
+
+#[test]
+fn go_keyword_package_rejected() {
+    let compiled = stackless_idl::compile_source(&hello_toml(), &["local"]).expect("compile");
+    let err = stackless_idl::emit_go_from_idl(&compiled.idl, "type").expect_err("keyword pkg");
+    assert!(matches!(
+        err,
+        stackless_idl::IdlError::InvalidGoPackage { .. }
+    ));
+}
+
+#[test]
 fn check_mode_detects_stale() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("out.rs");

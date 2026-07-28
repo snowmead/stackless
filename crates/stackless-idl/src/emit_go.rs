@@ -4,7 +4,8 @@ use crate::emit_common::escape_str;
 use crate::error::IdlError;
 use crate::model::InterfaceV1;
 use crate::naming::IdentNamespace;
-use crate::naming::go::{GoNames, check_collisions};
+use crate::naming::go::{GoNames, check_collisions, is_keyword_package};
+use crate::naming::named_entries;
 
 pub fn emit_go(idl: &InterfaceV1, package: &str) -> Result<String, IdlError> {
     validate_package(package)?;
@@ -12,10 +13,14 @@ pub fn emit_go(idl: &InterfaceV1, package: &str) -> Result<String, IdlError> {
     let service_names = named_entries(
         idl.body.services.iter().map(|s| s.dns.as_str()),
         IdentNamespace::Service,
+        GoNames::from_dns,
+        check_collisions,
     )?;
     let tier_names = named_entries(
         idl.body.verify.tiers.iter().map(|t| t.dns.as_str()),
         IdentNamespace::Tier,
+        GoNames::from_dns,
+        check_collisions,
     )?;
 
     let mut out = String::new();
@@ -112,23 +117,11 @@ fn validate_package(package: &str) -> Result<(), IdlError> {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_')
         || package.chars().next().is_some_and(|c| c.is_ascii_digit())
+        || is_keyword_package(package)
     {
         return Err(IdlError::InvalidGoPackage {
             name: package.to_owned(),
         });
     }
     Ok(())
-}
-
-fn named_entries<'a>(
-    dns_names: impl Iterator<Item = &'a str>,
-    namespace: IdentNamespace,
-) -> Result<Vec<(String, GoNames)>, IdlError> {
-    let mut entries = Vec::new();
-    for dns in dns_names {
-        let names = GoNames::from_dns(dns)?;
-        entries.push((dns.to_owned(), names));
-    }
-    check_collisions(&entries, namespace)?;
-    Ok(entries)
 }

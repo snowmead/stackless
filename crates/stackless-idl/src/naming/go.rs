@@ -3,7 +3,8 @@
 use crate::error::IdlError;
 use crate::naming::{IdentNamespace, Parts};
 
-const GO_RESERVED: &[&str] = &[
+/// Keywords rejected in the `package` clause.
+const GO_KEYWORDS: &[&str] = &[
     "break",
     "case",
     "chan",
@@ -29,6 +30,10 @@ const GO_RESERVED: &[&str] = &[
     "switch",
     "type",
     "var",
+];
+
+/// Identifiers that collide with emitted exported slots (PascalCase).
+const GO_RESERVED_EXPORTED: &[&str] = &[
     "Origins",
     "BindError",
     "ServiceDNS",
@@ -51,7 +56,8 @@ impl GoNames {
             field: parts.pascal(),
             const_suffix: parts.pascal(),
         };
-        if is_reserved(&names.field) {
+        // Emitted slots are PascalCase; keywords never match those slots.
+        if is_reserved_exported(&names.field) {
             names.field = format!("Svc{}", names.field);
             names.const_suffix = format!("Svc{}", names.const_suffix);
         }
@@ -59,8 +65,12 @@ impl GoNames {
     }
 }
 
-fn is_reserved(ident: &str) -> bool {
-    GO_RESERVED.contains(&ident)
+pub fn is_keyword_package(name: &str) -> bool {
+    GO_KEYWORDS.contains(&name)
+}
+
+fn is_reserved_exported(ident: &str) -> bool {
+    GO_RESERVED_EXPORTED.contains(&ident)
 }
 
 pub fn check_collisions(
@@ -83,4 +93,25 @@ pub fn check_collisions(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+
+    #[test]
+    fn pascal_from_dns() {
+        let names = GoNames::from_dns("my-api").unwrap();
+        assert_eq!(names.field, "MyApi");
+        assert_eq!(names.const_suffix, "MyApi");
+    }
+
+    #[test]
+    fn reserves_exported_collisions() {
+        let names = GoNames::from_dns("origins").unwrap();
+        assert_eq!(names.field, "SvcOrigins");
+        assert_eq!(names.const_suffix, "SvcOrigins");
+    }
 }

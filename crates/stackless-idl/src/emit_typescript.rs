@@ -4,16 +4,21 @@ use crate::emit_common::escape_str;
 use crate::error::IdlError;
 use crate::model::InterfaceV1;
 use crate::naming::IdentNamespace;
+use crate::naming::named_entries;
 use crate::naming::typescript::{TsNames, check_collisions};
 
 pub fn emit_typescript(idl: &InterfaceV1) -> Result<String, IdlError> {
     let service_names = named_entries(
         idl.body.services.iter().map(|s| s.dns.as_str()),
         IdentNamespace::Service,
+        TsNames::from_dns,
+        check_collisions,
     )?;
     let tier_names = named_entries(
         idl.body.verify.tiers.iter().map(|t| t.dns.as_str()),
         IdentNamespace::Tier,
+        TsNames::from_dns,
+        check_collisions,
     )?;
 
     let mut out = String::new();
@@ -87,17 +92,4 @@ pub fn emit_typescript(idl: &InterfaceV1) -> Result<String, IdlError> {
     }
 
     Ok(out)
-}
-
-fn named_entries<'a>(
-    dns_names: impl Iterator<Item = &'a str>,
-    namespace: IdentNamespace,
-) -> Result<Vec<(String, TsNames)>, IdlError> {
-    let mut entries = Vec::new();
-    for dns in dns_names {
-        let names = TsNames::from_dns(dns)?;
-        entries.push((dns.to_owned(), names));
-    }
-    check_collisions(&entries, namespace)?;
-    Ok(entries)
 }

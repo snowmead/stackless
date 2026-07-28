@@ -124,3 +124,34 @@ fn insert<'a>(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+
+    #[test]
+    fn names_web() {
+        let n = TsNames::from_dns("web").unwrap();
+        assert_eq!(n.prop, "web");
+        assert_eq!(n.type_name, "Web");
+        assert_eq!(n.const_name, "WEB");
+    }
+
+    #[test]
+    fn names_my_api() {
+        let n = TsNames::from_dns("my-api").unwrap();
+        assert_eq!(n.prop, "myApi");
+        assert_eq!(n.type_name, "MyApi");
+        assert_eq!(n.const_name, "MY_API");
+    }
+
+    #[test]
+    fn renames_type_reserved() {
+        let n = TsNames::from_dns("type").unwrap();
+        assert_eq!(n.prop, "svcType");
+        assert_eq!(n.type_name, "SvcType");
+        assert_eq!(n.const_name, "SVC_TYPE");
+    }
+}

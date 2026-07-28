@@ -4,16 +4,21 @@ use crate::emit_common::escape_str;
 use crate::error::IdlError;
 use crate::model::InterfaceV1;
 use crate::naming::IdentNamespace;
+use crate::naming::named_entries;
 use crate::naming::rust::{RustNames, check_collisions};
 
 pub fn emit_rust(idl: &InterfaceV1) -> Result<String, IdlError> {
     let service_names = named_entries(
         idl.body.services.iter().map(|s| s.dns.as_str()),
         IdentNamespace::Service,
+        RustNames::from_dns,
+        check_collisions,
     )?;
     let tier_names = named_entries(
         idl.body.verify.tiers.iter().map(|t| t.dns.as_str()),
         IdentNamespace::Tier,
+        RustNames::from_dns,
+        check_collisions,
     )?;
 
     let mut out = String::new();
@@ -133,17 +138,4 @@ pub fn emit_rust(idl: &InterfaceV1) -> Result<String, IdlError> {
     out.push_str("}\n");
     out.push_str("pub use __stackless_bind::*;\n");
     Ok(out)
-}
-
-fn named_entries<'a>(
-    dns_names: impl Iterator<Item = &'a str>,
-    namespace: IdentNamespace,
-) -> Result<Vec<(String, RustNames)>, IdlError> {
-    let mut entries = Vec::new();
-    for dns in dns_names {
-        let names = RustNames::from_dns(dns)?;
-        entries.push((dns.to_owned(), names));
-    }
-    check_collisions(&entries, namespace)?;
-    Ok(entries)
 }

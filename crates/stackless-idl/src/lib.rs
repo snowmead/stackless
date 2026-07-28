@@ -4,7 +4,6 @@ mod canonical;
 mod error;
 mod model;
 mod naming;
-mod remap;
 
 #[cfg(feature = "compile")]
 mod compile;
@@ -31,7 +30,6 @@ pub use model::{
     VerifySection,
 };
 pub use naming::IdentNamespace;
-pub use remap::remap_dns;
 
 #[cfg(feature = "compile")]
 pub use compile::{Compiled, compile, compile_source};
@@ -42,8 +40,7 @@ pub use emit_go::emit_go;
 pub use emit_python::emit_python;
 #[cfg(feature = "emit")]
 pub use emit_registry::{
-    EmitOptions, LANG_GO, LANG_PYTHON, LANG_RUST, LANG_TYPESCRIPT, emit_for, known_languages,
-    normalize_lang,
+    EmitTarget, LANG_GO, LANG_PYTHON, LANG_RUST, LANG_TYPESCRIPT, emit_for, known_languages,
 };
 #[cfg(feature = "emit")]
 pub use emit_rust::emit_rust;
@@ -55,31 +52,30 @@ use std::path::{Path, PathBuf};
 /// Emit only after a canonical JSON round-trip (IDL is the real boundary).
 #[cfg(feature = "emit")]
 pub fn emit_rust_from_idl(idl: &InterfaceV1) -> Result<String, IdlError> {
-    emit_for(LANG_RUST, idl, &EmitOptions::default())
+    emit_for(&EmitTarget::Rust, idl)
 }
 
 /// Emit only after a canonical JSON round-trip (IDL is the real boundary).
 #[cfg(feature = "emit")]
 pub fn emit_typescript_from_idl(idl: &InterfaceV1) -> Result<String, IdlError> {
-    emit_for(LANG_TYPESCRIPT, idl, &EmitOptions::default())
+    emit_for(&EmitTarget::TypeScript, idl)
 }
 
 /// Emit Go bindings after a canonical JSON round-trip.
 #[cfg(feature = "emit")]
 pub fn emit_go_from_idl(idl: &InterfaceV1, package: &str) -> Result<String, IdlError> {
     emit_for(
-        LANG_GO,
-        idl,
-        &EmitOptions {
-            go_package: package.to_owned(),
+        &EmitTarget::Go {
+            package: package.to_owned(),
         },
+        idl,
     )
 }
 
 /// Emit Python bindings after a canonical JSON round-trip.
 #[cfg(feature = "emit")]
 pub fn emit_python_from_idl(idl: &InterfaceV1) -> Result<String, IdlError> {
-    emit_for(LANG_PYTHON, idl, &EmitOptions::default())
+    emit_for(&EmitTarget::Python, idl)
 }
 
 pub fn write_atomic(path: &Path, contents: &str) -> Result<(), IdlError> {

@@ -78,6 +78,12 @@ fn validate_definition(def: &StackDef, known_substrates: &[&str]) -> Result<(), 
             validate_references(def, &refs, &location)?;
         }
         for (tier, spec) in &verify.tiers {
+            if !crate::types::dns_safe(tier) {
+                return Err(DefError::NameInvalid {
+                    kind: "verify tier",
+                    name: tier.clone(),
+                });
+            }
             for (key, value) in &spec.env {
                 let location = format!("stack.verify.tiers.{tier}.env.{key}");
                 let refs = interp::references(value, &location)?;
@@ -269,6 +275,7 @@ fn validate_references(def: &StackDef, refs: &[Reference], location: &str) -> Re
 
 #[cfg(test)]
 mod tests {
+    use crate::def::StackDef;
     use crate::types::dns_safe;
 
     #[test]
@@ -281,5 +288,32 @@ mod tests {
         assert!(!dns_safe("atto-"));
         assert!(!dns_safe("at to"));
         assert!(!dns_safe(&"a".repeat(64)));
+    }
+
+    #[test]
+    fn verify_tier_keys_must_be_dns_safe() {
+        let text = r#"
+[stack]
+name = "bad"
+
+[stack.verify.tiers."a);func"]
+run = "true"
+
+[services.web]
+source = { repo = "https://example.invalid/x", ref = "main" }
+health = { path = "/" }
+
+[services.web.local]
+run = "true"
+"#;
+        let def = StackDef::parse(text).expect("parse");
+        let err = def.validate_hosts(&["local"]).expect_err("tier name");
+        assert!(matches!(
+            err,
+            crate::def::DefError::NameInvalid {
+                kind: "verify tier",
+                ..
+            }
+        ));
     }
 }

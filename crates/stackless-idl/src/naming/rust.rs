@@ -123,3 +123,58 @@ fn insert<'a>(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+
+    #[test]
+    fn names_web() {
+        let n = RustNames::from_dns("web").unwrap();
+        assert_eq!(n.field, "web");
+        assert_eq!(n.variant, "Web");
+        assert_eq!(n.const_name, "WEB");
+    }
+
+    #[test]
+    fn names_my_api() {
+        let n = RustNames::from_dns("my-api").unwrap();
+        assert_eq!(n.field, "my_api");
+        assert_eq!(n.variant, "MyApi");
+        assert_eq!(n.const_name, "MY_API");
+    }
+
+    #[test]
+    fn names_api_2() {
+        let n = RustNames::from_dns("api-2").unwrap();
+        assert_eq!(n.field, "api_n2");
+        assert_eq!(n.variant, "ApiN2");
+        assert_eq!(n.const_name, "API_N2");
+    }
+
+    #[test]
+    fn renames_type_reserved() {
+        let n = RustNames::from_dns("type").unwrap();
+        assert_eq!(n.field, "svc_type");
+        assert_eq!(n.variant, "SvcType");
+        assert_eq!(n.const_name, "SVC_TYPE");
+    }
+
+    #[test]
+    fn rejects_self_crate_super() {
+        assert!(matches!(
+            RustNames::from_dns("self"),
+            Err(IdlError::ReservedWireName { .. })
+        ));
+        assert!(matches!(
+            RustNames::from_dns("crate"),
+            Err(IdlError::ReservedWireName { .. })
+        ));
+        assert!(matches!(
+            RustNames::from_dns("super"),
+            Err(IdlError::ReservedWireName { .. })
+        ));
+    }
+}

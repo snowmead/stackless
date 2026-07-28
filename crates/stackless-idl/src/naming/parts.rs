@@ -18,6 +18,11 @@ impl Parts {
                 dns: dns.to_owned(),
             });
         }
+        if !wire_name_ok(dns) {
+            return Err(IdlError::InvalidWireName {
+                dns: dns.to_owned(),
+            });
+        }
 
         let segments: Vec<&str> = dns.split('-').collect();
         let snake_parts: Vec<String> = segments.iter().map(|s| snake_segment(s)).collect();
@@ -50,6 +55,18 @@ impl Parts {
         }
         out
     }
+}
+
+/// Same rules as `stackless_core::types::dns_safe` (kept local so emit works
+/// without the `compile` feature).
+fn wire_name_ok(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 63
+        && name.starts_with(|c: char| c.is_ascii_lowercase())
+        && !name.ends_with('-')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
 fn snake_segment(segment: &str) -> String {
@@ -88,5 +105,25 @@ pub(crate) fn capitalize_first(s: &str) -> String {
             out
         }
         None => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+
+    #[test]
+    fn rejects_injection_tier_keys() {
+        let err = Parts::from_dns("a);func init(){panic(1)};const(Z").unwrap_err();
+        assert!(matches!(err, IdlError::InvalidWireName { .. }));
+    }
+
+    #[test]
+    fn accepts_dns_safe() {
+        assert!(Parts::from_dns("web").is_ok());
+        assert!(Parts::from_dns("my-api").is_ok());
+        assert!(Parts::from_dns("api-2").is_ok());
     }
 }
