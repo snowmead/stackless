@@ -166,9 +166,14 @@ pub fn emit_rust(idl: &InterfaceV1) -> Result<String, IdlError> {
     out.push_str("}\n\n");
 
     out.push_str("impl Integrations {\n");
-    out.push_str(
-        "    pub fn from_map(map: &BTreeMap<String, BTreeMap<String, String>>) -> Result<Self, BindError> {\n",
-    );
+    let integrations_map_param = if integrations.is_empty() {
+        "_map"
+    } else {
+        "map"
+    };
+    out.push_str(&format!(
+        "    pub fn from_map({integrations_map_param}: &BTreeMap<String, BTreeMap<String, String>>) -> Result<Self, BindError> {{\n",
+    ));
     out.push_str("        Ok(Self {\n");
     for integration in &integrations {
         out.push_str(&format!("            {}: {{\n", integration.names.field));

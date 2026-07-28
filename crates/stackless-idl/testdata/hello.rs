@@ -57,7 +57,7 @@ impl Origins {
 }
 
 impl Integrations {
-    pub fn from_map(map: &BTreeMap<String, BTreeMap<String, String>>) -> Result<Self, BindError> {
+    pub fn from_map(_map: &BTreeMap<String, BTreeMap<String, String>>) -> Result<Self, BindError> {
         Ok(Self {
         })
     }
