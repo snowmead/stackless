@@ -49,6 +49,8 @@ const RUST_RESERVED: &[&str] = &[
     "VerifyTier",
     "BindError",
     "ServiceDns",
+    "Integrations",
+    "Integration",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,7 +62,14 @@ pub struct RustNames {
 
 impl RustNames {
     pub fn from_dns(dns: &str) -> Result<Self, IdlError> {
-        let parts = Parts::from_dns(dns)?;
+        Self::from_parts(Parts::from_dns(dns)?)
+    }
+
+    pub fn from_output_key(key: &str) -> Result<Self, IdlError> {
+        Self::from_parts(Parts::from_output_key(key)?)
+    }
+
+    fn from_parts(parts: Parts) -> Result<Self, IdlError> {
         let mut names = Self {
             field: parts.snake(),
             variant: parts.pascal(),

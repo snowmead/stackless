@@ -25,12 +25,22 @@ impl Parts {
         }
 
         let segments: Vec<&str> = dns.split('-').collect();
+        Ok(Self::from_segments(&segments))
+    }
+
+    /// Name an integration output wire key (`secret_key`) the same way as DNS.
+    pub fn from_output_key(key: &str) -> Result<Self, IdlError> {
+        let as_dns = key.replace('_', "-");
+        Self::from_dns(&as_dns)
+    }
+
+    fn from_segments(segments: &[&str]) -> Self {
         let snake_parts: Vec<String> = segments.iter().map(|s| snake_segment(s)).collect();
         let pascal_parts: Vec<String> = segments.iter().map(|s| pascal_segment(s)).collect();
-        Ok(Self {
+        Self {
             snake_parts,
             pascal_parts,
-        })
+        }
     }
 
     pub fn snake(&self) -> String {

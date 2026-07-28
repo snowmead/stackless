@@ -1,6 +1,8 @@
 //! Human and `--json` output. JSON goes to stdout, human prose to
 //! stderr for errors — agents parse stdout, people read stderr.
 
+use std::collections::BTreeMap;
+
 use serde::Serialize;
 
 use stackless_core::def::{DependencyGraph, StackDef};
@@ -241,6 +243,7 @@ impl Output {
         substrate: &str,
         outcome: &UpOutcome,
         origins: &[(String, String)],
+        integrations: &BTreeMap<String, BTreeMap<String, String>>,
         spend: Option<&SpendInfo>,
     ) {
         if self.json {
@@ -255,6 +258,8 @@ impl Output {
                 duration_ms: u64,
                 steps: &'a [stackless_core::engine::StepTiming],
                 origins: Vec<Origin<'a>>,
+                #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+                integrations: &'a BTreeMap<String, BTreeMap<String, String>>,
                 #[serde(skip_serializing_if = "Option::is_none")]
                 spend: Option<&'a SpendInfo>,
             }
@@ -276,6 +281,7 @@ impl Output {
                     .iter()
                     .map(|(service, origin)| Origin { service, origin })
                     .collect(),
+                integrations,
                 spend,
             });
             return;
@@ -583,6 +589,7 @@ pub(crate) fn render_up(output: &mut Output, outcome: &ClientUpOutcome) {
         &outcome.substrate,
         &engine_like,
         &origins,
+        &outcome.integrations,
         outcome.spend.as_ref(),
     );
     if !output.is_json()
@@ -768,6 +775,66 @@ mod tests {
         .unwrap();
         assert_eq!(json["ok"], true);
         assert_eq!(json["outcome"], "destroyed");
+    }
+
+    #[test]
+    fn up_ok_envelope_integrations_shape() {
+        let mut clerk = BTreeMap::new();
+        clerk.insert("secret_key".into(), "sk_test".into());
+        let mut integrations = BTreeMap::new();
+        integrations.insert("clerk".into(), clerk);
+        #[derive(Serialize)]
+        struct UpOk<'a> {
+            schema_version: u32,
+            ok: bool,
+            instance: &'a str,
+            substrate: &'a str,
+            executed: &'a [String],
+            skipped: &'a [String],
+            duration_ms: u64,
+            steps: &'a [stackless_core::engine::StepTiming],
+            origins: Vec<Origin<'a>>,
+            #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+            integrations: &'a BTreeMap<String, BTreeMap<String, String>>,
+        }
+        #[derive(Serialize)]
+        struct Origin<'a> {
+            service: &'a str,
+            origin: &'a str,
+        }
+        let json = serde_json::to_value(&UpOk {
+            schema_version: SCHEMA_VERSION,
+            ok: true,
+            instance: "demo",
+            substrate: "local",
+            executed: &[],
+            skipped: &[],
+            duration_ms: 0,
+            steps: &[],
+            origins: vec![Origin {
+                service: "web",
+                origin: "http://web.demo.localhost:4444",
+            }],
+            integrations: &integrations,
+        })
+        .unwrap();
+        assert_eq!(json["integrations"]["clerk"]["secret_key"], "sk_test");
+
+        let empty: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
+        let json = serde_json::to_value(&UpOk {
+            schema_version: SCHEMA_VERSION,
+            ok: true,
+            instance: "demo",
+            substrate: "local",
+            executed: &[],
+            skipped: &[],
+            duration_ms: 0,
+            steps: &[],
+            origins: vec![],
+            integrations: &empty,
+        })
+        .unwrap();
+        assert!(json.get("integrations").is_none());
     }
 }
 

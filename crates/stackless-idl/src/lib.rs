@@ -32,7 +32,9 @@ pub use model::{
 pub use naming::IdentNamespace;
 
 #[cfg(feature = "compile")]
-pub use compile::{Compiled, compile, compile_source};
+pub use compile::{
+    Compiled, compile, compile_source, compile_source_with_outputs, compile_with_outputs,
+};
 
 #[cfg(feature = "emit")]
 pub use emit_go::emit_go;

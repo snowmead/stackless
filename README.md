@@ -99,10 +99,13 @@ Every command is non-interactive and exits with codes an agent can branch on.
 ### Typed bindings
 
 `stackless bind` projects a stack definition into a language-neutral IDL
-(`.stackless/stack.idl.json`) and optional origins bags so tests can name
-services and verify tiers without stringly DNS keys. Emitters cover Rust,
-TypeScript, Go, and Python. Language identifiers are computed at emit time
-from DNS wire names (not stored in the IDL).
+(`.stackless/stack.idl.json`) and typed bags so tests can name services,
+verify tiers, and integration outputs without stringly DNS keys. Emitters
+cover Rust, TypeScript, Go, and Python. Each language gets `Origins` /
+`bindOrigins`, `Integrations` / `bindIntegrations`, `SECRETS_REQUIRED`, and
+`VerifyTier` when declared. Language identifiers are computed at emit time
+from DNS wire names and provider output keys (not stored as language idents
+in the IDL).
 
 ```bash
 stackless bind --file stackless.toml \
@@ -139,6 +142,8 @@ The `stackless` crate is both the CLI and a sync library. Depend on it to
 bring environments up and down from Rust (integration tests, CI tooling,
 or operators that prefer an in-process API over shelling out). Linking
 the crate does **not** require your binary to implement CLI subcommands.
+A successful `up` returns service origins and integration outputs (from
+checkpoints) on `UpOutcome` for use with generated bind helpers.
 
 Two modes:
 
@@ -175,12 +180,31 @@ Paid cloud substrates use `PaidConsent::confirmed()` (same gate as
 `cloud`, …); defaults match the full CLI. Publishing notes:
 [docs/PUBLISHING.md](docs/PUBLISHING.md).
 
+### CLI-backed SDKs (TypeScript, Python, Go)
+
+Non-Rust languages do not embed the Engine. Packages under [`sdks/`](sdks/)
+spawn the `stackless` CLI with `--json` and parse envelopes (see
+[sdks/PROTOCOL.md](sdks/PROTOCOL.md)). Resolve the binary via `STACKLESS_BIN`
+then `PATH`.
+
+| Package | Path |
+| --- | --- |
+| `@stackless/sdk` | [`sdks/typescript/`](sdks/typescript/) |
+| `stackless` (PyPI-shaped) | [`sdks/python/`](sdks/python/) |
+| Go module | [`sdks/go/`](sdks/go/) |
+
+`up` JSON includes `origins` and, when present, nested `integrations`
+(credential values). Prefer verify-tier env interpolation when secrets must
+not appear on stdout. Product test harnesses (Playwright fixtures, etc.)
+belong in the application repo; stackless stops at Client + bind + delivery.
+
 ## Docs
 
 - [VISION.md](VISION.md) — why and invariants
 - [ARCHITECTURE.md](ARCHITECTURE.md) — how it is built
 - [docs/SCHEMA.md](docs/SCHEMA.md) — `stackless.toml` reference
 - [docs/AGENT-FLEETS.md](docs/AGENT-FLEETS.md) — parallel agents and shared state
+- [sdks/PROTOCOL.md](sdks/PROTOCOL.md) — CLI JSON contract for language SDKs
 - [`.cursor/skills/stackless/SKILL.md`](.cursor/skills/stackless/SKILL.md) — agent skill
 - [CLAUDE.md](CLAUDE.md) — contributor map (crates, mise, provider tooling)
 - [docs/PUBLISHING.md](docs/PUBLISHING.md) — crates.io publish order for the SDK wave

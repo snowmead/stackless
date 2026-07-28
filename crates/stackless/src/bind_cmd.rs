@@ -2,7 +2,9 @@
 
 use std::path::{Path, PathBuf};
 
-use stackless_idl::{EmitTarget, IdlError, check_bytes, compile_source, emit_for, write_atomic};
+use stackless_idl::{
+    EmitTarget, IdlError, check_bytes, compile_source_with_outputs, emit_for, write_atomic,
+};
 
 use crate::error::Error;
 use crate::output::Output;
@@ -23,7 +25,9 @@ pub fn bind(args: BindArgs, output: &Output) -> Result<(), Error> {
         source,
     })?;
     let known = crate::substrates::known_names();
-    let compiled = compile_source(&text, &known).map_err(map_idl)?;
+    let compiled =
+        compile_source_with_outputs(&text, &known, stackless_integrations::known_outputs)
+            .map_err(map_idl)?;
     let idl_json = compiled.pretty_json;
     let idl = compiled.idl;
 

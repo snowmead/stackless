@@ -76,8 +76,9 @@ creation; set API keys (see doctor). Paid resources need `--confirm-paid`.
 (cloud substrates reject `--source`).
 
 **Typed bindings:** after the TOML stabilizes, generate a checked-in IDL and
-language projections (standalone `Origins` / `bindOrigins`, no Client wrap).
-Languages: `rust`, `typescript` (`ts`), `go`, `python` (`py`).
+language projections (`Origins`/`bindOrigins`, `Integrations`/`bindIntegrations`,
+`SECRETS_REQUIRED`, `VerifyTier`). Bind is not a Client. Languages: `rust`,
+`typescript` (`ts`), `go`, `python` (`py`).
 
 ```bash
 stackless bind --file stackless.toml \
@@ -93,6 +94,12 @@ stackless bind --file stackless.toml \
   --check
 ```
 
+**CLI-backed SDKs** (TypeScript / Python / Go under `sdks/`) shell
+`stackless --json` per `sdks/PROTOCOL.md`. Rust `Client` is in-process Engine;
+`STACKLESS_BIN` there is daemon resolution only. Integration credentials for
+out-of-process tests: verify-tier env (preferred off-stdout) or
+`up --json` / `UpOutcome.integrations` (do not scrape vault/`state.db`).
+
 ## Machine output contract
 
 | Stream | Content |
@@ -105,7 +112,7 @@ stackless bind --file stackless.toml \
 Every success verb emits `{ "schema_version": 1, "ok": true, … }` on stdout.
 
 - `check --json`: `{ "ok": true, "stack", "services", "graph" }`
-- `up --json`: `{ "schema_version", "ok", "instance", "substrate", "executed", "skipped", "duration_ms", "steps", "origins", "spend?" }`
+- `up --json`: `{ "schema_version", "ok", "instance", "substrate", "executed", "skipped", "duration_ms", "steps", "origins", "integrations?", "spend?" }` — `integrations` is a nested `{ dns: { output: value } }` object, omitted when empty; contains credentials
 - `down --json`: `{ "schema_version", "ok", "instance", "outcome", "spend?" }`
 - `verify --json`: `{ "schema_version", "ok", "instance", "tier?", "duration_ms", "exit_status", "log_path", "lease_remaining_secs?" }`
 - `status`/`list --json`: `{ "schema_version", "ok", …report fields…, "persistence_warning?" }`

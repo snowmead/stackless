@@ -6,22 +6,45 @@ export const STACK_NAME = "hello" as const;
 export const SERVICE_DNS = ["web"] as const;
 export type ServiceDns = (typeof SERVICE_DNS)[number];
 
+export const INTEGRATION_DNS = [] as const;
+export type IntegrationDns = (typeof INTEGRATION_DNS)[number];
+
+export const SECRETS_REQUIRED = [] as const;
+
+export type Integrations = {
+};
+
 export type Origins = {
   web: string;
 };
 
 export class BindError extends Error {
-  constructor(readonly dns: ServiceDns) {
-    super(`missing origin for service ${dns}`);
+  constructor(
+    readonly reason: "service" | "integration" | "output",
+    readonly dns: string,
+    readonly outputKey?: string,
+  ) {
+    const message =
+      reason === "service"
+        ? `missing origin for service ${dns}`
+        : reason === "integration"
+          ? `missing integration ${dns}`
+          : `missing output ${outputKey} for integration ${dns}`;
+    super(message);
     this.name = "BindError";
   }
 }
 
 export function bindOrigins(map: Record<string, string>): Origins {
   const web = map["web"];
-  if (web === undefined) throw new BindError("web");
+  if (web === undefined) throw new BindError("service", "web");
   return {
     web: web,
+  };
+}
+
+export function bindIntegrations(map: Record<string, Record<string, string>>): Integrations {
+  return {
   };
 }
 

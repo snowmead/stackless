@@ -4,16 +4,35 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
+from typing import Literal, Mapping
 
 IDL_FINGERPRINT = "sha256:1228a24dc92b50568bb3d56fc8007b4ec7dd14d6e64d65f0a04973dbac5d5568"
 STACK_NAME = "hello"
 SERVICE_DNS = ("web",)
+INTEGRATION_DNS = ()
+SECRETS_REQUIRED = ()
+
+@dataclass(frozen=True)
+class Integrations:
+    pass
 
 class BindError(Exception):
-    def __init__(self, dns: str) -> None:
+    def __init__(
+        self,
+        reason: Literal["service", "integration", "output"],
+        dns: str,
+        output_key: str | None = None,
+    ) -> None:
+        self.reason = reason
         self.dns = dns
-        super().__init__(f"missing origin for service {dns}")
+        self.output_key = output_key
+        if reason == "service":
+            message = f"missing origin for service {dns}"
+        elif reason == "integration":
+            message = f"missing integration {dns}"
+        else:
+            message = f"missing output {output_key} for integration {dns}"
+        super().__init__(message)
 
 @dataclass(frozen=True)
 class Origins:
@@ -21,10 +40,13 @@ class Origins:
 
 def bind_origins(values: Mapping[str, str]) -> Origins:
     if "web" not in values:
-        raise BindError("web")
+        raise BindError("service", "web")
     return Origins(
         web=values["web"],
     )
+
+def bind_integrations(values: Mapping[str, Mapping[str, str]]) -> Integrations:
+    return Integrations()
 
 class VerifyTier:
     DEFAULT = "default"

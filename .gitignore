@@ -30,3 +30,12 @@ fixtures/smoke/*/.projects/
 node_modules/
 dist/
 .vercel/
+
+# Language SDK local tool state
+**/.venv/
+**/.pytest_cache/
+sdks/**/node_modules/
+sdks/**/dist/
+
+**/__pycache__/
+*.py[cod]

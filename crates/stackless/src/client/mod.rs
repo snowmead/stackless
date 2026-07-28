@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use serde::Serialize;
-use stackless_core::def::{DependencyGraph, StackDef};
+use stackless_core::def::{DependencyGraph, Namespace, StackDef};
 use stackless_core::engine::{
     DownOutcome as EngineDownOutcome, Engine, ProgressSink, UpRequest as EngineUpRequest,
 };
@@ -224,6 +224,7 @@ pub struct UpOutcome {
     pub name: String,
     pub substrate: String,
     pub origins: BTreeMap<String, String>,
+    pub integrations: BTreeMap<String, BTreeMap<String, String>>,
     pub executed: Vec<String>,
     pub skipped: Vec<String>,
     pub duration_ms: u64,
@@ -244,6 +245,30 @@ impl UpOutcome {
 
     pub fn origins(&self) -> &BTreeMap<String, String> {
         &self.origins
+    }
+
+    pub fn integrations(&self) -> &BTreeMap<String, BTreeMap<String, String>> {
+        &self.integrations
+    }
+
+    pub fn integration(&self, dns: &str) -> Result<&BTreeMap<String, String>, Error> {
+        self.integrations
+            .get(dns)
+            .ok_or_else(|| Error::BadArgument {
+                argument: "integration".into(),
+                detail: format!("no outputs recorded for integration {dns:?}"),
+            })
+    }
+
+    pub fn integration_output(&self, dns: &str, key: &str) -> Result<&str, Error> {
+        self.integrations
+            .get(dns)
+            .and_then(|outputs| outputs.get(key))
+            .map(String::as_str)
+            .ok_or_else(|| Error::BadArgument {
+                argument: "integration output".into(),
+                detail: format!("no output {key:?} for integration {dns:?}"),
+            })
     }
 }
 
@@ -479,10 +504,13 @@ impl Client {
             );
         }
         let spend = rt.block_on(provider.spend());
+        let checkpoints = store.checkpoints(&name)?;
+        let integrations = Namespace::integration_outputs_from_checkpoints(&checkpoints);
         Ok(UpOutcome {
             name,
             substrate: substrate_name,
             origins,
+            integrations,
             executed: engine_outcome.executed,
             skipped: engine_outcome.skipped,
             duration_ms: engine_outcome.duration_ms,
@@ -672,6 +700,7 @@ mod tests {
             name: "demo".into(),
             substrate: "local".into(),
             origins,
+            integrations: BTreeMap::new(),
             executed: vec![],
             skipped: vec![],
             duration_ms: 0,
@@ -684,6 +713,32 @@ mod tests {
         );
         assert!(outcome.origin("api").is_err());
         assert_eq!(outcome.origins().len(), 1);
+    }
+
+    #[test]
+    fn up_outcome_integration_helpers() {
+        let mut clerk = BTreeMap::new();
+        clerk.insert("secret_key".into(), "sk_test".into());
+        let mut integrations = BTreeMap::new();
+        integrations.insert("clerk".into(), clerk);
+        let outcome = UpOutcome {
+            name: "demo".into(),
+            substrate: "local".into(),
+            origins: BTreeMap::new(),
+            integrations,
+            executed: vec![],
+            skipped: vec![],
+            duration_ms: 0,
+            steps: vec![],
+            spend: None,
+        };
+        assert_eq!(
+            outcome.integration_output("clerk", "secret_key").unwrap(),
+            "sk_test"
+        );
+        assert!(outcome.integration_output("clerk", "missing").is_err());
+        assert!(outcome.integration("unknown").is_err());
+        assert_eq!(outcome.integrations().len(), 1);
     }
 
     #[test]

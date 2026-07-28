@@ -56,6 +56,11 @@ const TS_RESERVED: &[&str] = &[
     "bindOrigins",
     "ServiceDns",
     "BindError",
+    "Integrations",
+    "bindIntegrations",
+    "INTEGRATION_DNS",
+    "SECRETS_REQUIRED",
+    "IntegrationDns",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,7 +72,14 @@ pub struct TsNames {
 
 impl TsNames {
     pub fn from_dns(dns: &str) -> Result<Self, IdlError> {
-        let parts = Parts::from_dns(dns)?;
+        Self::from_parts(Parts::from_dns(dns)?)
+    }
+
+    pub fn from_output_key(key: &str) -> Result<Self, IdlError> {
+        Self::from_parts(Parts::from_output_key(key)?)
+    }
+
+    fn from_parts(parts: Parts) -> Result<Self, IdlError> {
         let mut names = Self {
             prop: parts.camel(),
             type_name: parts.pascal(),
