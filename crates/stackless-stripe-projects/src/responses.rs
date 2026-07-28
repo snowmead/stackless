@@ -113,40 +113,8 @@ impl ServicesListResponse {
         self.iter().any(|r| r.name.as_deref() == Some(name))
     }
 
-    /// Resolve an existing project resource to reuse.
-    ///
-    /// Prefers an exact local `--name` match in `services` or `plans`.
-    /// Otherwise picks a row whose catalog `service_id` equals `catalog_id`
-    /// (e.g. plan `clerk-plan` with `service_id: hobby`, or service
-    /// `clerk-auth` with `service_id: auth`). Among `service_id` matches,
-    /// prefer `name == catalog_id`, then names prefixed by `catalog_id`, then
-    /// lexicographic order.
-    pub fn resolve(&self, name: &str, catalog_id: &str) -> Option<&str> {
-        if let Some(found) = self
-            .iter()
-            .find_map(|r| r.name.as_deref().filter(|n| *n == name))
-        {
-            return Some(found);
-        }
-        let mut candidates: Vec<&str> = self
-            .iter()
-            .filter(|r| r.service_id.as_deref() == Some(catalog_id))
-            .filter_map(|r| r.name.as_deref())
-            .collect();
-        candidates.sort_by_key(|candidate| {
-            let rank = if *candidate == catalog_id {
-                0u8
-            } else if candidate.starts_with(catalog_id) {
-                1
-            } else {
-                2
-            };
-            (rank, *candidate)
-        });
-        candidates.first().copied()
-    }
-
-    fn iter(&self) -> impl Iterator<Item = &ServiceRef> {
+    /// Iterate services and plans as one sequence (DTO stays policy-free).
+    pub fn iter(&self) -> impl Iterator<Item = &ServiceRef> {
         self.services.iter().chain(self.plans.iter())
     }
 }
@@ -158,6 +126,9 @@ pub struct ServiceRef {
     /// Catalog service id (`hobby`, `auth`, …), distinct from the local `--name`.
     #[serde(default)]
     pub service_id: Option<String>,
+    /// Provider that owns the row (`Clerk`, `vercel`, …). Required to scope reuse.
+    #[serde(default, alias = "provider")]
+    pub provider_name: Option<String>,
 }
 
 /// Extract preflight rows from a full `{ok, data, error}` envelope.
@@ -289,49 +260,20 @@ mod tests {
     #[test]
     fn services_list_contains_plans_by_name() {
         let r: ServicesListResponse = serde_json::from_value(json!({
-            "services": [{"name": "clerk-auth", "service_id": "auth"}],
-            "plans": [{"name": "hobby", "service_id": "hobby"}]
+            "services": [{"name": "clerk-auth", "service_id": "auth", "provider_name": "Clerk"}],
+            "plans": [{"name": "hobby", "service_id": "hobby", "provider_name": "Clerk"}]
         }))
         .unwrap();
         assert!(r.contains("hobby"));
         assert!(r.contains("clerk-auth"));
-        assert_eq!(r.resolve("hobby", "hobby"), Some("hobby"));
     }
 
     #[test]
-    fn services_list_resolve_prefers_service_id_fallback() {
+    fn services_list_accepts_provider_alias() {
         let r: ServicesListResponse = serde_json::from_value(json!({
-            "services": [],
-            "plans": [
-                {"name": "clerk-plan", "service_id": "hobby"},
-                {"name": "hobby-2", "service_id": "hobby"}
-            ]
+            "plans": [{"name": "hobby", "service_id": "hobby", "provider": "vercel"}]
         }))
         .unwrap();
-        assert!(!r.contains("hobby"));
-        assert_eq!(r.resolve("hobby", "hobby"), Some("hobby-2"));
-    }
-
-    #[test]
-    fn services_list_resolve_prefers_exact_name_over_service_id() {
-        let r: ServicesListResponse = serde_json::from_value(json!({
-            "plans": [
-                {"name": "clerk-plan", "service_id": "hobby"},
-                {"name": "hobby", "service_id": "hobby"},
-                {"name": "hobby-2", "service_id": "hobby"}
-            ]
-        }))
-        .unwrap();
-        assert_eq!(r.resolve("hobby", "hobby"), Some("hobby"));
-    }
-
-    #[test]
-    fn services_list_resolve_deployable_by_catalog_service_id() {
-        let r: ServicesListResponse = serde_json::from_value(json!({
-            "services": [{"name": "clerk-auth", "service_id": "auth"}],
-            "plans": [{"name": "hobby", "service_id": "hobby"}]
-        }))
-        .unwrap();
-        assert_eq!(r.resolve("e2e-clerk", "auth"), Some("clerk-auth"));
+        assert_eq!(r.plans[0].provider_name.as_deref(), Some("vercel"));
     }
 }

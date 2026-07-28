@@ -87,11 +87,34 @@ pub fn services(names: &[&str]) -> CommandOutput {
     ok(json!({ "services": list, "plans": [] }))
 }
 
-/// `stripe projects services list` data with companion plans (`name` + `service_id`).
-pub fn plans(entries: &[(&str, &str)]) -> CommandOutput {
+/// `stripe projects services list` rows with catalog identity
+/// (`name`, `service_id`, `provider_name`).
+pub fn service_rows(entries: &[(&str, &str, &str)]) -> CommandOutput {
     let list: Vec<Value> = entries
         .iter()
-        .map(|(name, service_id)| json!({ "name": name, "service_id": service_id }))
+        .map(|(name, service_id, provider)| {
+            json!({
+                "name": name,
+                "service_id": service_id,
+                "provider_name": provider,
+            })
+        })
+        .collect();
+    ok(json!({ "services": list, "plans": [] }))
+}
+
+/// `stripe projects services list` companion plans
+/// (`name`, `service_id`, `provider_name`).
+pub fn plans(entries: &[(&str, &str, &str)]) -> CommandOutput {
+    let list: Vec<Value> = entries
+        .iter()
+        .map(|(name, service_id, provider)| {
+            json!({
+                "name": name,
+                "service_id": service_id,
+                "provider_name": provider,
+            })
+        })
         .collect();
     ok(json!({ "services": [], "plans": list }))
 }

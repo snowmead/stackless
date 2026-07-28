@@ -152,7 +152,11 @@ async fn cmd_discover(reference: &str, config: Option<&str>, dir: &Path) -> Resu
     let env_text = std::fs::read_to_string(dir.join(&env_file)).unwrap_or_default();
 
     // Best-effort teardown before surfacing any provisioning error.
-    let _ = project::remove_resource(&stripe, &resource).await;
+    let teardown_name = provisioned
+        .as_ref()
+        .map(|added| added.name.as_str())
+        .unwrap_or(resource.as_str());
+    let _ = project::remove_resource(&stripe, teardown_name).await;
     let _ = stripe.json(&["env", "use", "default"]).await;
     let _ = stripe.json(&["env", "delete", &env_name, "--yes"]).await;
     let _ = std::fs::remove_file(dir.join(&env_file));

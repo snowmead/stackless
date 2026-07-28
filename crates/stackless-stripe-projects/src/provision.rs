@@ -61,11 +61,12 @@ where
         project::ensure_project(stripe, ctx.def, ctx.definition_dir).await?;
         project::ensure_environment(stripe, ctx.instance).await?;
     }
-    let resource_name = ctx.resource_name();
-    let add_data = add_catalog_resource(stripe, catalog, config, &resource_name).await?;
+    let requested = ctx.resource_name();
+    let added = add_catalog_resource(stripe, catalog, config, &requested).await?;
+    let resource_name = added.name;
     let raw = resolve_env_blob(
         stripe,
-        &add_data,
+        &added.data,
         ctx.instance,
         &resource_name,
         C::REFERENCE,
@@ -102,12 +103,13 @@ where
         project::ensure_project(stripe, ctx.def, ctx.definition_dir).await?;
         project::ensure_environment(stripe, ctx.instance).await?;
     }
-    let resource_name = ctx.resource_name();
-    let add_data = add_catalog_resource(stripe, catalog, config, &resource_name).await?;
+    let requested = ctx.resource_name();
+    let added = add_catalog_resource(stripe, catalog, config, &requested).await?;
+    let resource_name = added.name;
     let mut values = BTreeMap::new();
     let mut missing: Vec<&str> = Vec::new();
     for key in env_keys {
-        match find_env_value(&add_data, key) {
+        match find_env_value(&added.data, key) {
             Some(value) => {
                 values.insert((*key).to_owned(), value);
             }

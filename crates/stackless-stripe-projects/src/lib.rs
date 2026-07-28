@@ -21,11 +21,11 @@ pub use catalog::verify::{
 pub use catalog::{Catalog, ServiceDetail};
 pub use error::ProjectsError;
 pub use project::{
-    INIT_PREFLIGHT_FLAGS, add_resource, delete_environment, ensure_environment, ensure_project,
-    find_env_value, merge_env_lines, project_initialized_in_dir, recorded_project_id,
-    remove_resource, resolve_registered_resource, resource_registered, run_init_preflight,
-    set_spend_cap, spend_summary, sync_vault_pull_for_instance, unquote_env_value,
-    vault_env_from_dir,
+    AddedResource, INIT_PREFLIGHT_FLAGS, add_resource, delete_environment, ensure_environment,
+    ensure_project, find_env_value, merge_env_lines, project_initialized_in_dir,
+    recorded_project_id, remove_resource, resolve_registered_resource, resource_registered,
+    run_init_preflight, set_spend_cap, spend_summary, sync_vault_pull_for_instance,
+    unquote_env_value, vault_env_from_dir,
 };
 pub use responses::{
     EnvListResponse, PreflightCheck, PreflightReady, ServicesListResponse, StatusResponse,
