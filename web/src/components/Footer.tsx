@@ -33,6 +33,12 @@ export function Footer() {
         >
           skill
         </a>
+        <a
+          href="https://github.com/snowmead/stackless/tree/main/sdks"
+          rel="noopener noreferrer"
+        >
+          sdks
+        </a>
         <a href="/llms.txt">llms.txt</a>
       </nav>
     </footer>

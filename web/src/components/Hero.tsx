@@ -1,3 +1,4 @@
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { HeroDemo } from "@/components/HeroDemo";
 import { useCopy } from "@/hooks/use-copy";
@@ -22,13 +23,16 @@ export function Hero({ reduceMotion, conductor }: Props) {
 
       <nav className="topbar">
         <span className="topbar-spacer" aria-hidden="true" />
-        <a
-          className="topbar-link"
-          href="https://github.com/snowmead/stackless"
-          rel="noopener noreferrer"
-        >
-          GitHub
-        </a>
+        <div className="topbar-actions">
+          <ThemeToggle />
+          <a
+            className="topbar-link"
+            href="https://github.com/snowmead/stackless"
+            rel="noopener noreferrer"
+          >
+            GitHub
+          </a>
+        </div>
       </nav>
 
       <div className="hero-split">
@@ -40,8 +44,8 @@ export function Hero({ reduceMotion, conductor }: Props) {
             One disposable stack.
           </h1>
           <p className="lede">
-            Agents run <code>up</code>. Nodes appear. Lease or{" "}
-            <code>down</code> tears the graph away.
+            Disposable e2e stacks: your services, Stripe Projects integrations,{" "}
+            <code>up</code> / <code>verify</code> / <code>down</code>.
           </p>
           <div className="cta-row">
             <Button

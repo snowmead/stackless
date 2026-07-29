@@ -14,7 +14,7 @@
   background:
     radial-gradient(
       ellipse 55% 40% at 82% 12%,
-      oklch(0.22 0.02 250 / 0.55),
+      var(--hero-glow),
       transparent 60%
     ),
     var(--void);
@@ -41,11 +41,7 @@
 .hero-wash {
   position: absolute;
   inset: 0;
-  background: linear-gradient(
-    180deg,
-    oklch(0.18 0.012 250 / 0.4),
-    transparent 42%
-  );
+  background: linear-gradient(180deg, var(--hero-wash), transparent 42%);
 }
 
 @keyframes grid-drift {
@@ -77,6 +73,12 @@
 
 .topbar-spacer {
   flex: 1;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
 .topbar-link {
@@ -167,7 +169,7 @@
 }
 
 .btn-primary:hover {
-  background: oklch(0.98 0.005 250);
+  background: var(--ink-soft);
   color: var(--void);
 }
 
@@ -212,7 +214,7 @@
   font-size: 0.75rem;
   color: var(--ink-faint);
   letter-spacing: 0.02em;
-  background: oklch(0.16 0.012 250);
+  background: var(--surface-inset);
 }
 
 .demo-toml-body {
@@ -275,16 +277,16 @@
 }
 
 .toml-line.is-lit {
-  background: oklch(0.78 0.08 165 / 0.14);
+  background: var(--toml-lit);
 }
 
 .t-header {
-  color: oklch(0.78 0.07 230);
+  color: var(--toml-header);
   font-weight: 500;
 }
 
 .t-key {
-  color: oklch(0.84 0.035 230);
+  color: var(--toml-key);
 }
 
 .t-punct {
@@ -292,15 +294,40 @@
 }
 
 .t-str {
-  color: oklch(0.8 0.07 65);
+  color: var(--toml-str);
 }
 
 .t-interp {
-  color: oklch(0.82 0.09 165);
+  color: var(--toml-interp);
 }
 
 .t-bool {
-  color: oklch(0.78 0.06 250);
+  color: var(--toml-bool);
+}
+
+.t-comment {
+  color: var(--code-muted);
+  font-style: italic;
+}
+
+.t-num {
+  color: var(--toml-str);
+}
+
+.code-block-hl .toml-line {
+  display: block;
+  padding-inline: 0;
+  margin-inline: 0;
+  min-height: 1.55em;
+}
+
+.code-block-hl .toml-line-empty {
+  min-height: 1.55em;
+}
+
+.code-block-hl code {
+  color: var(--code-fg);
+  white-space: pre;
 }
 
 .toml-line.is-lit .t-header,
@@ -330,7 +357,7 @@
   font-size: 0.78rem;
   color: var(--ink);
   min-height: 2.5rem;
-  background: oklch(0.16 0.012 250);
+  background: var(--surface-inset);
 }
 
 .demo-prompt {
@@ -625,11 +652,19 @@ main {
 
 .section h2 {
   margin: 0 0 1.1rem;
-  max-width: 22ch;
+  max-width: 28ch;
   font-size: clamp(1.55rem, 3vw, 2.1rem);
   font-weight: 500;
   letter-spacing: -0.035em;
   line-height: 1.18;
+  color: var(--ink);
+}
+
+.section h3 {
+  margin: 0 0 0.65rem;
+  font-size: 1.1rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
   color: var(--ink);
 }
 
@@ -916,8 +951,123 @@ main {
 }
 
 .install .code-block:last-child,
-.agents .code-block + .code-block {
+.agents .code-block + .code-block,
+.sdk .code-block + .code-block {
   margin-top: 0.85rem;
+}
+
+/* Primitives */
+
+.primitive-split {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  margin-top: 2.25rem;
+  border: 1px solid var(--line-strong);
+  background: var(--void-lift);
+}
+
+.primitive-pane {
+  padding: 1.35rem 1.25rem 1.5rem;
+  min-width: 0;
+}
+
+.primitive-pane + .primitive-pane {
+  border-left: 1px solid var(--line);
+}
+
+.primitive-pane-label {
+  margin: 0 0 0.55rem !important;
+  max-width: none !important;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--ink-faint) !important;
+  letter-spacing: 0.04em;
+}
+
+.primitive-pane p {
+  max-width: none;
+}
+
+.primitive-pane .code-block {
+  margin-top: 1.15rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  max-height: 18rem;
+  overflow: auto;
+}
+
+/* Substrates */
+
+.substrate-list {
+  list-style: none;
+  margin: 2rem 0 0;
+  padding: 0;
+  border-top: 1px solid var(--line-strong);
+}
+
+.substrate-list li {
+  display: grid;
+  grid-template-columns: 8rem 1fr;
+  gap: 1.25rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--line);
+  align-items: baseline;
+}
+
+.substrate-list code {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.substrate-list span {
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+}
+
+.substrate-phase2 {
+  margin-top: 1.35rem !important;
+  max-width: 62ch !important;
+  font-size: 0.92rem;
+}
+
+.substrate-phase2 code {
+  color: var(--ink);
+}
+
+/* SDKs */
+
+.sdk-list {
+  list-style: none;
+  margin: 1.75rem 0 0;
+  padding: 0;
+  border-top: 1px solid var(--line-strong);
+}
+
+.sdk-list li {
+  display: grid;
+  grid-template-columns: minmax(10rem, 14rem) 1fr;
+  gap: 1.25rem;
+  padding: 0.95rem 0;
+  border-bottom: 1px solid var(--line);
+  align-items: baseline;
+}
+
+.sdk-list code {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.sdk-list span {
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+}
+
+.sdk-list span code {
+  font-size: 0.88em;
+  font-weight: 400;
 }
 
 /* Footer */
@@ -966,6 +1116,867 @@ main {
   text-decoration: underline;
 }
 
+/* Layer wall — 3 agents, 3 parallel E2E worlds.
+   One grid row per lane: agent, wall port, hub port, and env card share the
+   row, so every edge is a straight horizontal line. The stackless wall and
+   the Stripe Projects bar are vertical slabs spanning all lane rows.
+   All choreography runs on one shared 9s clock: SMIL pulses travel the
+   measured edges while CSS keyframes (offset per lane via --ed) drive card
+   state, progress, and results. Lanes overlap; nothing snaps globally. */
+
+.layer-wall {
+  --lane-gap: clamp(0.75rem, 1.6vw, 1.15rem);
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(10.5rem, 0.85fr) auto auto minmax(16rem, 1.4fr);
+  grid-template-rows: auto repeat(3, minmax(0, 1fr)) auto;
+  column-gap: clamp(0.9rem, 2.2vw, 1.6rem);
+  row-gap: var(--lane-gap);
+  align-items: center;
+  margin-top: 2.25rem;
+  padding: 1.35rem 1.25rem 1.5rem;
+  border: 1px solid var(--line-strong);
+  background: var(--void-lift);
+  min-height: 25rem;
+  overflow: hidden;
+}
+
+.layer-wall > * {
+  position: relative;
+  z-index: 1;
+}
+
+.layer-edges {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.layer-edge {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  opacity: 0.18;
+  animation-duration: 9s;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  animation-delay: var(--ed, 0s);
+}
+
+.layer-edge-req {
+  animation-name: layer-edge-req;
+}
+
+.layer-edge-x {
+  animation-name: layer-edge-x;
+}
+
+.layer-edge-dep {
+  animation-name: layer-edge-dep;
+}
+
+.layer-pulse {
+  fill: var(--signal);
+}
+
+/* Request edge: bright while the pulse crosses, green flash when the
+   suite reports back, quiet between cycles. */
+@keyframes layer-edge-req {
+  0%,
+  100% {
+    opacity: 0.18;
+    stroke: var(--line-strong);
+  }
+  2%,
+  9% {
+    opacity: 0.95;
+    stroke: var(--signal);
+  }
+  14% {
+    opacity: 0.45;
+    stroke: var(--line-strong);
+  }
+  71% {
+    opacity: 0.45;
+    stroke: var(--line-strong);
+  }
+  74%,
+  80% {
+    opacity: 0.9;
+    stroke: var(--signal);
+  }
+  88% {
+    opacity: 0.18;
+    stroke: var(--line-strong);
+  }
+}
+
+/* Crossing edge wall→hub (per lane): bright while its pulse crosses,
+   green flash when the suite reports back, quiet between cycles. */
+@keyframes layer-edge-x {
+  0%,
+  6% {
+    opacity: 0.18;
+    stroke: var(--line-strong);
+  }
+  9%,
+  18% {
+    opacity: 0.95;
+    stroke: var(--signal);
+  }
+  22% {
+    opacity: 0.45;
+    stroke: var(--line-strong);
+  }
+  71% {
+    opacity: 0.45;
+    stroke: var(--line-strong);
+  }
+  74%,
+  80% {
+    opacity: 0.9;
+    stroke: var(--signal);
+  }
+  88%,
+  100% {
+    opacity: 0.18;
+    stroke: var(--line-strong);
+  }
+}
+
+/* Deploy edge hub→env: bright during provisioning, host tint while the
+   world lives, green when the suite passes. */
+@keyframes layer-edge-dep {
+  0%,
+  15% {
+    opacity: 0.18;
+    stroke: var(--line-strong);
+  }
+  20%,
+  29% {
+    opacity: 0.95;
+    stroke: var(--signal);
+  }
+  34% {
+    opacity: 0.5;
+    stroke: var(--toml-header);
+  }
+  71% {
+    opacity: 0.5;
+    stroke: var(--toml-header);
+  }
+  74%,
+  82% {
+    opacity: 0.95;
+    stroke: var(--signal);
+  }
+  90%,
+  100% {
+    opacity: 0.18;
+    stroke: var(--line-strong);
+  }
+}
+
+.layer-col-label {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  align-self: end;
+}
+
+.layer-label-agents {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.layer-label-envs {
+  grid-column: 4;
+  grid-row: 1;
+}
+
+.layer-agents {
+  grid-column: 1;
+  grid-row: 2 / 5;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: var(--lane-gap);
+  min-width: 0;
+}
+
+.layer-agent {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--line);
+  background: var(--void);
+  border-radius: 2px;
+  animation: layer-agent-cycle 9s linear infinite;
+  animation-delay: var(--ed, 0s);
+}
+
+@keyframes layer-agent-cycle {
+  0%,
+  100% {
+    border-color: var(--line);
+  }
+  3% {
+    border-color: var(--signal-dim);
+  }
+  71% {
+    border-color: var(--signal-dim);
+  }
+  74%,
+  82% {
+    border-color: var(--signal);
+  }
+  90% {
+    border-color: var(--line);
+  }
+}
+
+.layer-agent-top {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.layer-agent-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--ghost);
+  flex-shrink: 0;
+  animation: layer-dot-cycle 9s linear infinite;
+  animation-delay: var(--ed, 0s);
+}
+
+/* Dot: idle → pulsing while the spec runs → steady green on pass. */
+@keyframes layer-dot-cycle {
+  0%,
+  28% {
+    background: var(--ghost);
+    opacity: 1;
+    box-shadow: none;
+  }
+  31%,
+  36% {
+    background: var(--signal);
+    opacity: 1;
+  }
+  41% {
+    opacity: 0.35;
+  }
+  46% {
+    opacity: 1;
+  }
+  51% {
+    opacity: 0.35;
+  }
+  56% {
+    opacity: 1;
+  }
+  61% {
+    opacity: 0.35;
+  }
+  66% {
+    background: var(--signal);
+    opacity: 1;
+  }
+  71%,
+  84% {
+    background: var(--signal);
+    opacity: 1;
+    box-shadow: 0 0 8px var(--signal-dim);
+  }
+  92%,
+  100% {
+    background: var(--ghost);
+    opacity: 1;
+    box-shadow: none;
+  }
+}
+
+.layer-agent-who {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.layer-agent-spec {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--toml-key);
+  white-space: nowrap;
+}
+
+.layer-agent-cmd {
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--ink-soft);
+  word-break: break-word;
+}
+
+.layer-wall-slab {
+  grid-column: 2;
+  grid-row: 2 / 5;
+  align-self: stretch;
+  justify-self: center;
+  width: clamp(3.5rem, 6vw, 4.5rem);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.85rem;
+  border: 1px solid var(--line-strong);
+  background:
+    linear-gradient(180deg, var(--surface-inset), var(--void-lift));
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  animation: layer-slab-cycle 9s linear infinite;
+}
+
+/* Slab flashes once per lane as each request crosses the wall. */
+@keyframes layer-slab-cycle {
+  0%,
+  8% {
+    border-color: var(--line-strong);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  11%,
+  15% {
+    border-color: var(--signal-dim);
+    box-shadow:
+      inset 0 0 0 1px var(--signal-dim),
+      0 0 26px oklch(0.6 0.08 165 / 0.16);
+  }
+  19%,
+  26% {
+    border-color: var(--line-strong);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  29%,
+  33% {
+    border-color: var(--signal-dim);
+    box-shadow:
+      inset 0 0 0 1px var(--signal-dim),
+      0 0 26px oklch(0.6 0.08 165 / 0.16);
+  }
+  37%,
+  44% {
+    border-color: var(--line-strong);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  47%,
+  51% {
+    border-color: var(--signal-dim);
+    box-shadow:
+      inset 0 0 0 1px var(--signal-dim),
+      0 0 26px oklch(0.6 0.08 165 / 0.16);
+  }
+  55%,
+  100% {
+    border-color: var(--line-strong);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+}
+
+/* Port ticks straddle the bar edges, one per lane row, so edge endpoints
+   sit exactly on the bars at each lane's vertical center. */
+.layer-port {
+  grid-row: var(--row);
+  align-self: center;
+  width: 7px;
+  height: 2px;
+  background: var(--line-strong);
+}
+
+.layer-port-wall {
+  grid-column: 2;
+}
+
+.layer-port-hub {
+  grid-column: 3;
+}
+
+.layer-port-in {
+  justify-self: start;
+  transform: translateX(-50%);
+  animation: layer-port-cycle 9s linear infinite;
+  animation-delay: var(--ed, 0s);
+}
+
+.layer-port-out {
+  justify-self: end;
+  transform: translateX(50%);
+}
+
+@keyframes layer-port-cycle {
+  0%,
+  8% {
+    background: var(--line-strong);
+    box-shadow: none;
+  }
+  10%,
+  16% {
+    background: var(--signal);
+    box-shadow: 0 0 8px var(--signal-dim);
+  }
+  22%,
+  100% {
+    background: var(--line-strong);
+    box-shadow: none;
+  }
+}
+
+/* Hub-in ports flash as the crossing pulse arrives, one beat later. */
+.layer-port-hub.layer-port-in {
+  animation-name: layer-port-hub-cycle;
+}
+
+@keyframes layer-port-hub-cycle {
+  0%,
+  13% {
+    background: var(--line-strong);
+    box-shadow: none;
+  }
+  15%,
+  21% {
+    background: var(--signal);
+    box-shadow: 0 0 8px var(--signal-dim);
+  }
+  27%,
+  100% {
+    background: var(--line-strong);
+    box-shadow: none;
+  }
+}
+
+.layer-wall-word {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-family: var(--font-sans);
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  color: var(--ink);
+}
+
+.layer-wall-sub {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.layer-hub {
+  grid-column: 3;
+  grid-row: 2 / 5;
+  align-self: stretch;
+  justify-self: center;
+  width: clamp(3.5rem, 6vw, 4.5rem);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.85rem;
+  padding: 0.9rem 0;
+  border: 1px solid var(--line);
+  background: var(--void);
+  border-radius: 2px;
+  animation: layer-hub-cycle 9s linear infinite;
+}
+
+@keyframes layer-hub-cycle {
+  0%,
+  11% {
+    border-color: var(--line);
+    box-shadow: none;
+  }
+  14%,
+  18% {
+    border-color: var(--signal-dim);
+    box-shadow: 0 0 18px oklch(0.6 0.08 165 / 0.1);
+  }
+  22%,
+  29% {
+    border-color: var(--line);
+    box-shadow: none;
+  }
+  32%,
+  36% {
+    border-color: var(--signal-dim);
+    box-shadow: 0 0 18px oklch(0.6 0.08 165 / 0.1);
+  }
+  40%,
+  47% {
+    border-color: var(--line);
+    box-shadow: none;
+  }
+  50%,
+  54% {
+    border-color: var(--signal-dim);
+    box-shadow: 0 0 18px oklch(0.6 0.08 165 / 0.1);
+  }
+  58%,
+  100% {
+    border-color: var(--line);
+    box-shadow: none;
+  }
+}
+
+.layer-hub-logo {
+  width: 1.35rem;
+  height: 1.35rem;
+  color: var(--signal);
+  flex-shrink: 0;
+}
+
+.layer-hub-title {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+}
+
+.layer-hub-meta {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+/* Flex column sized to match the grid's lane rows exactly (same height,
+   same gap), so each env row center equals its lane's row center. */
+.layer-envs {
+  grid-column: 4;
+  grid-row: 2 / 5;
+  align-self: stretch;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--lane-gap);
+  min-width: 0;
+}
+
+.layer-env {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+/* Env card materializes as its world provisions, holds while the spec
+   runs, glows on pass, then burns down — per lane, never globally. */
+.layer-env-card {
+  width: 100%;
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.7rem 0.85rem 0.8rem;
+  border: 1px solid var(--line);
+  background: var(--void);
+  border-radius: 2px;
+  opacity: 0;
+  transform: translate3d(0, 8px, 0) scale(0.985);
+  will-change: opacity, transform;
+  animation: layer-env-cycle 9s var(--ease-out-quart) infinite;
+  animation-delay: var(--ed, 0s);
+}
+
+@keyframes layer-env-cycle {
+  0%,
+  15% {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0) scale(0.985);
+    border-color: var(--line);
+  }
+  22% {
+    opacity: 1;
+  }
+  26% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  30% {
+    border-color: var(--line-strong);
+  }
+  71% {
+    border-color: var(--line-strong);
+  }
+  76%,
+  84% {
+    border-color: var(--signal-dim);
+  }
+  90% {
+    opacity: 1;
+    border-color: var(--line);
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  96%,
+  100% {
+    opacity: 0;
+    transform: translate3d(0, -4px, 0) scale(0.995);
+    border-color: var(--line);
+  }
+}
+
+.layer-env-top {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.layer-env-name {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.layer-env-badge {
+  margin-left: auto;
+  display: grid;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
+.layer-st {
+  grid-area: 1 / 1;
+  opacity: 0;
+  animation-duration: 9s;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  animation-delay: var(--ed, 0s);
+}
+
+.layer-st-prov {
+  color: var(--ink-faint);
+  animation-name: layer-st-prov;
+}
+
+.layer-st-run {
+  color: var(--toml-key);
+  animation-name: layer-st-run;
+}
+
+.layer-st-pass {
+  color: var(--signal);
+  animation-name: layer-st-pass;
+}
+
+@keyframes layer-st-prov {
+  0%,
+  16% {
+    opacity: 0;
+  }
+  20%,
+  29% {
+    opacity: 1;
+  }
+  33%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes layer-st-run {
+  0%,
+  30% {
+    opacity: 0;
+  }
+  33%,
+  68% {
+    opacity: 1;
+  }
+  71%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes layer-st-pass {
+  0%,
+  70% {
+    opacity: 0;
+  }
+  74%,
+  86% {
+    opacity: 1;
+  }
+  90%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.layer-env-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.layer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--void-lift);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--ink-soft);
+}
+
+.layer-chip-host {
+  color: var(--toml-header);
+  border-color: var(--line-strong);
+}
+
+.layer-chip-logo {
+  width: 0.8rem;
+  height: 0.8rem;
+  flex-shrink: 0;
+}
+
+.layer-env-bar {
+  height: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.layer-env-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--toml-key), var(--signal));
+  transform: scaleX(0);
+  transform-origin: left center;
+  will-change: transform;
+  animation: layer-fill-cycle 9s linear infinite;
+  animation-delay: var(--ed, 0s);
+}
+
+/* Fill tracks the spec run window (31%→71%), holds on pass, resets. */
+@keyframes layer-fill-cycle {
+  0%,
+  31% {
+    transform: scaleX(0);
+    opacity: 1;
+  }
+  71% {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+  88% {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+  93%,
+  100% {
+    transform: scaleX(1);
+    opacity: 0;
+  }
+}
+
+.layer-summary {
+  grid-column: 1 / -1;
+  grid-row: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.1rem;
+  margin: 0.15rem 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--ink-faint);
+}
+
+.layer-summary strong {
+  color: var(--signal);
+  font-weight: 500;
+}
+
+/* Static (reduced-motion) end state: every world up, every suite green. */
+.layer-wall[data-static] .layer-edge {
+  animation: none;
+  opacity: 0.55;
+}
+
+.layer-wall[data-static] .layer-edge-req,
+.layer-wall[data-static] .layer-edge-x {
+  stroke: var(--signal-dim);
+}
+
+.layer-wall[data-static] .layer-edge-dep {
+  stroke: var(--toml-header);
+}
+
+.layer-wall[data-static] .layer-agent,
+.layer-wall[data-static] .layer-agent-dot,
+.layer-wall[data-static] .layer-wall-slab,
+.layer-wall[data-static] .layer-port,
+.layer-wall[data-static] .layer-hub {
+  animation: none;
+}
+
+.layer-wall[data-static] .layer-agent {
+  border-color: var(--line-strong);
+}
+
+.layer-wall[data-static] .layer-agent-dot {
+  background: var(--signal);
+  box-shadow: 0 0 8px var(--signal-dim);
+}
+
+.layer-wall[data-static] .layer-wall-slab {
+  border-color: var(--signal-dim);
+  box-shadow:
+    inset 0 0 0 1px var(--signal-dim),
+    0 0 24px oklch(0.6 0.08 165 / 0.12);
+}
+
+.layer-wall[data-static] .layer-env-card {
+  animation: none;
+  opacity: 1;
+  transform: none;
+  border-color: var(--signal-dim);
+}
+
+.layer-wall[data-static] .layer-st {
+  animation: none;
+}
+
+.layer-wall[data-static] .layer-st-pass {
+  opacity: 1;
+}
+
+.layer-wall[data-static] .layer-env-fill {
+  animation: none;
+  transform: scaleX(1);
+}
+
 @media (max-width: 960px) {
   .hero {
     min-height: auto;
@@ -985,6 +1996,59 @@ main {
     max-height: 14rem;
   }
 
+  .primitive-split {
+    grid-template-columns: 1fr;
+  }
+
+  .primitive-pane + .primitive-pane {
+    border-left: none;
+    border-top: 1px solid var(--line);
+  }
+
+  /* Stacked fallback: bars go horizontal, edges and ports drop out. */
+  .layer-wall {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    min-height: 0;
+  }
+
+  .layer-edges,
+  .layer-port,
+  .layer-label-envs {
+    display: none;
+  }
+
+  .layer-agents,
+  .layer-envs {
+    gap: 0.75rem;
+  }
+
+  .layer-agent {
+    flex: none;
+  }
+
+  .layer-env {
+    flex: none;
+  }
+
+  .layer-wall-slab,
+  .layer-hub {
+    width: 100%;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 0.75rem;
+    padding: 0.9rem 1rem;
+  }
+
+  .layer-wall-word,
+  .layer-wall-sub,
+  .layer-hub-title,
+  .layer-hub-meta {
+    writing-mode: horizontal-tb;
+    transform: none;
+  }
+
   .fleet-lanes {
     grid-template-columns: 1fr;
   }
@@ -1000,7 +2064,9 @@ main {
 }
 
 @media (max-width: 640px) {
-  .verb-list li {
+  .verb-list li,
+  .substrate-list li,
+  .sdk-list li {
     grid-template-columns: 1fr;
     gap: 0.4rem;
   }
@@ -1021,6 +2087,11 @@ main {
 
   .demo-toml-body {
     scroll-behavior: auto;
+  }
+
+  .layer-wall * {
+    animation: none !important;
+    transition: none !important;
   }
 
   .node-label,

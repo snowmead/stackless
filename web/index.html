@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en" suppressHydrationWarning>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>stackless — disposable software stacks</title>
+    <title>stackless: disposable software stacks</title>
     <meta
       name="description"
       content="Disposable software stacks for AI agents: named, leased, isolated, proven, accounted for, destroyed."
@@ -21,6 +21,29 @@
       href="https://fonts.googleapis.com/css2?family=Host+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("theme");
+          var systemDark = window.matchMedia(
+            "(prefers-color-scheme: dark)",
+          ).matches;
+          var resolved =
+            stored === "dark" || stored === "light"
+              ? stored
+              : systemDark
+                ? "dark"
+                : "light";
+          document.documentElement.classList.toggle(
+            "dark",
+            resolved === "dark",
+          );
+          document.documentElement.style.colorScheme = resolved;
+        } catch (_) {
+          /* ignore */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
