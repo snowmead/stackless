@@ -26,8 +26,12 @@ consume the environment SDK, but it is published in the crates wave below.
 1. **crates.io** — Create an API token with publish scope. Store it as the
    GitHub Actions secret `CARGO_REGISTRY_TOKEN`.
 2. **npm** — Own the unscoped package name `stackless-sdk` (the npm
-   user/org `@stackless` is already taken by a third party). Create a
-   granular access token with publish rights. Store as secret `NPM_TOKEN`.
+   user/org `@stackless` is already taken by a third party). Prefer
+   [Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) for
+   workflow `publish-packages.yml` (no token). Otherwise create a
+   **granular** access token with **Bypass 2FA / automation** enabled and
+   store it as `NPM_TOKEN`. Classic tokens with account 2FA fail CI with
+   `EOTP`.
 3. **PyPI** — Create project `stackless-sdk` (the name `stackless` is taken).
    Prefer [Trusted Publishing](https://docs.pypi.org/trusted-publishers/):
    - GitHub environment name: `pypi` (matches `publish-packages.yml`)
@@ -62,10 +66,10 @@ Manual re-publish of an existing tag (e.g. language SDKs after crates.io
 already shipped):
 
 ```bash
-gh workflow run publish-packages.yml --ref v0.1.71 -f tag=v0.1.71
+# Use --ref main so the latest publish scripts run; pypi env must allow main
+# (or dispatch from a v* tag that contains the fixed workflow).
+gh workflow run publish-packages.yml --ref main -f tag=v0.1.71
 ```
-
-Use `--ref vX.Y.Z` so the tag-gated GitHub environment `pypi` allows the job.
 
 ---
 
@@ -81,12 +85,12 @@ already uploaded at the current version.
 4. `stackless-provider-sdk`
 5. `stackless-cloud`
 6. `stackless-daemon`
-7. `render-client` / `vercel-client`
-8. `stackless-local` and each hosting substrate crate
+7. `stackless-integrations` (substrates depend on this)
+8. `render-client` / `vercel-client`
+9. `stackless-local` and each hosting substrate crate
    (`stackless-render`, `stackless-vercel`, `stackless-fly`,
    `stackless-netlify`, `stackless-railway`, `stackless-laravel-cloud`,
    `stackless-gitlab`, `stackless-wordpress`, `stackless-cloudflare`)
-9. `stackless-integrations`
 10. `stackless-idl`
 11. `stackless-bindgen`
 12. `stackless`
