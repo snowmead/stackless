@@ -156,9 +156,31 @@ jobs:
             npm publish
           fi
 
+  # Dry-run must not use environment `pypi` — that env is tag-gated (`v*`), so
+  # workflow_dispatch from main would fail before any steps run.
+  pypi-check:
+    name: PyPI (dry-run)
+    needs: guard
+    if: needs.guard.outputs.dry_run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build and check
+        working-directory: sdks/python
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+          python -m twine check dist/*
+
   pypi:
     name: PyPI
     needs: guard
+    if: needs.guard.outputs.dry_run != 'true'
     runs-on: ubuntu-latest
     environment: pypi
     steps:
@@ -174,13 +196,7 @@ jobs:
           python -m pip install --upgrade build twine
           python -m build
 
-      - name: Check (dry-run)
-        if: needs.guard.outputs.dry_run == 'true'
-        working-directory: sdks/python
-        run: python -m twine check dist/*
-
       - name: Publish
-        if: needs.guard.outputs.dry_run != 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: sdks/python/dist/
