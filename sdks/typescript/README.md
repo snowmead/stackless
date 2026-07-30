@@ -1,11 +1,11 @@
-# @stackless/sdk
+# stackless-sdk
 
-TypeScript client for [Stackless](https://github.com/stackless-dev/stackless). It shells out to the `stackless` CLI with `--json` and parses stdout envelopes. It does **not** embed the Rust Engine (unlike the in-process Rust `Client::system()`).
+TypeScript client for [Stackless](https://github.com/snowmead/stackless). It shells out to the `stackless` CLI with `--json` and parses stdout envelopes. It does **not** embed the Rust Engine (unlike the in-process Rust `Client::system()`).
 
 ## Install
 
 ```bash
-npm install @stackless/sdk
+npm install stackless-sdk
 ```
 
 Requires `stackless` on `PATH`, or set `STACKLESS_BIN` to the binary path.
@@ -13,7 +13,7 @@ Requires `stackless` on `PATH`, or set `STACKLESS_BIN` to the binary path.
 ## Usage
 
 ```ts
-import { Client } from "@stackless/sdk";
+import { Client } from "stackless-sdk";
 
 const client = Client.system();
 const outcome = await client.up({

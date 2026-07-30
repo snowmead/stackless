@@ -1,0 +1,208 @@
+# Publish stackless packages to crates.io, npm, and PyPI on version tags.
+# Binary/GitHub Release artifacts remain in the cargo-dist release.yml.
+#
+# Triggers:
+#   - push tag v*.*.* (real publish)
+#   - workflow_dispatch with dry_run=true (rehearsal; no uploads)
+#
+# Go modules publish via a separate tag: sdks/go/vX.Y.Z (see docs/PUBLISHING.md).
+
+name: Publish packages
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Rehearse without uploading (cargo --dry-run, npm pack, twine check)"
+        type: boolean
+        default: true
+      tag:
+        description: "Version tag to validate against (e.g. v0.1.7); defaults to workspace version"
+        type: string
+        required: false
+
+permissions:
+  contents: read
+  id-token: write # PyPI trusted publishing
+
+concurrency:
+  group: publish-packages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: version guard
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      dry_run: ${{ steps.ver.outputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - id: ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/check-sdk-versions.sh scripts/publish-crates.sh
+
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            tag="${GITHUB_REF_NAME}"
+            ./scripts/check-sdk-versions.sh --tag "$tag"
+            echo "dry_run=false" >> "$GITHUB_OUTPUT"
+          else
+            tag="${{ inputs.tag }}"
+            if [[ -n "$tag" ]]; then
+              ./scripts/check-sdk-versions.sh --tag "$tag"
+            else
+              ./scripts/check-sdk-versions.sh
+            fi
+            if [[ "${{ inputs.dry_run }}" == "true" ]]; then
+              echo "dry_run=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "dry_run=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+          version="$(
+            sed -n '/^\[workspace\.package\]/,/^\[/{s/^version[[:space:]]*=[[:space:]]*"\([^"]*\)"/\1/p;}' Cargo.toml \
+              | head -n1
+          )"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Remind Go module tag
+        shell: bash
+        run: |
+          version="${{ steps.ver.outputs.version }}"
+          echo "::notice::Also push git tag sdks/go/v${version} for the Go module (proxy.golang.org)."
+
+  crates:
+    name: crates.io
+    needs: guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mise
+        uses: jdx/mise-action@v2
+        with:
+          install: false
+          cache: false
+      - name: Install tools (serial, retried)
+        env:
+          MISE_JOBS: "1"
+        shell: bash
+        run: |
+          mise install && exit 0
+          for i in 1 2; do echo "retry $i (force)"; sleep 10; mise install --force && exit 0; done
+          exit 1
+
+      - name: Rust / Cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Publish crates
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/publish-crates.sh
+          if [[ "${{ needs.guard.outputs.dry_run }}" == "true" ]]; then
+            ./scripts/publish-crates.sh --dry-run
+          else
+            if [[ -z "${CARGO_REGISTRY_TOKEN:-}" ]]; then
+              echo "::error::CARGO_REGISTRY_TOKEN secret is required for crates.io publish"
+              exit 1
+            fi
+            ./scripts/publish-crates.sh
+          fi
+
+  npm:
+    name: npm
+    needs: guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+          cache-dependency-path: sdks/typescript/package-lock.json
+
+      - name: Build and publish
+        working-directory: sdks/typescript
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+          if [[ "${{ needs.guard.outputs.dry_run }}" == "true" ]]; then
+            npm pack --dry-run
+          else
+            if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
+              echo "::error::NPM_TOKEN secret is required for npm publish"
+              exit 1
+            fi
+            npm publish
+          fi
+
+  pypi:
+    name: PyPI
+    needs: guard
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build
+        working-directory: sdks/python
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+
+      - name: Check (dry-run)
+        if: needs.guard.outputs.dry_run == 'true'
+        working-directory: sdks/python
+        run: python -m twine check dist/*
+
+      - name: Publish
+        if: needs.guard.outputs.dry_run != 'true'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: sdks/python/dist/
+
+  go-tag-check:
+    name: Go tag reminder
+    needs: guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check sdks/go tag exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ needs.guard.outputs.version }}"
+          go_tag="sdks/go/v${version}"
+          if git rev-parse -q --verify "refs/tags/${go_tag}" >/dev/null; then
+            echo "Go module tag present: ${go_tag}"
+          else
+            echo "::warning::Missing Go module tag ${go_tag}. Push it so proxy.golang.org can resolve the module:"
+            echo "  git tag ${go_tag} && git push origin ${go_tag}"
+          fi

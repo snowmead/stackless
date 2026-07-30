@@ -1,8 +1,28 @@
 {
-  "name": "@stackless/sdk",
-  "version": "0.0.0",
+  "name": "stackless-sdk",
+  "version": "0.1.7",
   "description": "CLI-backed Stackless client for Node and Bun",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/snowmead/stackless.git",
+    "directory": "sdks/typescript"
+  },
+  "homepage": "https://github.com/snowmead/stackless/tree/main/sdks/typescript",
+  "bugs": {
+    "url": "https://github.com/snowmead/stackless/issues"
+  },
+  "keywords": [
+    "stackless",
+    "ephemeral",
+    "infrastructure",
+    "testing",
+    "cli"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -14,7 +34,11 @@
   ],
   "scripts": {
     "build": "tsc",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "peerDependencies": {
     "typescript": ">=5.0.0"

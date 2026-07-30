@@ -1,10 +1,19 @@
-# stackless (Python)
+# stackless-sdk (Python)
 
 CLI-backed SDK for [`stackless`](https://github.com/snowmead/stackless). Spawns the
 `stackless` binary with `--json` and parses stdout envelopes (see
 [`../PROTOCOL.md`](../PROTOCOL.md)).
 
+The PyPI distribution is **`stackless-sdk`**; the import package remains
+`stackless`.
+
 ## Install
+
+```bash
+pip install stackless-sdk
+```
+
+Editable (from this repo):
 
 ```bash
 pip install -e "sdks/python[dev]"

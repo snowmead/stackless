@@ -189,9 +189,9 @@ then `PATH`.
 
 | Package | Path |
 | --- | --- |
-| `@stackless/sdk` | [`sdks/typescript/`](sdks/typescript/) |
-| `stackless` (PyPI-shaped) | [`sdks/python/`](sdks/python/) |
-| Go module | [`sdks/go/`](sdks/go/) |
+| `stackless-sdk` (npm) | [`sdks/typescript/`](sdks/typescript/) |
+| `stackless-sdk` (PyPI; `import stackless`) | [`sdks/python/`](sdks/python/) |
+| `github.com/snowmead/stackless/sdks/go` | [`sdks/go/`](sdks/go/) |
 
 `up` JSON includes `origins` and, when present, nested `integrations`
 (credential values). Prefer verify-tier env interpolation when secrets must
@@ -207,7 +207,7 @@ belong in the application repo; stackless stops at Client + bind + delivery.
 - [sdks/PROTOCOL.md](sdks/PROTOCOL.md) — CLI JSON contract for language SDKs
 - [`.cursor/skills/stackless/SKILL.md`](.cursor/skills/stackless/SKILL.md) — agent skill
 - [CLAUDE.md](CLAUDE.md) — contributor map (crates, mise, provider tooling)
-- [docs/PUBLISHING.md](docs/PUBLISHING.md) — crates.io publish order for the SDK wave
+- [docs/PUBLISHING.md](docs/PUBLISHING.md) — multi-registry publish runbook
 - [CHANGELOG.md](CHANGELOG.md) — releases
 
 ## Status

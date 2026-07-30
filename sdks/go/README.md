@@ -9,10 +9,13 @@ CLI-backed SDK for [stackless](https://github.com/snowmead/stackless). Runs
 github.com/snowmead/stackless/sdks/go
 ```
 
+Publish tags use the subdirectory prefix, e.g. `sdks/go/v0.1.7` (lockstep with
+the workspace version).
+
 ## Usage
 
 ```go
-import "github.com/snowmead/stackless/sdks/go/stackless"
+import "github.com/snowmead/stackless/sdks/go"
 
 client := stackless.System()
 out, err := client.Up(stackless.UpCreate(stackless.Create{

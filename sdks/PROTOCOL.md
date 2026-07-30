@@ -1,6 +1,6 @@
 # CLI JSON protocol for language SDKs
 
-Non-Rust SDKs (`@stackless/sdk`, Python, Go) are **CLI-backed**. They spawn the
+Non-Rust SDKs (`stackless-sdk` on npm/PyPI, Go module) are **CLI-backed**. They spawn the
 `stackless` binary with `--json` and parse stdout envelopes. This is not the
 same as Rust `Client::system()`, which runs the Engine in-process and only uses
 `STACKLESS_BIN` / `PATH` for daemon binary resolution.

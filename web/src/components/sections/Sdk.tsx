@@ -7,7 +7,7 @@ const BIND_SHELL = `stackless bind --file stackless.toml \\
   --emit go=internal/stack/origins.go \\
   --emit python=tests/stack_bind.py`;
 
-const CLIENT_TS = `import { Client } from "@stackless/sdk";
+const CLIENT_TS = `import { Client } from "stackless-sdk";
 
 const client = Client.system();
 const up = await client.up({
@@ -40,12 +40,14 @@ export function Sdk() {
           </span>
         </li>
         <li>
-          <code>@stackless/sdk</code>
+          <code>stackless-sdk</code> (npm)
           <span>TypeScript CLI client</span>
         </li>
         <li>
-          <code>stackless</code> (Python)
-          <span>PyPI-shaped CLI client</span>
+          <code>stackless-sdk</code> (PyPI)
+          <span>
+            Python CLI client (<code>import stackless</code>)
+          </span>
         </li>
         <li>
           <code>sdks/go</code>

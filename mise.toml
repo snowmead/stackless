@@ -50,6 +50,26 @@ smoke = { depends = [
 # Hermetic agent JSON contract gate (every lifecycle verb on agent-demo).
 agent-demo-lifecycle = "bash fixtures/agent-demo-lifecycle.sh"
 
+# Language SDK unit tests (CLI runners mocked — no live stackless binary).
+sdk-test-ts = '''
+cd sdks/typescript
+npm ci
+npm test
+'''
+sdk-test-py = '''
+cd sdks/python
+if command -v uv >/dev/null 2>&1; then
+  [[ -d .venv ]] || uv venv .venv
+  uv pip install -e ".[dev]"
+  .venv/bin/pytest
+else
+  python3 -m pip install -e ".[dev]"
+  python3 -m pytest
+fi
+'''
+sdk-test-go = "cd sdks/go && go test ./..."
+sdk-test = { depends = ["sdk-test-ts", "sdk-test-py", "sdk-test-go"] }
+
 # Fleet plane live verification (gated; needs STACKLESS_STATE_URL + TOKEN).
 smoke-fleet = '''
 [ -f .stackless.env ] && { set -a; . ./.stackless.env; set +a; }

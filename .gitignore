@@ -36,6 +36,8 @@ dist/
 **/.pytest_cache/
 sdks/**/node_modules/
 sdks/**/dist/
+sdks/**/*.tgz
+sdks/**/uv.lock
 
 **/__pycache__/
 *.py[cod]

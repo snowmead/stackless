@@ -15,6 +15,13 @@ Generate with:
 
 ## Unreleased
 
+### Added
+
+- Multi-registry publish path for language SDKs: npm/PyPI package name
+  `stackless-sdk`, CI `sdk` job, tag-driven `publish-packages.yml`, and
+  expanded [`docs/PUBLISHING.md`](docs/PUBLISHING.md) (crates.io + npm + PyPI +
+  Go module tags).
+
 ## v0.1.7 — 2026-07-28
 
 Go/Python IDL emitters, CLI-backed language SDKs, integration outputs, and
