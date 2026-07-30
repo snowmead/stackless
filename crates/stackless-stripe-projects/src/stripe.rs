@@ -256,15 +256,45 @@ impl<R: CommandRunner> StripeProjects<R> {
     /// Plugin 0.29.0 (and possibly later) often emits an empty stdout for the
     /// unfiltered catalog when stdout is a pipe. Filtered
     /// `catalog <category> --json` still works, so we fall back to merging every
-    /// known [`crate::catalog::Category`] filter when the unfiltered call is empty.
+    /// known [`crate::catalog::Category`] filter when the unfiltered call is
+    /// empty or non-JSON. Auth / `ok: false` envelopes are classified and
+    /// returned as faults — they must not trigger the empty-pipe fallback.
     pub async fn catalog_envelope_json(&self) -> Result<String, ProjectsError> {
         let raw = self.plain(&["catalog", "--json"]).await?;
-        if let Some(json) = json_object_slice(&raw.stdout)
-            && envelope_service_count(json) > 0
-        {
+        let Some(json) = json_object_slice(&raw.stdout) else {
+            return self.catalog_envelope_json_by_categories().await;
+        };
+        if let Some(fault) = self.catalog_envelope_fault(json) {
+            return Err(fault);
+        }
+        if envelope_service_count(json) > 0 {
             return Ok(json.to_owned());
         }
-        self.catalog_envelope_json_by_categories().await
+        // Authenticated ok:true with an empty services list is a real empty
+        // catalog, not the empty-pipe bug. Return it as-is.
+        Ok(json.to_owned())
+    }
+
+    /// Classify a parsed catalog envelope that is not a successful service list.
+    /// Returns `None` when the JSON is `ok: true` (caller decides empty vs full).
+    fn catalog_envelope_fault(&self, json: &str) -> Option<ProjectsError> {
+        let envelope: Envelope = serde_json::from_str(json).ok()?;
+        if envelope.ok {
+            return None;
+        }
+        let result = StripeResult {
+            ok: envelope.ok,
+            error_code: envelope.error.as_ref().and_then(|e| e.code.clone()),
+            error_message: envelope.error.as_ref().and_then(|e| e.message.clone()),
+            error_details: envelope.error.as_ref().and_then(|e| e.details.clone()),
+            authenticated: envelope
+                .meta
+                .as_ref()
+                .and_then(|m| m.authenticated)
+                .unwrap_or(true),
+            data: envelope.data.unwrap_or(serde_json::Value::Null),
+        };
+        Some(self.classify_failure("catalog", &result))
     }
 
     async fn catalog_envelope_json_by_categories(&self) -> Result<String, ProjectsError> {
@@ -275,6 +305,9 @@ impl<R: CommandRunner> StripeProjects<R> {
             let Some(json) = json_object_slice(&raw.stdout) else {
                 continue;
             };
+            if let Some(fault) = self.catalog_envelope_fault(json) {
+                return Err(fault);
+            }
             let mut envelope: serde_json::Value =
                 serde_json::from_str(json).map_err(|err| ProjectsError::Unavailable {
                     detail: format!(
@@ -497,6 +530,23 @@ mod tests {
         )]);
         let err = d.run_ok("status", &["status"], &[]).await.unwrap_err();
         assert_eq!(err.code(), codes::STRIPE_PROJECTS_AUTH);
+    }
+
+    #[tokio::test]
+    async fn unauthenticated_catalog_envelope_is_auth_fault_not_empty_pipe_fallback() {
+        let d = driver(vec![out(
+            0,
+            r#"{"ok":false,"error":{"code":"SOMETHING","message":"please log in"},"meta":{"authenticated":false}}"#,
+            "",
+        )]);
+        let err = d.catalog_envelope_json().await.unwrap_err();
+        assert_eq!(err.code(), codes::STRIPE_PROJECTS_AUTH);
+        // Only the unfiltered call — must not probe category filters.
+        assert_eq!(d.runner().calls().len(), 1);
+        assert_eq!(
+            d.runner().calls()[0],
+            vec!["catalog".to_owned(), "--json".to_owned()]
+        );
     }
 
     /// Opt-in live check (`STRIPE_CATALOG_LIVE=1`): run the real
