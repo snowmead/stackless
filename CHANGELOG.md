@@ -15,6 +15,32 @@ Generate with:
 
 ## Unreleased
 
+## v0.2.0 — 2026-07-30
+
+Minor bump after the first multi-registry SDK wave. Harden publish order and
+npm OIDC; link package registries from the marketing site.
+
+### Fixed
+
+- crates.io publish order: `stackless-integrations` before substrates.
+- npm CI publish uses Trusted Publishing (OIDC) instead of OTP tokens.
+
+### Changed
+
+- Landing page SDK list links to crates.io, npm, PyPI, and pkg.go.dev.
+
+### Commits
+
+- [20dbc50](https://github.com/snowmead/stackless/commit/20dbc506efb9d1bb284bf61c03a6a8caf33c9822) docs: align PUBLISHING checklist examples with v0.1.71.
+- [2bcae6c](https://github.com/snowmead/stackless/commit/2bcae6cf196f2bae96cc78aeaf93f257b1d907ca) Fix crates.io publish order and npm OIDC auth.
+
+### Install
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/download/v0.2.0/stackless-installer.sh | sh
+stackless --version
+```
+
 ## v0.1.71 — 2026-07-30
 
 First npm/PyPI publish of `stackless-sdk`, plus automated multi-registry

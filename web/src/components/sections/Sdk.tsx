@@ -34,23 +34,31 @@ export function Sdk() {
 
       <ul className="sdk-list">
         <li>
-          <code>stackless</code> (crate)
+          <a href="https://crates.io/crates/stackless">
+            <code>stackless</code> (crate)
+          </a>
           <span>
             <code>Client::system()</code> or hermetic <code>TestContext</code>
           </span>
         </li>
         <li>
-          <code>stackless-sdk</code> (npm)
+          <a href="https://www.npmjs.com/package/stackless-sdk">
+            <code>stackless-sdk</code> (npm)
+          </a>
           <span>TypeScript CLI client</span>
         </li>
         <li>
-          <code>stackless-sdk</code> (PyPI)
+          <a href="https://pypi.org/project/stackless-sdk/">
+            <code>stackless-sdk</code> (PyPI)
+          </a>
           <span>
             Python CLI client (<code>import stackless</code>)
           </span>
         </li>
         <li>
-          <code>sdks/go</code>
+          <a href="https://pkg.go.dev/github.com/snowmead/stackless/sdks/go">
+            <code>sdks/go</code>
+          </a>
           <span>Go module CLI client</span>
         </li>
       </ul>

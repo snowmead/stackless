@@ -1054,6 +1054,16 @@ main {
   align-items: baseline;
 }
 
+.sdk-list a {
+  color: inherit;
+  text-decoration: none;
+  text-underline-offset: 0.18em;
+}
+
+.sdk-list a:hover {
+  text-decoration: underline;
+}
+
 .sdk-list code {
   font-size: 0.95rem;
   font-weight: 500;
