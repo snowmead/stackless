@@ -33,24 +33,19 @@ Invariants and the trust boundary: [VISION.md](VISION.md).
 
 ## How
 
-### For agents
-
-1. Install the binary (below), or build from this repo.
-2. Point the agent at [`.cursor/skills/stackless/SKILL.md`](.cursor/skills/stackless/SKILL.md)
-   and [docs/SCHEMA.md](docs/SCHEMA.md).
-3. Always pass `--json`. Branch on `error.code`, never on prose.
-
-Humans: install once, then hand the skill (or this repo) to an agent.
-
 ### Install
+
+Binary:
 
 ```console
 $ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/latest/download/stackless-installer.sh | sh
-$ stackless --version
-stackless 0.2.0
 ```
 
-From source: `cargo build --release` → `target/release/stackless`.
+Agent skill (optional; needs Bun or Node):
+
+```console
+$ bunx skills add snowmead/stackless --skill stackless -g
+```
 
 ### Lifecycle
 
