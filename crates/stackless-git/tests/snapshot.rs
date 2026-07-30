@@ -63,6 +63,8 @@ fn snapshot_works_on_linked_worktree() {
     stackless_git::build_repo(main.path(), &[COMMIT_1]).expect("fixture repo");
 
     let wt = tempfile::tempdir().unwrap();
+    // Scrub hook-exported GIT_* so `git` honors current_dir (the fixture), not
+    // this repository's worktree — see .pre-commit-config.yaml pre-push entries.
     let status = std::process::Command::new("git")
         .args([
             "worktree",
@@ -72,6 +74,10 @@ fn snapshot_works_on_linked_worktree() {
             wt.path().to_str().unwrap(),
         ])
         .current_dir(main.path())
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_COMMON_DIR")
+        .env_remove("GIT_INDEX_FILE")
         .status()
         .expect("git worktree add");
     assert!(status.success(), "git worktree add failed");

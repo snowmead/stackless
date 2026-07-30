@@ -89,7 +89,7 @@ mod tests {
         let failures = stackless_stripe_projects::verify_service(
             &catalog,
             &LaravelCloudMysqlConfig {
-                instance_size: "db-flex.m-1vcpu-512mb".into(),
+                instance_size: "mysql-flex-512mb".into(),
                 region: "us-east-1".into(),
             },
         );
@@ -100,7 +100,7 @@ mod tests {
         );
     }
 
-    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_mysql","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_laravel_cloud","provider_name":"Laravel_Cloud","service_id":"mysql","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"component"},"configuration_schema":{"properties":{"instance_size":{"enum":["db-flex.m-1vcpu-512mb","db-flex.m-1vcpu-1gb","db-flex.m-1vcpu-2gb","db-flex.m-1vcpu-4gb","db-pro.m-1vcpu-4gb","db-pro.m-2vcpu-8gb","db-pro.m-4vcpu-16gb","db-pro.m-8vcpu-32gb"],"type":"string"},"region":{"enum":["us-east-1","us-east-2","eu-central-1","eu-west-1","eu-west-2","ap-southeast-1","ap-southeast-2","ap-northeast-1","ca-central-1","me-central-1"],"type":"string"}},"required":["instance_size","region"],"type":"object"}}]}}"##;
+    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_mysql","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_laravel_cloud","provider_name":"Laravel_Cloud","service_id":"mysql","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"component"},"configuration_schema":{"properties":{"instance_size":{"enum":["mysql-flex-512mb","mysql-flex-1gb","mysql-flex-2gb","mysql-pro-4gb","mysql-pro-8gb","mysql-pro-16gb","mysql-pro-32gb"],"type":"string"},"region":{"enum":["us-east-1","us-east-2","eu-central-1","eu-west-1","eu-west-2","ap-southeast-1","ap-southeast-2","ap-northeast-1","ca-central-1","me-central-1"],"type":"string"}},"required":["instance_size","region"],"type":"object"}}]}}"##;
 
     fn test_def() -> StackDef {
         StackDef::parse(
@@ -111,7 +111,7 @@ name = "atto"
 project = "project_1"
 [integrations.res]
 provider = "laravel-cloud-mysql"
-instance_size = "db-flex.m-1vcpu-512mb"
+instance_size = "mysql-flex-512mb"
 region = "us-east-1"
 [services.api]
 source = { repo = "r", ref = "main" }

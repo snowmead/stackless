@@ -468,7 +468,7 @@ proven there.
   (`stripe projects billing update --limit <amount> --provider render`)
   so a leak is bounded even if reaping fails. Tested present in plugin
   v0.19.0 on 2026-06-11 — available from day one.
-- **Plugin surface, pinned at v0.23.0** (committed snapshots in
+- **Plugin surface, pinned at v0.29.0** (committed snapshots in
   `crates/stackless-stripe-projects/tests/fixtures/`; nightly watcher
   opens upgrade PRs): `--json`, `--yes`, `--preflight` on `init`/`add`
   (aggregated blockers), backend-backed **project variables**
