@@ -126,7 +126,7 @@ pub async fn provision_resource<T: CatalogResource>(
         skip_instance_context,
     };
     let config = T::build_config(&ctx)?;
-    let catalog = stripe.catalog().await?;
+    let catalog = stripe.catalog_for_reference(T::Config::REFERENCE).await?;
     let (resource_name, outputs) = provision_outputs(
         stripe,
         &catalog,

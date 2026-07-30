@@ -224,7 +224,11 @@ impl<R: CommandRunner> RailwaySubstrate<R> {
         let service_name = Self::resource_name(def, instance, service);
         let resource = format!("{instance}-{service}");
 
-        let catalog = self.stripe().catalog().await.map_err(projects_fault)?;
+        let catalog = self
+            .stripe()
+            .catalog_for::<RailwayHostingConfig>()
+            .await
+            .map_err(projects_fault)?;
         let cfg = RailwayHostingConfig {};
         if requires_confirmation(&catalog, &cfg).unwrap_or(false) {
             self.require_confirm_paid(&resource)?;

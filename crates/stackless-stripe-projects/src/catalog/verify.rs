@@ -55,8 +55,8 @@ where
     })?;
     let service = catalog
         .lookup(C::REFERENCE)
-        .ok_or(ProjectsError::CatalogMissing {
-            reference: C::REFERENCE,
+        .ok_or_else(|| ProjectsError::CatalogMissing {
+            reference: C::REFERENCE.to_owned(),
         })?;
     service
         .validate_config(&value)

@@ -317,7 +317,9 @@ pub async fn provision_stripe<R: CommandRunner>(
     };
     let config = build_clerk_config(&ctx)?;
     let app_name = config.app_name.clone();
-    let catalog = stripe.catalog().await?;
+    let catalog = stripe
+        .catalog_for_reference(ClerkAuthConfig::REFERENCE)
+        .await?;
     let env_key_owned = clerk_env_keys(&ctx.resource_name());
     let env_keys: Vec<&str> = env_key_owned.iter().map(String::as_str).collect();
     let ProvisionedCredentials { resource_name, raw } =

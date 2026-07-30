@@ -23,14 +23,17 @@ use serde_json::Value;
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Catalog {
     pub last_updated: String,
+    /// Present on provider-filtered responses; wire type varies (string or object).
     #[serde(default)]
-    pub provider: Option<String>,
+    pub provider: Option<Value>,
+    /// Present on category-filtered responses; wire type varies (string or object).
     #[serde(default)]
-    pub category_filter: Option<String>,
+    pub category_filter: Option<Value>,
+    /// Echo of the provider filter token; wire type varies (string or object).
     #[serde(default)]
-    pub provider_filter: Option<String>,
+    pub provider_filter: Option<Value>,
     #[serde(default)]
-    pub source: Option<String>,
+    pub source: Option<Value>,
     pub services: Vec<ServiceDetail>,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,

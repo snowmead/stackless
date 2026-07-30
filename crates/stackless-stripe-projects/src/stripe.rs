@@ -209,7 +209,7 @@ impl<R: CommandRunner> StripeProjects<R> {
             let stderr = out.stderr.trim();
             return Err(ProjectsError::Unavailable {
                 detail: format!(
-                    "`stripe projects {}` produced no JSON output{}",
+                    "`stripe projects {}` exited without delivering a JSON envelope{}",
                     args.join(" "),
                     if stderr.is_empty() {
                         String::new()
@@ -222,7 +222,7 @@ impl<R: CommandRunner> StripeProjects<R> {
         let envelope: Envelope = serde_json::from_str(&out.stdout[start..]).map_err(|err| {
             ProjectsError::Unavailable {
                 detail: format!(
-                    "`stripe projects {}` emitted malformed JSON: {err}",
+                    "`stripe projects {}` exited without delivering a parseable JSON envelope: {err}",
                     args.join(" ")
                 ),
             }
@@ -241,7 +241,10 @@ impl<R: CommandRunner> StripeProjects<R> {
         })
     }
 
-    /// Fetch and type the provider catalog (`stripe projects catalog --json`).
+    /// Unfiltered catalog (`stripe projects catalog --json`).
+    ///
+    /// For live drift / full-model tooling only. Provisioning must use
+    /// [`Self::catalog_for_reference`].
     pub async fn catalog(&self) -> Result<crate::catalog::Catalog, ProjectsError> {
         let json = self.catalog_envelope_json().await?;
         crate::catalog::Catalog::from_json_envelope(&json).map_err(|err| {
@@ -358,6 +361,38 @@ impl<R: CommandRunner> StripeProjects<R> {
         Ok(envelope.to_string())
     }
 
+    /// Provider-scoped catalog for a `provider/service` reference.
+    ///
+    /// Runs `stripe projects catalog <provider> --json` once. The CLI filter
+    /// accepts a category or provider name; we pass the provider slug from the
+    /// reference (everything before the first `/`).
+    pub async fn catalog_for_reference(
+        &self,
+        reference: &str,
+    ) -> Result<crate::catalog::Catalog, ProjectsError> {
+        let provider = provider_from_reference(reference);
+        let data = self.run_ok("catalog", &["catalog", provider], &[]).await?;
+        let catalog: crate::catalog::Catalog =
+            serde_json::from_value(data).map_err(|err| ProjectsError::Unavailable {
+                detail: format!(
+                    "`stripe projects catalog {provider}` returned an unmodeled catalog: {err}"
+                ),
+            })?;
+        if catalog.lookup(reference).is_none() {
+            return Err(ProjectsError::CatalogMissing {
+                reference: reference.to_owned(),
+            });
+        }
+        Ok(catalog)
+    }
+
+    /// Provider-scoped catalog for a [`crate::catalog::verify::CatalogService`].
+    pub async fn catalog_for<C: crate::catalog::verify::CatalogService>(
+        &self,
+    ) -> Result<crate::catalog::Catalog, ProjectsError> {
+        self.catalog_for_reference(C::REFERENCE).await
+    }
+
     pub async fn plain(&self, args: &[&str]) -> Result<CommandOutput, ProjectsError> {
         let argv: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
         self.runner.run(&argv, &self.dir).await
@@ -422,6 +457,14 @@ impl<R: CommandRunner> StripeProjects<R> {
 fn merge_output(out: &CommandOutput) -> String {
     let merged = format!("{}{}", out.stdout.trim(), out.stderr.trim());
     merged.trim().to_owned()
+}
+
+/// Provider filter token for `stripe projects catalog <provider>`.
+pub fn provider_from_reference(reference: &str) -> &str {
+    reference
+        .split_once('/')
+        .map(|(p, _)| p)
+        .unwrap_or(reference)
 }
 
 #[cfg(test)]
@@ -491,6 +534,93 @@ mod tests {
         let d = driver(vec![out(127, "", "command not found: stripe")]);
         let err = d.json(&["status"]).await.unwrap_err();
         assert_eq!(err.code(), codes::STRIPE_PROJECTS_UNAVAILABLE);
+        assert!(
+            err.to_string()
+                .contains("exited without delivering a JSON envelope"),
+            "detail should name the missing envelope, got: {err}"
+        );
+    }
+
+    #[test]
+    fn provider_from_reference_splits_on_first_slash() {
+        assert_eq!(provider_from_reference("clerk/auth"), "clerk");
+        assert_eq!(
+            provider_from_reference("wordpress.com/site"),
+            "wordpress.com"
+        );
+        assert_eq!(
+            provider_from_reference("cloudflare/r2:bucket"),
+            "cloudflare"
+        );
+        assert_eq!(
+            provider_from_reference("laravel_cloud/mysql"),
+            "laravel_cloud"
+        );
+        assert_eq!(provider_from_reference("bare"), "bare");
+    }
+
+    fn clerk_auth_catalog_envelope() -> String {
+        // Filtered live responses may set `provider` / `provider_filter` to an
+        // object rather than a string (observed on vercel/render smokes).
+        serde_json::json!({
+            "ok": true,
+            "command": "catalog",
+            "data": {
+                "last_updated": "1970-01-01T00:00:00.000Z",
+                "provider": { "id": "prvdr_clerk", "name": "Clerk" },
+                "provider_filter": { "name": "clerk" },
+                "source": "cache",
+                "services": [{
+                    "id": "clerk_auth",
+                    "object": "service",
+                    "provider_id": "clerk",
+                    "provider_name": "Clerk",
+                    "service_id": "auth",
+                    "kind": "saas",
+                    "scope": "account",
+                    "availability": "available",
+                    "development": true,
+                    "livemode": true,
+                    "pricing": { "type": "free" }
+                }]
+            }
+        })
+        .to_string()
+    }
+
+    #[tokio::test]
+    async fn catalog_for_reference_passes_provider_filter() {
+        let d = driver(vec![out(0, &clerk_auth_catalog_envelope(), "")]);
+        let catalog = d
+            .catalog_for_reference("clerk/auth")
+            .await
+            .expect("scoped catalog");
+        assert!(catalog.lookup("clerk/auth").is_some());
+        assert_eq!(
+            d.runner().calls(),
+            vec![vec![
+                "catalog".to_owned(),
+                "clerk".to_owned(),
+                "--json".to_owned()
+            ]]
+        );
+    }
+
+    #[tokio::test]
+    async fn catalog_for_reference_missing_service_is_catalog_missing() {
+        let empty = serde_json::json!({
+            "ok": true,
+            "command": "catalog",
+            "data": {
+                "last_updated": "1970-01-01T00:00:00.000Z",
+                "provider_filter": "clerk",
+                "services": []
+            }
+        })
+        .to_string();
+        let d = driver(vec![out(0, &empty, "")]);
+        let err = d.catalog_for_reference("clerk/auth").await.unwrap_err();
+        assert_eq!(err.code(), codes::STRIPE_PROJECTS_CATALOG_MISSING);
     }
 
     #[tokio::test]
