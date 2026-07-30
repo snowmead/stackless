@@ -3,6 +3,7 @@
 //! Drives the `stripe projects` plugin non-interactively. The driver is
 //! generic over a [`CommandRunner`] so tests inject canned CLI envelopes.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -12,6 +13,52 @@ use serde::Deserialize;
 use crate::error::ProjectsError;
 
 const STRIPE_LOCK_BUDGET: Duration = Duration::from_secs(30 * 60);
+
+/// Wire-format category filters matching [`crate::catalog::Category`] (excludes
+/// `Unknown`). Used when unfiltered `catalog --json` returns an empty pipe.
+const CATALOG_CATEGORY_FILTERS: &[&str] = &[
+    "ai",
+    "analytics",
+    "auth",
+    "browser",
+    "cache",
+    "cdn",
+    "ci",
+    "communications",
+    "compute",
+    "database",
+    "domains",
+    "ecommerce",
+    "email",
+    "feature_flags",
+    "messaging",
+    "notification",
+    "observability",
+    "payments",
+    "queue",
+    "sandbox",
+    "search",
+    "storage",
+];
+
+fn json_object_slice(stdout: &str) -> Option<&str> {
+    stdout.find('{').map(|start| &stdout[start..])
+}
+
+fn envelope_service_count(json: &str) -> usize {
+    serde_json::from_str::<serde_json::Value>(json)
+        .ok()
+        .map(|value| services_in_envelope(&value))
+        .unwrap_or(0)
+}
+
+fn services_in_envelope(envelope: &serde_json::Value) -> usize {
+    envelope
+        .pointer("/data/services")
+        .and_then(serde_json::Value::as_array)
+        .map(Vec::len)
+        .unwrap_or(0)
+}
 
 #[derive(Debug, Clone)]
 pub struct CommandOutput {
@@ -196,10 +243,86 @@ impl<R: CommandRunner> StripeProjects<R> {
 
     /// Fetch and type the provider catalog (`stripe projects catalog --json`).
     pub async fn catalog(&self) -> Result<crate::catalog::Catalog, ProjectsError> {
-        let data = self.run_ok("catalog", &["catalog"], &[]).await?;
-        serde_json::from_value(data).map_err(|err| ProjectsError::Unavailable {
-            detail: format!("`stripe projects catalog` returned an unmodeled catalog: {err}"),
+        let json = self.catalog_envelope_json().await?;
+        crate::catalog::Catalog::from_json_envelope(&json).map_err(|err| {
+            ProjectsError::Unavailable {
+                detail: format!("`stripe projects catalog` returned an unmodeled catalog: {err}"),
+            }
         })
+    }
+
+    /// Full `{ok, data, …}` envelope text for `catalog --json`.
+    ///
+    /// Plugin 0.29.0 (and possibly later) often emits an empty stdout for the
+    /// unfiltered catalog when stdout is a pipe. Filtered
+    /// `catalog <category> --json` still works, so we fall back to merging every
+    /// known [`crate::catalog::Category`] filter when the unfiltered call is empty.
+    pub async fn catalog_envelope_json(&self) -> Result<String, ProjectsError> {
+        let raw = self.plain(&["catalog", "--json"]).await?;
+        if let Some(json) = json_object_slice(&raw.stdout) {
+            if envelope_service_count(json) > 0 {
+                return Ok(json.to_owned());
+            }
+        }
+        self.catalog_envelope_json_by_categories().await
+    }
+
+    async fn catalog_envelope_json_by_categories(&self) -> Result<String, ProjectsError> {
+        let mut services: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+        let mut template: Option<serde_json::Value> = None;
+        for filter in CATALOG_CATEGORY_FILTERS {
+            let raw = self.plain(&["catalog", filter, "--json"]).await?;
+            let Some(json) = json_object_slice(&raw.stdout) else {
+                continue;
+            };
+            let mut envelope: serde_json::Value =
+                serde_json::from_str(json).map_err(|err| ProjectsError::Unavailable {
+                    detail: format!(
+                        "`stripe projects catalog {filter} --json` emitted malformed JSON: {err}"
+                    ),
+                })?;
+            if let Some(list) = envelope
+                .pointer_mut("/data/services")
+                .and_then(serde_json::Value::as_array_mut)
+            {
+                for service in list.drain(..) {
+                    let id = service
+                        .get("id")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned();
+                    if !id.is_empty() {
+                        services.insert(id, service);
+                    }
+                }
+            }
+            if template.is_none() {
+                template = Some(envelope);
+            }
+        }
+        let mut envelope = template.ok_or_else(|| ProjectsError::Unavailable {
+            detail: "`stripe projects catalog --json` produced no JSON, and every category filter was empty"
+                .into(),
+        })?;
+        if let Some(data) = envelope
+            .get_mut("data")
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            data.insert("provider".into(), serde_json::Value::Null);
+            data.insert("category_filter".into(), serde_json::Value::Null);
+            data.insert("provider_filter".into(), serde_json::Value::Null);
+            data.insert(
+                "services".into(),
+                serde_json::Value::Array(services.into_values().collect()),
+            );
+        }
+        if services_in_envelope(&envelope) == 0 {
+            return Err(ProjectsError::Unavailable {
+                detail: "`stripe projects catalog` returned no services via unfiltered or category filters"
+                    .into(),
+            });
+        }
+        Ok(envelope.to_string())
     }
 
     pub async fn plain(&self, args: &[&str]) -> Result<CommandOutput, ProjectsError> {
@@ -338,6 +461,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn catalog_envelope_falls_back_to_category_filters() {
+        let service = r#"{"id":"prvsvc_1","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_1","provider_name":"Neon","service_id":"postgres","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"free"}}"#;
+        let filtered = format!(
+            r#"{{"ok":true,"command":"projects catalog","version":"0.1","data":{{"last_updated":"t","provider":null,"category_filter":"database","provider_filter":null,"services":[{service}],"source":null}}}}"#
+        );
+        // Unfiltered empty, then one hit on the database filter; remaining
+        // category probes return empty objects so the merge still completes.
+        let mut outputs = vec![out(0, "", "")];
+        for filter in CATALOG_CATEGORY_FILTERS {
+            if *filter == "database" {
+                outputs.push(out(0, &filtered, ""));
+            } else {
+                outputs.push(out(
+                    0,
+                    r#"{"ok":true,"command":"projects catalog","version":"0.1","data":{"last_updated":"t","provider":null,"category_filter":null,"provider_filter":null,"services":[],"source":null}}"#,
+                    "",
+                ));
+            }
+        }
+        let d = driver(outputs);
+        let json = d.catalog_envelope_json().await.unwrap();
+        let catalog = crate::catalog::Catalog::from_json_envelope(&json).unwrap();
+        assert_eq!(catalog.services.len(), 1);
+        assert_eq!(catalog.services[0].reference(), "neon/postgres");
+        assert!(catalog.category_filter.is_none());
+    }
+
+    #[tokio::test]
     async fn unauthenticated_envelope_is_auth_fault() {
         let d = driver(vec![out(
             0,
@@ -392,14 +543,14 @@ mod tests {
             .expect("probe `stripe projects --version`");
 
         // 2. Catalog envelope — refuse to bless anything the typed model can't
-        //    fully represent (forces a src/catalog.rs update first).
-        let raw = stripe
-            .plain(&["catalog", "--json"])
+        //    fully represent (forces a src/catalog.rs update first). Uses
+        //    [`StripeProjects::catalog_envelope_json`] so an empty unfiltered
+        //    pipe (plugin 0.29.0) still blesses via category filters.
+        let json = stripe
+            .catalog_envelope_json()
             .await
             .expect("run `stripe projects catalog --json`");
-        let start = raw.stdout.find('{').expect("catalog produced JSON");
-        let json = &raw.stdout[start..];
-        let report = crate::catalog::Catalog::from_json_envelope(json)
+        let report = crate::catalog::Catalog::from_json_envelope(&json)
             .expect("catalog envelope parses")
             .drift_report();
         assert!(
@@ -408,7 +559,7 @@ mod tests {
             report.join("\n")
         );
         let mut envelope: serde_json::Value =
-            serde_json::from_str(json).expect("catalog envelope is JSON");
+            serde_json::from_str(&json).expect("catalog envelope is JSON");
         if let Some(data) = envelope
             .get_mut("data")
             .and_then(serde_json::Value::as_object_mut)
