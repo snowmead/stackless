@@ -111,6 +111,9 @@ jobs:
     name: npm
     needs: guard
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm Trusted Publishing (OIDC)
     steps:
       - uses: actions/checkout@v4
 
@@ -121,20 +124,18 @@ jobs:
           cache: npm
           cache-dependency-path: sdks/typescript/package-lock.json
 
+      # OIDC trusted publishing — do not set NODE_AUTH_TOKEN (classic tokens
+      # with account 2FA fail CI with EOTP). Configure Trusted Publisher on
+      # npm for workflow publish-packages.yml, or replace NPM_TOKEN usage by
+      # temporarily setting NODE_AUTH_TOKEN to a granular bypass-2FA token.
       - name: Build and publish
         working-directory: sdks/typescript
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
           npm ci
           npm run build
-          if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
-            echo "::error::NPM_TOKEN secret is required for npm publish"
-            exit 1
-          fi
-          npm publish
+          npm publish --provenance --access public
 
   pypi:
     name: PyPI

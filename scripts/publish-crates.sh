@@ -12,6 +12,7 @@ if [[ "${1:-}" == "--dry-run" ]]; then
 fi
 
 # Keep in sync with docs/PUBLISHING.md.
+# Substrates depend on stackless-integrations, so integrations ships before them.
 crates=(
   stackless-core
   stackless-git
@@ -19,6 +20,7 @@ crates=(
   stackless-provider-sdk
   stackless-cloud
   stackless-daemon
+  stackless-integrations
   render-client
   vercel-client
   stackless-local
@@ -31,7 +33,6 @@ crates=(
   stackless-gitlab
   stackless-wordpress
   stackless-cloudflare
-  stackless-integrations
   stackless-idl
   stackless-bindgen
   stackless
@@ -60,7 +61,6 @@ publish_one() {
     rm -f "$log"
     return 0
   fi
-  # dry-run can still "succeed" packaging; treat other failures as hard.
   echo "error: cargo publish -p $crate failed" >&2
   rm -f "$log"
   return "$status"
