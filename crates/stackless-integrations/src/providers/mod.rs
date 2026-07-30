@@ -14,6 +14,7 @@ pub mod cloudflare;
 pub mod composio;
 pub mod customerio;
 pub mod daytona;
+pub mod datadog;
 pub mod depot;
 pub mod e2b;
 pub mod elevenlabs;
@@ -60,7 +61,7 @@ mod tests {
 
     use crate::providers::{
         agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel, browserbase,
-        chatbase, chroma, clickhouse, cloudflare, composio, customerio, daytona, depot, e2b,
+        chatbase, chroma, clickhouse, cloudflare, composio, customerio, daytona, datadog, depot, e2b,
         elevenlabs, exa, firecrawl, flyio, gitlab, heygen, huggingface, inngest, kernel,
         laravel_cloud, metronome, mixpanel, neon, openrouter, parallel, planetscale, postalform,
         posthog, prisma, privy, pydantic, railway, render_db, revenuecat, runloop, schematic,
@@ -104,6 +105,7 @@ mod tests {
         assert_outputs_match::<composio::project::ComposioProject>();
         assert_outputs_match::<customerio::workspace::CustomerioWorkspace>();
         assert_outputs_match::<daytona::sandbox::DaytonaSandbox>();
+        assert_outputs_match::<datadog::observability::DatadogObservability>();
         assert_outputs_match::<depot::api::DepotApi>();
         assert_outputs_match::<e2b::sandbox::E2BSandbox>();
         assert_outputs_match::<elevenlabs::tts::ElevenLabsTts>();
