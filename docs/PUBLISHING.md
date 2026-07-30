@@ -49,14 +49,14 @@ consume the environment SDK, but it is published in the crates wave below.
 4. Open a PR; wait for CI including the `sdk` job (`mise run sdk-test` locally).
 5. Merge, then from the release commit:
    ```bash
-   git tag v0.1.8
-   git tag sdks/go/v0.1.8
-   git push origin v0.1.8 sdks/go/v0.1.8
-   ```
+   git tag v0.1.71
+   git tag sdks/go/v0.1.71
+   git push origin v0.1.71 sdks/go/v0.1.71
+```
 6. Confirm:
    - GitHub Release + installer (cargo-dist)
    - `publish-packages` workflow green (crates.io, npm, PyPI)
-   - `go list -m github.com/snowmead/stackless/sdks/go@v0.1.8` resolves
+   - `go list -m github.com/snowmead/stackless/sdks/go@v0.1.71` resolves
 
 Manual re-publish of an existing tag (e.g. language SDKs after crates.io
 already shipped):
