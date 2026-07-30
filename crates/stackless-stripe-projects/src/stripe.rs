@@ -259,10 +259,10 @@ impl<R: CommandRunner> StripeProjects<R> {
     /// known [`crate::catalog::Category`] filter when the unfiltered call is empty.
     pub async fn catalog_envelope_json(&self) -> Result<String, ProjectsError> {
         let raw = self.plain(&["catalog", "--json"]).await?;
-        if let Some(json) = json_object_slice(&raw.stdout) {
-            if envelope_service_count(json) > 0 {
-                return Ok(json.to_owned());
-            }
+        if let Some(json) = json_object_slice(&raw.stdout)
+            && envelope_service_count(json) > 0
+        {
+            return Ok(json.to_owned());
         }
         self.catalog_envelope_json_by_categories().await
     }
