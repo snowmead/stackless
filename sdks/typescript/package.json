@@ -1,6 +1,6 @@
 {
   "name": "stackless-sdk",
-  "version": "0.1.7",
+  "version": "0.1.71",
   "description": "CLI-backed Stackless client for Node and Bun",
   "type": "module",
   "license": "MIT",

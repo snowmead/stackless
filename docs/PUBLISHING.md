@@ -1,7 +1,7 @@
 # Publishing stackless packages
 
 Release surfaces, lockstep with `[workspace.package].version` (today
-`0.1.7`):
+`0.1.71`):
 
 | Surface | Package | How it ships |
 | --- | --- | --- |
@@ -62,7 +62,7 @@ Manual re-publish of an existing tag (e.g. language SDKs after crates.io
 already shipped):
 
 ```bash
-gh workflow run publish-packages.yml --ref v0.1.7 -f tag=v0.1.7
+gh workflow run publish-packages.yml --ref v0.1.71 -f tag=v0.1.71
 ```
 
 Use `--ref vX.Y.Z` so the tag-gated GitHub environment `pypi` allows the job.
@@ -102,8 +102,7 @@ mise exec -- cargo publish -p stackless
 A failing mid-wave publish usually means an unpublished workspace dependency.
 Publish that dependency first, then retry.
 
-The product crate `stackless` is already on crates.io (e.g. `0.1.7`). Later
-waves only need a version bump + tag.
+Later waves only need a version bump + tag.
 
 ---
 
@@ -118,8 +117,8 @@ waves only need a version bump + tag.
   && python -m twine upload dist/*)
 
 # Go (tag only)
-git tag sdks/go/v0.1.7
-git push origin sdks/go/v0.1.7
+git tag sdks/go/v0.1.71
+git push origin sdks/go/v0.1.71
 ```
 
 ---

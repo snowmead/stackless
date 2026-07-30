@@ -9,7 +9,7 @@ CLI-backed SDK for [stackless](https://github.com/snowmead/stackless). Runs
 github.com/snowmead/stackless/sdks/go
 ```
 
-Publish tags use the subdirectory prefix, e.g. `sdks/go/v0.1.7` (lockstep with
+Publish tags use the subdirectory prefix, e.g. `sdks/go/v0.1.71` (lockstep with
 the workspace version).
 
 ## Usage

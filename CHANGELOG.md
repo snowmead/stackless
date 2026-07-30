@@ -15,12 +15,31 @@ Generate with:
 
 ## Unreleased
 
+## v0.1.71 — 2026-07-30
+
+First npm/PyPI publish of `stackless-sdk`, plus automated multi-registry
+release plumbing.
+
 ### Added
 
 - Multi-registry publish path for language SDKs: npm/PyPI package name
   `stackless-sdk`, CI `sdk` job, tag-driven `publish-packages.yml`, and
   expanded [`docs/PUBLISHING.md`](docs/PUBLISHING.md) (crates.io + npm + PyPI +
   Go module tags).
+
+### Commits
+
+- [4309384](https://github.com/snowmead/stackless/commit/4309384be19bc982b903c5467fa45adb62e12c71) Redesign the marketing site with themed sections and layer wall.
+- [6ecd626](https://github.com/snowmead/stackless/commit/6ecd6262daa82d104c3bc5077383c6181b3debef) Add multi-registry publish path for language SDKs.
+- [bd40bbb](https://github.com/snowmead/stackless/commit/bd40bbbf9664b0dfaff36a778ddd24e15f157a18) Skip pypi environment on publish dry-run.
+- [ef02399](https://github.com/snowmead/stackless/commit/ef0239962f9074da499b111285bca967b29acfbc) Drop publish dry-run; always upload on Publish packages.
+
+### Install
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/download/v0.1.71/stackless-installer.sh | sh
+stackless --version
+```
 
 ## v0.1.7 — 2026-07-28
 
