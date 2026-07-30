@@ -29,13 +29,15 @@ repos:
         stages: [pre-commit]
       - id: check
         name: fmt + clippy + taplo
-        entry: mise run check
+        # Git exports GIT_DIR/GIT_WORK_TREE into hooks; scrub so fixture tests
+        # and `git -C` subprocesses do not bind to this worktree.
+        entry: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE mise run check
         language: system
         pass_filenames: false
         stages: [pre-push]
       - id: test
         name: cargo nextest (workspace, all features)
-        entry: mise run test
+        entry: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE mise run test
         language: system
         pass_filenames: false
         stages: [pre-push]
