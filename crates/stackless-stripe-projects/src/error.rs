@@ -28,7 +28,7 @@ pub enum ProjectsError {
     ProvisionFailed { resource: String, detail: String },
 
     #[error("the Stripe Projects catalog has no service {reference:?}")]
-    CatalogMissing { reference: &'static str },
+    CatalogMissing { reference: String },
 
     #[error("config for {reference:?} does not match the Stripe Projects catalog: {}", violations.join("; "))]
     ConfigSchema {
@@ -79,10 +79,15 @@ impl Fault for ProjectsError {
                 "wait a minute for the provider to finish provisioning and re-run `up` to resume"
                     .into()
             }
-            Self::CatalogMissing { .. } => {
-                "run `stripe projects catalog --json` to refresh the catalog; the provider may have \
-                 renamed or removed this service"
-                    .into()
+            Self::CatalogMissing { reference } => {
+                let provider = reference
+                    .split_once('/')
+                    .map(|(p, _)| p)
+                    .unwrap_or(reference);
+                format!(
+                    "run `stripe projects catalog {provider} --json`; the filter token may not \
+                     match this provider, or the service may have been renamed or removed"
+                )
             }
             Self::ConfigSchema { .. } => {
                 "the service's catalog `configuration_schema` changed; update the plugin's typed \

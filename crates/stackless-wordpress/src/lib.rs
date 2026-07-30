@@ -220,7 +220,11 @@ impl<R: CommandRunner> WordPressSubstrate<R> {
         let site_name = Self::resource_name(def, instance, service);
         let resource = format!("{instance}-{service}");
 
-        let catalog = self.stripe().catalog().await.map_err(projects_fault)?;
+        let catalog = self
+            .stripe()
+            .catalog_for::<WordPressComSiteConfig>()
+            .await
+            .map_err(projects_fault)?;
         let cfg = site_config(&wp_cfg);
         if requires_confirmation(&catalog, &cfg).unwrap_or(false) {
             self.require_confirm_paid(&resource)?;

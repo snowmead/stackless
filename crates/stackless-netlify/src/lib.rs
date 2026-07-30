@@ -259,7 +259,11 @@ impl<R: CommandRunner> NetlifySubstrate<R> {
         // Provision the Netlify site via Stripe Projects (free; the paid gate is
         // kept for safety) and capture the Stripe-managed token (+ optional site
         // id) it returns.
-        let catalog = self.stripe().catalog().await.map_err(projects_fault)?;
+        let catalog = self
+            .stripe()
+            .catalog_for::<NetlifyProjectConfig>()
+            .await
+            .map_err(projects_fault)?;
         let cfg = NetlifyProjectConfig {
             name: site_name.clone(),
         };

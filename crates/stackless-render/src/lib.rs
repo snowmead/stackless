@@ -350,13 +350,17 @@ impl<R: CommandRunner> RenderSubstrate<R> {
         // Create/find the Render service via Stripe Projects. Paid
         // confirmation is derived from the selected pricing tier (a web
         // service defaults to the free tier; a static site is free).
-        let catalog = self.stripe().catalog().await.map_err(projects_fault)?;
         let resource = match &render_cfg {
             ServiceRender::Web {
                 runtime,
                 build,
                 start,
             } => {
+                let catalog = self
+                    .stripe()
+                    .catalog_for::<RenderWebServiceConfig>()
+                    .await
+                    .map_err(projects_fault)?;
                 let config = RenderWebServiceConfig {
                     name: render_name.clone(),
                     repo: spec.source.repo.clone(),
@@ -377,6 +381,11 @@ impl<R: CommandRunner> RenderSubstrate<R> {
                     .name
             }
             ServiceRender::Static { build, publish, .. } => {
+                let catalog = self
+                    .stripe()
+                    .catalog_for::<RenderStaticSiteConfig>()
+                    .await
+                    .map_err(projects_fault)?;
                 let config = RenderStaticSiteConfig {
                     name: render_name.clone(),
                     repo: spec.source.repo.clone(),

@@ -313,7 +313,11 @@ impl<R: CommandRunner> FlySubstrate<R> {
         // Provision the Fly app via Stripe Projects (paid → confirm-gated) and
         // capture the Stripe-managed deploy token it returns (the only output
         // field, pinned by `mise run discover flyio/app`).
-        let catalog = self.stripe().catalog().await.map_err(projects_fault)?;
+        let catalog = self
+            .stripe()
+            .catalog_for::<FlyAppConfig>()
+            .await
+            .map_err(projects_fault)?;
         let app_config = FlyAppConfig {
             app_name: app_name.clone(),
         };
