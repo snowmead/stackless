@@ -222,7 +222,11 @@ impl<R: CommandRunner> GitLabSubstrate<R> {
             .visibility
             .unwrap_or_else(|| "private".to_owned());
 
-        let catalog = self.stripe().catalog().await.map_err(projects_fault)?;
+        let catalog = self
+            .stripe()
+            .catalog_for::<GitLabProjectConfig>()
+            .await
+            .map_err(projects_fault)?;
         let cfg = GitLabProjectConfig {
             name: project_name.clone(),
             visibility,

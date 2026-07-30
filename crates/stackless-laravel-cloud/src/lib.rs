@@ -215,7 +215,11 @@ impl<R: CommandRunner> LaravelCloudSubstrate<R> {
         let app_name = Self::resource_name(def, instance, service);
         let resource = format!("{instance}-{service}");
 
-        let catalog = self.stripe().catalog().await.map_err(projects_fault)?;
+        let catalog = self
+            .stripe()
+            .catalog_for::<LaravelCloudApplicationConfig>()
+            .await
+            .map_err(projects_fault)?;
         let cfg = application_config(&app_name, &laravel_cfg);
         if requires_confirmation(&catalog, &cfg).unwrap_or(false) {
             self.require_confirm_paid(&resource)?;

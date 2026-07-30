@@ -318,9 +318,12 @@ impl<R: CommandRunner> VercelSubstrate<R> {
         .map_err(projects_fault)?;
 
         let stack = StackVercel::parse(def);
-        let catalog = stripe.catalog().await.map_err(projects_fault)?;
         match stack.plan {
             VercelPlan::Hobby => {
+                let catalog = stripe
+                    .catalog_for::<VercelHobbyConfig>()
+                    .await
+                    .map_err(projects_fault)?;
                 add_catalog_resource(
                     &stripe,
                     &catalog,
@@ -331,6 +334,10 @@ impl<R: CommandRunner> VercelSubstrate<R> {
                 .map_err(projects_fault)?;
             }
             VercelPlan::Pro => {
+                let catalog = stripe
+                    .catalog_for::<VercelProConfig>()
+                    .await
+                    .map_err(projects_fault)?;
                 let config = VercelProConfig {};
                 if requires_confirmation(&catalog, &config).unwrap_or(true) {
                     self.require_confirm_paid(PRO_RESOURCE_NAME)?;
@@ -386,7 +393,11 @@ impl<R: CommandRunner> VercelSubstrate<R> {
         let config = VercelProjectConfig {
             name: vercel_name.clone(),
         };
-        let catalog = self.stripe().catalog().await.map_err(projects_fault)?;
+        let catalog = self
+            .stripe()
+            .catalog_for::<VercelProjectConfig>()
+            .await
+            .map_err(projects_fault)?;
         let resource = add_catalog_resource(&self.stripe(), &catalog, &config, &resource)
             .await
             .map_err(projects_fault)?

@@ -31,7 +31,10 @@ pub use responses::{
     EnvListResponse, PreflightCheck, PreflightReady, ServicesListResponse, StatusResponse,
     preflight_checks_from_envelope,
 };
-pub use stripe::{CommandOutput, CommandRunner, StripeProjects, StripeResult, TokioRunner};
+pub use stripe::{
+    CommandOutput, CommandRunner, StripeProjects, StripeResult, TokioRunner,
+    provider_from_reference,
+};
 pub use surface::{
     command_separators, command_surface, parse_header_version, plugin_version, render_surface,
     surface_header,

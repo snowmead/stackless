@@ -118,7 +118,7 @@ async fn cmd_discover(reference: &str, config: Option<&str>, dir: &Path) -> Resu
         None => serde_json::json!({}),
     };
     let stripe = StripeProjects::new(TokioRunner, dir.to_path_buf());
-    let catalog = stripe.catalog().await?;
+    let catalog = stripe.catalog_for_reference(reference).await?;
     let service = catalog
         .lookup(reference)
         .ok_or_else(|| format!("reference {reference:?} not found in the live catalog"))?;
