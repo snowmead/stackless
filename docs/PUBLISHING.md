@@ -58,20 +58,14 @@ consume the environment SDK, but it is published in the crates wave below.
    - `publish-packages` workflow green (crates.io, npm, PyPI)
    - `go list -m github.com/snowmead/stackless/sdks/go@v0.1.8` resolves
 
-### Rehearsal (no upload)
-
-Actions → **Publish packages** → Run workflow → leave `dry_run` checked.
-This runs version guard, `cargo publish --dry-run`, `npm pack --dry-run`, and
-`twine check`.
-
-Locally:
+Manual re-publish of an existing tag (e.g. language SDKs after crates.io
+already shipped):
 
 ```bash
-./scripts/check-sdk-versions.sh
-./scripts/publish-crates.sh --dry-run
-(cd sdks/typescript && npm ci && npm pack --dry-run)
-(cd sdks/python && python -m pip install build twine && python -m build && twine check dist/*)
+gh workflow run publish-packages.yml --ref v0.1.7 -f tag=v0.1.7
 ```
+
+Use `--ref vX.Y.Z` so the tag-gated GitHub environment `pypi` allows the job.
 
 ---
 
