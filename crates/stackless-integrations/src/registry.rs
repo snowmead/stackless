@@ -137,6 +137,7 @@ register_providers! {
     (supermemory::memory, SupermemoryMemory),
     (tabstack::api, TabstackApi),
     (turso::database, TursoDatabase),
+    (twilio::email, TwilioEmail),
     (upstash::qstash, UpstashQstash),
     (upstash::redis, UpstashRedis),
     (upstash::search, UpstashSearch),

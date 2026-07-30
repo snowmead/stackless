@@ -13,8 +13,8 @@ pub mod clickhouse;
 pub mod cloudflare;
 pub mod composio;
 pub mod customerio;
-pub mod daytona;
 pub mod datadog;
+pub mod daytona;
 pub mod depot;
 pub mod e2b;
 pub mod elevenlabs;
@@ -49,6 +49,7 @@ pub mod supabase;
 pub mod supermemory;
 pub mod tabstack;
 pub mod turso;
+pub mod twilio;
 pub mod upstash;
 pub mod wix;
 pub mod wordpress_com;
@@ -61,11 +62,12 @@ mod tests {
 
     use crate::providers::{
         agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel, browserbase,
-        chatbase, chroma, clickhouse, cloudflare, composio, customerio, daytona, datadog, depot, e2b,
-        elevenlabs, exa, firecrawl, flyio, gitlab, heygen, huggingface, inngest, kernel,
+        chatbase, chroma, clickhouse, cloudflare, composio, customerio, datadog, daytona, depot,
+        e2b, elevenlabs, exa, firecrawl, flyio, gitlab, heygen, huggingface, inngest, kernel,
         laravel_cloud, metronome, mixpanel, neon, openrouter, parallel, planetscale, postalform,
         posthog, prisma, privy, pydantic, railway, render_db, revenuecat, runloop, schematic,
-        sentry, steel, supabase, supermemory, tabstack, turso, upstash, wix, wordpress_com, workos,
+        sentry, steel, supabase, supermemory, tabstack, turso, twilio, upstash, wix, wordpress_com,
+        workos,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -150,6 +152,7 @@ mod tests {
         assert_outputs_match::<supermemory::memory::SupermemoryMemory>();
         assert_outputs_match::<tabstack::api::TabstackApi>();
         assert_outputs_match::<turso::database::TursoDatabase>();
+        assert_outputs_match::<twilio::email::TwilioEmail>();
         assert_outputs_match::<upstash::qstash::UpstashQstash>();
         assert_outputs_match::<upstash::redis::UpstashRedis>();
         assert_outputs_match::<upstash::search::UpstashSearch>();
