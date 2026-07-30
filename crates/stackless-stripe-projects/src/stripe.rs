@@ -404,12 +404,16 @@ mod tests {
     }
 
     fn clerk_auth_catalog_envelope() -> String {
+        // Filtered live responses may set `provider` / `provider_filter` to an
+        // object rather than a string (observed on vercel/render smokes).
         serde_json::json!({
             "ok": true,
             "command": "catalog",
             "data": {
                 "last_updated": "1970-01-01T00:00:00.000Z",
-                "provider_filter": "clerk",
+                "provider": { "id": "prvdr_clerk", "name": "Clerk" },
+                "provider_filter": { "name": "clerk" },
+                "source": "cache",
                 "services": [{
                     "id": "clerk_auth",
                     "object": "service",
