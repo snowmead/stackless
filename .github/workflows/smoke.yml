@@ -3,19 +3,24 @@ name: Live smoke
 # The GATED live tier: a real `stackless up`/`down` against each cloud provider,
 # deploying fixtures/smoke/<provider> (this repo's own source). It is slow, costs
 # real (free-tier) resources, and needs account secrets. vercel/render/fly/netlify
-# also run on every PR via ci.yml `live-smoke` / `live-fleet`; Cloudflare is
-# nightly-only here (PR runs hit account rate limits). This workflow repeats the
-# full matrix nightly and on demand as a scheduled safety net.
+# also run on every PR via ci.yml `live-smoke` / `live-fleet`; Cloudflare
+# integrations + Clerk (both `--on local`) are nightly-only here (CF PR runs hit
+# account rate limits). This workflow repeats the full matrix nightly and on
+# demand as a scheduled safety net.
 #
 # Required repo secrets:
 #   STRIPE_API_KEY  — a Stripe secret key for the account whose Stripe Project has
-#                     the providers linked (`stripe projects link vercel|render|cloudflare`,
+#                     the providers linked (`stripe projects link vercel|render|cloudflare|clerk|
+#                     railway|wordpress.com|laravel_cloud|gitlab|netlify|flyio`,
 #                     a one-time human step — provider links are account-level).
-#   VERCEL_TOKEN, RENDER_API_KEY — provider API creds (Vercel is also resolved from
-#                     the Stripe-managed instance env, but the var is harmless).
+#   VERCEL_TOKEN, RENDER_API_KEY, FLY_API_TOKEN, and per-host API tokens as needed
+#   (RAILWAY_TOKEN, CLOUDFLARE_API_TOKEN, WORDPRESS_COM_ACCESS_TOKEN,
+#   LARAVEL_CLOUD_API_TOKEN, GITLAB_TOKEN). Hosts self-skip when their token is absent.
 #
 # NOTE: the smoke fixtures deploy `source.ref`; keep it pointed at a pushed ref
-# that contains fixtures/smoke/site (main once merged).
+# that contains fixtures/smoke/site (main once merged). Matrix names match
+# `mise run smoke-<name>` (cloudflare-integrations is R2/KV under --on local;
+# cloudflare-workers is `--on cloudflare` substrate coverage).
 
 on:
   workflow_dispatch:
@@ -33,7 +38,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        provider: [vercel, render, cloudflare, fly, netlify]
+        provider:
+          [
+            vercel,
+            render,
+            cloudflare-integrations,
+            clerk,
+            fly,
+            fly-build,
+            netlify,
+            netlify-build,
+            railway,
+            cloudflare-workers,
+            wordpress,
+            laravel-cloud,
+            gitlab,
+          ]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

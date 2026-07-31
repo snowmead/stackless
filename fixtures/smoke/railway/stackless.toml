@@ -1,0 +1,27 @@
+# Live smoke stack: image fast path — deploys `hashicorp/http-echo` on Railway
+# with a start command that serves the health probe string.
+#
+# Run: mise run smoke-railway (wired by parent agent)
+# One-time human setup (from THIS dir):
+#   cd fixtures/smoke/railway
+#   stripe projects init smoke-railway --skip-skills --accept-tos
+#   stripe projects link railway
+# The project anchor ([stack.projects.stripe].project) is recorded on first up.
+[stack]
+name = "smoke-railway"
+
+[stack.projects]
+[stack.projects.stripe]
+# project = "..."  # written by stackless on first successful up after init
+
+[services.web]
+source      = { repo = "https://github.com/snowmead/stackless", ref = "main" }
+root_origin = true
+health      = { path = "/", contains = "stackless-smoke-ok" }
+
+[services.web.railway]
+image = "hashicorp/http-echo"
+cmd   = ["-text=stackless-smoke-ok", "-listen=:8080"]
+
+[services.web.railway.env]
+PORT = "8080"

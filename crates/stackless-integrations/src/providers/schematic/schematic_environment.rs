@@ -32,15 +32,23 @@ impl Hostable for SchematicEnvironment {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["api_key"];
+    const OUTPUTS: &'static [&'static str] = &[
+        "api_base_url",
+        "api_key",
+        "environment_id",
+        "publishable_key",
+    ];
 }
 
 impl FamilyResource for SchematicEnvironment {
     type Config = SchematicEnvironmentConfig;
     const PROVIDER_PREFIX: &'static str = "SCHEMATIC";
-    // Provisional until pinned by `mise run discover schematic/schematic-environment`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("API_KEY", "api_key", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("API_BASE_URL", "api_base_url", true),
+        ("API_KEY", "api_key", true),
+        ("ENVIRONMENT_ID", "environment_id", true),
+        ("PUBLISHABLE_KEY", "publishable_key", true),
+    ];
 
     fn build_config(
         ctx: &ProvisionContext<'_>,
@@ -117,7 +125,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"SCHEMATIC_API_KEY": "val_api_key"}),
+            serde_json::json!({"SCHEMATIC_API_BASE_URL": "val_api_base_url", "SCHEMATIC_API_KEY": "val_api_key", "SCHEMATIC_ENVIRONMENT_ID": "val_environment_id", "SCHEMATIC_PUBLISHABLE_KEY": "val_publishable_key"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();

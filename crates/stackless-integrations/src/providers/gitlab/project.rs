@@ -13,6 +13,15 @@ use crate::registry;
 
 pub const RESOURCE_KIND: &str = "integration-gitlab";
 
+/// Aligned with the `--on gitlab` substrate field array. Live re-pin still
+/// needed (`stripe projects link gitlab` browser OAuth).
+pub const OUTPUT_FIELDS: &[(&str, &str, bool)] = &[
+    ("PROJECT_ID", "project_id", true),
+    ("WEB_URL", "web_url", false),
+];
+
+pub const OUTPUTS: &[&str] = &["project_id", "web_url"];
+
 #[derive(Debug, Serialize)]
 pub struct GitLabProjectConfig {
     pub name: String,
@@ -31,17 +40,13 @@ impl Hostable for GitLabProject {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["project_id", "web_url"];
+    const OUTPUTS: &'static [&'static str] = OUTPUTS;
 }
 
 impl FamilyResource for GitLabProject {
     type Config = GitLabProjectConfig;
     const PROVIDER_PREFIX: &'static str = "GITLAB";
-    // Provisional until pinned by `mise run discover gitlab/project`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
-        ("PROJECT_ID", "project_id", true),
-        ("WEB_URL", "web_url", false),
-    ];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = OUTPUT_FIELDS;
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<GitLabProjectConfig, IntegrationError> {
         let config = super::integration_config(ctx)?;

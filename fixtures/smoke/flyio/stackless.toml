@@ -1,7 +1,6 @@
-# Live smoke stack: deploys a public `http-echo` image to Fly.io that serves the
-# health probe string. Fly v0 is image-only (no build-from-source), so unlike the
-# render/vercel smokes this does not deploy fixtures/smoke/site — it runs a
-# prebuilt image whose response body is the probe.
+# Live smoke stack: image fast path — deploys a public `http-echo` image to
+# Fly.io that serves the health probe string. Source-build coverage lives in
+# fixtures/smoke/flyio-build (mise run smoke-fly-build).
 #
 # Run: stackless up --on fly --file fixtures/smoke/flyio/stackless.toml --name <inst>
 # One-time human setup (from THIS dir — see docs/ADDING-A-PROVIDER.md "One-time setup"):

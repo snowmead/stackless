@@ -1,5 +1,6 @@
-# Live smoke stack: deploys fixtures/smoke/site to Netlify via the file-digest
-# upload API (clone the ref, upload the static files, poll to `ready`).
+# Live smoke stack: static fast path — deploys fixtures/smoke/site to Netlify
+# via the file-digest upload API. Build-path coverage lives in
+# fixtures/smoke/netlify-build (mise run smoke-netlify-build).
 #
 # Run: stackless up --on netlify --file fixtures/smoke/netlify/stackless.toml --name <inst>
 # One-time human setup (from THIS dir — see docs/ADDING-A-PROVIDER.md "One-time setup"):

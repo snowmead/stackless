@@ -13,6 +13,17 @@ use crate::registry;
 
 pub const RESOURCE_KIND: &str = "integration-wordpress-com";
 
+/// Live-pinned by `mise run discover wordpress.com/site` (2026-07-31); shared
+/// with the `--on wordpress` substrate.
+pub const OUTPUT_FIELDS: &[(&str, &str, bool)] = &[
+    ("ADMIN_URL", "admin_url", true),
+    ("BLOG_ID", "blog_id", true),
+    ("SITE_URL", "site_url", true),
+    ("TYPE", "type", false),
+];
+
+pub const OUTPUTS: &[&str] = &["admin_url", "blog_id", "site_url", "type"];
+
 #[derive(Debug, Serialize)]
 pub struct WordPressComSiteConfig {
     pub plan: String,
@@ -30,15 +41,13 @@ impl Hostable for WordPressComSite {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["site_url"];
+    const OUTPUTS: &'static [&'static str] = OUTPUTS;
 }
 
 impl FamilyResource for WordPressComSite {
     type Config = WordPressComSiteConfig;
     const PROVIDER_PREFIX: &'static str = "WORDPRESS_COM";
-    // Provisional until pinned by `mise run discover wordpress.com/site`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("SITE_URL", "site_url", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = OUTPUT_FIELDS;
 
     fn build_config(
         ctx: &ProvisionContext<'_>,
@@ -118,7 +127,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"WORDPRESS_COM_SITE_URL": "val_site_url"}),
+            serde_json::json!({"WORDPRESS_COM_ADMIN_URL": "val_admin_url", "WORDPRESS_COM_BLOG_ID": "val_blog_id", "WORDPRESS_COM_SITE_URL": "val_site_url", "WORDPRESS_COM_TYPE": "val_type"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -143,6 +152,9 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-wordpress-com");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
+        assert_eq!(payload.outputs["admin_url"], "val_admin_url");
+        assert_eq!(payload.outputs["blog_id"], "val_blog_id");
         assert_eq!(payload.outputs["site_url"], "val_site_url");
+        assert_eq!(payload.outputs["type"], "val_type");
     }
 }

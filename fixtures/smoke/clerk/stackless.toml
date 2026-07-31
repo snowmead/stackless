@@ -1,0 +1,35 @@
+# Live smoke: provisions Clerk auth through Stripe Projects under
+# `--on local` (integrations provision under any substrate — no deploy target
+# needed), injects their outputs into a trivial local probe service, then tears
+# down and verifies the resources are gone.
+#
+# Run: stackless up --on local --file fixtures/smoke/clerk/stackless.toml --name <inst>
+# One-time human setup (from THIS dir — see docs/ADDING-A-PROVIDER.md "One-time setup"):
+#   cd fixtures/smoke/clerk
+#   stripe projects init smoke-clerk --skip-skills --accept-tos   # creates .projects/
+#   stripe projects link clerk                                    # interactive Clerk OAuth (account-level)
+# The project anchor ([stack.projects.stripe].project) is recorded here on first up.
+[stack]
+name = "smoke-clerk"
+
+[stack.projects]
+[stack.projects.stripe]
+
+[integrations.clerk]
+provider       = "clerk"
+app_name       = "stackless-smoke-${instance.name}"
+credential_set = "development"
+
+# A trivial local service that proves the integration outputs resolve into a
+# service env (and gives the stack a health-gated service to run).
+[services.web]
+source      = { repo = "https://github.com/snowmead/stackless", ref = "main" }
+root_origin = true
+health      = { path = "/", contains = "stackless-smoke-ok" }
+env         = { CLERK_SECRET_KEY = "${integrations.clerk.secret_key}", CLERK_PUBLISHABLE_KEY = "${integrations.clerk.publishable_key}" }
+
+# Self-contained probe: serves an inline page so the smoke does not depend on
+# the cloned source ref having fixtures/smoke/site (it isn't on main pre-merge).
+# Local execs the command (`sh -c "exec <run>"`), so wrap the script in `sh -c`.
+[services.web.local]
+run = "sh -c 'd=$(mktemp -d); printf stackless-smoke-ok > \"$d/index.html\"; exec python3 -m http.server $PORT --bind 127.0.0.1 --directory \"$d\"'"

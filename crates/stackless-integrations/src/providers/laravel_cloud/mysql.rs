@@ -31,15 +31,19 @@ impl Hostable for LaravelCloudMysql {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["database_url"];
+    const OUTPUTS: &'static [&'static str] = &["database", "host", "password", "port", "username"];
 }
 
 impl FamilyResource for LaravelCloudMysql {
     type Config = LaravelCloudMysqlConfig;
     const PROVIDER_PREFIX: &'static str = "LARAVEL_CLOUD";
-    // Provisional until pinned by `mise run discover laravel_cloud/mysql`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("DATABASE_URL", "database_url", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("DATABASE", "database", true),
+        ("HOST", "host", false),
+        ("PASSWORD", "password", true),
+        ("PORT", "port", true),
+        ("USERNAME", "username", true),
+    ];
 
     fn build_config(
         ctx: &ProvisionContext<'_>,
@@ -115,7 +119,7 @@ instance_size = "mysql-flex-512mb"
 region = "us-east-1"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.database_url}" }
+env = { OUT = "${integrations.res.database}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -128,7 +132,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"LARAVEL_CLOUD_DATABASE_URL": "val_database_url"}),
+            serde_json::json!({"LARAVEL_CLOUD_DATABASE": "val_database", "LARAVEL_CLOUD_HOST": "val_host", "LARAVEL_CLOUD_PASSWORD": "val_password", "LARAVEL_CLOUD_PORT": "val_port", "LARAVEL_CLOUD_USERNAME": "val_username"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -153,6 +157,9 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-laravel-cloud-mysql");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["database_url"], "val_database_url");
+        assert_eq!(payload.outputs["database"], "val_database");
+        assert_eq!(payload.outputs["password"], "val_password");
+        assert_eq!(payload.outputs["port"], "val_port");
+        assert_eq!(payload.outputs["username"], "val_username");
     }
 }

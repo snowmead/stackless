@@ -31,16 +31,24 @@ impl Hostable for InngestApp {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["event_key", "signing_key"];
+    const OUTPUTS: &'static [&'static str] = &[
+        "api_origin",
+        "dashboard_url",
+        "event_api_origin",
+        "event_key",
+        "signing_key",
+    ];
 }
 
 impl FamilyResource for InngestApp {
     type Config = InngestAppConfig;
     const PROVIDER_PREFIX: &'static str = "INNGEST";
-    // Provisional until pinned by `mise run discover inngest/app`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("API_ORIGIN", "api_origin", true),
+        ("DASHBOARD_URL", "dashboard_url", true),
+        ("EVENT_API_ORIGIN", "event_api_origin", true),
         ("EVENT_KEY", "event_key", true),
-        ("SIGNING_KEY", "signing_key", false),
+        ("SIGNING_KEY", "signing_key", true),
     ];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<InngestAppConfig, IntegrationError> {
@@ -119,7 +127,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"INNGEST_EVENT_KEY": "val_event_key", "INNGEST_SIGNING_KEY": "val_signing_key"}),
+            serde_json::json!({"INNGEST_API_ORIGIN": "val_api_origin", "INNGEST_DASHBOARD_URL": "val_dashboard_url", "INNGEST_EVENT_API_ORIGIN": "val_event_api_origin", "INNGEST_EVENT_KEY": "val_event_key", "INNGEST_SIGNING_KEY": "val_signing_key"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -144,6 +152,10 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-inngest");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
+        assert_eq!(payload.outputs["api_origin"], "val_api_origin");
+        assert_eq!(payload.outputs["dashboard_url"], "val_dashboard_url");
+        assert_eq!(payload.outputs["event_api_origin"], "val_event_api_origin");
         assert_eq!(payload.outputs["event_key"], "val_event_key");
+        assert_eq!(payload.outputs["signing_key"], "val_signing_key");
     }
 }

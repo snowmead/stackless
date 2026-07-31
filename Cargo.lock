@@ -80,6 +80,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
+name = "arbitrary"
+version = "1.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
+dependencies = [
+ "derive_arbitrary",
+]
+
+[[package]]
 name = "assert-json-diff"
 version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -516,6 +525,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "crossbeam-utils"
+version = "0.8.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61803da095bee82a81bb1a452ecc25d3b2f1416d1897eb86430c6159ef717c17"
+
+[[package]]
 name = "crypto-common"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -548,6 +563,17 @@ name = "deranged"
 version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
+
+[[package]]
+name = "derive_arbitrary"
+version = "1.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e567bd82dcff979e4b03460c307b3cdc9e96fde3d73bed1496d2bc75d9dd62a"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "difflib"
@@ -1650,6 +1676,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
+name = "mime_guess"
+version = "2.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7c44f8e672c00fe5308fa235f821cb4198414e1c77935c1ab6948d3fd78550e"
+dependencies = [
+ "mime",
+ "unicase",
+]
+
+[[package]]
 name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2313,6 +2349,7 @@ dependencies = [
  "js-sys",
  "log",
  "mime",
+ "mime_guess",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -2914,15 +2951,19 @@ name = "stackless-cloudflare"
 version = "0.2.2"
 dependencies = [
  "async-trait",
+ "reqwest",
  "serde",
  "serde_json",
  "stackless-cloud",
  "stackless-core",
+ "stackless-git",
  "stackless-integrations",
  "stackless-stripe-projects",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "toml",
+ "wiremock",
 ]
 
 [[package]]
@@ -2968,6 +3009,7 @@ dependencies = [
  "serde_json",
  "stackless-cloud",
  "stackless-core",
+ "stackless-git",
  "stackless-integrations",
  "stackless-stripe-projects",
  "tempfile",
@@ -2992,15 +3034,19 @@ name = "stackless-gitlab"
 version = "0.2.2"
 dependencies = [
  "async-trait",
+ "reqwest",
  "serde",
  "serde_json",
  "stackless-cloud",
  "stackless-core",
+ "stackless-git",
  "stackless-integrations",
  "stackless-stripe-projects",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "urlencoding",
+ "wiremock",
 ]
 
 [[package]]
@@ -3038,6 +3084,7 @@ name = "stackless-laravel-cloud"
 version = "0.2.2"
 dependencies = [
  "async-trait",
+ "reqwest",
  "serde",
  "serde_json",
  "stackless-cloud",
@@ -3048,6 +3095,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "toml",
+ "wiremock",
 ]
 
 [[package]]
@@ -3089,6 +3137,7 @@ dependencies = [
  "tokio",
  "toml",
  "wiremock",
+ "zip",
 ]
 
 [[package]]
@@ -3109,6 +3158,7 @@ name = "stackless-railway"
 version = "0.2.2"
 dependencies = [
  "async-trait",
+ "reqwest",
  "serde",
  "serde_json",
  "stackless-cloud",
@@ -3118,6 +3168,8 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "toml",
+ "wiremock",
 ]
 
 [[package]]
@@ -3185,15 +3237,18 @@ name = "stackless-wordpress"
 version = "0.2.2"
 dependencies = [
  "async-trait",
+ "reqwest",
  "serde",
  "serde_json",
  "stackless-cloud",
  "stackless-core",
+ "stackless-git",
  "stackless-integrations",
  "stackless-stripe-projects",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "wiremock",
 ]
 
 [[package]]
@@ -3590,6 +3645,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "unicase"
+version = "2.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dbc4bc3a9f746d862c45cb89d705aa10f187bb96c76001afab07a0d35ce60142"
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3646,6 +3707,12 @@ dependencies = [
  "percent-encoding",
  "serde",
 ]
+
+[[package]]
+name = "urlencoding"
+version = "2.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
 
 [[package]]
 name = "utf16_iter"
@@ -4442,8 +4509,10 @@ name = "xtask"
 version = "0.2.2"
 dependencies = [
  "clap",
+ "serde",
  "serde_json",
  "stackless-stripe-projects",
+ "tempfile",
  "tokio",
 ]
 
@@ -4572,7 +4641,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "zip"
+version = "2.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fabe6324e908f85a1c52063ce7aa26b68dcb7eb6dbc83a2d148403c9bc3eba50"
+dependencies = [
+ "arbitrary",
+ "crc32fast",
+ "crossbeam-utils",
+ "displaydoc",
+ "flate2",
+ "indexmap",
+ "memchr",
+ "thiserror 2.0.18",
+ "zopfli",
+]
+
+[[package]]
 name = "zmij"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
+
+[[package]]
+name = "zopfli"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f05cd8797d63865425ff89b5c4a48804f35ba0ce8d125800027ad6017d2b5249"
+dependencies = [
+ "bumpalo",
+ "crc32fast",
+ "log",
+ "simd-adler32",
+]

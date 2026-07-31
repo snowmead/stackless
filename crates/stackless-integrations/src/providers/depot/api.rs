@@ -27,15 +27,17 @@ impl Hostable for DepotApi {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["api_key"];
+    const OUTPUTS: &'static [&'static str] = &["api_token", "organization_id", "token_id"];
 }
 
 impl FamilyResource for DepotApi {
     type Config = DepotApiConfig;
     const PROVIDER_PREFIX: &'static str = "DEPOT";
-    // Provisional until pinned by `mise run discover depot/api`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("API_KEY", "api_key", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("API_TOKEN", "api_token", true),
+        ("ORGANIZATION_ID", "organization_id", true),
+        ("TOKEN_ID", "token_id", true),
+    ];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<DepotApiConfig, IntegrationError> {
         let _ = super::integration_config(ctx)?;
@@ -88,7 +90,7 @@ project = "project_1"
 provider = "depot"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.api_key}" }
+env = { OUT = "${integrations.res.api_token}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -101,7 +103,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"DEPOT_API_KEY": "val_api_key"}),
+            serde_json::json!({"DEPOT_API_TOKEN": "val_api_token", "DEPOT_ORGANIZATION_ID": "val_organization_id", "DEPOT_TOKEN_ID": "val_token_id"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -126,6 +128,8 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-depot");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["api_key"], "val_api_key");
+        assert_eq!(payload.outputs["api_token"], "val_api_token");
+        assert_eq!(payload.outputs["organization_id"], "val_organization_id");
+        assert_eq!(payload.outputs["token_id"], "val_token_id");
     }
 }

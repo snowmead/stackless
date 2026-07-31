@@ -27,15 +27,17 @@ impl Hostable for E2BSandbox {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["api_key"];
+    const OUTPUTS: &'static [&'static str] = &["api_key", "api_url", "domain"];
 }
 
 impl FamilyResource for E2BSandbox {
     type Config = E2BSandboxConfig;
     const PROVIDER_PREFIX: &'static str = "E2B";
-    // Provisional until pinned by `mise run discover e2b/sandbox`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("API_KEY", "api_key", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("API_KEY", "api_key", true),
+        ("API_URL", "api_url", true),
+        ("DOMAIN", "domain", true),
+    ];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<E2BSandboxConfig, IntegrationError> {
         let _ = super::integration_config(ctx)?;
@@ -101,7 +103,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"E2B_API_KEY": "val_api_key"}),
+            serde_json::json!({"E2B_API_KEY": "val_api_key", "E2B_API_URL": "val_api_url", "E2B_DOMAIN": "val_domain"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -127,5 +129,7 @@ run = "true"
         assert_eq!(resource.resource_kind, "integration-e2b");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
         assert_eq!(payload.outputs["api_key"], "val_api_key");
+        assert_eq!(payload.outputs["api_url"], "val_api_url");
+        assert_eq!(payload.outputs["domain"], "val_domain");
     }
 }

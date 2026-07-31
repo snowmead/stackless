@@ -27,15 +27,17 @@ impl Hostable for PostHogAnalytics {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["api_key"];
+    const OUTPUTS: &'static [&'static str] = &["api_key", "host", "personal_api_key"];
 }
 
 impl FamilyResource for PostHogAnalytics {
     type Config = PostHogAnalyticsConfig;
     const PROVIDER_PREFIX: &'static str = "POSTHOG";
-    // Provisional until pinned by `mise run discover posthog/analytics`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("API_KEY", "api_key", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("API_KEY", "api_key", true),
+        ("HOST", "host", true),
+        ("PERSONAL_API_KEY", "personal_api_key", true),
+    ];
 
     fn build_config(
         ctx: &ProvisionContext<'_>,
@@ -104,7 +106,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"POSTHOG_API_KEY": "val_api_key"}),
+            serde_json::json!({"POSTHOG_API_KEY": "val_api_key", "POSTHOG_HOST": "val_host", "POSTHOG_PERSONAL_API_KEY": "val_personal_api_key"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();

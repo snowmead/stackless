@@ -39,7 +39,7 @@ impl Hostable for CloudflareWorkers {
 impl CloudflareResource for CloudflareWorkers {
     type Config = WorkersConfig;
     const PROVIDER_PREFIX: &'static str = "CLOUDFLARE";
-    // Shared across the Workers family; confirmed by live provisioning 2026-06-16.
+    // Shared with Workers AI / Browser Run and the `--on cloudflare` substrate.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         super::WORKERS_FAMILY_OUTPUT_FIELDS;
 

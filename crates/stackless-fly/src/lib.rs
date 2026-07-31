@@ -16,11 +16,13 @@
 //! registration** (like catalog integrations), not the Fly API — the Fly API is
 //! only touched at deploy time, when the token is fresh.
 //!
-//! ## v0 scope and cloud invariants
+//! ## Deploy paths and cloud invariants
 //!
-//! - **Image-only.** A service declares a prebuilt container `image` in
-//!   `[services.X.fly]`; the substrate deploys it as a Fly machine. Building from
-//!   source via a remote builder is a later enhancement.
+//! - **Image** (`[services.X.fly].image`): explicit fast path — deploy a prebuilt
+//!   container as a Fly machine via the Machines API.
+//! - **Source-build** (no `image`): clone the pinned ref and build via Fly's
+//!   remote builder (`flyctl deploy --remote-only`). Optional `dockerfile`
+//!   (default `Dockerfile`). Requires `fly`/`flyctl` on PATH.
 //! - **Cloud resource names** are `{stack}-{instance}-{service}` — DNS-safe and a
 //!   legal Fly app name (`^[a-z][a-z0-9-]{2,62}$`). Origins are
 //!   `https://{stack}-{instance}-{service}.fly.dev`.
@@ -33,6 +35,7 @@ pub mod config;
 pub mod error;
 pub mod fly_api;
 pub mod prepare;
+pub mod remote_build;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -48,9 +51,10 @@ use stackless_core::substrate::{
 };
 use tokio::sync::Mutex;
 
-use crate::config::FlyAppConfig;
+use crate::config::{FlyAppConfig, FlyDeployMode};
 use crate::error::FlyError;
 use crate::fly_api::{FLY_DEPLOY_BUDGET, FlyApi, HEALTH_BUDGET, MachineSpec};
+use crate::remote_build::{RemoteBuildArgs, build_and_deploy};
 use stackless_stripe_projects::ProjectsError;
 use stackless_stripe_projects::provision::{ProvisionContext, provision_outputs};
 use stackless_stripe_projects::stripe::{CommandRunner, StripeProjects, TokioRunner};
@@ -90,7 +94,7 @@ struct ServicePayload {
 }
 
 /// What a `materialize:<service>` checkpoint records: the pinned source. Owns
-/// nothing locally (Fly deploys an image), so observe reports Gone and resume
+/// nothing locally (Fly deploys remotely), so observe reports Gone and resume
 /// cheaply re-records it.
 #[derive(Debug, Serialize, Deserialize)]
 struct SourceRefPayload {
@@ -354,26 +358,93 @@ impl<R: CommandRunner> FlySubstrate<R> {
         let fly = self.fly_with_token(token);
         fly.ensure_ips(&app_name).await.map_err(fault)?;
         let env = self.resolved_env(def, instance, service, prior)?;
-        let spec = MachineSpec {
-            name: &app_name,
-            region: &region,
-            image: &fly_cfg.image,
-            cmd: fly_cfg.cmd.as_deref(),
-            env: &env,
-            internal_port: fly_cfg.internal_port,
-            cpu_kind: &fly_cfg.guest.cpu_kind,
-            cpus: fly_cfg.guest.cpus,
-            memory_mb: fly_cfg.guest.memory_mb,
-        };
-        // Resume idempotency: reuse a machine a prior partial run already created
-        // (create_machine is not idempotent), so a re-run never duplicates compute.
-        let machine_id = match fly
-            .find_machine(&app_name, &app_name)
-            .await
-            .map_err(fault)?
-        {
-            Some(existing) => existing,
-            None => fly.create_machine(&app_name, &spec).await.map_err(fault)?,
+
+        let machine_id = match &fly_cfg.mode {
+            FlyDeployMode::Image { image } => {
+                let spec = MachineSpec {
+                    name: &app_name,
+                    region: &region,
+                    image,
+                    cmd: fly_cfg.cmd.as_deref(),
+                    env: &env,
+                    internal_port: fly_cfg.internal_port,
+                    cpu_kind: &fly_cfg.guest.cpu_kind,
+                    cpus: fly_cfg.guest.cpus,
+                    memory_mb: fly_cfg.guest.memory_mb,
+                };
+                // Resume idempotency: reuse a machine a prior partial run already
+                // created (create_machine is not idempotent).
+                match fly
+                    .find_machine(&app_name, &app_name)
+                    .await
+                    .map_err(fault)?
+                {
+                    Some(existing) => existing,
+                    None => fly.create_machine(&app_name, &spec).await.map_err(fault)?,
+                }
+            }
+            FlyDeployMode::Build { dockerfile } => {
+                let spec = def.services.get(service).ok_or_else(|| {
+                    fault(FlyError::ConfigInvalid {
+                        location: format!("services.{service}"),
+                        detail: "service not in definition".into(),
+                    })
+                })?;
+                let repo = spec.source.repo.clone();
+                let reference = spec.source.reference.clone();
+                let app = app_name.clone();
+                let region = region.clone();
+                let dockerfile = dockerfile.clone();
+                let token = token.clone();
+                let env = env.clone();
+                let internal_port = fly_cfg.internal_port;
+                let service_owned = service.to_owned();
+                tokio::task::spawn_blocking(move || {
+                    build_and_deploy(
+                        &repo,
+                        &reference,
+                        &RemoteBuildArgs {
+                            app: &app,
+                            region: &region,
+                            dockerfile: &dockerfile,
+                            token: &token,
+                            env: &env,
+                            internal_port,
+                        },
+                    )
+                    .map_err(|err| match err {
+                        FlyError::DeployFailed { state, .. } => FlyError::DeployFailed {
+                            service: service_owned,
+                            state,
+                        },
+                        other => other,
+                    })
+                })
+                .await
+                .map_err(|err| {
+                    fault(FlyError::ProvisionFailed {
+                        resource: resource.clone(),
+                        detail: format!("remote-build task panicked: {err}"),
+                    })
+                })?
+                .map_err(fault)?;
+                // flyctl creates/updates the machine (name may differ from app).
+                match fly
+                    .list_machine_ids(&app_name)
+                    .await
+                    .map_err(fault)?
+                    .into_iter()
+                    .next()
+                {
+                    Some(id) => id,
+                    None => {
+                        return Err(fault(FlyError::DeployFailed {
+                            service: service.to_owned(),
+                            state: "remote build finished but no machine was created".into(),
+                        }));
+                    }
+                }
+            }
         };
         fly.wait_for_started(&app_name, &machine_id, service, FLY_DEPLOY_BUDGET)
             .await

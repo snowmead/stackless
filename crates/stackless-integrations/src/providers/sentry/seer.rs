@@ -1,4 +1,7 @@
 //! `sentry/seer` integration.
+//!
+//! Live `discover` (after `sentry/team` + spend headroom) returns no credential
+//! env vars — Seer is a paid account add-on, not a secret-bearing resource.
 
 use std::collections::BTreeMap;
 
@@ -27,15 +30,14 @@ impl Hostable for SentrySeer {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["auth_token"];
+    const OUTPUTS: &'static [&'static str] = &[];
 }
 
 impl FamilyResource for SentrySeer {
     type Config = SentrySeerConfig;
     const PROVIDER_PREFIX: &'static str = "SENTRY";
-    // Provisional until pinned by `mise run discover sentry/seer`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("AUTH_TOKEN", "auth_token", true)];
+    // Pinned empty by live discover — Seer emits no credential env vars.
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<SentrySeerConfig, IntegrationError> {
         let _ = super::integration_config(ctx)?;
@@ -88,7 +90,7 @@ project = "project_1"
 provider = "sentry-seer"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.auth_token}" }
+env = { OUT = "ok" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -99,11 +101,7 @@ run = "true"
 
     #[tokio::test]
     async fn provision_records_outputs() {
-        let runner = test_support::provision_script(
-            CATALOG_ENVELOPE,
-            serde_json::json!({"SENTRY_AUTH_TOKEN": "val_auth_token"}),
-            0,
-        );
+        let runner = test_support::provision_script(CATALOG_ENVELOPE, serde_json::json!({}), 0);
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("stackless.toml"),
@@ -126,6 +124,6 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-sentry-seer");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["auth_token"], "val_auth_token");
+        assert!(payload.outputs.is_empty());
     }
 }

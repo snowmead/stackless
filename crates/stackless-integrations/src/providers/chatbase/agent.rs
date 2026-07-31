@@ -30,15 +30,18 @@ impl Hostable for ChatbaseAgent {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["api_key"];
+    const OUTPUTS: &'static [&'static str] =
+        &["chatbase_agent_id", "chatbase_api_key", "chatbase_api_url"];
 }
 
 impl FamilyResource for ChatbaseAgent {
     type Config = ChatbaseAgentConfig;
     const PROVIDER_PREFIX: &'static str = "CHATBASE";
-    // Provisional until pinned by `mise run discover chatbase/agent`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("API_KEY", "api_key", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("CHATBASE_AGENT_ID", "chatbase_agent_id", true),
+        ("CHATBASE_API_KEY", "chatbase_api_key", true),
+        ("CHATBASE_API_URL", "chatbase_api_url", true),
+    ];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<ChatbaseAgentConfig, IntegrationError> {
         let config = super::integration_config(ctx)?;
@@ -103,7 +106,7 @@ provider = "chatbase"
 name = "demo-name"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.api_key}" }
+env = { OUT = "${integrations.res.chatbase_api_key}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -116,7 +119,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"CHATBASE_API_KEY": "val_api_key"}),
+            serde_json::json!({"CHATBASE_CHATBASE_AGENT_ID": "val_chatbase_agent_id", "CHATBASE_CHATBASE_API_KEY": "val_chatbase_api_key", "CHATBASE_CHATBASE_API_URL": "val_chatbase_api_url"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -141,6 +144,11 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-chatbase");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["api_key"], "val_api_key");
+        assert_eq!(
+            payload.outputs["chatbase_agent_id"],
+            "val_chatbase_agent_id"
+        );
+        assert_eq!(payload.outputs["chatbase_api_key"], "val_chatbase_api_key");
+        assert_eq!(payload.outputs["chatbase_api_url"], "val_chatbase_api_url");
     }
 }

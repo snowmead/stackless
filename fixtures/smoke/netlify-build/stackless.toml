@@ -1,0 +1,26 @@
+# Live smoke stack: Netlify build-path deploy — zip the site-build fixture and
+# run a build command on Netlify (not the static file-digest fast path).
+#
+# Run: mise run smoke-netlify-build
+# One-time human setup (from THIS dir):
+#   cd fixtures/smoke/netlify-build
+#   stripe projects init smoke-netlify-build --skip-skills --accept-tos
+#   stripe projects link netlify
+[stack]
+name = "smoke-netlify-build"
+
+[stack.projects]
+[stack.projects.stripe]
+# Reuse the static smoke project when linked; override after init if needed.
+project = "project_61UsjMitlMsBzz16g16UhtGl9aA8OIk3xIw9EFWsKVTU"
+
+[services.web]
+source      = { repo = "https://github.com/snowmead/stackless", ref = "main" }
+root_origin = true
+health      = { path = "/", contains = "stackless-smoke-ok" }
+
+[services.web.netlify]
+root    = "fixtures/smoke/site-build"
+build   = "mkdir -p dist && cp static/index.html dist/index.html"
+publish = "dist"
+deploy  = "build"

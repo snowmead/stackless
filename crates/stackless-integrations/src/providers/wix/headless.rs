@@ -32,15 +32,18 @@ impl Hostable for WixHeadless {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["app_id"];
+    const OUTPUTS: &'static [&'static str] =
+        &["wix_client_id", "wix_client_secret", "wix_metasite_id"];
 }
 
 impl FamilyResource for WixHeadless {
     type Config = WixHeadlessConfig;
     const PROVIDER_PREFIX: &'static str = "WIX";
-    // Provisional until pinned by `mise run discover wix/headless`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("APP_ID", "app_id", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("WIX_CLIENT_ID", "wix_client_id", true),
+        ("WIX_CLIENT_SECRET", "wix_client_secret", true),
+        ("WIX_METASITE_ID", "wix_metasite_id", true),
+    ];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<WixHeadlessConfig, IntegrationError> {
         let config = super::integration_config(ctx)?;
@@ -102,7 +105,7 @@ project = "project_1"
 provider = "wix"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.app_id}" }
+env = { OUT = "${integrations.res.wix_client_id}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -115,7 +118,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"WIX_APP_ID": "val_app_id"}),
+            serde_json::json!({"WIX_WIX_CLIENT_ID": "val_wix_client_id", "WIX_WIX_CLIENT_SECRET": "val_wix_client_secret", "WIX_WIX_METASITE_ID": "val_wix_metasite_id"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -140,6 +143,11 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-wix");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["app_id"], "val_app_id");
+        assert_eq!(payload.outputs["wix_client_id"], "val_wix_client_id");
+        assert_eq!(
+            payload.outputs["wix_client_secret"],
+            "val_wix_client_secret"
+        );
+        assert_eq!(payload.outputs["wix_metasite_id"], "val_wix_metasite_id");
     }
 }

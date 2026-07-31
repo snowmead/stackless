@@ -38,15 +38,27 @@ impl Hostable for BlaxelSandbox {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["api_key"];
+    const OUTPUTS: &'static [&'static str] = &[
+        "api_key",
+        "resource_name",
+        "service_account_client_id",
+        "workspace",
+    ];
 }
 
 impl FamilyResource for BlaxelSandbox {
     type Config = BlaxelSandboxConfig;
     const PROVIDER_PREFIX: &'static str = "BLAXEL";
-    // Provisional until pinned by `mise run discover blaxel/sandbox`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("API_KEY", "api_key", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("API_KEY", "api_key", true),
+        ("RESOURCE_NAME", "resource_name", true),
+        (
+            "SERVICE_ACCOUNT_CLIENT_ID",
+            "service_account_client_id",
+            true,
+        ),
+        ("WORKSPACE", "workspace", true),
+    ];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<BlaxelSandboxConfig, IntegrationError> {
         let config = super::integration_config(ctx)?;
@@ -127,7 +139,12 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"BLAXEL_API_KEY": "val_api_key"}),
+            serde_json::json!({
+                "BLAXEL_API_KEY": "val_api_key",
+                "BLAXEL_RESOURCE_NAME": "val_resource_name",
+                "BLAXEL_SERVICE_ACCOUNT_CLIENT_ID": "val_service_account_client_id",
+                "BLAXEL_WORKSPACE": "val_workspace"
+            }),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -153,5 +170,11 @@ run = "true"
         assert_eq!(resource.resource_kind, "integration-blaxel-sandbox");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
         assert_eq!(payload.outputs["api_key"], "val_api_key");
+        assert_eq!(payload.outputs["resource_name"], "val_resource_name");
+        assert_eq!(
+            payload.outputs["service_account_client_id"],
+            "val_service_account_client_id"
+        );
+        assert_eq!(payload.outputs["workspace"], "val_workspace");
     }
 }

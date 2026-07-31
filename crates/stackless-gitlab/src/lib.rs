@@ -1,34 +1,37 @@
 //! stackless-gitlab (ARCHITECTURE.md §4): the GitLab cloud substrate.
 //!
-//! Mirrors the Render/Vercel/Fly/Netlify cloud flow at the Stripe layer:
-//! Stripe Projects provisions `gitlab/project` and tracks spend; the GitLab REST
-//! API would fill deploy gaps in a later phase. One long-lived Stripe project per
-//! stack holds each instance as a named environment.
+//! Mirrors the Render/Vercel/Fly/Netlify cloud flow: Stripe Projects provisions
+//! `gitlab/project` and tracks spend; the GitLab REST API fills deploy gaps —
+//! commit static files under `public/`, run a Pages CI job, poll to success, and
+//! health-check the public Pages URL. One long-lived Stripe project per stack
+//! holds each instance as a named environment.
 //!
 //! ## Credential model (pinned by `mise run discover gitlab/project`)
 //!
 //! Provisioning `gitlab/project` returns Stripe-managed outputs (`PROJECT_ID`,
-//! optional `WEB_URL`). The substrate reads them at `start` and records a
-//! best-effort origin. Because credentials are ephemeral, `observe`/`destroy`
-//! key off the **Stripe resource registration**, not the GitLab API.
+//! optional `WEB_URL`). The substrate reads them at `start`, resolves a
+//! `PRIVATE-TOKEN` for the GitLab API (`GITLAB_TOKEN` / `GITLAB_ACCESS_TOKEN` from
+//! Stripe instance env, else env/secrets/`.gitlab-token`), and deploys via Pages.
+//! Because credentials are ephemeral, `observe`/`destroy` key off the **Stripe
+//! resource registration**, not the GitLab API.
 //!
-//! ## v0 scope and REST gaps
+//! ## Cloud invariants
 //!
-//! - **Stripe-only deploy.** `start` provisions the catalog project and records
-//!   an origin placeholder (`WEB_URL` when present, else
-//!   `https://gitlab.com/{name}`). No GitLab REST client yet — Pages deploy,
-//!   CI pipeline trigger, and container-registry push are deferred.
-//! - **Health gate is a no-op** until a real deploy surface exists.
+//! - **Pages path:** clone the pinned ref, upload files under
+//!   `[services.X.gitlab].root` (default `.`) into `public/`, commit `.gitlab-ci.yml`,
+//!   poll the `pages` job (~15m budget).
 //! - **Cloud resource names** are `{stack}-{instance}-{service}` — DNS-safe.
 //! - **Setup is skipped on cloud**; **prepare** runs on the operator's machine.
 //! - **Source override is unsupported** — GitLab deploys committed refs.
 
+pub mod api_key;
 pub mod codes;
 pub mod config;
 pub mod error;
+pub mod gitlab_api;
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -43,6 +46,7 @@ use tokio::sync::Mutex;
 
 use crate::config::GitLabProjectConfig;
 use crate::error::GitLabError;
+use crate::gitlab_api::{GITLAB_DEPLOY_BUDGET, GitLabApi, HEALTH_BUDGET, RepoFile};
 use stackless_stripe_projects::ProjectsError;
 use stackless_stripe_projects::provision::{ProvisionContext, provision_outputs};
 use stackless_stripe_projects::stripe::{CommandRunner, StripeProjects, TokioRunner};
@@ -87,6 +91,12 @@ struct GitLabPayload {
     stripe_resource: String,
     project_id: String,
     project_name: String,
+    #[serde(default)]
+    pages_url: String,
+    #[serde(default)]
+    pipeline_id: u64,
+    #[serde(default)]
+    job_id: u64,
     origin: String,
 }
 
@@ -106,6 +116,8 @@ pub struct GitLabSubstrate<R: CommandRunner = TokioRunner> {
     pub secrets: BTreeMap<String, String>,
     pub confirm_paid: bool,
     runner: R,
+    api_base: Option<String>,
+    poll_interval: Option<Duration>,
     ensured: Mutex<bool>,
 }
 
@@ -129,6 +141,8 @@ impl GitLabSubstrate<TokioRunner> {
             secrets,
             confirm_paid,
             runner: TokioRunner,
+            api_base: None,
+            poll_interval: None,
             ensured: Mutex::new(false),
         }
     }
@@ -136,12 +150,19 @@ impl GitLabSubstrate<TokioRunner> {
 
 impl<R: CommandRunner> GitLabSubstrate<R> {
     #[cfg(test)]
-    fn for_test(runner: R, definition_dir: impl Into<PathBuf>, confirm_paid: bool) -> Self {
+    fn for_test(
+        runner: R,
+        definition_dir: impl Into<PathBuf>,
+        api_base: impl Into<String>,
+        confirm_paid: bool,
+    ) -> Self {
         Self {
             definition_dir: definition_dir.into(),
             secrets: BTreeMap::new(),
             confirm_paid,
             runner,
+            api_base: Some(api_base.into()),
+            poll_interval: Some(Duration::from_millis(1)),
             ensured: Mutex::new(false),
         }
     }
@@ -150,12 +171,23 @@ impl<R: CommandRunner> GitLabSubstrate<R> {
         StripeProjects::new(&self.runner, self.definition_dir.clone())
     }
 
+    fn gitlab_with_token(&self, token: &str) -> GitLabApi {
+        let api = match &self.api_base {
+            Some(base) => GitLabApi::with_base(token, base.clone()),
+            None => GitLabApi::new(token),
+        };
+        match self.poll_interval {
+            Some(interval) => api.with_poll_interval(interval),
+            None => api,
+        }
+    }
+
     /// `{stack}-{instance}-{service}` (DNS-safe; a legal GitLab project name).
     fn resource_name(def: &StackDef, instance: &str, node: &str) -> String {
         format!("{}-{instance}-{node}", def.stack.name.as_str())
     }
 
-    /// Best-effort origin before `WEB_URL` is known — documented placeholder.
+    /// Best-effort origin before Pages URL is known — documented placeholder.
     fn origin_placeholder(project_name: &str) -> String {
         format!("https://gitlab.com/{project_name}")
     }
@@ -209,6 +241,31 @@ impl<R: CommandRunner> GitLabSubstrate<R> {
         Ok(())
     }
 
+    async fn gitlab_token(&self, instance: &str) -> Result<String, SubstrateFault> {
+        let keys = [api_key::KEY_ENV, api_key::ALT_KEY_ENV];
+        let pulled = project::pull_env_values(&self.stripe(), instance, &keys)
+            .await
+            .map_err(projects_fault)?;
+        if let Some(token) = pulled
+            .into_iter()
+            .flatten()
+            .find(|value| !value.trim().is_empty())
+        {
+            return Ok(token);
+        }
+        if let Some(token) = self.secrets.get(api_key::KEY_ENV)
+            && !token.trim().is_empty()
+        {
+            return Ok(token.clone());
+        }
+        if let Some(token) = self.secrets.get(api_key::ALT_KEY_ENV)
+            && !token.trim().is_empty()
+        {
+            return Ok(token.clone());
+        }
+        api_key::resolve(&self.definition_dir, &self.secrets).map_err(fault)
+    }
+
     async fn start_service(
         &self,
         def: &StackDef,
@@ -218,8 +275,15 @@ impl<R: CommandRunner> GitLabSubstrate<R> {
         let gitlab_cfg = config::service_gitlab(def, service).map_err(fault)?;
         let project_name = Self::resource_name(def, instance, service);
         let resource = format!("{instance}-{service}");
+        let spec = def.services.get(service).ok_or_else(|| {
+            fault(GitLabError::ConfigInvalid {
+                location: format!("services.{service}"),
+                detail: "service not in definition".into(),
+            })
+        })?;
         let visibility = gitlab_cfg
             .visibility
+            .clone()
             .unwrap_or_else(|| "private".to_owned());
 
         let catalog = self
@@ -248,11 +312,7 @@ impl<R: CommandRunner> GitLabSubstrate<R> {
             &ctx,
             &cfg,
             PROVIDER_PREFIX,
-            // The exact output suffixes pinned by `mise run discover gitlab/project`.
-            &[
-                ("PROJECT_ID", "project_id", true),
-                ("WEB_URL", "web_url", false),
-            ],
+            stackless_integrations::providers::gitlab::project::OUTPUT_FIELDS,
         )
         .await
         .map_err(projects_fault)?;
@@ -262,16 +322,48 @@ impl<R: CommandRunner> GitLabSubstrate<R> {
                 detail: "gitlab/project did not return a project id".into(),
             })
         })?;
-        let origin = outputs
-            .get("web_url")
-            .filter(|url| !url.trim().is_empty())
-            .cloned()
-            .unwrap_or_else(|| Self::origin_placeholder(&project_name));
+
+        let token = self.gitlab_token(instance).await?;
+        let gitlab = self.gitlab_with_token(&token);
+
+        let repo = spec.source.repo.clone();
+        let reference = spec.source.reference.clone();
+        let root = gitlab_cfg.root.clone();
+        let branch = reference.clone();
+        let files = tokio::task::spawn_blocking(move || {
+            collect_public_files(&repo, &reference, root.as_deref())
+        })
+        .await
+        .map_err(|err| {
+            fault(GitLabError::ProvisionFailed {
+                resource: resource.clone(),
+                detail: format!("file collection task panicked: {err}"),
+            })
+        })?
+        .map_err(fault)?;
+
+        let deploy = gitlab
+            .deploy_pages(project_id, &branch, &files, service, GITLAB_DEPLOY_BUDGET)
+            .await
+            .map_err(fault)?;
+
+        let origin = if !deploy.pages_url.trim().is_empty() {
+            deploy.pages_url.trim_end_matches('/').to_owned()
+        } else {
+            outputs
+                .get("web_url")
+                .filter(|url| !url.trim().is_empty())
+                .cloned()
+                .unwrap_or_else(|| Self::origin_placeholder(&project_name))
+        };
 
         let payload = GitLabPayload {
             stripe_resource: resource,
             project_id: project_id.clone(),
             project_name: project_name.clone(),
+            pages_url: deploy.pages_url,
+            pipeline_id: deploy.pipeline_id,
+            job_id: deploy.job_id,
             origin,
         };
         Ok(StepResource {
@@ -302,6 +394,110 @@ impl<R: CommandRunner> GitLabSubstrate<R> {
         .await
         .map_err(prepare_fault)
     }
+
+    async fn health_gate(
+        &self,
+        def: &StackDef,
+        instance: &str,
+        service: &str,
+        prior: &[Checkpoint],
+    ) -> Result<(), SubstrateFault> {
+        let spec = def.services.get(service).ok_or_else(|| {
+            fault(GitLabError::ConfigInvalid {
+                location: format!("services.{service}"),
+                detail: "service not in definition".into(),
+            })
+        })?;
+        let origin = prior
+            .iter()
+            .find(|c| {
+                c.resource_kind == "gitlab-project" && c.step_id == format!("start:{service}")
+            })
+            .and_then(|c| serde_json::from_str::<GitLabPayload>(&c.payload).ok())
+            .map(|p| p.origin)
+            .filter(|o| !o.trim().is_empty())
+            .unwrap_or_else(|| {
+                let name = Self::resource_name(def, instance, service);
+                Self::origin_placeholder(&name)
+            });
+        let url = format!("{origin}{}", spec.health.path);
+        stackless_cloud::health::poll(
+            &url,
+            spec.health.status.get(),
+            spec.health.contains.as_deref(),
+            HEALTH_BUDGET,
+        )
+        .await
+        .map_err(|f| {
+            fault(GitLabError::HealthFailed {
+                service: service.to_owned(),
+                url: f.url,
+                detail: f.detail,
+                budget_secs: f.budget_secs,
+            })
+        })
+    }
+}
+
+fn collect_public_files(
+    repo: &str,
+    reference: &str,
+    root: Option<&str>,
+) -> Result<Vec<RepoFile>, GitLabError> {
+    let provision_fault = |detail: String| GitLabError::ProvisionFailed {
+        resource: repo.to_owned(),
+        detail,
+    };
+    let tmp = tempfile::tempdir().map_err(|err| provision_fault(format!("tempdir: {err}")))?;
+    stackless_git::clone_checkout(
+        repo,
+        reference,
+        tmp.path(),
+        &stackless_git::Credentials::default(),
+    )
+    .map_err(|err| provision_fault(format!("clone {repo}@{reference} failed: {err}")))?;
+    let base = match root {
+        Some(root) => tmp.path().join(root),
+        None => tmp.path().to_path_buf(),
+    };
+    if !base.is_dir() {
+        return Err(provision_fault(format!(
+            "upload root {:?} not found in {repo}@{reference}",
+            root.unwrap_or(".")
+        )));
+    }
+    let mut files = Vec::new();
+    collect_dir(&base, &base, &mut files)
+        .map_err(|err| provision_fault(format!("reading upload files: {err}")))?;
+    if files.is_empty() {
+        return Err(provision_fault(format!(
+            "no files to upload under {:?}",
+            root.unwrap_or(".")
+        )));
+    }
+    Ok(files)
+}
+
+fn collect_dir(base: &Path, dir: &Path, out: &mut Vec<RepoFile>) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        if entry.file_name() == ".git" {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            collect_dir(base, &path, out)?;
+        } else if path.is_file() {
+            let rel = path
+                .strip_prefix(base)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            let content = std::fs::read_to_string(&path)?;
+            out.push(RepoFile { path: rel, content });
+        }
+    }
+    Ok(())
 }
 
 #[async_trait]
@@ -393,8 +589,11 @@ impl<R: CommandRunner> Substrate for GitLabSubstrate<R> {
                 Ok(stackless_core::substrate::action_resource(&ctx.step.id))
             }
             StepKind::Start => self.start_service(ctx.def, ctx.instance, node).await,
-            // Deferred until GitLab REST deploy (Pages/CI) is wired.
-            StepKind::HealthGate => Ok(stackless_core::substrate::action_resource(&ctx.step.id)),
+            StepKind::HealthGate => {
+                self.health_gate(ctx.def, ctx.instance, node, ctx.prior)
+                    .await?;
+                Ok(stackless_core::substrate::action_resource(&ctx.step.id))
+            }
         }
     }
 
@@ -504,13 +703,79 @@ impl<R: CommandRunner> Substrate for GitLabSubstrate<R> {
 
     async fn fetch_logs(
         &self,
-        _def: &StackDef,
-        _instance: &str,
-        _services: &[String],
-        _tail: usize,
+        def: &StackDef,
+        instance: &str,
+        services: &[String],
+        tail: usize,
     ) -> Result<Option<Vec<ServiceLog>>, SubstrateFault> {
-        // Deferred until GitLab REST (job logs) is wired.
-        Ok(None)
+        let mut out = Vec::with_capacity(services.len());
+        for service in services {
+            let lines = self
+                .fetch_service_logs(def, instance, service, tail)
+                .await?;
+            out.push(ServiceLog {
+                service: service.clone(),
+                source: "gitlab_api",
+                log_path: None,
+                lines,
+            });
+        }
+        Ok(Some(out))
+    }
+}
+
+fn start_service_payload(instance: &str, service: &str) -> Option<GitLabPayload> {
+    let store = stackless_core::state::Store::open_configured().ok()?;
+    let checkpoints = store.checkpoints(instance).ok()?;
+    checkpoints.into_iter().find_map(|checkpoint| {
+        if checkpoint.step_id == format!("start:{service}")
+            && checkpoint.resource_kind == "gitlab-project"
+        {
+            serde_json::from_str::<GitLabPayload>(&checkpoint.payload).ok()
+        } else {
+            None
+        }
+    })
+}
+
+impl<R: CommandRunner> GitLabSubstrate<R> {
+    async fn fetch_service_logs(
+        &self,
+        def: &StackDef,
+        instance: &str,
+        service: &str,
+        tail: usize,
+    ) -> Result<Vec<String>, SubstrateFault> {
+        let Some(payload) = start_service_payload(instance, service) else {
+            return Ok(vec![format!(
+                "(no start checkpoint for service {service}; run `stackless up` first)"
+            )]);
+        };
+        let token = self.gitlab_token(instance).await?;
+        let gitlab = self.gitlab_with_token(&token);
+        let reference = def
+            .services
+            .get(service)
+            .map(|s| s.source.reference.as_str())
+            .unwrap_or("main");
+        let mut lines = if payload.job_id > 0 {
+            gitlab
+                .job_trace(&payload.project_id, payload.job_id)
+                .await
+                .map_err(fault)?
+        } else {
+            gitlab
+                .latest_pages_job_trace(&payload.project_id, reference, tail)
+                .await
+                .map_err(fault)?
+        };
+        if payload.job_id > 0 && tail > 0 && lines.len() > tail {
+            lines = lines.split_off(lines.len() - tail);
+        }
+        if lines.is_empty() {
+            lines.push("(empty job trace)".into());
+        }
+        Ok(lines)
     }
 }
 
@@ -548,18 +813,18 @@ mod tests {
 
     fn gitlab_def() -> StackDef {
         StackDef::parse(
-            "[stack]\nname=\"atto\"\n[services.web]\nsource={repo=\"r\",ref=\"main\"}\nenv={}\nhealth={path=\"/\"}\n[services.web.gitlab]\nvisibility=\"private\"\n",
+            "[stack]\nname=\"atto\"\n[services.web]\nsource={repo=\"r\",ref=\"main\"}\nenv={}\nhealth={path=\"/\"}\n[services.web.gitlab]\nvisibility=\"private\"\nroot=\"fixtures/smoke/site\"\n",
         )
         .unwrap()
     }
 
     fn subj() -> (tempfile::TempDir, GitLabSubstrate<NoRunner>) {
         let dir = tempfile::tempdir().unwrap();
-        let s = GitLabSubstrate::for_test(NoRunner, dir.path(), false);
+        let s = GitLabSubstrate::for_test(NoRunner, dir.path(), "http://127.0.0.1:1", false);
         (dir, s)
     }
 
-    const PAYLOAD: &str = r#"{"stripe_resource":"demo-web","project_id":"123","project_name":"atto-demo-web","origin":"https://gitlab.com/atto-demo-web"}"#;
+    const PAYLOAD: &str = r#"{"stripe_resource":"demo-web","project_id":"123","project_name":"atto-demo-web","pages_url":"https://acme.gitlab.io/atto-demo-web/","pipeline_id":1,"job_id":2,"origin":"https://acme.gitlab.io/atto-demo-web"}"#;
 
     #[test]
     fn resource_name_and_origin_are_dns_safe() {
@@ -587,7 +852,7 @@ mod tests {
     async fn project_present_when_stripe_registers_it() {
         let runner = test_support::ScriptedRunner::new(vec![test_support::services(&["demo-web"])]);
         let dir = tempfile::tempdir().unwrap();
-        let s = GitLabSubstrate::for_test(&runner, dir.path(), false);
+        let s = GitLabSubstrate::for_test(&runner, dir.path(), "http://127.0.0.1:1", false);
         let cp = checkpoint("gitlab-project", "start:web", PAYLOAD);
         assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Present);
     }
@@ -596,7 +861,7 @@ mod tests {
     async fn project_gone_when_stripe_does_not_register_it() {
         let runner = test_support::ScriptedRunner::new(vec![test_support::services(&[])]);
         let dir = tempfile::tempdir().unwrap();
-        let s = GitLabSubstrate::for_test(&runner, dir.path(), false);
+        let s = GitLabSubstrate::for_test(&runner, dir.path(), "http://127.0.0.1:1", false);
         let cp = checkpoint("gitlab-project", "start:web", PAYLOAD);
         assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Gone);
     }
@@ -628,7 +893,7 @@ mod tests {
             test_support::ok_empty(),
         ]);
         let dir = tempfile::tempdir().unwrap();
-        let s = GitLabSubstrate::for_test(&runner, dir.path(), false);
+        let s = GitLabSubstrate::for_test(&runner, dir.path(), "http://127.0.0.1:1", false);
         let cp = checkpoint("gitlab-project", "start:web", PAYLOAD);
         s.destroy("demo", &cp).await.unwrap();
         let calls = runner.calls();

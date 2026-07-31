@@ -32,15 +32,31 @@ impl Hostable for PydanticLogfire {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["api_key"];
+    const OUTPUTS: &'static [&'static str] = &[
+        "logfire_base_url",
+        "logfire_organization_id",
+        "logfire_organization_name",
+        "logfire_project_id",
+        "logfire_project_name",
+        "logfire_token",
+    ];
 }
 
 impl FamilyResource for PydanticLogfire {
     type Config = PydanticLogfireConfig;
     const PROVIDER_PREFIX: &'static str = "PYDANTIC";
-    // Provisional until pinned by `mise run discover pydantic/logfire`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("API_KEY", "api_key", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("LOGFIRE_BASE_URL", "logfire_base_url", true),
+        ("LOGFIRE_ORGANIZATION_ID", "logfire_organization_id", true),
+        (
+            "LOGFIRE_ORGANIZATION_NAME",
+            "logfire_organization_name",
+            true,
+        ),
+        ("LOGFIRE_PROJECT_ID", "logfire_project_id", true),
+        ("LOGFIRE_PROJECT_NAME", "logfire_project_name", true),
+        ("LOGFIRE_TOKEN", "logfire_token", true),
+    ];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<PydanticLogfireConfig, IntegrationError> {
         let config = super::integration_config(ctx)?;
@@ -102,7 +118,7 @@ project = "project_1"
 provider = "pydantic"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.api_key}" }
+env = { OUT = "${integrations.res.logfire_token}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -115,7 +131,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"PYDANTIC_API_KEY": "val_api_key"}),
+            serde_json::json!({"PYDANTIC_LOGFIRE_BASE_URL": "val_logfire_base_url", "PYDANTIC_LOGFIRE_ORGANIZATION_ID": "val_logfire_organization_id", "PYDANTIC_LOGFIRE_ORGANIZATION_NAME": "val_logfire_organization_name", "PYDANTIC_LOGFIRE_PROJECT_ID": "val_logfire_project_id", "PYDANTIC_LOGFIRE_PROJECT_NAME": "val_logfire_project_name", "PYDANTIC_LOGFIRE_TOKEN": "val_logfire_token"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -140,6 +156,6 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-pydantic");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["api_key"], "val_api_key");
+        assert_eq!(payload.outputs["logfire_token"], "val_logfire_token");
     }
 }

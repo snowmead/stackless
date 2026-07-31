@@ -1,0 +1,27 @@
+# Live smoke stack: source-build path for Fly — remote-builder deploy of
+# fixtures/smoke/fly-site (no prebuilt image). Requires fly/flyctl on PATH.
+#
+# Run: mise run smoke-fly-build
+# One-time human setup (from THIS dir):
+#   cd fixtures/smoke/flyio-build
+#   stripe projects init smoke-fly-build --skip-skills --accept-tos
+#   stripe projects link flyio
+[stack]
+name = "smoke-fly-build"
+
+[stack.fly]
+region = "iad"
+
+[stack.projects]
+[stack.projects.stripe]
+# Reuse the image-path smoke project when linked; override after init if needed.
+project = "project_61Ushn8q0y2ueHMwV16UhtGl9aA8OIk3xIw9EFWsKEK0"
+
+[services.web]
+source      = { repo = "https://github.com/snowmead/stackless", ref = "main" }
+root_origin = true
+health      = { path = "/", contains = "stackless-smoke-ok" }
+
+[services.web.fly]
+dockerfile    = "fixtures/smoke/fly-site/Dockerfile"
+internal_port = 8080

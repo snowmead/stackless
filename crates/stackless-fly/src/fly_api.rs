@@ -227,13 +227,7 @@ impl FlyApi {
     /// An existing machine's id by name, for resume idempotency (a re-run after
     /// `create_machine` succeeded but the wait failed must not make a duplicate).
     pub async fn find_machine(&self, app: &str, name: &str) -> Result<Option<String>, FlyError> {
-        let path = format!("/apps/{app}/machines");
-        let listed = self.send_ok(Method::GET, &path, None).await?;
-        let machines = listed
-            .as_array()
-            .cloned()
-            .or_else(|| listed.get("machines").and_then(Value::as_array).cloned())
-            .unwrap_or_default();
+        let machines = self.list_machines(app).await?;
         Ok(machines.into_iter().find_map(|m| {
             if m.get("name").and_then(Value::as_str) == Some(name) {
                 m.get("id").and_then(Value::as_str).map(str::to_owned)
@@ -241,6 +235,25 @@ impl FlyApi {
                 None
             }
         }))
+    }
+
+    /// All machine ids for an app (source-build / flyctl may pick its own names).
+    pub async fn list_machine_ids(&self, app: &str) -> Result<Vec<String>, FlyError> {
+        let machines = self.list_machines(app).await?;
+        Ok(machines
+            .into_iter()
+            .filter_map(|m| m.get("id").and_then(Value::as_str).map(str::to_owned))
+            .collect())
+    }
+
+    async fn list_machines(&self, app: &str) -> Result<Vec<Value>, FlyError> {
+        let path = format!("/apps/{app}/machines");
+        let listed = self.send_ok(Method::GET, &path, None).await?;
+        Ok(listed
+            .as_array()
+            .cloned()
+            .or_else(|| listed.get("machines").and_then(Value::as_array).cloned())
+            .unwrap_or_default())
     }
 
     /// Create the machine that runs the service image; returns its id.

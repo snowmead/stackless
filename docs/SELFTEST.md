@@ -44,21 +44,31 @@ Run locally (reads creds from `.stackless.env`):
 ```
 mise run smoke-vercel     # up smoke-v --on vercel, then down, fail if either fails
 mise run smoke-render
-mise run smoke-fly        # paid Fly app — needs --confirm-paid in the fixture runner
-mise run smoke-netlify
-mise run smoke            # vercel + render (see mise.toml for the full set)
+mise run smoke-fly        # paid Fly image path — needs --confirm-paid in the fixture runner
+mise run smoke-fly-build  # Fly source-build (flyctl remote builder)
+mise run smoke-netlify    # Netlify static file-digest upload
+mise run smoke-netlify-build  # Netlify build-command path
+mise run smoke-railway
+mise run smoke-cloudflare-workers   # --on cloudflare substrate (not integrations)
+mise run smoke-cloudflare-integrations  # R2/KV under --on local
+mise run smoke-wordpress
+mise run smoke-laravel-cloud
+mise run smoke-gitlab
+mise run smoke            # full matrix (see mise.toml)
 ```
 
 In CI: `ci.yml` runs gated jobs for vercel / render / fly / netlify on every
-PR to `main` (plus `live-fleet` for Turso). Cloudflare runs via
-`.github/workflows/smoke.yml` nightly and on demand (with the other
-substrates). Secrets: `STRIPE_API_KEY` / `VERCEL_TOKEN` / `RENDER_API_KEY` /
-`FLY_API_TOKEN` / `STACKLESS_STATE_URL` / `STACKLESS_STATE_TOKEN`.
+PR to `main` (plus `live-fleet` for Turso). The full cloud `--on` matrix
+(including railway / cloudflare-workers / wordpress / laravel-cloud / gitlab)
+runs via `.github/workflows/smoke.yml` nightly and on demand. Secrets:
+`STRIPE_API_KEY` / `VERCEL_TOKEN` / `RENDER_API_KEY` / `FLY_API_TOKEN` /
+per-host API tokens as needed / `STACKLESS_STATE_URL` / `STACKLESS_STATE_TOKEN`.
 
 ### Prerequisites (one-time, human)
 
 - The Stripe Project must have the provider **linked**: `stripe projects link
-  vercel` / `render` / `cloudflare` / `fly` / `netlify` (account-level; new projects inherit it).
+  vercel` / `render` / `cloudflare` / `fly` / `netlify` / `railway` /
+  `wordpress.com` / `laravel_cloud` / `gitlab` (account-level; new projects inherit it).
   Check with `stripe projects status`.
 - The provider API token must belong to the **linked** account/team. For Vercel,
   the substrate already reads the Stripe-managed token + `VERCEL_ORG_ID` from the

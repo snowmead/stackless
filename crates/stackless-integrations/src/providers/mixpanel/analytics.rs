@@ -27,15 +27,27 @@ impl Hostable for MixpanelAnalytics {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["token"];
+    const OUTPUTS: &'static [&'static str] = &[
+        "api_url",
+        "ingestion_url",
+        "project_id",
+        "project_token",
+        "service_account_secret",
+        "service_account_username",
+    ];
 }
 
 impl FamilyResource for MixpanelAnalytics {
     type Config = MixpanelAnalyticsConfig;
     const PROVIDER_PREFIX: &'static str = "MIXPANEL";
-    // Provisional until pinned by `mise run discover mixpanel/analytics`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("TOKEN", "token", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("API_URL", "api_url", true),
+        ("INGESTION_URL", "ingestion_url", true),
+        ("PROJECT_ID", "project_id", true),
+        ("PROJECT_TOKEN", "project_token", true),
+        ("SERVICE_ACCOUNT_SECRET", "service_account_secret", true),
+        ("SERVICE_ACCOUNT_USERNAME", "service_account_username", true),
+    ];
 
     fn build_config(
         ctx: &ProvisionContext<'_>,
@@ -91,7 +103,7 @@ project = "project_1"
 provider = "mixpanel"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.token}" }
+env = { OUT = "${integrations.res.project_token}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -104,7 +116,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"MIXPANEL_TOKEN": "val_token"}),
+            serde_json::json!({"MIXPANEL_API_URL": "val_api_url", "MIXPANEL_INGESTION_URL": "val_ingestion_url", "MIXPANEL_PROJECT_ID": "val_project_id", "MIXPANEL_PROJECT_TOKEN": "val_project_token", "MIXPANEL_SERVICE_ACCOUNT_SECRET": "val_service_account_secret", "MIXPANEL_SERVICE_ACCOUNT_USERNAME": "val_service_account_username"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -129,6 +141,6 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-mixpanel");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["token"], "val_token");
+        assert_eq!(payload.outputs["project_token"], "val_project_token");
     }
 }

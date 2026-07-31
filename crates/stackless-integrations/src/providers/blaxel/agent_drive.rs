@@ -1,4 +1,8 @@
 //! `blaxel/agent-drive` integration.
+//!
+//! **HELD — not registered** (private-preview 402). Not declared in
+//! `blaxel/mod.rs` / `register_providers!`. See family `mod.rs` and
+//! `docs/ADDING-A-PROVIDER.md` § External pin blockers.
 
 use std::collections::BTreeMap;
 

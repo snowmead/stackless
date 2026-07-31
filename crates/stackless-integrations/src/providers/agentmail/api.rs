@@ -27,15 +27,14 @@ impl Hostable for AgentMailApi {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["api_key"];
+    const OUTPUTS: &'static [&'static str] = &["agentmail_api_key"];
 }
 
 impl FamilyResource for AgentMailApi {
     type Config = AgentMailApiConfig;
     const PROVIDER_PREFIX: &'static str = "AGENTMAIL";
-    // Provisional until pinned by `mise run discover agentmail/api`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("API_KEY", "api_key", true)];
+        &[("AGENTMAIL_API_KEY", "agentmail_api_key", true)];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<AgentMailApiConfig, IntegrationError> {
         let _ = super::integration_config(ctx)?;
@@ -88,7 +87,7 @@ project = "project_1"
 provider = "agentmail"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.api_key}" }
+env = { OUT = "${integrations.res.agentmail_api_key}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -101,7 +100,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"AGENTMAIL_API_KEY": "val_api_key"}),
+            serde_json::json!({"AGENTMAIL_AGENTMAIL_API_KEY": "val_agentmail_api_key"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -126,6 +125,9 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-agentmail");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["api_key"], "val_api_key");
+        assert_eq!(
+            payload.outputs["agentmail_api_key"],
+            "val_agentmail_api_key"
+        );
     }
 }

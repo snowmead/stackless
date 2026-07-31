@@ -30,15 +30,23 @@ impl Hostable for Base44ProjectsApp {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["app_id"];
+    const OUTPUTS: &'static [&'static str] = &[
+        "base44_access_token",
+        "base44_api_url",
+        "base44_app_id",
+        "base44_refresh_token",
+    ];
 }
 
 impl FamilyResource for Base44ProjectsApp {
     type Config = Base44ProjectsAppConfig;
     const PROVIDER_PREFIX: &'static str = "BASE44";
-    // Provisional until pinned by `mise run discover base44_projects/app`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("APP_ID", "app_id", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("BASE44_ACCESS_TOKEN", "base44_access_token", true),
+        ("BASE44_API_URL", "base44_api_url", true),
+        ("BASE44_APP_ID", "base44_app_id", true),
+        ("BASE44_REFRESH_TOKEN", "base44_refresh_token", true),
+    ];
 
     fn build_config(
         ctx: &ProvisionContext<'_>,
@@ -98,7 +106,7 @@ project = "project_1"
 provider = "base44"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.app_id}" }
+env = { OUT = "${integrations.res.base44_access_token}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -111,7 +119,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"BASE44_APP_ID": "val_app_id"}),
+            serde_json::json!({"BASE44_BASE44_ACCESS_TOKEN": "val_base44_access_token", "BASE44_BASE44_API_URL": "val_base44_api_url", "BASE44_BASE44_APP_ID": "val_base44_app_id", "BASE44_BASE44_REFRESH_TOKEN": "val_base44_refresh_token"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -136,6 +144,15 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-base44");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["app_id"], "val_app_id");
+        assert_eq!(
+            payload.outputs["base44_access_token"],
+            "val_base44_access_token"
+        );
+        assert_eq!(payload.outputs["base44_api_url"], "val_base44_api_url");
+        assert_eq!(payload.outputs["base44_app_id"], "val_base44_app_id");
+        assert_eq!(
+            payload.outputs["base44_refresh_token"],
+            "val_base44_refresh_token"
+        );
     }
 }

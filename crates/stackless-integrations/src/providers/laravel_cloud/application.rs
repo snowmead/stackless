@@ -13,6 +13,12 @@ use crate::registry;
 
 pub const RESOURCE_KIND: &str = "integration-laravel-cloud";
 
+/// Aligned with the `--on laravel-cloud` substrate field array. Live re-pin
+/// still needed (`laravel_cloud` plan + discover).
+pub const OUTPUT_FIELDS: &[(&str, &str, bool)] = &[("APP_ID", "app_id", true)];
+
+pub const OUTPUTS: &[&str] = &["app_id"];
+
 #[derive(Debug, Serialize)]
 pub struct LaravelCloudApplicationConfig {
     pub name: String,
@@ -36,15 +42,13 @@ impl Hostable for LaravelCloudApplication {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["app_id"];
+    const OUTPUTS: &'static [&'static str] = OUTPUTS;
 }
 
 impl FamilyResource for LaravelCloudApplication {
     type Config = LaravelCloudApplicationConfig;
     const PROVIDER_PREFIX: &'static str = "LARAVEL_CLOUD";
-    // Provisional until pinned by `mise run discover laravel_cloud/application`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("APP_ID", "app_id", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = OUTPUT_FIELDS;
 
     fn build_config(
         ctx: &ProvisionContext<'_>,

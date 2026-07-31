@@ -27,15 +27,17 @@ impl Hostable for RunloopSandbox {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["api_key"];
+    const OUTPUTS: &'static [&'static str] = &["account_id", "api_key", "base_url"];
 }
 
 impl FamilyResource for RunloopSandbox {
     type Config = RunloopSandboxConfig;
     const PROVIDER_PREFIX: &'static str = "RUNLOOP";
-    // Provisional until pinned by `mise run discover runloop/sandbox`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("API_KEY", "api_key", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("ACCOUNT_ID", "account_id", false),
+        ("API_KEY", "api_key", true),
+        ("BASE_URL", "base_url", true),
+    ];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<RunloopSandboxConfig, IntegrationError> {
         let _ = super::integration_config(ctx)?;
@@ -102,7 +104,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"RUNLOOP_API_KEY": "val_api_key"}),
+            serde_json::json!({"RUNLOOP_ACCOUNT_ID": "val_account_id", "RUNLOOP_API_KEY": "val_api_key", "RUNLOOP_BASE_URL": "val_base_url"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -128,5 +130,6 @@ run = "true"
         assert_eq!(resource.resource_kind, "integration-runloop");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
         assert_eq!(payload.outputs["api_key"], "val_api_key");
+        assert_eq!(payload.outputs["base_url"], "val_base_url");
     }
 }

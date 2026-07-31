@@ -25,12 +25,21 @@ re-exports from `stackless-integrations` when adding an in-tree provider).
 ```sh
 mise run catalog <provider>          # list a provider's services: schema, pricing, paid?
 mise run discover <reference> -- --dir fixtures/smoke/cloudflare   # provision once, dump the real output env vars, tear down
+mise run discover <reference> -- --json --dir <fixture> | mise run discover-apply -- --dry-run
+mise run provisional-list            # catalog refs still marked Provisional / Best-guess
+mise run provisional-check           # CI: markers must be in provisional-allowlist.txt
 ```
 
 `catalog` is offline (reads the committed catalog fixture). `discover` is live
 (needs a linked Stripe project + the provider linked — see next section) — it pins
-the credential **output envelope**, which the catalog does *not* describe. Both are
-the `xtask` crate.
+the credential **output envelope**, which the catalog does *not* describe.
+`discover-apply` writes that envelope into the integration module (OUTPUT_FIELDS,
+OUTPUTS, hermetic `provision_script` keys) and strips the Provisional marker.
+Prefer `--json` → `discover-apply` over hand-pasting. Both are the `xtask` crate.
+
+Cloudflare allows ~2 provisions per ~22 minutes — space live `discover` runs.
+Pass `--config '{...}'` when the catalog schema has required fields. Exit code `2`
+from `discover` means a human must `stripe projects link` or supply `--config`.
 
 ## One-time setup: initialize + link the provider (do this before `discover`/smoke)
 
@@ -168,3 +177,74 @@ fixture dir (see "One-time setup" above) — the smoke fails at the first
   use unique names. Don't assume re-provisioning the same name is collision-free.
 - **Not everything belongs in the leased lifecycle.** `registrar:domain` is a
   one-time non-refundable domain purchase — never smoke it.
+- **Catalog ownership is gated.** Every deployable in the committed
+  `catalog.json` fixture must be (a) a registered integration `REFERENCE`,
+  (b) a known substrate-only hosting ref (`vercel/project`, `render/web-service`,
+  `render/static-site`, `flyio/app`, `netlify/project`), or (c) listed in
+  `EXCL` in `scripts/generate_catalog_integrations.py` with a reason.
+  `mise run catalog-orphans` (also part of `mise run check`) fails on new
+  unowned deployables. Current exclusions:
+  - `cloudflare/containers` — `PRICE_CONFIRMATION_REQUIRED` / unknown cost
+  - `cloudflare/registrar:domain`, `squarespace/domain`, `wordpress.com/domain`,
+    `spaceship/domain` — non-refundable domain purchases
+  - `createos/project` — catalog orphan; no stackless surface (do not register)
+  - External pin blockers below (unregistered so users cannot select them)
+
+## External pin blockers
+
+When Stripe or a provider gate blocks live provision/`discover`, **do not**
+list the ref as a registered `[integrations.*]` provider — users must not see
+it in `PROVIDERS.md` or pass `provider = "…"`. Keep the implementation source
+on disk under `providers/` (mark the family `mod.rs` **HELD**), but:
+
+1. Omit `pub mod <family>` from `providers/mod.rs` (or omit a single sibling
+   `mod` when the rest of the family stays live, e.g. `blaxel/agent_drive`).
+2. Omit the `register_providers!` row.
+3. Add the catalog ref to `EXCL` in `scripts/generate_catalog_integrations.py`
+   with the blocker reason.
+
+`catalog-orphans` / `provisional-check` only count modules reachable from
+`providers/mod.rs`, so held sources do not look “registered.” Do **not**
+invent credential envelopes. When the gate lifts: declare the `pub mod`, add
+the registry row, `mise run discover … | mise run discover-apply`, drop the
+`EXCL` entry.
+
+**HELD / EXCL'd until the gate lifts** (source on disk; keep in sync with
+`EXCL` in `scripts/generate_catalog_integrations.py`)
+
+- **`algolia/application`** (#91) — Linkable, but provision fails with
+  `Missing Application plan` (`provider_failure`). No separate Algolia plan
+  service appears in the live catalog to pre-add.
+- **`blaxel/agent-drive`** (#92) — Linked; provision returns 402 private-preview
+  (`Request to join the waitlist`). `blaxel/sandbox` stays registered.
+- **`chroma/database`** (#93) — In the committed catalog fixture, but live
+  `stripe projects catalog chroma` → `Unknown provider or category: chroma`.
+- **`daytona/sandbox`** (#94) — Link needs a human Auth0 browser flow; after link,
+  provision stalls in `pending` with no credential env vars (even with a
+  top-up plan).
+- **`heygen/api`** (#95) — Can appear linked in status, but live
+  `stripe projects catalog heygen` / add → unknown provider/service.
+- **`privy/app`** (#96) — In the committed catalog fixture, but missing from the
+  live Stripe providers index (`Unknown provider`).
+- **`twilio/email`** (#97) — `not_in_country` / US-based accounts only
+  (`provider_failure` on link for non-US accounts).
+
+**Pinned despite an external gate (`sentry/seer`)**
+
+Seer requires paid `sentry/team` ($29/mo) or `sentry/business` ($89/mo); that
+exceeds a $25 Projects spend cap. After raising the cap and upgrading to team,
+live discover returns **no** credential env vars — empty `OUTPUTS` /
+`OUTPUT_FIELDS` is the pinned envelope (`discover-apply` rejects empty fields
+today, so the empty pin was applied by hand). Re-run on a fresh account:
+
+```sh
+# From an initialized fixture with Sentry linked (e.g. fixtures/smoke/cloudflare).
+# Spend --limit is USD (API stores cents: 25 → "2500"). Team $29; Seer
+# ~$40/active contributor/mo on team — raise above both before upgrading.
+stripe projects billing update --limit 100 --yes
+stripe projects upgrade sentry-plan team --yes --confirm-paid-service --accept-tos
+cargo run -q -p xtask -- discover sentry/seer --json --dir fixtures/smoke/cloudflare
+# → {"reference":"sentry/seer","fields":[]}  # empty pin; not discover-apply-able yet
+stripe projects downgrade sentry-plan developer --yes --accept-tos
+stripe projects billing update --limit 25 --yes   # optional: restore cap
+```

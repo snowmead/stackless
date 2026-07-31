@@ -1,0 +1,24 @@
+# Live smoke stack: provisions laravel/laravel on Laravel Cloud via Stripe +
+# triggers a deploy through the Laravel Cloud JSON:API. A working health check
+# requires the deployed Laravel app to serve `/` successfully.
+#
+# Run: stackless up --on laravel-cloud --file fixtures/smoke/laravel-cloud/stackless.toml --name smoke-laravel-cloud
+# One-time human setup (from THIS dir — see docs/ADDING-A-PROVIDER.md "One-time setup"):
+#   cd fixtures/smoke/laravel-cloud
+#   stripe projects init smoke-laravel-cloud --skip-skills --accept-tos
+#   stripe projects link laravel_cloud
+# Provide LARAVEL_CLOUD_API_TOKEN via Stripe instance env, .stackless.env, or
+# `.laravel-cloud-token` in this directory.
+[stack]
+name = "smoke-laravel-cloud"
+
+[stack.projects]
+[stack.projects.stripe]
+
+[services.web]
+source = { repo = "https://github.com/laravel/laravel", ref = "12.x" }
+health = { path = "/" }
+
+[services.web.laravel-cloud]
+region     = "us-east-1"
+repository = "laravel/laravel"

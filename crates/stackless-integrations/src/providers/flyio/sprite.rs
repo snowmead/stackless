@@ -30,15 +30,17 @@ impl Hostable for FlyioSprite {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["sprite_url"];
+    const OUTPUTS: &'static [&'static str] = &["auth", "sprite_token", "url"];
 }
 
 impl FamilyResource for FlyioSprite {
     type Config = FlyioSpriteConfig;
     const PROVIDER_PREFIX: &'static str = "FLYIO";
-    // Provisional until pinned by `mise run discover flyio/sprite`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("SPRITE_URL", "sprite_url", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("AUTH", "auth", true),
+        ("SPRITE_TOKEN", "sprite_token", true),
+        ("URL", "url", true),
+    ];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<FlyioSpriteConfig, IntegrationError> {
         let config = super::integration_config(ctx)?;
@@ -103,7 +105,7 @@ provider = "flyio-sprite"
 name = "test-name"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.sprite_url}" }
+env = { OUT = "${integrations.res.auth}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -116,7 +118,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"FLYIO_SPRITE_URL": "val_sprite_url"}),
+            serde_json::json!({"FLYIO_AUTH": "val_auth", "FLYIO_SPRITE_TOKEN": "val_sprite_token", "FLYIO_URL": "val_url"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -141,6 +143,8 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-flyio-sprite");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["sprite_url"], "val_sprite_url");
+        assert_eq!(payload.outputs["auth"], "val_auth");
+        assert_eq!(payload.outputs["sprite_token"], "val_sprite_token");
+        assert_eq!(payload.outputs["url"], "val_url");
     }
 }

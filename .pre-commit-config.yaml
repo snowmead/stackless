@@ -27,6 +27,12 @@ repos:
         language: system
         pass_filenames: false
         stages: [pre-commit]
+      - id: provisional-check
+        name: provisional envelope allowlist
+        entry: mise run provisional-check
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
       - id: check
         name: fmt + clippy + taplo
         # Git exports GIT_DIR/GIT_WORK_TREE into hooks; scrub so fixture tests

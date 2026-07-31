@@ -1,7 +1,4 @@
 //! Parsing the wordpress-specific blocks of the definition (§1 schema).
-//!
-//! Phase 1 is Stripe-only: the substrate provisions `wordpress.com/site` and
-//! records a best-effort origin. Deploying source to WordPress.com is deferred.
 
 use serde::Serialize;
 use stackless_core::def::StackDef;
@@ -11,10 +8,12 @@ use crate::error::WordPressError;
 use stackless_stripe_projects::CatalogService;
 
 /// A service's `[services.X.wordpress]` block. Optional — an absent block uses
-/// `plan = "free"`.
+/// `plan = "free"` and deploy root `"."`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServiceWordpress {
     pub plan: String,
+    /// Repo-relative directory to read static HTML from (default `"."`).
+    pub root: Option<String>,
 }
 
 /// The typed `wordpress.com/site` `--config`.
@@ -41,19 +40,20 @@ pub fn service_wordpress(
     else {
         return Ok(ServiceWordpress {
             plan: "free".into(),
+            root: None,
         });
     };
     let table = block
         .as_table()
         .ok_or_else(|| WordPressError::ConfigInvalid {
             location: location.clone(),
-            detail: "must be a table { plan?, env? }".into(),
+            detail: "must be a table { plan?, root?, env? }".into(),
         })?;
     for key in table.keys() {
-        if !matches!(key.as_str(), "plan" | "env") {
+        if !matches!(key.as_str(), "plan" | "root" | "env") {
             return Err(WordPressError::ConfigInvalid {
                 location: location.clone(),
-                detail: format!("unknown key {key:?} (known: plan, env)"),
+                detail: format!("unknown key {key:?} (known: plan, root, env)"),
             });
         }
     }
@@ -78,7 +78,25 @@ pub fn service_wordpress(
             plan.to_owned()
         }
     };
-    Ok(ServiceWordpress { plan })
+    let root = match table.get("root") {
+        None => None,
+        Some(value) => {
+            let root = value
+                .as_str()
+                .ok_or_else(|| WordPressError::ConfigInvalid {
+                    location: format!("{location}.root"),
+                    detail: "must be a string path".into(),
+                })?;
+            if root.trim().is_empty() {
+                return Err(WordPressError::ConfigInvalid {
+                    location: format!("{location}.root"),
+                    detail: "must be a non-empty string".into(),
+                });
+            }
+            Some(root.to_owned())
+        }
+    };
+    Ok(ServiceWordpress { plan, root })
 }
 
 /// Catalog enum for `wordpress.com/site` plan.
@@ -121,16 +139,21 @@ env = {}
 health = { path = "/", contains = "ok" }
 [services.web.wordpress]
 plan = "free"
+root = "fixtures/smoke/site"
 "#;
 
     #[test]
-    fn parses_plan_and_defaults_when_block_absent() {
+    fn parses_plan_root_and_defaults_when_block_absent() {
         let def = parse(BASE);
-        assert_eq!(service_wordpress(&def, "web").unwrap().plan, "free");
+        let cfg = service_wordpress(&def, "web").unwrap();
+        assert_eq!(cfg.plan, "free");
+        assert_eq!(cfg.root.as_deref(), Some("fixtures/smoke/site"));
         let no_block = parse(
             "[stack]\nname=\"atto\"\n[services.web]\nsource={repo=\"r\",ref=\"main\"}\nenv={}\nhealth={path=\"/\"}\n",
         );
-        assert_eq!(service_wordpress(&no_block, "web").unwrap().plan, "free");
+        let cfg = service_wordpress(&no_block, "web").unwrap();
+        assert_eq!(cfg.plan, "free");
+        assert!(cfg.root.is_none());
     }
 
     #[test]

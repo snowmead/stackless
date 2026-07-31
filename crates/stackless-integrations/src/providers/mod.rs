@@ -1,20 +1,17 @@
 pub mod agentmail;
 pub mod agentphone;
-pub mod algolia;
 pub mod amplitude;
 pub mod auth0;
 pub mod base44_projects;
 pub mod blaxel;
 pub mod browserbase;
 pub mod chatbase;
-pub mod chroma;
 pub mod clerk;
 pub mod clickhouse;
 pub mod cloudflare;
 pub mod composio;
 pub mod customerio;
 pub mod datadog;
-pub mod daytona;
 pub mod depot;
 pub mod e2b;
 pub mod elevenlabs;
@@ -22,7 +19,6 @@ pub mod exa;
 pub mod firecrawl;
 pub mod flyio;
 pub mod gitlab;
-pub mod heygen;
 pub mod huggingface;
 pub mod inngest;
 pub mod kernel;
@@ -36,7 +32,6 @@ pub mod planetscale;
 pub mod postalform;
 pub mod posthog;
 pub mod prisma;
-pub mod privy;
 pub mod pydantic;
 pub mod railway;
 pub mod render_db;
@@ -49,7 +44,6 @@ pub mod supabase;
 pub mod supermemory;
 pub mod tabstack;
 pub mod turso;
-pub mod twilio;
 pub mod upstash;
 pub mod wix;
 pub mod wordpress_com;
@@ -61,13 +55,12 @@ mod tests {
     use stackless_provider_sdk::Hostable;
 
     use crate::providers::{
-        agentmail, agentphone, algolia, amplitude, auth0, base44_projects, blaxel, browserbase,
-        chatbase, chroma, clickhouse, cloudflare, composio, customerio, datadog, daytona, depot,
-        e2b, elevenlabs, exa, firecrawl, flyio, gitlab, heygen, huggingface, inngest, kernel,
-        laravel_cloud, metronome, mixpanel, neon, openrouter, parallel, planetscale, postalform,
-        posthog, prisma, privy, pydantic, railway, render_db, revenuecat, runloop, schematic,
-        sentry, steel, supabase, supermemory, tabstack, turso, twilio, upstash, wix, wordpress_com,
-        workos,
+        agentmail, agentphone, amplitude, auth0, base44_projects, blaxel, browserbase, chatbase,
+        clickhouse, cloudflare, composio, customerio, datadog, depot, e2b, elevenlabs, exa,
+        firecrawl, flyio, gitlab, huggingface, inngest, kernel, laravel_cloud, metronome, mixpanel,
+        neon, openrouter, parallel, planetscale, postalform, posthog, prisma, pydantic, railway,
+        render_db, revenuecat, runloop, schematic, sentry, steel, supabase, supermemory, tabstack,
+        turso, upstash, wix, wordpress_com, workos,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -93,20 +86,16 @@ mod tests {
         assert_outputs_match::<cloudflare::browser_run::CloudflareBrowserRun>();
         assert_outputs_match::<agentmail::api::AgentMailApi>();
         assert_outputs_match::<agentphone::number::AgentPhoneNumber>();
-        assert_outputs_match::<algolia::application::AlgoliaApplication>();
         assert_outputs_match::<amplitude::analytics::AmplitudeAnalytics>();
         assert_outputs_match::<auth0::client::Auth0Client>();
         assert_outputs_match::<base44_projects::app::Base44ProjectsApp>();
-        assert_outputs_match::<blaxel::agent_drive::BlaxelAgentDrive>();
         assert_outputs_match::<blaxel::sandbox::BlaxelSandbox>();
         assert_outputs_match::<browserbase::project::BrowserbaseProject>();
         assert_outputs_match::<chatbase::agent::ChatbaseAgent>();
-        assert_outputs_match::<chroma::database::ChromaDatabase>();
         assert_outputs_match::<clickhouse::cluster::ClickHouseClickhouse>();
         assert_outputs_match::<clickhouse::postgres::ClickHousePostgres>();
         assert_outputs_match::<composio::project::ComposioProject>();
         assert_outputs_match::<customerio::workspace::CustomerioWorkspace>();
-        assert_outputs_match::<daytona::sandbox::DaytonaSandbox>();
         assert_outputs_match::<datadog::observability::DatadogObservability>();
         assert_outputs_match::<depot::api::DepotApi>();
         assert_outputs_match::<e2b::sandbox::E2BSandbox>();
@@ -116,7 +105,6 @@ mod tests {
         assert_outputs_match::<flyio::mpg::FlyioMpg>();
         assert_outputs_match::<flyio::sprite::FlyioSprite>();
         assert_outputs_match::<gitlab::project::GitLabProject>();
-        assert_outputs_match::<heygen::api::HeyGenApi>();
         assert_outputs_match::<huggingface::bucket::HuggingFaceBucket>();
         assert_outputs_match::<huggingface::platform::HuggingFacePlatform>();
         assert_outputs_match::<inngest::app::InngestApp>();
@@ -134,7 +122,6 @@ mod tests {
         assert_outputs_match::<postalform::mail::PostalFormMail>();
         assert_outputs_match::<posthog::analytics::PostHogAnalytics>();
         assert_outputs_match::<prisma::database::PrismaDatabase>();
-        assert_outputs_match::<privy::app::PrivyApp>();
         assert_outputs_match::<pydantic::logfire::PydanticLogfire>();
         assert_outputs_match::<railway::bucket::RailwayBucket>();
         assert_outputs_match::<railway::hosting::RailwayHosting>();
@@ -152,7 +139,6 @@ mod tests {
         assert_outputs_match::<supermemory::memory::SupermemoryMemory>();
         assert_outputs_match::<tabstack::api::TabstackApi>();
         assert_outputs_match::<turso::database::TursoDatabase>();
-        assert_outputs_match::<twilio::email::TwilioEmail>();
         assert_outputs_match::<upstash::qstash::UpstashQstash>();
         assert_outputs_match::<upstash::redis::UpstashRedis>();
         assert_outputs_match::<upstash::search::UpstashSearch>();

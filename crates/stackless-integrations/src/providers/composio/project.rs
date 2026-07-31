@@ -30,15 +30,29 @@ impl Hostable for ComposioProject {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["api_key"];
+    const OUTPUTS: &'static [&'static str] = &[
+        "composio_api_key",
+        "composio_base_url",
+        "composio_project_dashboard_url",
+        "composio_project_id",
+        "composio_web_url",
+    ];
 }
 
 impl FamilyResource for ComposioProject {
     type Config = ComposioProjectConfig;
     const PROVIDER_PREFIX: &'static str = "COMPOSIO";
-    // Provisional until pinned by `mise run discover composio/project`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("API_KEY", "api_key", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("COMPOSIO_API_KEY", "composio_api_key", true),
+        ("COMPOSIO_BASE_URL", "composio_base_url", true),
+        (
+            "COMPOSIO_PROJECT_DASHBOARD_URL",
+            "composio_project_dashboard_url",
+            true,
+        ),
+        ("COMPOSIO_PROJECT_ID", "composio_project_id", true),
+        ("COMPOSIO_WEB_URL", "composio_web_url", true),
+    ];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<ComposioProjectConfig, IntegrationError> {
         let config = super::integration_config(ctx)?;
@@ -96,7 +110,7 @@ project = "project_1"
 provider = "composio"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.api_key}" }
+env = { OUT = "${integrations.res.composio_api_key}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -109,7 +123,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"COMPOSIO_API_KEY": "val_api_key"}),
+            serde_json::json!({"COMPOSIO_COMPOSIO_API_KEY": "val_composio_api_key", "COMPOSIO_COMPOSIO_BASE_URL": "val_composio_base_url", "COMPOSIO_COMPOSIO_PROJECT_DASHBOARD_URL": "val_composio_project_dashboard_url", "COMPOSIO_COMPOSIO_PROJECT_ID": "val_composio_project_id", "COMPOSIO_COMPOSIO_WEB_URL": "val_composio_web_url"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -134,6 +148,19 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-composio");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["api_key"], "val_api_key");
+        assert_eq!(payload.outputs["composio_api_key"], "val_composio_api_key");
+        assert_eq!(
+            payload.outputs["composio_base_url"],
+            "val_composio_base_url"
+        );
+        assert_eq!(
+            payload.outputs["composio_project_dashboard_url"],
+            "val_composio_project_dashboard_url"
+        );
+        assert_eq!(
+            payload.outputs["composio_project_id"],
+            "val_composio_project_id"
+        );
+        assert_eq!(payload.outputs["composio_web_url"], "val_composio_web_url");
     }
 }

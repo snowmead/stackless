@@ -34,15 +34,23 @@ impl Hostable for AgentPhoneNumber {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["phone_number"];
+    const OUTPUTS: &'static [&'static str] = &[
+        "agentphone_agent_id",
+        "agentphone_api_key",
+        "agentphone_base_url",
+        "agentphone_phone_number",
+    ];
 }
 
 impl FamilyResource for AgentPhoneNumber {
     type Config = AgentPhoneNumberConfig;
     const PROVIDER_PREFIX: &'static str = "AGENTPHONE";
-    // Provisional until pinned by `mise run discover agentphone/number`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("PHONE_NUMBER", "phone_number", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("AGENTPHONE_AGENT_ID", "agentphone_agent_id", true),
+        ("AGENTPHONE_API_KEY", "agentphone_api_key", true),
+        ("AGENTPHONE_BASE_URL", "agentphone_base_url", true),
+        ("AGENTPHONE_PHONE_NUMBER", "agentphone_phone_number", true),
+    ];
 
     fn build_config(
         ctx: &ProvisionContext<'_>,
@@ -115,7 +123,7 @@ provider = "agentphone"
 agent_name = "test-agent_name"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.phone_number}" }
+env = { OUT = "${integrations.res.agentphone_agent_id}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -128,7 +136,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"AGENTPHONE_PHONE_NUMBER": "val_phone_number"}),
+            serde_json::json!({"AGENTPHONE_AGENTPHONE_AGENT_ID": "val_agentphone_agent_id", "AGENTPHONE_AGENTPHONE_API_KEY": "val_agentphone_api_key", "AGENTPHONE_AGENTPHONE_BASE_URL": "val_agentphone_base_url", "AGENTPHONE_AGENTPHONE_PHONE_NUMBER": "val_agentphone_phone_number"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -153,6 +161,21 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-agentphone");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["phone_number"], "val_phone_number");
+        assert_eq!(
+            payload.outputs["agentphone_agent_id"],
+            "val_agentphone_agent_id"
+        );
+        assert_eq!(
+            payload.outputs["agentphone_api_key"],
+            "val_agentphone_api_key"
+        );
+        assert_eq!(
+            payload.outputs["agentphone_base_url"],
+            "val_agentphone_base_url"
+        );
+        assert_eq!(
+            payload.outputs["agentphone_phone_number"],
+            "val_agentphone_phone_number"
+        );
     }
 }

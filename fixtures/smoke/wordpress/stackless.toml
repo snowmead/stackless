@@ -1,0 +1,15 @@
+# Live smoke stack: publishes fixtures/smoke/site to a WordPress.com site via REST.
+#
+# Run: stackless up --on wordpress --file fixtures/smoke/wordpress/stackless.toml --name <inst>
+# Requires WordPress.com OAuth token (.wordpress-com-token or WORDPRESS_COM_ACCESS_TOKEN).
+[stack]
+name = "smoke-wordpress"
+
+[services.web]
+source      = { repo = "https://github.com/snowmead/stackless", ref = "main" }
+root_origin = true
+health      = { path = "/", contains = "stackless-smoke-ok" }
+
+[services.web.wordpress]
+plan = "free"
+root = "fixtures/smoke/site"

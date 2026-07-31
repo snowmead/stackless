@@ -20,15 +20,15 @@ hand and expect them to stay correct.
 | `--on` | Crate | Notes |
 |---|---|---|
 | `local` | `stackless-local` | Host processes + daemon reverse proxy; supports `--source` / `--dirty` |
-| `render` | `stackless-render` | Stripe + Render REST: web services / static sites, deploy poll, health, logs |
-| `vercel` | `stackless-vercel` | Stripe + Vercel REST: git-backed projects, deploy poll, health |
-| `fly` | `stackless-fly` | Stripe + Fly Machines API; v0 **image-only** |
-| `netlify` | `stackless-netlify` | Stripe + Netlify REST; v0 **static upload** |
-| `railway` | `stackless-railway` | Stripe `railway/hosting`; Phase 1 provision (deploy API later) |
-| `cloudflare` | `stackless-cloudflare` | Stripe `cloudflare/workers` host substrate (distinct from Cloudflare *integrations*) |
-| `wordpress` | `stackless-wordpress` | Stripe `wordpress.com/site`; Phase 1 provision |
-| `laravel-cloud` | `stackless-laravel-cloud` | Stripe `laravel_cloud/application`; Phase 1 provision |
-| `gitlab` | `stackless-gitlab` | Stripe `gitlab/project`; Phase 1 provision |
+| `render` | `stackless-render` | Stripe + Render REST: web/static deploy, health, logs (`render_api`) |
+| `vercel` | `stackless-vercel` | Stripe + Vercel REST: git/upload deploy, health, logs (`vercel_api`) |
+| `fly` | `stackless-fly` | Stripe + Fly Machines (image) or flyctl remote builder (source-build); logs (`fly_events`) |
+| `netlify` | `stackless-netlify` | Stripe + Netlify REST: static upload or build/git deploy; logs (`netlify_api`) |
+| `railway` | `stackless-railway` | Stripe `railway/hosting` + GraphQL image/GitHub deploy, health, logs (`railway_api`) |
+| `cloudflare` | `stackless-cloudflare` | Stripe `cloudflare/workers` + Workers upload (not CF catalog integrations); logs (`cloudflare_api`) |
+| `wordpress` | `stackless-wordpress` | Stripe `wordpress.com/site` + WP.com REST static deploy, health, logs (`wordpress_api`) |
+| `laravel-cloud` | `stackless-laravel-cloud` | Stripe `laravel_cloud/application` + JSON:API deploy, health, logs (`laravel_cloud_api`) |
+| `gitlab` | `stackless-gitlab` | Stripe `gitlab/project` + Pages CI deploy, health, job logs (`gitlab_api`) |
 
 Cloud substrates share the Stripe Projects + provider-API pattern
 described in [ARCHITECTURE.md](ARCHITECTURE.md) §4.
@@ -45,15 +45,12 @@ Stripe Projects catalog reference. Offline catalog detail:
 |---|---|
 | `agentmail` | `agentmail/api` |
 | `agentphone` | `agentphone/number` |
-| `algolia` | `algolia/application` |
 | `amplitude` | `amplitude/analytics` |
 | `auth0` | `auth0/client` |
 | `base44` | `base44_projects/app` |
-| `blaxel-agent-drive` | `blaxel/agent-drive` |
 | `blaxel-sandbox` | `blaxel/sandbox` |
 | `browserbase` | `browserbase/project` |
 | `chatbase` | `chatbase/agent` |
-| `chroma` | `chroma/database` |
 | `clerk` | `clerk/auth` |
 | `clickhouse` | `clickhouse/clickhouse` |
 | `clickhouse-postgres` | `clickhouse/postgres` |
@@ -68,7 +65,6 @@ Stripe Projects catalog reference. Offline catalog detail:
 | `composio` | `composio/project` |
 | `customerio` | `customerio/workspace` |
 | `datadog-observability` | `datadog/observability` |
-| `daytona` | `daytona/sandbox` |
 | `depot` | `depot/api` |
 | `e2b` | `e2b/sandbox` |
 | `elevenlabs` | `elevenlabs/tts` |
@@ -77,7 +73,6 @@ Stripe Projects catalog reference. Offline catalog detail:
 | `flyio-mpg` | `flyio/mpg` |
 | `flyio-sprite` | `flyio/sprite` |
 | `gitlab` | `gitlab/project` |
-| `heygen` | `heygen/api` |
 | `huggingface` | `huggingface/platform` |
 | `huggingface-bucket` | `huggingface/bucket` |
 | `inngest` | `inngest/app` |
@@ -95,7 +90,6 @@ Stripe Projects catalog reference. Offline catalog detail:
 | `postalform` | `postalform/mail` |
 | `posthog` | `posthog/analytics` |
 | `prisma` | `prisma/database` |
-| `privy` | `privy/app` |
 | `pydantic` | `pydantic/logfire` |
 | `railway-bucket` | `railway/bucket` |
 | `railway-hosting` | `railway/hosting` |
@@ -113,7 +107,6 @@ Stripe Projects catalog reference. Offline catalog detail:
 | `supermemory` | `supermemory/memory` |
 | `tabstack` | `tabstack/api` |
 | `turso` | `turso/database` |
-| `twilio-email` | `twilio/email` |
 | `upstash-qstash` | `upstash/qstash` |
 | `upstash-redis` | `upstash/redis` |
 | `upstash-search` | `upstash/search` |

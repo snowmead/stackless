@@ -1,36 +1,33 @@
 //! stackless-wordpress (ARCHITECTURE.md §4): the WordPress.com cloud substrate.
 //!
-//! Mirrors the Railway/Netlify cloud flow at the Stripe layer: Stripe Projects
-//! provisions `wordpress.com/site` and tracks spend; observe/destroy key off the
-//! **Stripe resource registration**, not the WordPress.com API. One long-lived
+//! Mirrors the Netlify cloud flow: Stripe Projects provisions `wordpress.com/site`
+//! and tracks spend; the WordPress.com REST API publishes static HTML from the
+//! pinned ref, sets the front page when allowed, and health polls the live site.
+//! Observe/destroy key off the **Stripe resource registration**. One long-lived
 //! Stripe project per stack holds each instance as a named environment.
 //!
-//! ## Credential model (pinned by `mise run discover wordpress.com/site`)
+//! ## Credential model
 //!
-//! Provisioning `wordpress.com/site` returns a Stripe-managed site URL
-//! (`WORDPRESS_COM_SITE_URL`). The substrate records it in the start checkpoint
-//! but does not call WordPress.com REST APIs in this phase.
+//! Provisioning returns `SITE_URL` (lease truth). Deploy uses a WordPress.com
+//! OAuth access token from the Stripe instance env (`WORDPRESS_COM_ACCESS_TOKEN` /
+//! `WORDPRESS_ACCESS_TOKEN`), else operator secrets / `.wordpress-com-token`.
 //!
-//! ## Phase 1 scope and REST gaps
+//! ## Cloud invariants
 //!
-//! - **Stripe provision only.** `start` provisions `wordpress.com/site` via Stripe
-//!   Projects and records a best-effort origin
-//!   `https://{stack}-{instance}-{service}.wordpress.com`. There is no deploy of
-//!   source and no health polling against a live URL yet.
-//! - **Health gate is a no-op** until WordPress.com deploy lands.
-//! - **Logs are unavailable** (`fetch_logs` returns `None`).
+//! - **Static HTML deploy** under `[services.X.wordpress].root` (default repo root).
 //! - **Cloud resource names** are `{stack}-{instance}-{service}` — DNS-safe.
 //! - **Setup is skipped on cloud**; **prepare** runs on the operator's machine.
-//! - **Source override is unsupported** — WordPress.com deploys committed refs
-//!   (when REST deploy is implemented).
+//! - **Source override is unsupported** — WordPress.com deploys committed refs.
 //! - **`wordpress.com/domain` is excluded** — non-refundable domain purchase.
 
+pub mod api_key;
 pub mod codes;
 pub mod config;
 pub mod error;
+pub mod wordpress_api;
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -39,12 +36,13 @@ use stackless_core::def::{Namespace, StackDef};
 use stackless_core::engine::StepKind;
 use stackless_core::state::Checkpoint;
 use stackless_core::substrate::{
-    NamespacePurpose, Observation, StepContext, StepResource, Substrate, SubstrateFault,
+    NamespacePurpose, Observation, ServiceLog, StepContext, StepResource, Substrate, SubstrateFault,
 };
 use tokio::sync::Mutex;
 
 use crate::config::{ServiceWordpress, WordPressComSiteConfig};
 use crate::error::WordPressError;
+use crate::wordpress_api::{HEALTH_BUDGET, WordPressApi, site_identifier_from_url};
 use stackless_stripe_projects::ProjectsError;
 use stackless_stripe_projects::provision::{ProvisionContext, provision_outputs};
 use stackless_stripe_projects::stripe::{CommandRunner, StripeProjects, TokioRunner};
@@ -81,13 +79,21 @@ fn prepare_fault(f: stackless_cloud::prepare::PrepareFailure) -> SubstrateFault 
 }
 
 /// What a `start:<service>` checkpoint records. Observe/destroy use Stripe, not
-/// the WordPress.com API.
+/// the WordPress.com API for lifecycle.
 #[derive(Debug, Serialize, Deserialize)]
 struct WordPressPayload {
     stripe_resource: String,
     site_url: Option<String>,
     site_name: String,
     origin: String,
+    #[serde(default)]
+    page_id: String,
+    #[serde(default)]
+    page_url: Option<String>,
+    #[serde(default)]
+    page_status: String,
+    #[serde(default)]
+    homepage_set: bool,
 }
 
 /// What a `materialize:<service>` checkpoint records: the pinned source. Owns
@@ -106,6 +112,7 @@ pub struct WordPressSubstrate<R: CommandRunner = TokioRunner> {
     pub secrets: BTreeMap<String, String>,
     pub confirm_paid: bool,
     runner: R,
+    api_base: Option<String>,
     ensured: Mutex<bool>,
 }
 
@@ -129,6 +136,7 @@ impl WordPressSubstrate<TokioRunner> {
             secrets,
             confirm_paid,
             runner: TokioRunner,
+            api_base: None,
             ensured: Mutex::new(false),
         }
     }
@@ -136,18 +144,31 @@ impl WordPressSubstrate<TokioRunner> {
 
 impl<R: CommandRunner> WordPressSubstrate<R> {
     #[cfg(test)]
-    fn for_test(runner: R, definition_dir: impl Into<PathBuf>, confirm_paid: bool) -> Self {
+    fn for_test(
+        runner: R,
+        definition_dir: impl Into<PathBuf>,
+        api_base: impl Into<String>,
+        confirm_paid: bool,
+    ) -> Self {
         Self {
             definition_dir: definition_dir.into(),
             secrets: BTreeMap::new(),
             confirm_paid,
             runner,
+            api_base: Some(api_base.into()),
             ensured: Mutex::new(false),
         }
     }
 
     fn stripe(&self) -> StripeProjects<&R> {
         StripeProjects::new(&self.runner, self.definition_dir.clone())
+    }
+
+    fn wordpress_with_token(&self, token: &str) -> WordPressApi {
+        match &self.api_base {
+            Some(base) => WordPressApi::with_base(token, base.clone()),
+            None => WordPressApi::new(token),
+        }
     }
 
     /// `{stack}-{instance}-{service}` (DNS-safe).
@@ -210,6 +231,33 @@ impl<R: CommandRunner> WordPressSubstrate<R> {
         Ok(())
     }
 
+    async fn access_token(
+        &self,
+        instance: &str,
+        stripe_resource: &str,
+    ) -> Result<String, SubstrateFault> {
+        let resource_prefix = stripe_resource.to_ascii_uppercase().replace('-', "_");
+        let resource_com = format!("{resource_prefix}_WORDPRESS_COM_ACCESS_TOKEN");
+        let resource_alt = format!("{resource_prefix}_WORDPRESS_ACCESS_TOKEN");
+        let keys = [
+            resource_com.as_str(),
+            resource_alt.as_str(),
+            "WORDPRESS_COM_ACCESS_TOKEN",
+            "WORDPRESS_ACCESS_TOKEN",
+        ];
+        let pulled = project::pull_env_values(&self.stripe(), instance, &keys)
+            .await
+            .map_err(projects_fault)?;
+        if let Some(token) = pulled
+            .into_iter()
+            .flatten()
+            .find(|value| !value.trim().is_empty())
+        {
+            return Ok(token);
+        }
+        api_key::resolve(&self.definition_dir, &self.secrets).map_err(fault)
+    }
+
     async fn start_service(
         &self,
         def: &StackDef,
@@ -219,6 +267,12 @@ impl<R: CommandRunner> WordPressSubstrate<R> {
         let wp_cfg = config::service_wordpress(def, service).map_err(fault)?;
         let site_name = Self::resource_name(def, instance, service);
         let resource = format!("{instance}-{service}");
+        let spec = def.services.get(service).ok_or_else(|| {
+            fault(WordPressError::ConfigInvalid {
+                location: format!("services.{service}"),
+                detail: "service not in definition".into(),
+            })
+        })?;
 
         let catalog = self
             .stripe()
@@ -243,8 +297,7 @@ impl<R: CommandRunner> WordPressSubstrate<R> {
             &ctx,
             &cfg,
             PROVIDER_PREFIX,
-            // Pinned by `mise run discover wordpress.com/site`.
-            &[("SITE_URL", "site_url", true)],
+            stackless_integrations::providers::wordpress_com::site::OUTPUT_FIELDS,
         )
         .await
         .map_err(projects_fault)?;
@@ -255,11 +308,38 @@ impl<R: CommandRunner> WordPressSubstrate<R> {
             .map(str::to_owned)
             .unwrap_or_else(|| Self::origin_placeholder(&site_name));
 
+        let token = self.access_token(instance, &resource).await?;
+        let wp = self.wordpress_with_token(&token);
+        let site_id = site_identifier_from_url(&origin).map_err(fault)?;
+        let repo = spec.source.repo.clone();
+        let reference = spec.source.reference.clone();
+        let root = wp_cfg.root.clone();
+        let html = tokio::task::spawn_blocking(move || {
+            read_deploy_html(&repo, &reference, root.as_deref())
+        })
+        .await
+        .map_err(|err| {
+            fault(WordPressError::ProvisionFailed {
+                resource: resource.clone(),
+                detail: format!("html read task panicked: {err}"),
+            })
+        })?
+        .map_err(fault)?;
+        let title = format!("Stackless {service}");
+        let deploy = wp
+            .deploy_page(&site_id, service, &title, &html)
+            .await
+            .map_err(fault)?;
+
         let payload = WordPressPayload {
             stripe_resource: resource,
             site_url,
             site_name: site_name.clone(),
             origin,
+            page_id: deploy.page_id,
+            page_url: deploy.page_url,
+            page_status: deploy.status,
+            homepage_set: deploy.homepage_set,
         };
         Ok(StepResource {
             resource_kind: "wordpress-site".into(),
@@ -289,12 +369,120 @@ impl<R: CommandRunner> WordPressSubstrate<R> {
         .await
         .map_err(prepare_fault)
     }
+
+    async fn health_gate(
+        &self,
+        def: &StackDef,
+        instance: &str,
+        service: &str,
+        prior: &[Checkpoint],
+    ) -> Result<(), SubstrateFault> {
+        let spec = def.services.get(service).ok_or_else(|| {
+            fault(WordPressError::ConfigInvalid {
+                location: format!("services.{service}"),
+                detail: "service not in definition".into(),
+            })
+        })?;
+        let origin = prior
+            .iter()
+            .find(|c| {
+                c.resource_kind == "wordpress-site" && c.step_id == format!("start:{service}")
+            })
+            .and_then(|c| serde_json::from_str::<WordPressPayload>(&c.payload).ok())
+            .map(|p| p.origin)
+            .filter(|o| !o.trim().is_empty())
+            .unwrap_or_else(|| {
+                Self::origin_placeholder(&Self::resource_name(def, instance, service))
+            });
+        let url = format!("{origin}{}", spec.health.path);
+        stackless_cloud::health::poll(
+            &url,
+            spec.health.status.get(),
+            spec.health.contains.as_deref(),
+            HEALTH_BUDGET,
+        )
+        .await
+        .map_err(|f| {
+            fault(WordPressError::HealthFailed {
+                service: service.to_owned(),
+                url: f.url,
+                detail: f.detail,
+                budget_secs: f.budget_secs,
+            })
+        })
+    }
 }
 
 fn site_config(cfg: &ServiceWordpress) -> WordPressComSiteConfig {
     WordPressComSiteConfig {
         plan: cfg.plan.clone(),
     }
+}
+
+/// Clone the pinned ref and read `index.html` (or the first `.html` file) under
+/// `root`.
+fn read_deploy_html(
+    repo: &str,
+    reference: &str,
+    root: Option<&str>,
+) -> Result<String, WordPressError> {
+    let provision_fault = |detail: String| WordPressError::ProvisionFailed {
+        resource: repo.to_owned(),
+        detail,
+    };
+    let tmp = tempfile::tempdir().map_err(|err| provision_fault(format!("tempdir: {err}")))?;
+    stackless_git::clone_checkout(
+        repo,
+        reference,
+        tmp.path(),
+        &stackless_git::Credentials::default(),
+    )
+    .map_err(|err| provision_fault(format!("clone {repo}@{reference} failed: {err}")))?;
+    let base = match root {
+        Some(root) => tmp.path().join(root),
+        None => tmp.path().to_path_buf(),
+    };
+    if !base.is_dir() {
+        return Err(provision_fault(format!(
+            "deploy root {:?} not found in {repo}@{reference}",
+            root.unwrap_or(".")
+        )));
+    }
+    read_html_from_dir(&base).ok_or_else(|| {
+        provision_fault(format!(
+            "no index.html (or .html file) under {:?}",
+            root.unwrap_or(".")
+        ))
+    })
+}
+
+fn read_html_from_dir(dir: &Path) -> Option<String> {
+    let index = dir.join("index.html");
+    if index.is_file() {
+        return std::fs::read_to_string(index).ok();
+    }
+    let mut html_files: Vec<PathBuf> = Vec::new();
+    collect_html_files(dir, &mut html_files).ok()?;
+    html_files.sort();
+    html_files
+        .first()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+}
+
+fn collect_html_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        if entry.file_name() == ".git" {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            collect_html_files(&path, out)?;
+        } else if path.extension().is_some_and(|ext| ext == "html") {
+            out.push(path);
+        }
+    }
+    Ok(())
 }
 
 #[async_trait]
@@ -385,7 +573,11 @@ impl<R: CommandRunner> Substrate for WordPressSubstrate<R> {
                 Ok(stackless_core::substrate::action_resource(&ctx.step.id))
             }
             StepKind::Start => self.start_service(ctx.def, ctx.instance, node).await,
-            StepKind::HealthGate => Ok(stackless_core::substrate::action_resource(&ctx.step.id)),
+            StepKind::HealthGate => {
+                self.health_gate(ctx.def, ctx.instance, node, ctx.prior)
+                    .await?;
+                Ok(stackless_core::substrate::action_resource(&ctx.step.id))
+            }
         }
     }
 
@@ -492,6 +684,67 @@ impl<R: CommandRunner> Substrate for WordPressSubstrate<R> {
             .await,
         )
     }
+
+    async fn fetch_logs(
+        &self,
+        _def: &StackDef,
+        instance: &str,
+        services: &[String],
+        tail: usize,
+    ) -> Result<Option<Vec<ServiceLog>>, SubstrateFault> {
+        let mut out = Vec::with_capacity(services.len());
+        for service in services {
+            let lines = self.fetch_service_logs(instance, service, tail).await?;
+            out.push(ServiceLog {
+                service: service.clone(),
+                source: "wordpress_api",
+                log_path: None,
+                lines,
+            });
+        }
+        Ok(Some(out))
+    }
+}
+
+fn start_service_payload(instance: &str, service: &str) -> Option<WordPressPayload> {
+    let store = stackless_core::state::Store::open_configured().ok()?;
+    let checkpoints = store.checkpoints(instance).ok()?;
+    checkpoints.into_iter().find_map(|checkpoint| {
+        if checkpoint.step_id == format!("start:{service}")
+            && checkpoint.resource_kind == "wordpress-site"
+        {
+            serde_json::from_str::<WordPressPayload>(&checkpoint.payload).ok()
+        } else {
+            None
+        }
+    })
+}
+
+impl<R: CommandRunner> WordPressSubstrate<R> {
+    async fn fetch_service_logs(
+        &self,
+        instance: &str,
+        service: &str,
+        tail: usize,
+    ) -> Result<Vec<String>, SubstrateFault> {
+        let Some(payload) = start_service_payload(instance, service) else {
+            return Ok(vec![format!(
+                "(no start checkpoint for service {service}; run `stackless up` first)"
+            )]);
+        };
+        let token = self
+            .access_token(instance, &payload.stripe_resource)
+            .await?;
+        let wp = self.wordpress_with_token(&token);
+        let site_id = site_identifier_from_url(&payload.origin).map_err(fault)?;
+        let deploy = crate::wordpress_api::DeployResult {
+            page_id: payload.page_id,
+            page_url: payload.page_url,
+            status: payload.page_status,
+            homepage_set: payload.homepage_set,
+        };
+        wp.recent_logs(&site_id, &deploy, tail).await.map_err(fault)
+    }
 }
 
 #[cfg(test)]
@@ -528,18 +781,18 @@ mod tests {
 
     fn wordpress_def() -> StackDef {
         StackDef::parse(
-            "[stack]\nname=\"atto\"\n[services.web]\nsource={repo=\"r\",ref=\"main\"}\nenv={}\nhealth={path=\"/\"}\n",
+            "[stack]\nname=\"atto\"\n[services.web]\nsource={repo=\"r\",ref=\"main\"}\nenv={}\nhealth={path=\"/\"}\n[services.web.wordpress]\nroot=\"fixtures/smoke/site\"\n",
         )
         .unwrap()
     }
 
     fn subj() -> (tempfile::TempDir, WordPressSubstrate<NoRunner>) {
         let dir = tempfile::tempdir().unwrap();
-        let s = WordPressSubstrate::for_test(NoRunner, dir.path(), false);
+        let s = WordPressSubstrate::for_test(NoRunner, dir.path(), "http://127.0.0.1:1", false);
         (dir, s)
     }
 
-    const PAYLOAD: &str = r#"{"stripe_resource":"demo-web","site_url":"https://atto-demo-web.wordpress.com","site_name":"atto-demo-web","origin":"https://atto-demo-web.wordpress.com"}"#;
+    const PAYLOAD: &str = r#"{"stripe_resource":"demo-web","site_url":"https://atto-demo-web.wordpress.com","site_name":"atto-demo-web","origin":"https://atto-demo-web.wordpress.com","page_id":"99","page_status":"publish","homepage_set":true}"#;
 
     #[test]
     fn resource_name_and_origin_are_dns_safe() {
@@ -567,7 +820,7 @@ mod tests {
     async fn service_present_when_stripe_registers_it() {
         let runner = test_support::ScriptedRunner::new(vec![test_support::services(&["demo-web"])]);
         let dir = tempfile::tempdir().unwrap();
-        let s = WordPressSubstrate::for_test(&runner, dir.path(), false);
+        let s = WordPressSubstrate::for_test(&runner, dir.path(), "http://127.0.0.1:1", false);
         let cp = checkpoint("wordpress-site", "start:web", PAYLOAD);
         assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Present);
     }
@@ -576,7 +829,7 @@ mod tests {
     async fn service_gone_when_stripe_does_not_register_it() {
         let runner = test_support::ScriptedRunner::new(vec![test_support::services(&[])]);
         let dir = tempfile::tempdir().unwrap();
-        let s = WordPressSubstrate::for_test(&runner, dir.path(), false);
+        let s = WordPressSubstrate::for_test(&runner, dir.path(), "http://127.0.0.1:1", false);
         let cp = checkpoint("wordpress-site", "start:web", PAYLOAD);
         assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Gone);
     }
@@ -608,7 +861,7 @@ mod tests {
             test_support::ok_empty(),
         ]);
         let dir = tempfile::tempdir().unwrap();
-        let s = WordPressSubstrate::for_test(&runner, dir.path(), false);
+        let s = WordPressSubstrate::for_test(&runner, dir.path(), "http://127.0.0.1:1", false);
         let cp = checkpoint("wordpress-site", "start:web", PAYLOAD);
         s.destroy("demo", &cp).await.unwrap();
         let calls = runner.calls();

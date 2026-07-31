@@ -32,15 +32,16 @@ impl Hostable for HuggingFaceBucket {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["bucket_name"];
+    const OUTPUTS: &'static [&'static str] = &["hf_token", "repo_name"];
 }
 
 impl FamilyResource for HuggingFaceBucket {
     type Config = HuggingFaceBucketConfig;
     const PROVIDER_PREFIX: &'static str = "HUGGINGFACE";
-    // Provisional until pinned by `mise run discover huggingface/bucket`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("BUCKET_NAME", "bucket_name", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("HF_TOKEN", "hf_token", true),
+        ("REPO_NAME", "repo_name", false),
+    ];
 
     fn build_config(
         ctx: &ProvisionContext<'_>,
@@ -104,7 +105,7 @@ project = "project_1"
 provider = "huggingface-bucket"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.bucket_name}" }
+env = { OUT = "${integrations.res.hf_token}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -117,7 +118,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"HUGGINGFACE_BUCKET_NAME": "val_bucket_name"}),
+            serde_json::json!({"HUGGINGFACE_HF_TOKEN": "val_hf_token", "HUGGINGFACE_REPO_NAME": "val_repo_name"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -142,6 +143,6 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-huggingface-bucket");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["bucket_name"], "val_bucket_name");
+        assert_eq!(payload.outputs["hf_token"], "val_hf_token");
     }
 }
