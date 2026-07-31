@@ -235,6 +235,10 @@ fn run_axoupdater() -> UpdateOutcome {
         };
     }
 
+    // Drain before the installer mv's over the binary so a live daemon does
+    // not hold a deleted inode (Linux current_exe → "stackless (deleted)").
+    drain_daemon_best_effort();
+
     match updater.run_sync() {
         Ok(Some(result)) => {
             let from = result
@@ -268,8 +272,9 @@ fn resolve_updated_exe(prefix: &Path) -> PathBuf {
     }
 }
 
-/// Best-effort drain of the resident operator daemon before re-exec so it
-/// does not keep a deleted inode open. Never fails the update.
+/// Best-effort drain of the resident operator daemon. Called before the
+/// installer replaces the binary (and again before re-exec). Never fails
+/// the update if nothing is listening.
 pub fn drain_daemon_best_effort() {
     use stackless_daemon::DaemonClient;
     use stackless_daemon::rpc::Request;
