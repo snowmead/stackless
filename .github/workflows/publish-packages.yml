@@ -133,6 +133,11 @@ jobs:
           set -euo pipefail
           npm install -g npm@latest
           npm --version
+          version="$(node -p "require('./package.json').version")"
+          if npm view "stackless-sdk@${version}" version >/dev/null 2>&1; then
+            echo "stackless-sdk@${version} already on npm; skipping publish"
+            exit 0
+          fi
           npm ci
           npm run build
           npm publish --provenance --access public
