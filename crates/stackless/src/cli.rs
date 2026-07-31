@@ -12,6 +12,10 @@ use crate::client::{Client, UpArgs};
 use crate::daemon_cmd;
 use crate::error::Error;
 use crate::output::{self, Output};
+use crate::self_update::{
+    self, CommandKind, ENV_FORCE_SELF_UPDATE, ENV_SELF_UPDATE_VERBOSE, UpdateContext,
+    UpdateOutcome, UpdateSkip,
+};
 use crate::{adopt, doctor, init, mcp, verify};
 
 #[derive(Parser)]
@@ -149,6 +153,8 @@ enum Command {
         #[arg(long)]
         check: bool,
     },
+    /// Check GitHub Releases and install the latest stackless binary if newer.
+    Update,
     /// Daemon internals (spawned on demand; rarely run by hand).
     #[command(subcommand, hide = true)]
     Daemon(daemon_cmd::DaemonCommand),
@@ -172,6 +178,25 @@ pub fn run() -> ExitCode {
             }
         };
     }
+
+    let is_update = matches!(cli.command, Command::Update);
+    let command_kind = if matches!(cli.command, Command::Daemon(_)) {
+        CommandKind::Internal
+    } else {
+        CommandKind::User
+    };
+    let force = is_update || self_update::env_truthy(ENV_FORCE_SELF_UPDATE);
+    let update_outcome = self_update::maybe_self_update(UpdateContext {
+        command_kind,
+        force,
+        state_dir: Paths::from_env(),
+        has_state_dir_flag: cli.state_dir.is_some(),
+        has_proxy_port_flag: cli.proxy_port.is_some(),
+    });
+    if let Some(code) = handle_update_outcome(&update_outcome, is_update) {
+        return code;
+    }
+
     let mut output = Output::new(cli.json);
     let layout = ClientLayout {
         state_dir: cli.state_dir,
@@ -258,6 +283,7 @@ pub fn run() -> ExitCode {
                 &output,
             )
         })(),
+        Command::Update => Ok(()),
         Command::Daemon(command) => daemon_cmd::run(command, &output),
         Command::Mcp => Ok(()),
     };
@@ -268,6 +294,48 @@ pub fn run() -> ExitCode {
             output.fault(&err);
             ExitCode::FAILURE
         }
+    }
+}
+
+/// Returns `Some(exit)` when the process should stop (update verb, re-exec, or
+/// hard failure for `update`). Ordinary verbs continue on soft failures.
+fn handle_update_outcome(outcome: &UpdateOutcome, is_update: bool) -> Option<ExitCode> {
+    let verbose = self_update::env_truthy(ENV_SELF_UPDATE_VERBOSE);
+    match outcome {
+        UpdateOutcome::Updated { from, to, exe } => {
+            eprintln!("stackless: updated {from} → {to}; restarting…");
+            self_update::reexec(exe);
+        }
+        UpdateOutcome::SoftFailed { detail } => {
+            if is_update {
+                eprintln!("stackless update: {detail}");
+                Some(ExitCode::FAILURE)
+            } else if verbose {
+                eprintln!("stackless: self-update skipped: {detail}");
+                None
+            } else {
+                None
+            }
+        }
+        UpdateOutcome::Current { version } if is_update => {
+            eprintln!("stackless update: already up to date ({version})");
+            Some(ExitCode::SUCCESS)
+        }
+        UpdateOutcome::Skipped(UpdateSkip::AlreadyApplied) if is_update => {
+            eprintln!("stackless update: already running the installed version");
+            Some(ExitCode::SUCCESS)
+        }
+        UpdateOutcome::Skipped(UpdateSkip::NoReceipt) if is_update => {
+            eprintln!(
+                "stackless update: not a cargo-dist install (no install receipt); re-run the shell installer to upgrade"
+            );
+            Some(ExitCode::FAILURE)
+        }
+        UpdateOutcome::Skipped(skip) if is_update => {
+            eprintln!("stackless update: skipped ({skip:?})");
+            Some(ExitCode::FAILURE)
+        }
+        UpdateOutcome::Current { .. } | UpdateOutcome::Skipped(_) => None,
     }
 }
 

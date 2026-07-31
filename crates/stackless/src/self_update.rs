@@ -16,10 +16,9 @@ const APP_NAME: &str = "stackless";
 const TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
 const ENV_NO_SELF_UPDATE: &str = "STACKLESS_NO_SELF_UPDATE";
-const ENV_FORCE_SELF_UPDATE: &str = "STACKLESS_FORCE_SELF_UPDATE";
+pub(crate) const ENV_FORCE_SELF_UPDATE: &str = "STACKLESS_FORCE_SELF_UPDATE";
 const ENV_JUST_UPDATED: &str = "STACKLESS_JUST_UPDATED";
 const ENV_GITHUB_TOKEN: &str = "STACKLESS_GITHUB_TOKEN";
-#[allow(dead_code)] // read from CLI for SoftFailed verbosity
 pub(crate) const ENV_SELF_UPDATE_VERBOSE: &str = "STACKLESS_SELF_UPDATE_VERBOSE";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
