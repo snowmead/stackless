@@ -117,19 +117,22 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          registry-url: "https://registry.npmjs.org"
+          # No registry-url: that writes a placeholder NODE_AUTH_TOKEN into
+          # .npmrc and steers publish off the OIDC Trusted Publishing path.
           cache: npm
           cache-dependency-path: sdks/typescript/package-lock.json
 
       # OIDC trusted publishing — do not set NODE_AUTH_TOKEN (classic tokens
-      # with account 2FA fail CI with EOTP). Configure Trusted Publisher on
-      # npm for workflow publish-packages.yml, or replace NPM_TOKEN usage by
-      # temporarily setting NODE_AUTH_TOKEN to a granular bypass-2FA token.
+      # with account 2FA fail CI with EOTP). Needs npm >= 11.5.1. Configure
+      # Trusted Publisher on npm for workflow publish-packages.yml, or use a
+      # granular bypass-2FA token via NODE_AUTH_TOKEN instead.
       - name: Build and publish
         working-directory: sdks/typescript
         shell: bash
         run: |
           set -euo pipefail
+          npm install -g npm@latest
+          npm --version
           npm ci
           npm run build
           npm publish --provenance --access public
