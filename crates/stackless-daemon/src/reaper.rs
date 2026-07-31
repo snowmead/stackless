@@ -135,6 +135,7 @@ async fn run_down(
         .arg(paths.state_dir())
         .arg("--proxy-port")
         .arg(&port)
+        .env("STACKLESS_NO_SELF_UPDATE", "1")
         .output()
         .await
         .map_err(|err| format!("cannot spawn `down`: {err}"))?;

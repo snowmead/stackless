@@ -46,6 +46,12 @@ stackless-stripe-projects.workspace = true
 tempfile                            = { version = "3.27.0", optional = true }
 thiserror                           = "2.0.18"
 tokio                               = { version = "1.52.3", features = ["rt-multi-thread"] }
+axoupdater                          = { version = "0.10.0", features = ["blocking"] }
+
+[dependencies.reqwest]
+version          = "0.13.4"
+default-features = false
+features         = ["rustls"]
 
 [build-dependencies]
 stackless-bindgen.workspace = true

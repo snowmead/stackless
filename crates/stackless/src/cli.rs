@@ -12,6 +12,10 @@ use crate::client::{Client, UpArgs};
 use crate::daemon_cmd;
 use crate::error::Error;
 use crate::output::{self, Output};
+use crate::self_update::{
+    self, CommandKind, ENV_FORCE_SELF_UPDATE, ENV_SELF_UPDATE_VERBOSE, UpdateContext,
+    UpdateOutcome, UpdateSkip,
+};
 use crate::{adopt, doctor, init, mcp, verify};
 
 #[derive(Parser)]
@@ -149,6 +153,8 @@ enum Command {
         #[arg(long)]
         check: bool,
     },
+    /// Check GitHub Releases and install the latest stackless binary if newer.
+    Update,
     /// Daemon internals (spawned on demand; rarely run by hand).
     #[command(subcommand, hide = true)]
     Daemon(daemon_cmd::DaemonCommand),
@@ -172,6 +178,35 @@ pub fn run() -> ExitCode {
             }
         };
     }
+
+    let is_update = matches!(cli.command, Command::Update);
+    let command_kind = if matches!(cli.command, Command::Daemon(_)) {
+        CommandKind::Internal
+    } else {
+        CommandKind::User
+    };
+    let force = is_update || self_update::env_truthy(ENV_FORCE_SELF_UPDATE);
+    let update_outcome = self_update::maybe_self_update(UpdateContext {
+        command_kind,
+        force,
+        state_dir: Paths::from_env(),
+        has_state_dir_flag: cli.state_dir.is_some(),
+        has_proxy_port_flag: cli.proxy_port.is_some(),
+    });
+    match &update_outcome {
+        UpdateOutcome::Updated { from, to, exe } => {
+            eprintln!("stackless: updated {from} → {to}; restarting…");
+            self_update::drain_daemon_best_effort();
+            self_update::reexec(exe);
+        }
+        UpdateOutcome::SoftFailed { detail }
+            if !is_update && self_update::env_truthy(ENV_SELF_UPDATE_VERBOSE) =>
+        {
+            eprintln!("stackless: self-update skipped: {detail}");
+        }
+        _ => {}
+    }
+
     let mut output = Output::new(cli.json);
     let layout = ClientLayout {
         state_dir: cli.state_dir,
@@ -258,6 +293,7 @@ pub fn run() -> ExitCode {
                 &output,
             )
         })(),
+        Command::Update => run_update(&update_outcome, &output),
         Command::Daemon(command) => daemon_cmd::run(command, &output),
         Command::Mcp => Ok(()),
     };
@@ -268,6 +304,46 @@ pub fn run() -> ExitCode {
             output.fault(&err);
             ExitCode::FAILURE
         }
+    }
+}
+
+fn run_update(outcome: &UpdateOutcome, output: &Output) -> Result<(), Error> {
+    match outcome {
+        UpdateOutcome::Updated { .. } => {
+            // Re-exec already ran in the prelude; this arm is unreachable.
+            Ok(())
+        }
+        UpdateOutcome::Current { version } => {
+            output.update_ok(&format!("already up to date ({version})"));
+            Ok(())
+        }
+        UpdateOutcome::Skipped(UpdateSkip::AlreadyApplied) => {
+            output.update_ok("already running the installed version");
+            Ok(())
+        }
+        UpdateOutcome::SoftFailed { detail } => Err(Error::SelfUpdate {
+            detail: detail.clone(),
+        }),
+        UpdateOutcome::Skipped(UpdateSkip::NoReceipt) => Err(Error::SelfUpdate {
+            detail: "not a cargo-dist install (no install receipt); re-run the shell installer to upgrade"
+                .into(),
+        }),
+        UpdateOutcome::Skipped(UpdateSkip::ReceiptNotThisExecutable) => Err(Error::SelfUpdate {
+            detail: "install receipt is for a different binary; re-run the shell installer to upgrade this copy"
+                .into(),
+        }),
+        UpdateOutcome::Skipped(UpdateSkip::EnvDisabled) => Err(Error::SelfUpdate {
+            detail: "disabled (STACKLESS_NO_SELF_UPDATE=1)".into(),
+        }),
+        UpdateOutcome::Skipped(UpdateSkip::LockBusy) => Err(Error::SelfUpdate {
+            detail: "another update is already in progress".into(),
+        }),
+        UpdateOutcome::Skipped(UpdateSkip::Throttled) => Err(Error::SelfUpdate {
+            detail: "skipped (throttled)".into(),
+        }),
+        UpdateOutcome::Skipped(skip) => Err(Error::SelfUpdate {
+            detail: format!("skipped ({skip:?})"),
+        }),
     }
 }
 

@@ -53,6 +53,11 @@ curl --proto '=https' --tlsv1.2 -LsSf \
   https://github.com/snowmead/stackless/releases/latest/download/stackless-installer.sh | sh
 ```
 
+Re-running the installer upgrades in place. When installed via that shell
+installer (install receipt present), the CLI also auto-updates from GitHub
+Releases on ordinary use and via `stackless update`. Set
+`STACKLESS_NO_SELF_UPDATE=1` to disable.
+
 Agent skill:
 
 ```console

@@ -92,6 +92,7 @@ pub mod codes {
     pub const CLI_INIT_NAME_INVALID: &str = "cli.init.name_invalid";
     pub const CLI_ADOPT_EXISTS: &str = "cli.adopt.exists";
     pub const CLI_ADOPT_INSPECT: &str = "cli.adopt.inspect";
+    pub const CLI_SELF_UPDATE: &str = "cli.self_update";
     pub const DOCTOR_CHECKS_FAILED: &str = "doctor.checks.failed";
     /// Legacy local Docker datastore teardown (pre-`[datastores.*]` removal).
     pub const LOCAL_DOCKER_ENGINE: &str = "local.docker.engine";
@@ -179,6 +180,7 @@ pub mod codes {
         CLI_INIT_NAME_INVALID,
         CLI_ADOPT_EXISTS,
         CLI_ADOPT_INSPECT,
+        CLI_SELF_UPDATE,
         DOCTOR_CHECKS_FAILED,
         LOCAL_DOCKER_ENGINE,
         LOCAL_DATASTORE_FAILED,
