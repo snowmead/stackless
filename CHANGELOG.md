@@ -15,6 +15,23 @@ Generate with:
 
 ## Unreleased
 
+## v0.2.1 — 2026-07-30
+
+### Changed
+
+- Simplify Install docs with `bunx skills add`.
+
+### Commits
+
+- [896015d](https://github.com/snowmead/stackless/commit/896015d3764b4f450b7e49a072993df7329a896d) docs: simplify Install with bunx skills add
+
+### Install
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/download/v0.2.1/stackless-installer.sh | sh
+stackless --version
+```
+
 ## v0.2.0 — 2026-07-30
 
 Minor bump after the first multi-registry SDK wave. Harden publish order and
