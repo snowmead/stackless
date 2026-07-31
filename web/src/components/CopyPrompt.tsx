@@ -11,7 +11,11 @@ export function CopyPrompt() {
       <Button
         type="button"
         size="lg"
-        className="copy-prompt-btn h-auto rounded-sm px-5 py-3 text-sm"
+        className={cn(
+          "copy-prompt-btn h-auto rounded-sm px-5 py-3 text-sm",
+          "border-[var(--ink)] bg-[var(--ink)] text-[var(--void)]",
+          "hover:border-[color-mix(in_oklch,var(--ink)_88%,var(--void))] hover:bg-[color-mix(in_oklch,var(--ink)_88%,var(--void))] hover:text-[var(--void)]",
+        )}
         aria-label={
           copied
             ? "Copied prompt to clipboard"
