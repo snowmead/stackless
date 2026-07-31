@@ -1,6 +1,9 @@
 export const INSTALL_CMD =
   "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/latest/download/stackless-installer.sh | sh";
 
+export const SKILLS_CMD =
+  "bunx skills add snowmead/stackless --skill stackless -g";
+
 export async function copyText(text: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);

@@ -1,9 +1,11 @@
+import { SparklesIcon, TerminalIcon } from "lucide-react";
+
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { HeroDemo } from "@/components/HeroDemo";
 import { useCopy } from "@/hooks/use-copy";
 import type { Conductor } from "@/lib/conductor";
-import { INSTALL_CMD } from "@/lib/copy";
+import { INSTALL_CMD, SKILLS_CMD } from "@/lib/copy";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -12,10 +14,11 @@ type Props = {
 };
 
 export function Hero({ reduceMotion, conductor }: Props) {
-  const { copied, copy } = useCopy();
+  const { copied: installCopied, copy: copyInstall } = useCopy();
+  const { copied: skillsCopied, copy: copySkills } = useCopy();
 
   return (
-    <header className="hero">
+    <header className="hero" {...(reduceMotion ? { "data-static": true } : {})}>
       <div className="hero-atmosphere" aria-hidden="true">
         <div className="hero-grid" />
         <div className="hero-wash" />
@@ -51,27 +54,34 @@ export function Hero({ reduceMotion, conductor }: Props) {
             <Button
               type="button"
               size="lg"
+              variant="outline"
               className={cn(
-                "h-auto rounded-sm px-[1.1rem] py-[0.72rem] text-[0.95rem]",
-                copied &&
-                  "bg-[var(--signal)] text-[var(--void)] hover:bg-[var(--signal)]",
+                "hero-cmd h-auto rounded-sm px-[1.1rem] py-[0.72rem] text-[0.95rem]",
+                installCopied && "is-copied",
               )}
-              onClick={() => void copy(INSTALL_CMD)}
+              aria-label={
+                installCopied ? "Copied install command" : "Copy install command"
+              }
+              onClick={() => void copyInstall(INSTALL_CMD)}
             >
-              {copied ? "Copied" : "Copy install"}
+              <TerminalIcon className="hero-cmd-icon" aria-hidden="true" />
+              <span>{installCopied ? "Copied" : "Install CLI"}</span>
             </Button>
             <Button
-              asChild
-              variant="outline"
+              type="button"
               size="lg"
-              className="h-auto rounded-sm bg-transparent px-[1.1rem] py-[0.72rem] text-[0.95rem]"
+              variant="outline"
+              className={cn(
+                "hero-cmd h-auto rounded-sm px-[1.1rem] py-[0.72rem] text-[0.95rem]",
+                skillsCopied && "is-copied",
+              )}
+              aria-label={
+                skillsCopied ? "Copied skill command" : "Copy skill command"
+              }
+              onClick={() => void copySkills(SKILLS_CMD)}
             >
-              <a
-                href="https://github.com/snowmead/stackless"
-                rel="noopener noreferrer"
-              >
-                View on GitHub
-              </a>
+              <SparklesIcon className="hero-cmd-icon" aria-hidden="true" />
+              <span>{skillsCopied ? "Copied" : "Add skill"}</span>
             </Button>
           </div>
         </div>

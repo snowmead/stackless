@@ -145,6 +145,71 @@
   margin-top: 1.75rem;
 }
 
+.hero-cmd {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  background: transparent;
+  border-color: var(--line-strong);
+  color: var(--ink);
+  transition:
+    background-color 160ms var(--ease-out-quart),
+    color 160ms var(--ease-out-quart),
+    border-color 160ms var(--ease-out-quart),
+    transform 200ms var(--ease-out-quart);
+}
+
+.hero-cmd:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+  transform: translateY(-1px);
+}
+
+.hero-cmd.is-copied {
+  background: var(--signal);
+  border-color: var(--signal);
+  color: var(--void);
+}
+
+.hero-cmd.is-copied:hover {
+  background: var(--signal);
+  border-color: var(--signal);
+  color: var(--void);
+}
+
+.hero-cmd-icon {
+  width: 1.05rem;
+  height: 1.05rem;
+  flex-shrink: 0;
+  transition: transform 200ms var(--ease-out-quart);
+  transform-origin: center;
+}
+
+.hero-cmd:hover .hero-cmd-icon {
+  transform: rotate(-8deg) scale(1.12);
+}
+
+.hero[data-static] .hero-cmd,
+.hero[data-static] .hero-cmd:hover,
+.hero[data-static] .hero-cmd-icon,
+.hero[data-static] .hero-cmd:hover .hero-cmd-icon {
+  transform: none;
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-cmd,
+  .hero-cmd:hover,
+  .hero-cmd-icon,
+  .hero-cmd:hover .hero-cmd-icon {
+    transform: none;
+    transition:
+      background-color 160ms var(--ease-out-quart),
+      color 160ms var(--ease-out-quart),
+      border-color 160ms var(--ease-out-quart);
+  }
+}
+
 .btn {
   appearance: none;
   border: 1px solid transparent;
@@ -1415,6 +1480,13 @@ main {
     opacity: 1;
     box-shadow: none;
   }
+}
+
+.layer-agent-logo {
+  width: 0.9rem;
+  height: 0.9rem;
+  flex-shrink: 0;
+  color: var(--ink);
 }
 
 .layer-agent-who {

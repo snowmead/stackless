@@ -8,9 +8,12 @@ import {
 } from "react";
 
 import {
+  LogoClaude,
   LogoClerk,
+  LogoCodex,
   LogoFly,
   LogoNeon,
+  LogoPi,
   LogoRender,
   LogoStripe,
   LogoSupabase,
@@ -45,6 +48,7 @@ const WIN = {
 type Lane = {
   id: string;
   agent: string;
+  Logo: LogoComponent;
   spec: string;
   cmd: string;
   env: string;
@@ -58,7 +62,8 @@ type Lane = {
 const LANES: Lane[] = [
   {
     id: "a",
-    agent: "agent-a",
+    agent: "pi",
+    Logo: LogoPi,
     spec: "checkout.spec.ts",
     cmd: "stackless up --name e2e-checkout",
     env: "e2e-checkout",
@@ -73,7 +78,8 @@ const LANES: Lane[] = [
   },
   {
     id: "b",
-    agent: "agent-b",
+    agent: "claude",
+    Logo: LogoClaude,
     spec: "auth.spec.ts",
     cmd: "stackless up --name e2e-auth",
     env: "e2e-auth",
@@ -88,7 +94,8 @@ const LANES: Lane[] = [
   },
   {
     id: "c",
-    agent: "agent-c",
+    agent: "codex",
+    Logo: LogoCodex,
     spec: "billing.spec.ts",
     cmd: "stackless up --name e2e-billing",
     env: "e2e-billing",
@@ -318,6 +325,7 @@ export function LayerWall({ reduceMotion }: Props) {
           >
             <div className="layer-agent-top">
               <span className="layer-agent-dot" />
+              <lane.Logo className="layer-agent-logo" title="" />
               <span className="layer-agent-who">{lane.agent}</span>
               <span className="layer-agent-spec">{lane.spec}</span>
             </div>
