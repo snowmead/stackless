@@ -1,6 +1,9 @@
 //! Twilio catalog resources via Stripe Projects.
 //!
-//! Output envelopes are provisional until pinned by `xtask discover`.
+//! **HELD — not registered.** US-region accounts only (`not_in_country`).
+//! Source kept for re-enable; omit `pub mod twilio` in `providers/mod.rs`
+//! until the gate lifts. See `docs/ADDING-A-PROVIDER.md` § External pin
+//! blockers.
 
 pub mod email;
 

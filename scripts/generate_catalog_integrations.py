@@ -38,6 +38,29 @@ EXCL: dict[str, str] = {
     "createos/project": (
         "Catalog orphan — no stackless surface; do not register or scaffold"
     ),
+    # External Stripe/provider gates — held source, not registered until pin.
+    # Tracking: #91–#97. Keep in sync with docs/ADDING-A-PROVIDER.md.
+    "algolia/application": (
+        "#91 — Missing Application plan; no catalog plan service to pre-add"
+    ),
+    "blaxel/agent-drive": (
+        "#92 — Private preview 402 waitlist; blaxel/sandbox remains registered"
+    ),
+    "chroma/database": (
+        "#93 — Missing from live Stripe catalog (Unknown provider)"
+    ),
+    "daytona/sandbox": (
+        "#94 — Linkable but provision stalls pending with no credential envs"
+    ),
+    "heygen/api": (
+        "#95 — Missing from live Stripe catalog filter (Unknown provider/service)"
+    ),
+    "privy/app": (
+        "#96 — Missing from live Stripe providers index (Unknown provider)"
+    ),
+    "twilio/email": (
+        "#97 — US-region accounts only (not_in_country / provider_failure)"
+    ),
 }
 
 # Hosting refs owned by substrate crates (not CatalogResource integrations).
@@ -56,6 +79,7 @@ SUBSTRATE_ONLY_HOSTING: frozenset[str] = frozenset(
 REFERENCE_RE = re.compile(
     r"const\s+REFERENCE:\s*&'static\s+str\s*=\s*\"([^\"]+)\""
 )
+MOD_RE = re.compile(r"^\s*(?:pub\s+)?mod\s+(\w+)\s*;", re.M)
 
 SHORT_PROVIDER = {
     "auth0/client": "auth0",
@@ -283,9 +307,53 @@ def catalog_deployables() -> list[str]:
     return sorted(refs)
 
 
+def declared_rust_files(root: Path) -> list[Path]:
+    """`.rs` files reachable from `root/mod.rs` via `mod` / `pub mod` decls.
+
+    Held integrations keep source on disk but omit the parent `pub mod` in
+    `providers/mod.rs` (or a nested `mod` for a single held sibling). Those
+    files are ignored here so EXCL ownership stays accurate.
+    """
+    root_mod = root / "mod.rs"
+    if not root_mod.is_file():
+        return sorted(root.rglob("*.rs"))
+
+    out: list[Path] = []
+    seen: set[Path] = set()
+
+    def visit(mod_file: Path, dir_path: Path) -> None:
+        if mod_file in seen:
+            return
+        seen.add(mod_file)
+        out.append(mod_file)
+        text = mod_file.read_text()
+        for name in MOD_RE.findall(text):
+            as_file = dir_path / f"{name}.rs"
+            as_dir = dir_path / name
+            nested = as_dir / "mod.rs"
+            if nested.is_file():
+                visit(nested, as_dir)
+            elif as_file.is_file():
+                if as_file not in seen:
+                    seen.add(as_file)
+                    out.append(as_file)
+                    # Nested `mod` decls inside a single-file module.
+                    for nested_name in MOD_RE.findall(as_file.read_text()):
+                        nested_file = dir_path / f"{nested_name}.rs"
+                        nested_mod = dir_path / nested_name / "mod.rs"
+                        if nested_mod.is_file():
+                            visit(nested_mod, dir_path / nested_name)
+                        elif nested_file.is_file() and nested_file not in seen:
+                            seen.add(nested_file)
+                            out.append(nested_file)
+
+    visit(root_mod, root)
+    return sorted(out)
+
+
 def integration_references() -> set[str]:
     found: set[str] = set()
-    for path in PROVIDERS.rglob("*.rs"):
+    for path in declared_rust_files(PROVIDERS):
         found.update(REFERENCE_RE.findall(path.read_text()))
     return found
 

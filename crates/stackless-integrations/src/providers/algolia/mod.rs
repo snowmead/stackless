@@ -1,6 +1,10 @@
 //! Algolia catalog resources via Stripe Projects.
 //!
-//! Output envelopes are provisional until pinned by `xtask discover`.
+//! **HELD — not registered.** External Stripe/Algolia plan gate blocks live
+//! provision (`Missing Application plan`). Source is kept for re-enable; omit
+//! `pub mod algolia` in `providers/mod.rs` and the `register_providers!` row
+//! until discover-apply can pin. See `docs/ADDING-A-PROVIDER.md` § External
+//! pin blockers and `EXCL` in `scripts/generate_catalog_integrations.py`.
 
 pub mod application;
 

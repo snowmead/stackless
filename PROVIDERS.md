@@ -45,15 +45,12 @@ Stripe Projects catalog reference. Offline catalog detail:
 |---|---|
 | `agentmail` | `agentmail/api` |
 | `agentphone` | `agentphone/number` |
-| `algolia` | `algolia/application` |
 | `amplitude` | `amplitude/analytics` |
 | `auth0` | `auth0/client` |
 | `base44` | `base44_projects/app` |
-| `blaxel-agent-drive` | `blaxel/agent-drive` |
 | `blaxel-sandbox` | `blaxel/sandbox` |
 | `browserbase` | `browserbase/project` |
 | `chatbase` | `chatbase/agent` |
-| `chroma` | `chroma/database` |
 | `clerk` | `clerk/auth` |
 | `clickhouse` | `clickhouse/clickhouse` |
 | `clickhouse-postgres` | `clickhouse/postgres` |
@@ -68,7 +65,6 @@ Stripe Projects catalog reference. Offline catalog detail:
 | `composio` | `composio/project` |
 | `customerio` | `customerio/workspace` |
 | `datadog-observability` | `datadog/observability` |
-| `daytona` | `daytona/sandbox` |
 | `depot` | `depot/api` |
 | `e2b` | `e2b/sandbox` |
 | `elevenlabs` | `elevenlabs/tts` |
@@ -77,7 +73,6 @@ Stripe Projects catalog reference. Offline catalog detail:
 | `flyio-mpg` | `flyio/mpg` |
 | `flyio-sprite` | `flyio/sprite` |
 | `gitlab` | `gitlab/project` |
-| `heygen` | `heygen/api` |
 | `huggingface` | `huggingface/platform` |
 | `huggingface-bucket` | `huggingface/bucket` |
 | `inngest` | `inngest/app` |
@@ -95,7 +90,6 @@ Stripe Projects catalog reference. Offline catalog detail:
 | `postalform` | `postalform/mail` |
 | `posthog` | `posthog/analytics` |
 | `prisma` | `prisma/database` |
-| `privy` | `privy/app` |
 | `pydantic` | `pydantic/logfire` |
 | `railway-bucket` | `railway/bucket` |
 | `railway-hosting` | `railway/hosting` |
@@ -113,7 +107,6 @@ Stripe Projects catalog reference. Offline catalog detail:
 | `supermemory` | `supermemory/memory` |
 | `tabstack` | `tabstack/api` |
 | `turso` | `turso/database` |
-| `twilio-email` | `twilio/email` |
 | `upstash-qstash` | `upstash/qstash` |
 | `upstash-redis` | `upstash/redis` |
 | `upstash-search` | `upstash/search` |

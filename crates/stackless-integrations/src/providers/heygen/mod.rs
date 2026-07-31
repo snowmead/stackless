@@ -1,6 +1,9 @@
 //! HeyGen catalog resources via Stripe Projects.
 //!
-//! Output envelopes are provisional until pinned by `xtask discover`.
+//! **HELD — not registered.** Live catalog/add returns unknown
+//! provider/service. Source kept for re-enable; omit `pub mod heygen` in
+//! `providers/mod.rs` until the gate lifts. See `docs/ADDING-A-PROVIDER.md`
+//! § External pin blockers.
 
 pub mod api;
 

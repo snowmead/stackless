@@ -1,11 +1,9 @@
 # Catalog refs still marked Provisional until / Best-guess under
-# crates/stackless-integrations/src/providers/. Shrink as envelopes are
-# pinned via `mise run discover-apply`. Release requires this file empty
+# *declared* modules in crates/stackless-integrations/src/providers/
+# (reachable from providers/mod.rs). Shrink as envelopes are pinned via
+# `mise run discover-apply`. Release requires this file empty
 # (comments-only / blank lines ok).
-algolia/application
-blaxel/agent-drive
-chroma/database
-daytona/sandbox
-heygen/api
-privy/app
-twilio/email
+#
+# Externally blocked integrations keep source on disk but omit `pub mod`
+# + registry row and live in EXCL — see docs/ADDING-A-PROVIDER.md
+# § External pin blockers. Those files are not scanned here.

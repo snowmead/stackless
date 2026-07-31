@@ -188,44 +188,46 @@ fixture dir (see "One-time setup" above) — the smoke fails at the first
   - `cloudflare/registrar:domain`, `squarespace/domain`, `wordpress.com/domain`,
     `spaceship/domain` — non-refundable domain purchases
   - `createos/project` — catalog orphan; no stackless surface (do not register)
+  - External pin blockers below (unregistered so users cannot select them)
 
 ## External pin blockers
 
-Some registered refs stay on
-`crates/stackless-integrations/provisional-allowlist.txt` because Stripe (or a
-provider plan/spend gate) blocks live `discover`, not because stackless is
-missing code. Shrink the allowlist when the gate lifts — do **not** EXCL a
-registered integration and do **not** invent credential envelopes.
+When Stripe or a provider gate blocks live provision/`discover`, **do not**
+list the ref as a registered `[integrations.*]` provider — users must not see
+it in `PROVIDERS.md` or pass `provider = "…"`. Keep the implementation source
+on disk under `providers/` (mark the family `mod.rs` **HELD**), but:
 
-**Still blocked** (keep in sync with `mise run provisional-list`)
+1. Omit `pub mod <family>` from `providers/mod.rs` (or omit a single sibling
+   `mod` when the rest of the family stays live, e.g. `blaxel/agent_drive`).
+2. Omit the `register_providers!` row.
+3. Add the catalog ref to `EXCL` in `scripts/generate_catalog_integrations.py`
+   with the blocker reason.
 
-- **`algolia/application`** — Provider is linkable, but provision fails with
+`catalog-orphans` / `provisional-check` only count modules reachable from
+`providers/mod.rs`, so held sources do not look “registered.” Do **not**
+invent credential envelopes. When the gate lifts: declare the `pub mod`, add
+the registry row, `mise run discover … | mise run discover-apply`, drop the
+`EXCL` entry.
+
+**HELD / EXCL'd until the gate lifts** (source on disk; keep in sync with
+`EXCL` in `scripts/generate_catalog_integrations.py`)
+
+- **`algolia/application`** (#91) — Linkable, but provision fails with
   `Missing Application plan` (`provider_failure`). No separate Algolia plan
-  service appears in the live catalog to pre-add; wait for Stripe/Algolia plan
-  wiring, then discover-apply.
-- **`blaxel/agent-drive`** — Linked; provision returns 402 private-preview
-  (`Request to join the waitlist` → blaxel.typeform.com). Sandbox on the same
-  provider pins fine; agent-drive stays allowlisted until Blaxel opens access.
-- **`chroma/database`** — Catalog fixture includes Chroma, but live
-  `stripe projects catalog chroma` / discover → `Unknown provider or category:
-  chroma`. Wait for Stripe catalog parity, then discover-apply.
-- **`daytona/sandbox`** — First link needs a human Auth0 browser flow
-  (`BROWSER_AUTH_REQUIRED`); after that, non-interactive
-  `stripe projects link daytona` returns `already_linked`. Provision still
-  stalls in `pending` with no credential env vars (discover hangs past 5m even
-  with a top-up plan attached). Leave allowlisted until sandbox becomes
-  `complete` and emits fields; then discover-apply.
-- **`heygen/api`** — Provider can show as linked, but live
-  `stripe projects catalog heygen` / discover → `Unknown provider or category:
-  heygen` (Stripe catalog filter gap vs link index). Wait for catalog parity,
-  then discover-apply.
-- **`privy/app`** — Privy appears in the committed catalog fixture but is missing
-  from the live Stripe Projects providers index (`stripe projects catalog|link
-  privy` → `Unknown provider`). Wait until Privy is linkable, then
-  `mise run discover privy/app -- --json --dir <fixture> | mise run discover-apply`.
-- **`twilio/email`** — `stripe projects link twilio` fails with
-  `Currently, only US-based accounts are supported` (`provider_failure`). Needs
-  a US-based Twilio/Projects account before link + discover-apply.
+  service appears in the live catalog to pre-add.
+- **`blaxel/agent-drive`** (#92) — Linked; provision returns 402 private-preview
+  (`Request to join the waitlist`). `blaxel/sandbox` stays registered.
+- **`chroma/database`** (#93) — In the committed catalog fixture, but live
+  `stripe projects catalog chroma` → `Unknown provider or category: chroma`.
+- **`daytona/sandbox`** (#94) — Link needs a human Auth0 browser flow; after link,
+  provision stalls in `pending` with no credential env vars (even with a
+  top-up plan).
+- **`heygen/api`** (#95) — Can appear linked in status, but live
+  `stripe projects catalog heygen` / add → unknown provider/service.
+- **`privy/app`** (#96) — In the committed catalog fixture, but missing from the
+  live Stripe providers index (`Unknown provider`).
+- **`twilio/email`** (#97) — `not_in_country` / US-based accounts only
+  (`provider_failure` on link for non-US accounts).
 
 **Pinned despite an external gate (`sentry/seer`)**
 

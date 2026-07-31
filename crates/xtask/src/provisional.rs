@@ -1,9 +1,11 @@
 //! Inventory + CI gate for unpinned credential envelopes.
 //!
-//! Scans `crates/stackless-integrations/src/providers/` for
+//! Scans **declared** modules under `crates/stackless-integrations/src/providers/`
+//! (reachable from `providers/mod.rs` via `mod` / `pub mod`) for
 //! `Provisional until` / `Best-guess` markers next to `OUTPUT_FIELDS`, maps each
 //! hit to its module's `CatalogService::REFERENCE`, and compares against the
-//! committed allowlist.
+//! committed allowlist. Held/EXCL'd sources that omit the parent `pub mod` are
+//! ignored.
 
 use std::collections::BTreeSet;
 use std::error::Error;
@@ -87,6 +89,19 @@ fn extract_reference(text: &str) -> Option<String> {
 }
 
 fn rust_files(root: &Path) -> Result<Vec<PathBuf>, Fail> {
+    let root_mod = root.join("mod.rs");
+    if !root_mod.is_file() {
+        // Flat test fixtures (and other non-crate trees) have no mod graph.
+        return all_rust_files(root);
+    }
+    let mut out = Vec::new();
+    let mut seen = BTreeSet::new();
+    visit_mod(&root_mod, root, &mut out, &mut seen)?;
+    out.sort();
+    Ok(out)
+}
+
+fn all_rust_files(root: &Path) -> Result<Vec<PathBuf>, Fail> {
     let mut out = Vec::new();
     fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), Fail> {
         for entry in fs::read_dir(dir)? {
@@ -105,6 +120,62 @@ fn rust_files(root: &Path) -> Result<Vec<PathBuf>, Fail> {
     }
     out.sort();
     Ok(out)
+}
+
+fn visit_mod(
+    mod_file: &Path,
+    dir: &Path,
+    out: &mut Vec<PathBuf>,
+    seen: &mut BTreeSet<PathBuf>,
+) -> Result<(), Fail> {
+    if !seen.insert(mod_file.to_path_buf()) {
+        return Ok(());
+    }
+    out.push(mod_file.to_path_buf());
+    let text = fs::read_to_string(mod_file)?;
+    for name in mod_names(&text) {
+        let as_file = dir.join(format!("{name}.rs"));
+        let nested_mod = dir.join(&name).join("mod.rs");
+        if nested_mod.is_file() {
+            visit_mod(&nested_mod, &dir.join(&name), out, seen)?;
+        } else if as_file.is_file() {
+            if seen.insert(as_file.clone()) {
+                out.push(as_file.clone());
+                let nested_text = fs::read_to_string(&as_file)?;
+                for nested_name in mod_names(&nested_text) {
+                    let nested_file = dir.join(format!("{nested_name}.rs"));
+                    let nested_dir_mod = dir.join(&nested_name).join("mod.rs");
+                    if nested_dir_mod.is_file() {
+                        visit_mod(&nested_dir_mod, &dir.join(&nested_name), out, seen)?;
+                    } else if nested_file.is_file() && seen.insert(nested_file.clone()) {
+                        out.push(nested_file);
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn mod_names(text: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        let rest = line
+            .strip_prefix("pub mod ")
+            .or_else(|| line.strip_prefix("mod "));
+        let Some(rest) = rest else {
+            continue;
+        };
+        let Some(name) = rest.strip_suffix(';') else {
+            continue;
+        };
+        let name = name.trim();
+        if !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            names.push(name.to_owned());
+        }
+    }
+    names
 }
 
 pub fn load_allowlist(path: &Path) -> Result<BTreeSet<String>, Fail> {
@@ -262,5 +333,41 @@ const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[];
         let found = scan_provisional_refs(&providers).unwrap();
         let set = load_allowlist(&allow).unwrap();
         assert!(found.iter().any(|r| !set.contains(r)));
+    }
+
+    #[test]
+    fn scan_skips_undeclared_held_modules() {
+        let dir = tempfile::tempdir().unwrap();
+        let providers = dir.path();
+        fs::write(providers.join("mod.rs"), "pub mod live;\n").unwrap();
+        fs::write(
+            providers.join("live.rs"),
+            r#"
+const REFERENCE: &'static str = "neon/postgres";
+const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[];
+"#,
+        )
+        .unwrap();
+        fs::create_dir_all(providers.join("held")).unwrap();
+        fs::write(
+            providers.join("held/mod.rs"),
+            "//! HELD — not registered.\npub mod service;\n",
+        )
+        .unwrap();
+        fs::write(
+            providers.join("held/service.rs"),
+            r#"
+const REFERENCE: &'static str = "algolia/application";
+// Provisional until pinned.
+const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[];
+"#,
+        )
+        .unwrap();
+
+        let refs = scan_provisional_refs(providers).unwrap();
+        assert!(
+            refs.is_empty(),
+            "held undeclared module must be ignored: {refs:?}"
+        );
     }
 }
