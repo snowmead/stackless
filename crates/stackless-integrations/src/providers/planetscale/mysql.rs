@@ -32,15 +32,19 @@ impl Hostable for PlanetScaleMysql {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["database_url"];
+    const OUTPUTS: &'static [&'static str] = &["url", "host", "database", "username", "password"];
 }
 
 impl FamilyResource for PlanetScaleMysql {
     type Config = PlanetScaleMysqlConfig;
     const PROVIDER_PREFIX: &'static str = "PLANETSCALE";
-    // Provisional until pinned by `mise run discover planetscale/mysql`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("DATABASE_URL", "database_url", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("URL", "url", true),
+        ("HOST", "host", false),
+        ("DATABASE", "database", true),
+        ("USERNAME", "username", true),
+        ("PASSWORD", "password", true),
+    ];
 
     fn build_config(
         ctx: &ProvisionContext<'_>,
@@ -121,7 +125,7 @@ name = "test-name"
 region = "aws-ap-northeast"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.database_url}" }
+env = { OUT = "${integrations.res.url}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -134,7 +138,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"PLANETSCALE_DATABASE_URL": "val_database_url"}),
+            serde_json::json!({"PLANETSCALE_URL": "val_url", "PLANETSCALE_HOST": "val_host", "PLANETSCALE_DATABASE": "val_database", "PLANETSCALE_USERNAME": "val_username", "PLANETSCALE_PASSWORD": "val_password"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -159,6 +163,6 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-planetscale-mysql");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["database_url"], "val_database_url");
+        assert_eq!(payload.outputs["url"], "val_url");
     }
 }

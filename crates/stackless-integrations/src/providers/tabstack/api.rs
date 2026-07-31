@@ -36,7 +36,6 @@ impl Hostable for TabstackApi {
 impl FamilyResource for TabstackApi {
     type Config = TabstackApiConfig;
     const PROVIDER_PREFIX: &'static str = "TABSTACK";
-    // Provisional until pinned by `mise run discover tabstack/api`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
         &[("API_KEY", "api_key", true)];
 

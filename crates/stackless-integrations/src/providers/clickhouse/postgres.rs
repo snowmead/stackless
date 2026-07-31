@@ -38,15 +38,29 @@ impl Hostable for ClickHousePostgres {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["connection_string"];
+    const OUTPUTS: &'static [&'static str] = &[
+        "connection_string",
+        "hostname",
+        "username",
+        "password",
+        "tls",
+        "cloud_api_key",
+        "cloud_api_secret",
+    ];
 }
 
 impl FamilyResource for ClickHousePostgres {
     type Config = ClickHousePostgresConfig;
     const PROVIDER_PREFIX: &'static str = "CLICKHOUSE";
-    // Provisional until pinned by `mise run discover clickhouse/postgres`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("CONNECTION_STRING", "connection_string", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("CONNECTION_STRING", "connection_string", true),
+        ("HOSTNAME", "hostname", false),
+        ("USERNAME", "username", true),
+        ("PASSWORD", "password", true),
+        ("TLS", "tls", false),
+        ("CLOUD_API_KEY", "cloud_api_key", true),
+        ("CLOUD_API_SECRET", "cloud_api_secret", true),
+    ];
 
     fn build_config(
         ctx: &ProvisionContext<'_>,
@@ -144,7 +158,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"CLICKHOUSE_CONNECTION_STRING": "val_connection_string"}),
+            serde_json::json!({"CLICKHOUSE_CONNECTION_STRING": "val_connection_string", "CLICKHOUSE_HOSTNAME": "val_hostname", "CLICKHOUSE_USERNAME": "val_username", "CLICKHOUSE_PASSWORD": "val_password", "CLICKHOUSE_TLS": "val_tls", "CLICKHOUSE_CLOUD_API_KEY": "val_cloud_api_key", "CLICKHOUSE_CLOUD_API_SECRET": "val_cloud_api_secret"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();

@@ -32,14 +32,19 @@ impl Hostable for SentryProject {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["dsn"];
+    const OUTPUTS: &'static [&'static str] = &["auth_token", "dsn", "org", "project", "url"];
 }
 
 impl FamilyResource for SentryProject {
     type Config = SentryProjectConfig;
     const PROVIDER_PREFIX: &'static str = "SENTRY";
-    // Provisional until pinned by `mise run discover sentry/project`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[("DSN", "dsn", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("AUTH_TOKEN", "auth_token", true),
+        ("DSN", "dsn", true),
+        ("ORG", "org", true),
+        ("PROJECT", "project", true),
+        ("URL", "url", true),
+    ];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<SentryProjectConfig, IntegrationError> {
         let config = super::integration_config(ctx)?;
@@ -114,7 +119,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"SENTRY_DSN": "val_dsn"}),
+            serde_json::json!({"SENTRY_AUTH_TOKEN": "val_auth_token", "SENTRY_DSN": "val_dsn", "SENTRY_ORG": "val_org", "SENTRY_PROJECT": "val_project", "SENTRY_URL": "val_url"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -139,6 +144,10 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-sentry");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
+        assert_eq!(payload.outputs["auth_token"], "val_auth_token");
         assert_eq!(payload.outputs["dsn"], "val_dsn");
+        assert_eq!(payload.outputs["org"], "val_org");
+        assert_eq!(payload.outputs["project"], "val_project");
+        assert_eq!(payload.outputs["url"], "val_url");
     }
 }

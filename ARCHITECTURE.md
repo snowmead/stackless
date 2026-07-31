@@ -222,16 +222,19 @@ flowchart LR
 Decided:
 
 - **Verbs.** `up [--name]`, `down`, `verify`, `status`, `list`, `logs`
-  (local: daemon-captured output; Render: recent REST window; Vercel/Fly/
-  Netlify: not wired in v0 — use the dashboard). `up` on an existing
-  instance resumes. **`--name` is optional at creation**
-  (`{stack.name}-{uuid}` when omitted). **The substrate is chosen at
-  creation only** (`--on local|render|vercel|fly|netlify|…`), becomes
-  part of instance identity, and is never asked again. Names are unique
-  across substrates in the state store. `up --on <s>` fails if any
-  service lacks that substrate's config. All commands are
-  non-interactive, support `--json`, and use agent-branchable exit codes.
-  Anything that spends money requires `--confirm-paid`.
+  (local: daemon-captured file output; cloud: recent API window via
+  `render_api` / `vercel_api` / `fly_events` / `netlify_api` /
+  `railway_api` / `cloudflare_api` / `wordpress_api` /
+  `laravel_cloud_api` / `gitlab_api`). `up` on an existing instance
+  resumes. **`--name` is optional at creation** (`{stack.name}-{uuid}`
+  when omitted). **The substrate is chosen at creation only**
+  (`--on local|render|vercel|fly|netlify|railway|cloudflare|wordpress|
+  laravel-cloud|gitlab`), becomes part of instance identity, and is
+  never asked again. Names are unique across substrates in the state
+  store. `up --on <s>` fails if any service lacks that substrate's
+  config. All commands are non-interactive, support `--json`, and use
+  agent-branchable exit codes. Anything that spends money requires
+  `--confirm-paid`.
 - **One operation at a time per instance.** Mutating verbs take a
   per-instance operation lock (PID + process start time); a second
   invocation fails fast. The reaper respects the lock (§6).
@@ -406,14 +409,15 @@ Shared rules:
   `crates/stackless-stripe-projects/tests/fixtures/` (nightly watcher
   opens upgrade PRs).
 
-### Render (§4)
+### 4a. Render
 
 - Catalog: `render/web-service` or `render/static-site` from
   `[services.X.render]`.
 - Stripe provisions; Render REST fills env, SPA rewrite, deploy trigger,
   deploy polling (Rust release builds can take 30+ minutes on small
   tiers), health wait. API key from env or scoped key file.
-- `stackless logs` fetches a recent per-service window (no streaming).
+- `stackless logs` fetches a recent per-service window via the Render
+  API (`source: "render_api"`; no streaming).
 
 ### 4b. Vercel
 
@@ -422,30 +426,104 @@ Shared rules:
 - After Stripe links the project: push env, git deployment from pinned
   `ref` + `[services.X.vercel]` build settings, poll until `READY`,
   health-gate on deployment URL. Token: `VERCEL_TOKEN` or `.vercel-token`.
-- `logs` not wired in v0.
+- `stackless logs` fetches deployment build events via the Vercel API
+  (`source: "vercel_api"`; recent window, no streaming).
 
 ### 4c. Fly
 
-- v0 is **image-only**. Catalog: `flyio/app` (usage-billed → always
-  `--confirm-paid`). App name = resource name (Fly naming rules).
-- Stripe provisions; Fly Machines API allocates IPs, creates always-on
-  HTTP machine, health-gates on `https://{app}.fly.dev`. Deploy token is
-  Stripe-managed and ephemeral — `observe`/`down` key off Stripe
-  registration. Hand-written reqwest client (small Machines surface).
-- `logs` not wired in v0.
+- Catalog: `flyio/app` (usage-billed → always `--confirm-paid`). App name
+  = resource name (Fly naming rules).
+- Two deploy paths: `[services.X.fly].image` (Machines API fast path) or
+  source-build via `flyctl deploy --remote-only` when `image` is omitted
+  (optional `dockerfile`; requires `fly`/`flyctl` on PATH). Smokes:
+  `smoke-fly` (image) and `smoke-fly-build` (source-build).
+- Stripe provisions; allocates IPs, creates/updates the machine, health-
+  gates on `https://{app}.fly.dev`. Deploy token is Stripe-managed and
+  ephemeral — `observe`/`down` key off Stripe registration. Hand-written
+  reqwest Machines client + flyctl for remote builds.
+- `stackless logs` fetches machine events via the Fly Machines API
+  (`source: "fly_events"`; recent window, no streaming).
 
 ### 4d. Netlify
 
-- v0 is **static upload**. Catalog: `netlify/project` (free — no
-  `--confirm-paid`).
-- Stripe provisions; Netlify REST does file-digest deploy (POST SHA1 map,
-  PUT required files, poll to `ready`), health-gates on `ssl_url`. Token
-  ephemeral — `observe`/`down` key off Stripe. Hand-written client.
-- `logs` not wired in v0.
+- Catalog: `netlify/project` (free — no `--confirm-paid`).
+- Two deploy paths: file-digest static upload (fast path when `build` is
+  absent) or build settings (`build` / `install` / `root` / `publish`) with
+  zip-upload to the build API (`deploy = "build"`) or git-linked
+  `createSiteBuild` (`deploy = "git"`). Smokes: `smoke-netlify` (static)
+  and `smoke-netlify-build` (build API).
+- Stripe provisions; Netlify REST deploys and polls to `ready`, health-
+  gates on `ssl_url`. Token ephemeral — `observe`/`down` key off Stripe.
+  Hand-written client.
+- `stackless logs` fetches recent deploy log lines via the Netlify API
+  (`source: "netlify_api"`; recent window, no streaming).
 
-Other registered substrates (`railway`, `cloudflare`, `wordpress`,
-`laravel-cloud`, `gitlab`) follow the same Stripe + provider-API pattern;
-see each crate and [docs/ADDING-A-PROVIDER.md](docs/ADDING-A-PROVIDER.md).
+### 4e. Railway
+
+- Catalog: `railway/hosting` from `[services.X.railway]`.
+- Two deploy paths: `[services.X.railway].image` (GraphQL image deploy;
+  optional `cmd`) or GitHub HTTPS `source.repo` + pinned `ref` when
+  `image` is omitted.
+- Stripe provisions; Railway GraphQL creates project/service, deploys,
+  attaches a public domain, health-gates on the live origin. Deploy token
+  from Stripe instance env (`RAILWAY_TOKEN` / `RAILWAY_API_TOKEN`) or
+  `.railway-token`; `observe`/`down` key off Stripe registration.
+- `stackless logs` fetches a recent deployment/build window via Railway
+  GraphQL (`source: "railway_api"`; no streaming).
+
+### 4f. Cloudflare Workers (`--on cloudflare`)
+
+- Catalog: `cloudflare/workers` per deployable service. **Distinct from**
+  Cloudflare catalog *integrations* (`cloudflare-r2`, `cloudflare-kv`,
+  …) which run under `--on local` and are covered by
+  `smoke-cloudflare-integrations`; substrate coverage is
+  `smoke-cloudflare-workers`.
+- Deploy: clone the pinned ref; upload `worker.js` / `worker.mjs` under
+  `[services.X.cloudflare].root` when present, otherwise embed
+  `index.html` in a generated module Worker. Scripts API upload →
+  health-gate on `*.workers.dev`.
+- Stripe provisions; deploy uses `CLOUDFLARE_API_TOKEN` (Stripe env,
+  secrets, or `.cloudflare-api-token`). `observe`/`down` key off Stripe.
+- `stackless logs` fetches recent Workers script/deployment events
+  (`source: "cloudflare_api"`; no streaming).
+
+### 4g. WordPress.com
+
+- Catalog: `wordpress.com/site` from `[services.X.wordpress]` (optional
+  `plan`, `root`).
+- Stripe provisions; WordPress.com REST publishes static HTML from the
+  pinned ref under `root`, sets the front page when allowed, health-
+  gates on `SITE_URL`. Token: `WORDPRESS_COM_ACCESS_TOKEN` /
+  `WORDPRESS_ACCESS_TOKEN` or `.wordpress-com-token`.
+  `observe`/`down` key off Stripe. Domain purchase
+  (`wordpress.com/domain`) is excluded.
+- `stackless logs` fetches a recent site activity window
+  (`source: "wordpress_api"`; no streaming).
+
+### 4h. Laravel Cloud
+
+- Catalog: `laravel_cloud/application` from
+  `[services.X.laravel-cloud]` (`repository`, region, …).
+- Stripe provisions `app_id`; Laravel Cloud JSON:API resolves the
+  environment, POST `/environments/{id}/deployments`, polls to
+  `deployment.succeeded`, health-gates on the app origin. Token:
+  `LARAVEL_CLOUD_API_TOKEN` or `.laravel-cloud-token`.
+  `observe`/`down` key off Stripe registration.
+- `stackless logs` fetches recent deployment log lines
+  (`source: "laravel_cloud_api"`; no streaming).
+
+### 4i. GitLab
+
+- Catalog: `gitlab/project` from `[services.X.gitlab]` (optional
+  `visibility`, `root`).
+- Stripe provisions; GitLab REST commits static files under `public/`
+  from `[services.X.gitlab].root`, installs a Pages CI job
+  (`.gitlab-ci.yml`), polls the `pages` job (~15m budget), health-gates
+  on the public Pages URL. Token: `GITLAB_TOKEN` /
+  `GITLAB_ACCESS_TOKEN` or `.gitlab-token`. `observe`/`down` key off
+  Stripe registration.
+- `stackless logs` fetches recent Pages/CI job log lines
+  (`source: "gitlab_api"`; no streaming).
 
 ---
 

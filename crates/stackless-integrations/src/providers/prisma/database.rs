@@ -30,15 +30,23 @@ impl Hostable for PrismaDatabase {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["database_url"];
+    const OUTPUTS: &'static [&'static str] = &[
+        "database_url",
+        "database_url_pooled",
+        "database_id",
+        "region",
+    ];
 }
 
 impl FamilyResource for PrismaDatabase {
     type Config = PrismaDatabaseConfig;
     const PROVIDER_PREFIX: &'static str = "PRISMA";
-    // Provisional until pinned by `mise run discover prisma/database`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("DATABASE_URL", "database_url", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("DATABASE_URL", "database_url", true),
+        ("DATABASE_URL_POOLED", "database_url_pooled", false),
+        ("DATABASE_ID", "database_id", true),
+        ("REGION", "region", false),
+    ];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<PrismaDatabaseConfig, IntegrationError> {
         let config = super::integration_config(ctx)?;
@@ -116,7 +124,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"PRISMA_DATABASE_URL": "val_database_url"}),
+            serde_json::json!({"PRISMA_DATABASE_URL": "val_database_url", "PRISMA_DATABASE_URL_POOLED": "val_database_url_pooled", "PRISMA_DATABASE_ID": "val_database_id", "PRISMA_REGION": "val_region"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();

@@ -44,15 +44,31 @@ impl Hostable for ClickHouseClickhouse {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["connection_string"];
+    const OUTPUTS: &'static [&'static str] = &[
+        "host",
+        "username",
+        "password",
+        "https_port",
+        "native_secure_port",
+        "tls",
+        "cloud_api_key",
+        "cloud_api_secret",
+    ];
 }
 
 impl FamilyResource for ClickHouseClickhouse {
     type Config = ClickHouseClickhouseConfig;
     const PROVIDER_PREFIX: &'static str = "CLICKHOUSE";
-    // Provisional until pinned by `mise run discover clickhouse/clickhouse`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("CONNECTION_STRING", "connection_string", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("HOST", "host", true),
+        ("USERNAME", "username", true),
+        ("PASSWORD", "password", true),
+        ("HTTPS_PORT", "https_port", false),
+        ("NATIVE_SECURE_PORT", "native_secure_port", false),
+        ("TLS", "tls", false),
+        ("CLOUD_API_KEY", "cloud_api_key", true),
+        ("CLOUD_API_SECRET", "cloud_api_secret", true),
+    ];
 
     fn build_config(
         ctx: &ProvisionContext<'_>,
@@ -158,7 +174,7 @@ name = "test-name"
 region = "aws-us-west-2"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.connection_string}" }
+env = { OUT = "${integrations.res.host}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -171,7 +187,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"CLICKHOUSE_CONNECTION_STRING": "val_connection_string"}),
+            serde_json::json!({"CLICKHOUSE_HOST": "val_host", "CLICKHOUSE_USERNAME": "val_username", "CLICKHOUSE_PASSWORD": "val_password", "CLICKHOUSE_HTTPS_PORT": "val_https_port", "CLICKHOUSE_NATIVE_SECURE_PORT": "val_native_secure_port", "CLICKHOUSE_TLS": "val_tls", "CLICKHOUSE_CLOUD_API_KEY": "val_cloud_api_key", "CLICKHOUSE_CLOUD_API_SECRET": "val_cloud_api_secret"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -196,9 +212,6 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-clickhouse");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(
-            payload.outputs["connection_string"],
-            "val_connection_string"
-        );
+        assert_eq!(payload.outputs["host"], "val_host");
     }
 }

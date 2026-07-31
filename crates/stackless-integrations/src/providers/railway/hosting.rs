@@ -12,6 +12,17 @@ use crate::hostable::{ConfigScope, Hostable, IntegrationHosting};
 
 pub const RESOURCE_KIND: &str = "integration-railway-hosting";
 
+/// Live-pinned by `stripe projects add railway/hosting` (2026-07-31); shared
+/// with the `--on railway` substrate.
+pub const OUTPUT_FIELDS: &[(&str, &str, bool)] = &[
+    ("URL", "url", true),
+    ("DOMAIN", "domain", false),
+    ("DASHBOARD_URL", "dashboard_url", false),
+    ("TYPE", "type", false),
+];
+
+pub const OUTPUTS: &[&str] = &["url", "domain", "dashboard_url", "type"];
+
 #[derive(Debug, Serialize)]
 pub struct RailwayHostingConfig {}
 
@@ -27,15 +38,13 @@ impl Hostable for RailwayHosting {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["project_id"];
+    const OUTPUTS: &'static [&'static str] = OUTPUTS;
 }
 
 impl FamilyResource for RailwayHosting {
     type Config = RailwayHostingConfig;
     const PROVIDER_PREFIX: &'static str = "RAILWAY";
-    // Provisional until pinned by `mise run discover railway/hosting`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("PROJECT_ID", "project_id", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = OUTPUT_FIELDS;
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<RailwayHostingConfig, IntegrationError> {
         let _ = super::integration_config(ctx)?;
@@ -89,7 +98,7 @@ project = "project_1"
 provider = "railway-hosting"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.project_id}" }
+env = { OUT = "${integrations.res.url}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -102,7 +111,12 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"RAILWAY_PROJECT_ID": "val_project_id"}),
+            serde_json::json!({
+                "RAILWAY_URL": "https://example.up.railway.app",
+                "RAILWAY_DOMAIN": "example.up.railway.app",
+                "RAILWAY_DASHBOARD_URL": "https://railway.app/project/1",
+                "RAILWAY_TYPE": "service"
+            }),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -127,6 +141,6 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-railway-hosting");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["project_id"], "val_project_id");
+        assert_eq!(payload.outputs["url"], "https://example.up.railway.app");
     }
 }

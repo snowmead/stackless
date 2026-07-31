@@ -32,15 +32,17 @@ impl Hostable for FlyioMpg {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["database_url"];
+    const OUTPUTS: &'static [&'static str] = &["connection_url", "cluster_id", "org_token"];
 }
 
 impl FamilyResource for FlyioMpg {
     type Config = FlyioMpgConfig;
     const PROVIDER_PREFIX: &'static str = "FLYIO";
-    // Provisional until pinned by `mise run discover flyio/mpg`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("DATABASE_URL", "database_url", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("CONNECTION_URL", "connection_url", true),
+        ("CLUSTER_ID", "cluster_id", true),
+        ("ORG_TOKEN", "org_token", false),
+    ];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<FlyioMpgConfig, IntegrationError> {
         let config = super::integration_config(ctx)?;
@@ -119,7 +121,7 @@ plan = "basic"
 region = "ams"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.database_url}" }
+env = { OUT = "${integrations.res.connection_url}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -132,7 +134,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"FLYIO_DATABASE_URL": "val_database_url"}),
+            serde_json::json!({"FLYIO_CONNECTION_URL": "val_connection_url", "FLYIO_CLUSTER_ID": "val_cluster_id", "FLYIO_ORG_TOKEN": "val_org_token"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -157,6 +159,6 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-flyio-mpg");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["database_url"], "val_database_url");
+        assert_eq!(payload.outputs["connection_url"], "val_connection_url");
     }
 }

@@ -1,33 +1,35 @@
 //! stackless-railway (ARCHITECTURE.md §4): the Railway cloud substrate.
 //!
-//! Mirrors the Netlify/Fly cloud flow at the Stripe layer: Stripe Projects
-//! provisions `railway/hosting` and tracks spend; observe/destroy key off the
-//! **Stripe resource registration**, not the Railway API. One long-lived Stripe
-//! project per stack holds each instance as a named environment.
+//! Mirrors the Netlify/Fly cloud flow: Stripe Projects provisions
+//! `railway/hosting` and tracks spend; the Railway GraphQL API fills its gaps —
+//! project/service creation, deploy, public domain, health wait, and logs. One
+//! long-lived Stripe project per stack holds each instance as a named environment.
 //!
-//! ## Credential model (pinned by `mise run discover railway/hosting`)
+//! ## Credential model
 //!
-//! Provisioning `railway/hosting` returns a Stripe-managed project id
-//! (`RAILWAY_PROJECT_ID`). The substrate records it in the start checkpoint but
-//! does not call Railway's GraphQL/REST APIs in this phase.
+//! Provisioning `railway/hosting` records spend/URL outputs in Stripe. Deploy-time
+//! API calls use a Railway account token: prefer Stripe instance env
+//! (`RAILWAY_TOKEN` / `RAILWAY_API_TOKEN`, including resource-prefixed forms),
+//! else `RAILWAY_TOKEN` / `.railway-token` via the shared credential helper.
+//! `observe`/`destroy` key off the **Stripe resource registration**, not the
+//! Railway API.
 //!
-//! ## Phase 1 scope and REST gaps
+//! ## Deploy paths and cloud invariants
 //!
-//! - **Stripe provision only.** `start` provisions `railway/hosting` via Stripe
-//!   Projects and records a best-effort origin
-//!   `https://{stack}-{instance}-{service}.up.railway.app`. There is no deploy of
-//!   source, no service creation, and no health polling against a live URL yet.
-//! - **Health gate is a no-op** until Railway REST deploy lands (documented here
-//!   so operators know smoke health checks will not pass on cloud).
-//! - **Logs are unavailable** (`fetch_logs` returns `None`).
+//! - **Image** (`[services.X.railway].image`): explicit fast path — deploy a
+//!   prebuilt container via GraphQL `source: { image }`. Optional `cmd` sets the
+//!   service start command (container args joined for http-echo-style images).
+//! - **GitHub** (no `image`): link `source.repo` (GitHub HTTPS) and deploy the
+//!   pinned `ref`.
 //! - **Cloud resource names** are `{stack}-{instance}-{service}` — DNS-safe.
 //! - **Setup is skipped on cloud**; **prepare** runs on the operator's machine.
-//! - **Source override is unsupported** — Railway deploys committed refs (when
-//!   REST deploy is implemented).
+//! - **Source override is unsupported** — Railway deploys committed refs.
 
+pub mod api_key;
 pub mod codes;
 pub mod config;
 pub mod error;
+pub mod railway_api;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -39,12 +41,13 @@ use stackless_core::def::{Namespace, StackDef};
 use stackless_core::engine::StepKind;
 use stackless_core::state::Checkpoint;
 use stackless_core::substrate::{
-    NamespacePurpose, Observation, StepContext, StepResource, Substrate, SubstrateFault,
+    NamespacePurpose, Observation, ServiceLog, StepContext, StepResource, Substrate, SubstrateFault,
 };
 use tokio::sync::Mutex;
 
-use crate::config::RailwayHostingConfig;
+use crate::config::{RailwayDeployMode, RailwayHostingConfig, ServiceRailway, parse_github_repo};
 use crate::error::RailwayError;
+use crate::railway_api::{HEALTH_BUDGET, RAILWAY_DEPLOY_BUDGET, RailwayApi, ServiceSource};
 use stackless_stripe_projects::ProjectsError;
 use stackless_stripe_projects::provision::{ProvisionContext, provision_outputs};
 use stackless_stripe_projects::stripe::{CommandRunner, StripeProjects, TokioRunner};
@@ -71,8 +74,6 @@ fn integration_fault(err: stackless_integrations::IntegrationError) -> Substrate
     SubstrateFault::from_fault(&err)
 }
 
-/// Map the shared prepare helper's neutral failure to Railway's fault so its
-/// `railway.*` code and remediation hold (§2).
 fn prepare_fault(f: stackless_cloud::prepare::PrepareFailure) -> SubstrateFault {
     fault(RailwayError::PrepareFailed {
         service: f.service,
@@ -82,14 +83,22 @@ fn prepare_fault(f: stackless_cloud::prepare::PrepareFailure) -> SubstrateFault 
     })
 }
 
-/// What a `start:<service>` checkpoint records. Observe/destroy use Stripe, not
-/// the Railway API.
+/// What a `start:<service>` checkpoint records. The API token is intentionally
+/// NOT stored — observe/destroy use Stripe.
 #[derive(Debug, Serialize, Deserialize)]
 struct RailwayPayload {
     stripe_resource: String,
-    project_id: String,
+    url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    domain: Option<String>,
     service_name: String,
     origin: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    project_id: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    railway_service_id: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    deployment_id: String,
 }
 
 /// What a `materialize:<service>` checkpoint records: the pinned source. Owns
@@ -108,6 +117,8 @@ pub struct RailwaySubstrate<R: CommandRunner = TokioRunner> {
     pub secrets: BTreeMap<String, String>,
     pub confirm_paid: bool,
     runner: R,
+    api_base: Option<String>,
+    poll_interval: Option<Duration>,
     ensured: Mutex<bool>,
 }
 
@@ -131,6 +142,8 @@ impl RailwaySubstrate<TokioRunner> {
             secrets,
             confirm_paid,
             runner: TokioRunner,
+            api_base: None,
+            poll_interval: None,
             ensured: Mutex::new(false),
         }
     }
@@ -138,12 +151,19 @@ impl RailwaySubstrate<TokioRunner> {
 
 impl<R: CommandRunner> RailwaySubstrate<R> {
     #[cfg(test)]
-    fn for_test(runner: R, definition_dir: impl Into<PathBuf>, confirm_paid: bool) -> Self {
+    fn for_test(
+        runner: R,
+        definition_dir: impl Into<PathBuf>,
+        api_base: Option<String>,
+        confirm_paid: bool,
+    ) -> Self {
         Self {
             definition_dir: definition_dir.into(),
             secrets: BTreeMap::new(),
             confirm_paid,
             runner,
+            api_base,
+            poll_interval: Some(Duration::from_millis(1)),
             ensured: Mutex::new(false),
         }
     }
@@ -152,13 +172,21 @@ impl<R: CommandRunner> RailwaySubstrate<R> {
         StripeProjects::new(&self.runner, self.definition_dir.clone())
     }
 
-    /// `{stack}-{instance}-{service}` (DNS-safe).
+    fn railway_with_token(&self, token: &str) -> RailwayApi {
+        let api = match &self.api_base {
+            Some(base) => RailwayApi::with_base(token, base.clone()),
+            None => RailwayApi::new(token),
+        };
+        match self.poll_interval {
+            Some(interval) => api.with_poll_interval(interval),
+            None => api,
+        }
+    }
+
     fn resource_name(def: &StackDef, instance: &str, node: &str) -> String {
         format!("{}-{instance}-{node}", def.stack.name.as_str())
     }
 
-    /// `https://{stack}-{instance}-{service}.up.railway.app` — best-effort until
-    /// Railway REST deploy records the real URL.
     fn origin(def: &StackDef, instance: &str, service: &str) -> String {
         format!(
             "https://{}.up.railway.app",
@@ -180,6 +208,46 @@ impl<R: CommandRunner> RailwaySubstrate<R> {
         namespace.secrets = self.secrets.clone();
         namespace.add_integration_checkpoints(prior);
         namespace
+    }
+
+    fn resolved_env(
+        &self,
+        def: &StackDef,
+        instance: &str,
+        service: &str,
+        prior: &[Checkpoint],
+    ) -> Result<BTreeMap<String, String>, SubstrateFault> {
+        let namespace = self.namespace(def, instance, prior);
+        let spec = def.services.get(service).ok_or_else(|| {
+            fault(RailwayError::ConfigInvalid {
+                location: format!("services.{service}"),
+                detail: "service not in definition".into(),
+            })
+        })?;
+        let raw = spec.effective_env(service, SUBSTRATE_NAME).map_err(|err| {
+            fault(RailwayError::ConfigInvalid {
+                location: format!("services.{service}.railway.env"),
+                detail: err.to_string(),
+            })
+        })?;
+        let mut resolved = BTreeMap::new();
+        for (key, value) in &raw {
+            let location = format!("services.{service}.env.{key}");
+            let value = stackless_core::def::interp::resolve(value, &namespace, &location)
+                .map_err(|err| {
+                    fault(RailwayError::ConfigInvalid {
+                        location,
+                        detail: err.to_string(),
+                    })
+                })?;
+            resolved.insert(key.clone(), value);
+        }
+        for key in &spec.secrets {
+            if let Some(value) = self.secrets.get(key) {
+                resolved.insert(key.clone(), value.clone());
+            }
+        }
+        Ok(resolved)
     }
 
     async fn ensure_project_and_env(
@@ -214,15 +282,71 @@ impl<R: CommandRunner> RailwaySubstrate<R> {
         Ok(())
     }
 
+    async fn railway_token(
+        &self,
+        instance: &str,
+        stripe_resource: &str,
+    ) -> Result<String, SubstrateFault> {
+        let resource_prefix = stripe_resource.to_ascii_uppercase().replace('-', "_");
+        let resource_token = format!("{resource_prefix}_RAILWAY_TOKEN");
+        let resource_api = format!("{resource_prefix}_RAILWAY_API_TOKEN");
+        let keys = [
+            resource_token.as_str(),
+            resource_api.as_str(),
+            "RAILWAY_TOKEN",
+            "RAILWAY_API_TOKEN",
+        ];
+        let pulled = project::pull_env_values(&self.stripe(), instance, &keys)
+            .await
+            .map_err(projects_fault)?;
+        if let Some(token) = pulled
+            .into_iter()
+            .flatten()
+            .find(|value| !value.trim().is_empty())
+        {
+            return Ok(token);
+        }
+        api_key::resolve(&self.definition_dir, &self.secrets).map_err(fault)
+    }
+
+    fn service_source(
+        railway_cfg: &ServiceRailway,
+        spec: &stackless_core::def::Service,
+    ) -> Result<ServiceSource, RailwayError> {
+        match &railway_cfg.mode {
+            RailwayDeployMode::Image { image, cmd } => {
+                let start_command = cmd.as_ref().map(|parts| parts.join(" "));
+                Ok(ServiceSource::Image {
+                    image: image.clone(),
+                    start_command,
+                })
+            }
+            RailwayDeployMode::GitHub => {
+                let (org, repo) = parse_github_repo(&spec.source.repo)?;
+                Ok(ServiceSource::GitHubRepo {
+                    repo: format!("{org}/{repo}"),
+                    branch: spec.source.reference.clone(),
+                })
+            }
+        }
+    }
+
     async fn start_service(
         &self,
         def: &StackDef,
         instance: &str,
         service: &str,
+        prior: &[Checkpoint],
     ) -> Result<StepResource, SubstrateFault> {
-        let _railway_cfg = config::service_railway(def, service).map_err(fault)?;
+        let railway_cfg = config::service_railway(def, service).map_err(fault)?;
         let service_name = Self::resource_name(def, instance, service);
         let resource = format!("{instance}-{service}");
+        let spec = def.services.get(service).ok_or_else(|| {
+            fault(RailwayError::ConfigInvalid {
+                location: format!("services.{service}"),
+                detail: "service not in definition".into(),
+            })
+        })?;
 
         let catalog = self
             .stripe()
@@ -247,23 +371,52 @@ impl<R: CommandRunner> RailwaySubstrate<R> {
             &ctx,
             &cfg,
             PROVIDER_PREFIX,
-            // Pinned by `mise run discover railway/hosting`.
-            &[("PROJECT_ID", "project_id", true)],
+            stackless_integrations::providers::railway::hosting::OUTPUT_FIELDS,
         )
         .await
         .map_err(projects_fault)?;
-        let project_id = outputs.get("project_id").ok_or_else(|| {
-            fault(RailwayError::ProvisionFailed {
-                resource: resource.clone(),
-                detail: "railway/hosting did not return a project id".into(),
-            })
-        })?;
+        let stripe_url = outputs.get("url").cloned().unwrap_or_default();
+        let stripe_domain = outputs.get("domain").cloned();
+
+        let token = self.railway_token(instance, &resource).await?;
+        let railway = self.railway_with_token(&token);
+        let variables = self.resolved_env(def, instance, service, prior)?;
+        let source = Self::service_source(&railway_cfg, spec).map_err(fault)?;
+        let deploy = railway
+            .deploy_service(
+                &service_name,
+                &service_name,
+                source,
+                variables,
+                service,
+                RAILWAY_DEPLOY_BUDGET,
+            )
+            .await
+            .map_err(fault)?;
+
+        let origin = [deploy.origin, stripe_url.clone()]
+            .into_iter()
+            .find(|u| !u.trim().is_empty())
+            .unwrap_or_else(|| Self::origin(def, instance, service));
+        let domain = if deploy.domain.is_empty() {
+            stripe_domain
+        } else {
+            Some(deploy.domain)
+        };
 
         let payload = RailwayPayload {
             stripe_resource: resource,
-            project_id: project_id.clone(),
+            url: if stripe_url.is_empty() {
+                origin.clone()
+            } else {
+                stripe_url
+            },
+            domain,
             service_name: service_name.clone(),
-            origin: Self::origin(def, instance, service),
+            origin,
+            project_id: deploy.project_id,
+            railway_service_id: deploy.service_id,
+            deployment_id: deploy.deployment_id,
         };
         Ok(StepResource {
             resource_kind: "railway-service".into(),
@@ -292,6 +445,46 @@ impl<R: CommandRunner> RailwaySubstrate<R> {
         )
         .await
         .map_err(prepare_fault)
+    }
+
+    async fn health_gate(
+        &self,
+        def: &StackDef,
+        instance: &str,
+        service: &str,
+        prior: &[Checkpoint],
+    ) -> Result<(), SubstrateFault> {
+        let spec = def.services.get(service).ok_or_else(|| {
+            fault(RailwayError::ConfigInvalid {
+                location: format!("services.{service}"),
+                detail: "service not in definition".into(),
+            })
+        })?;
+        let origin = prior
+            .iter()
+            .find(|c| {
+                c.resource_kind == "railway-service" && c.step_id == format!("start:{service}")
+            })
+            .and_then(|c| serde_json::from_str::<RailwayPayload>(&c.payload).ok())
+            .map(|p| p.origin)
+            .filter(|o| !o.trim().is_empty())
+            .unwrap_or_else(|| Self::origin(def, instance, service));
+        let url = format!("{origin}{}", spec.health.path);
+        stackless_cloud::health::poll(
+            &url,
+            spec.health.status.get(),
+            spec.health.contains.as_deref(),
+            HEALTH_BUDGET,
+        )
+        .await
+        .map_err(|f| {
+            fault(RailwayError::HealthFailed {
+                service: service.to_owned(),
+                url: f.url,
+                detail: f.detail,
+                budget_secs: f.budget_secs,
+            })
+        })
     }
 }
 
@@ -382,9 +575,15 @@ impl<R: CommandRunner> Substrate for RailwaySubstrate<R> {
                     .await?;
                 Ok(stackless_core::substrate::action_resource(&ctx.step.id))
             }
-            StepKind::Start => self.start_service(ctx.def, ctx.instance, node).await,
-            // REST deploy + health polling deferred — see module docs.
-            StepKind::HealthGate => Ok(stackless_core::substrate::action_resource(&ctx.step.id)),
+            StepKind::Start => {
+                self.start_service(ctx.def, ctx.instance, node, ctx.prior)
+                    .await
+            }
+            StepKind::HealthGate => {
+                self.health_gate(ctx.def, ctx.instance, node, ctx.prior)
+                    .await?;
+                Ok(stackless_core::substrate::action_resource(&ctx.step.id))
+            }
         }
     }
 
@@ -491,6 +690,70 @@ impl<R: CommandRunner> Substrate for RailwaySubstrate<R> {
             .await,
         )
     }
+
+    async fn fetch_logs(
+        &self,
+        _def: &StackDef,
+        instance: &str,
+        services: &[String],
+        tail: usize,
+    ) -> Result<Option<Vec<ServiceLog>>, SubstrateFault> {
+        let mut out = Vec::with_capacity(services.len());
+        for service in services {
+            let lines = self.fetch_service_logs(instance, service, tail).await?;
+            out.push(ServiceLog {
+                service: service.clone(),
+                source: "railway_api",
+                log_path: None,
+                lines,
+            });
+        }
+        Ok(Some(out))
+    }
+}
+
+fn start_service_payload(instance: &str, service: &str) -> Option<RailwayPayload> {
+    let store = stackless_core::state::Store::open_configured().ok()?;
+    let checkpoints = store.checkpoints(instance).ok()?;
+    checkpoints.into_iter().find_map(|checkpoint| {
+        if checkpoint.step_id == format!("start:{service}")
+            && checkpoint.resource_kind == "railway-service"
+        {
+            serde_json::from_str::<RailwayPayload>(&checkpoint.payload).ok()
+        } else {
+            None
+        }
+    })
+}
+
+impl<R: CommandRunner> RailwaySubstrate<R> {
+    async fn fetch_service_logs(
+        &self,
+        instance: &str,
+        service: &str,
+        tail: usize,
+    ) -> Result<Vec<String>, SubstrateFault> {
+        let Some(payload) = start_service_payload(instance, service) else {
+            return Ok(vec![format!(
+                "(no start checkpoint for service {service}; run `stackless up` first)"
+            )]);
+        };
+        let token = self
+            .railway_token(instance, &payload.stripe_resource)
+            .await?;
+        let railway = self.railway_with_token(&token);
+        let deployment_id = if payload.deployment_id.trim().is_empty() {
+            return Ok(vec![format!(
+                "(service {service} has no deployment_id in checkpoint; re-run `stackless up`)"
+            )]);
+        } else {
+            payload.deployment_id
+        };
+        railway
+            .deployment_log_lines(&deployment_id, tail)
+            .await
+            .map_err(fault)
+    }
 }
 
 #[cfg(test)]
@@ -534,11 +797,11 @@ mod tests {
 
     fn subj() -> (tempfile::TempDir, RailwaySubstrate<NoRunner>) {
         let dir = tempfile::tempdir().unwrap();
-        let s = RailwaySubstrate::for_test(NoRunner, dir.path(), false);
+        let s = RailwaySubstrate::for_test(NoRunner, dir.path(), None, false);
         (dir, s)
     }
 
-    const PAYLOAD: &str = r#"{"stripe_resource":"demo-web","project_id":"proj_1","service_name":"atto-demo-web","origin":"https://atto-demo-web.up.railway.app"}"#;
+    const PAYLOAD: &str = r#"{"stripe_resource":"demo-web","url":"https://atto-demo-web.up.railway.app","domain":"atto-demo-web.up.railway.app","service_name":"atto-demo-web","origin":"https://atto-demo-web.up.railway.app","project_id":"proj_1","railway_service_id":"svc_1","deployment_id":"dep_1"}"#;
 
     #[test]
     fn resource_name_and_origin_are_dns_safe() {
@@ -566,7 +829,7 @@ mod tests {
     async fn service_present_when_stripe_registers_it() {
         let runner = test_support::ScriptedRunner::new(vec![test_support::services(&["demo-web"])]);
         let dir = tempfile::tempdir().unwrap();
-        let s = RailwaySubstrate::for_test(&runner, dir.path(), false);
+        let s = RailwaySubstrate::for_test(&runner, dir.path(), None, false);
         let cp = checkpoint("railway-service", "start:web", PAYLOAD);
         assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Present);
     }
@@ -575,7 +838,7 @@ mod tests {
     async fn service_gone_when_stripe_does_not_register_it() {
         let runner = test_support::ScriptedRunner::new(vec![test_support::services(&[])]);
         let dir = tempfile::tempdir().unwrap();
-        let s = RailwaySubstrate::for_test(&runner, dir.path(), false);
+        let s = RailwaySubstrate::for_test(&runner, dir.path(), None, false);
         let cp = checkpoint("railway-service", "start:web", PAYLOAD);
         assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Gone);
     }
@@ -607,7 +870,7 @@ mod tests {
             test_support::ok_empty(),
         ]);
         let dir = tempfile::tempdir().unwrap();
-        let s = RailwaySubstrate::for_test(&runner, dir.path(), false);
+        let s = RailwaySubstrate::for_test(&runner, dir.path(), None, false);
         let cp = checkpoint("railway-service", "start:web", PAYLOAD);
         s.destroy("demo", &cp).await.unwrap();
         let calls = runner.calls();

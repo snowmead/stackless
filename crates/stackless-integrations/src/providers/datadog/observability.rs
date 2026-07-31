@@ -27,15 +27,17 @@ impl Hostable for DatadogObservability {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["api_key"];
+    const OUTPUTS: &'static [&'static str] = &["api_key", "dd_site", "org_name"];
 }
 
 impl FamilyResource for DatadogObservability {
     type Config = DatadogObservabilityConfig;
     const PROVIDER_PREFIX: &'static str = "DATADOG";
-    // Provisional until pinned by `mise run discover datadog/observability`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("API_KEY", "api_key", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("API_KEY", "api_key", true),
+        ("DD_SITE", "dd_site", true),
+        ("ORG_NAME", "org_name", true),
+    ];
 
     fn build_config(
         ctx: &ProvisionContext<'_>,
@@ -104,7 +106,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"DATADOG_API_KEY": "val_api_key"}),
+            serde_json::json!({"DATADOG_API_KEY": "val_api_key", "DATADOG_DD_SITE": "val_dd_site", "DATADOG_ORG_NAME": "val_org_name"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();

@@ -1,0 +1,11 @@
+# Catalog refs still marked Provisional until / Best-guess under
+# crates/stackless-integrations/src/providers/. Shrink as envelopes are
+# pinned via `mise run discover-apply`. Release requires this file empty
+# (comments-only / blank lines ok).
+algolia/application
+blaxel/agent-drive
+chroma/database
+daytona/sandbox
+heygen/api
+privy/app
+twilio/email

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Generate Phase-1 CatalogResource modules for every unimplemented deployable."""
+"""Generate CatalogResource modules, or check catalog ownership (`--check-orphans`)."""
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
+import sys
 from collections import defaultdict
 from pathlib import Path
 
@@ -14,12 +16,46 @@ CATALOG = json.loads(
     (ROOT / "crates/stackless-stripe-projects/tests/fixtures/catalog.json").read_text()
 )
 
-EXCL = {
-    "cloudflare/containers",
-    "cloudflare/registrar:domain",
-    "squarespace/domain",
-    "wordpress.com/domain",
+# Deployables we will never list or scaffold. Reasons are the product contract —
+# `mise run catalog-orphans` fails if a catalog deployable is not registered,
+# substrate-only hosting, or present here.
+EXCL: dict[str, str] = {
+    "cloudflare/containers": (
+        "PRICE_CONFIRMATION_REQUIRED — unknown cost; not auto-provisioned"
+    ),
+    "cloudflare/registrar:domain": (
+        "Non-refundable domain purchase; never in the leased lifecycle"
+    ),
+    "squarespace/domain": (
+        "Non-refundable domain purchase; never in the leased lifecycle"
+    ),
+    "wordpress.com/domain": (
+        "Non-refundable domain purchase; never in the leased lifecycle"
+    ),
+    "spaceship/domain": (
+        "Non-refundable domain purchase; never in the leased lifecycle"
+    ),
+    "createos/project": (
+        "Catalog orphan — no stackless surface; do not register or scaffold"
+    ),
 }
+
+# Hosting refs owned by substrate crates (not CatalogResource integrations).
+# Dual-registered refs (railway/hosting, cloudflare/workers, …) are covered by
+# scanning integration REFERENCE consts instead.
+SUBSTRATE_ONLY_HOSTING: frozenset[str] = frozenset(
+    {
+        "flyio/app",
+        "netlify/project",
+        "render/static-site",
+        "render/web-service",
+        "vercel/project",
+    }
+)
+
+REFERENCE_RE = re.compile(
+    r"const\s+REFERENCE:\s*&'static\s+str\s*=\s*\"([^\"]+)\""
+)
 
 SHORT_PROVIDER = {
     "auth0/client": "auth0",
@@ -127,7 +163,13 @@ OUTPUT_HINTS = {
     "clickhouse/clickhouse": [("CONNECTION_STRING", "connection_string", True)],
     "clickhouse/postgres": [("CONNECTION_STRING", "connection_string", True)],
     "chroma/database": [("API_KEY", "api_key", True)],
-    "sentry/project": [("DSN", "dsn", True)],
+    "sentry/project": [
+        ("AUTH_TOKEN", "auth_token", True),
+        ("DSN", "dsn", True),
+        ("ORG", "org", True),
+        ("PROJECT", "project", True),
+        ("URL", "url", True),
+    ],
     "sentry/seer": [("AUTH_TOKEN", "auth_token", True)],
     "posthog/analytics": [("API_KEY", "api_key", True)],
     "amplitude/analytics": [("API_KEY", "api_key", True)],
@@ -230,6 +272,56 @@ def family_dir(provider_name: str) -> str:
 
 def ref_of(s: dict) -> str:
     return s.get("reference") or f"{s['provider_name'].lower()}/{s['service_id']}"
+
+
+def catalog_deployables() -> list[str]:
+    refs = []
+    for s in CATALOG["data"]["services"]:
+        if s.get("kind") != "deployable":
+            continue
+        refs.append(ref_of(s))
+    return sorted(refs)
+
+
+def integration_references() -> set[str]:
+    found: set[str] = set()
+    for path in PROVIDERS.rglob("*.rs"):
+        found.update(REFERENCE_RE.findall(path.read_text()))
+    return found
+
+
+def check_orphans() -> int:
+    """Fail if any catalog deployable is unowned (not registered / substrate / EXCL)."""
+    registered = integration_references()
+    owned = registered | set(EXCL) | set(SUBSTRATE_ONLY_HOSTING)
+    deployables = catalog_deployables()
+    orphans = [ref for ref in deployables if ref not in owned]
+    conflicts = sorted(ref for ref in EXCL if ref in registered)
+    if orphans or conflicts:
+        if orphans:
+            print(
+                "unowned catalog deployables — register an integration, "
+                "add a substrate-only hosting ref, or add to EXCL:",
+                file=sys.stderr,
+            )
+            for ref in orphans:
+                print(f"  {ref}", file=sys.stderr)
+        if conflicts:
+            print(
+                "EXCL entries that are also registered integrations "
+                "(remove from EXCL or the registry):",
+                file=sys.stderr,
+            )
+            for ref in conflicts:
+                print(f"  {ref}", file=sys.stderr)
+        return 1
+    print(
+        f"ok: {len(deployables)} deployables owned "
+        f"({len(registered)} registered, "
+        f"{len(SUBSTRATE_ONLY_HOSTING)} substrate-only, "
+        f"{len(EXCL)} excl)"
+    )
+    return 0
 
 
 def outputs_for(ref: str):
@@ -706,4 +798,16 @@ run = "true"
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--check-orphans",
+        action="store_true",
+        help=(
+            "verify every catalog deployable is a registered integration, "
+            "substrate-only hosting ref, or EXCL entry"
+        ),
+    )
+    args = parser.parse_args()
+    if args.check_orphans:
+        raise SystemExit(check_orphans())
     main()

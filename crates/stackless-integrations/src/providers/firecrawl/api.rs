@@ -27,15 +27,17 @@ impl Hostable for FirecrawlApi {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["api_key"];
+    const OUTPUTS: &'static [&'static str] = &["api_base_url", "api_key", "documentation_url"];
 }
 
 impl FamilyResource for FirecrawlApi {
     type Config = FirecrawlApiConfig;
     const PROVIDER_PREFIX: &'static str = "FIRECRAWL";
-    // Provisional until pinned by `mise run discover firecrawl/api`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("API_KEY", "api_key", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("API_BASE_URL", "api_base_url", true),
+        ("API_KEY", "api_key", true),
+        ("DOCUMENTATION_URL", "documentation_url", true),
+    ];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<FirecrawlApiConfig, IntegrationError> {
         let _ = super::integration_config(ctx)?;
@@ -101,7 +103,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"FIRECRAWL_API_KEY": "val_api_key"}),
+            serde_json::json!({"FIRECRAWL_API_BASE_URL": "val_api_base_url", "FIRECRAWL_API_KEY": "val_api_key", "FIRECRAWL_DOCUMENTATION_URL": "val_documentation_url"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -126,6 +128,11 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-firecrawl");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
+        assert_eq!(payload.outputs["api_base_url"], "val_api_base_url");
         assert_eq!(payload.outputs["api_key"], "val_api_key");
+        assert_eq!(
+            payload.outputs["documentation_url"],
+            "val_documentation_url"
+        );
     }
 }

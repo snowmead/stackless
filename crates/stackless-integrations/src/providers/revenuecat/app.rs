@@ -27,15 +27,17 @@ impl Hostable for RevenuecatApp {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["api_key"];
+    const OUTPUTS: &'static [&'static str] = &["app_uuid", "dashboard_url", "secret_api_key"];
 }
 
 impl FamilyResource for RevenuecatApp {
     type Config = RevenuecatAppConfig;
     const PROVIDER_PREFIX: &'static str = "REVENUECAT";
-    // Provisional until pinned by `mise run discover revenuecat/app`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("API_KEY", "api_key", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("APP_UUID", "app_uuid", true),
+        ("DASHBOARD_URL", "dashboard_url", true),
+        ("SECRET_API_KEY", "secret_api_key", true),
+    ];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<RevenuecatAppConfig, IntegrationError> {
         let _ = super::integration_config(ctx)?;
@@ -88,7 +90,7 @@ project = "project_1"
 provider = "revenuecat"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.api_key}" }
+env = { OUT = "${integrations.res.secret_api_key}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -101,7 +103,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"REVENUECAT_API_KEY": "val_api_key"}),
+            serde_json::json!({"REVENUECAT_APP_UUID": "val_app_uuid", "REVENUECAT_DASHBOARD_URL": "val_dashboard_url", "REVENUECAT_SECRET_API_KEY": "val_secret_api_key"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -126,6 +128,6 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-revenuecat");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["api_key"], "val_api_key");
+        assert_eq!(payload.outputs["secret_api_key"], "val_secret_api_key");
     }
 }

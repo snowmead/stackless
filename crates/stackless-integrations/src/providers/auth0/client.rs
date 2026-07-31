@@ -30,17 +30,16 @@ impl Hostable for Auth0Client {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["domain", "client_id", "client_secret"];
+    const OUTPUTS: &'static [&'static str] = &["client_id", "client_secret", "domain"];
 }
 
 impl FamilyResource for Auth0Client {
     type Config = Auth0ClientConfig;
     const PROVIDER_PREFIX: &'static str = "AUTH0";
-    // Provisional until pinned by `mise run discover auth0/client`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
-        ("DOMAIN", "domain", true),
         ("CLIENT_ID", "client_id", true),
         ("CLIENT_SECRET", "client_secret", true),
+        ("DOMAIN", "domain", true),
     ];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<Auth0ClientConfig, IntegrationError> {
@@ -119,7 +118,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"AUTH0_DOMAIN": "val_domain", "AUTH0_CLIENT_ID": "val_client_id", "AUTH0_CLIENT_SECRET": "val_client_secret"}),
+            serde_json::json!({"AUTH0_CLIENT_ID": "val_client_id", "AUTH0_CLIENT_SECRET": "val_client_secret", "AUTH0_DOMAIN": "val_domain"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();

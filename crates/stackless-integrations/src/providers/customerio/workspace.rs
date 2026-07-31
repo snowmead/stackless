@@ -27,15 +27,25 @@ impl Hostable for CustomerioWorkspace {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["api_key"];
+    const OUTPUTS: &'static [&'static str] = &[
+        "account_id",
+        "api_key",
+        "sa_token",
+        "site_id",
+        "workspace_id",
+    ];
 }
 
 impl FamilyResource for CustomerioWorkspace {
     type Config = CustomerioWorkspaceConfig;
     const PROVIDER_PREFIX: &'static str = "CUSTOMERIO";
-    // Provisional until pinned by `mise run discover customerio/workspace`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("API_KEY", "api_key", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("ACCOUNT_ID", "account_id", true),
+        ("API_KEY", "api_key", true),
+        ("SA_TOKEN", "sa_token", true),
+        ("SITE_ID", "site_id", true),
+        ("WORKSPACE_ID", "workspace_id", true),
+    ];
 
     fn build_config(
         ctx: &ProvisionContext<'_>,
@@ -104,7 +114,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"CUSTOMERIO_API_KEY": "val_api_key"}),
+            serde_json::json!({"CUSTOMERIO_ACCOUNT_ID": "val_account_id", "CUSTOMERIO_API_KEY": "val_api_key", "CUSTOMERIO_SA_TOKEN": "val_sa_token", "CUSTOMERIO_SITE_ID": "val_site_id", "CUSTOMERIO_WORKSPACE_ID": "val_workspace_id"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();

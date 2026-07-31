@@ -1,27 +1,32 @@
 //! stackless-laravel-cloud (ARCHITECTURE.md §4): the Laravel Cloud substrate.
 //!
-//! Mirrors the Netlify cloud flow at a smaller v0 scope: Stripe Projects
-//! provisions `laravel_cloud/application` and tracks spend; observe/destroy
-//! key off the Stripe resource registration. A real Laravel Cloud deploy API
-//! client is Phase 2 — v0 records a placeholder origin and resumes via Stripe.
+//! Stripe Projects provisions `laravel_cloud/application` and tracks spend; the
+//! Laravel Cloud JSON:API fills its gaps — resolve the environment, trigger a
+//! deploy, poll to `deployment.succeeded`, and the health wait. One long-lived
+//! Stripe project per stack holds each instance as a named environment.
 //!
 //! ## Credential model
 //!
-//! Provisioning `laravel_cloud/application` returns a Stripe-managed `app_id`.
-//! `observe`/`destroy` key off the **Stripe resource registration**, not a
-//! Laravel Cloud API.
+//! Provisioning returns a Stripe-managed `app_id`. Deploy-time API calls use
+//! `LARAVEL_CLOUD_API_TOKEN` from the Stripe instance environment when present,
+//! otherwise the operator token (`LARAVEL_CLOUD_API_TOKEN` env / secrets /
+//! `.laravel-cloud-token`). Observe/destroy key off the **Stripe resource
+//! registration**, not the Laravel Cloud API.
 //!
-//! ## v0 scope and cloud invariants
+//! ## Deploy paths and cloud invariants
 //!
-//! - **Placeholder origin.** Origins are `https://{stack}-{instance}-{service}.laravel.cloud`
-//!   until a deploy client fills in the real URL.
+//! - **Git deploy:** Laravel Cloud builds from the repository configured at
+//!   provision time (`[services.X.laravel-cloud].repository`); `start` triggers
+//!   POST `/environments/{id}/deployments` and polls until success.
 //! - **Cloud resource names** are `{stack}-{instance}-{service}` — DNS-safe.
 //! - **Setup is skipped on cloud**; **prepare** runs on the operator's machine.
 //! - **Source override is unsupported** — Laravel Cloud deploys committed refs.
 
+pub mod api_key;
 pub mod codes;
 pub mod config;
 pub mod error;
+pub mod laravel_api;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -33,12 +38,13 @@ use stackless_core::def::{Namespace, StackDef};
 use stackless_core::engine::StepKind;
 use stackless_core::state::Checkpoint;
 use stackless_core::substrate::{
-    NamespacePurpose, Observation, StepContext, StepResource, Substrate, SubstrateFault,
+    NamespacePurpose, Observation, ServiceLog, StepContext, StepResource, Substrate, SubstrateFault,
 };
 use tokio::sync::Mutex;
 
 use crate::config::{LaravelCloudApplicationConfig, ServiceLaravelCloud};
 use crate::error::LaravelCloudError;
+use crate::laravel_api::{HEALTH_BUDGET, LARAVEL_DEPLOY_BUDGET, LaravelCloudApi};
 use stackless_stripe_projects::ProjectsError;
 use stackless_stripe_projects::provision::{ProvisionContext, provision_outputs};
 use stackless_stripe_projects::stripe::{CommandRunner, StripeProjects, TokioRunner};
@@ -80,6 +86,8 @@ struct LaravelCloudPayload {
     stripe_resource: String,
     app_id: String,
     app_name: String,
+    environment_id: String,
+    deployment_id: String,
     origin: String,
 }
 
@@ -98,6 +106,8 @@ pub struct LaravelCloudSubstrate<R: CommandRunner = TokioRunner> {
     pub secrets: BTreeMap<String, String>,
     pub confirm_paid: bool,
     runner: R,
+    api_base: Option<String>,
+    poll_interval: Option<Duration>,
     ensured: Mutex<bool>,
 }
 
@@ -121,6 +131,8 @@ impl LaravelCloudSubstrate<TokioRunner> {
             secrets,
             confirm_paid,
             runner: TokioRunner,
+            api_base: None,
+            poll_interval: None,
             ensured: Mutex::new(false),
         }
     }
@@ -128,12 +140,19 @@ impl LaravelCloudSubstrate<TokioRunner> {
 
 impl<R: CommandRunner> LaravelCloudSubstrate<R> {
     #[cfg(test)]
-    fn for_test(runner: R, definition_dir: impl Into<PathBuf>, confirm_paid: bool) -> Self {
+    fn for_test(
+        runner: R,
+        definition_dir: impl Into<PathBuf>,
+        api_base: impl Into<String>,
+        confirm_paid: bool,
+    ) -> Self {
         Self {
             definition_dir: definition_dir.into(),
             secrets: BTreeMap::new(),
             confirm_paid,
             runner,
+            api_base: Some(api_base.into()),
+            poll_interval: Some(Duration::from_millis(1)),
             ensured: Mutex::new(false),
         }
     }
@@ -142,12 +161,39 @@ impl<R: CommandRunner> LaravelCloudSubstrate<R> {
         StripeProjects::new(&self.runner, self.definition_dir.clone())
     }
 
+    async fn laravel_api(&self, instance: &str) -> Result<LaravelCloudApi, SubstrateFault> {
+        let token = self.laravel_token(instance).await?;
+        let api = match &self.api_base {
+            Some(base) => LaravelCloudApi::with_base(token, base.clone()),
+            None => LaravelCloudApi::new(token),
+        };
+        Ok(match self.poll_interval {
+            Some(interval) => api.with_poll_interval(interval),
+            None => api,
+        })
+    }
+
+    async fn laravel_token(&self, instance: &str) -> Result<String, SubstrateFault> {
+        let pulled =
+            project::pull_env_values(&self.stripe(), instance, &["LARAVEL_CLOUD_API_TOKEN"])
+                .await
+                .map_err(projects_fault)?;
+        if let Some(token) = pulled
+            .into_iter()
+            .flatten()
+            .find(|value| !value.trim().is_empty())
+        {
+            return Ok(token);
+        }
+        api_key::resolve(&self.definition_dir, &self.secrets).map_err(fault)
+    }
+
     /// `{stack}-{instance}-{service}` (DNS-safe).
     fn resource_name(def: &StackDef, instance: &str, node: &str) -> String {
         format!("{}-{instance}-{node}", def.stack.name.as_str())
     }
 
-    /// Placeholder origin until a deploy client records the real URL.
+    /// Best-effort origin before deploy; health uses the recorded deployment URL.
     fn origin(def: &StackDef, instance: &str, service: &str) -> String {
         format!(
             "https://{}.laravel.cloud",
@@ -162,9 +208,17 @@ impl<R: CommandRunner> LaravelCloudSubstrate<R> {
             ..Namespace::default()
         };
         for service in def.services.keys() {
-            namespace
-                .service_origins
-                .insert(service.clone(), Self::origin(def, instance, service));
+            let origin = prior
+                .iter()
+                .find(|checkpoint| checkpoint.step_id == format!("start:{service}"))
+                .and_then(|checkpoint| {
+                    serde_json::from_str::<LaravelCloudPayload>(&checkpoint.payload)
+                        .ok()
+                        .map(|payload| payload.origin)
+                })
+                .filter(|o| !o.trim().is_empty())
+                .unwrap_or_else(|| Self::origin(def, instance, service));
+            namespace.service_origins.insert(service.clone(), origin);
         }
         namespace.secrets = self.secrets.clone();
         namespace.add_integration_checkpoints(prior);
@@ -238,8 +292,7 @@ impl<R: CommandRunner> LaravelCloudSubstrate<R> {
             &ctx,
             &cfg,
             PROVIDER_PREFIX,
-            // Suffix only — resolved as LARAVEL_CLOUD_APP_ID / {RESOURCE}_APP_ID.
-            &[("APP_ID", "app_id", true)],
+            stackless_integrations::providers::laravel_cloud::application::OUTPUT_FIELDS,
         )
         .await
         .map_err(projects_fault)?;
@@ -250,11 +303,19 @@ impl<R: CommandRunner> LaravelCloudSubstrate<R> {
             })
         })?;
 
+        let api = self.laravel_api(instance).await?;
+        let deploy = api
+            .deploy_application(app_id, &app_name, service, LARAVEL_DEPLOY_BUDGET)
+            .await
+            .map_err(fault)?;
+
         let payload = LaravelCloudPayload {
             stripe_resource: resource,
             app_id: app_id.clone(),
             app_name: app_name.clone(),
-            origin: Self::origin(def, instance, service),
+            environment_id: deploy.environment_id,
+            deployment_id: deploy.deployment_id,
+            origin: deploy.origin,
         };
         Ok(StepResource {
             resource_kind: "laravel-cloud-application".into(),
@@ -283,6 +344,47 @@ impl<R: CommandRunner> LaravelCloudSubstrate<R> {
         )
         .await
         .map_err(prepare_fault)
+    }
+
+    async fn health_gate(
+        &self,
+        def: &StackDef,
+        instance: &str,
+        service: &str,
+        prior: &[Checkpoint],
+    ) -> Result<(), SubstrateFault> {
+        let spec = def.services.get(service).ok_or_else(|| {
+            fault(LaravelCloudError::ConfigInvalid {
+                location: format!("services.{service}"),
+                detail: "service not in definition".into(),
+            })
+        })?;
+        let origin = prior
+            .iter()
+            .find(|c| {
+                c.resource_kind == "laravel-cloud-application"
+                    && c.step_id == format!("start:{service}")
+            })
+            .and_then(|c| serde_json::from_str::<LaravelCloudPayload>(&c.payload).ok())
+            .map(|p| p.origin)
+            .filter(|o| !o.trim().is_empty())
+            .unwrap_or_else(|| Self::origin(def, instance, service));
+        let url = format!("{origin}{}", spec.health.path);
+        stackless_cloud::health::poll(
+            &url,
+            spec.health.status.get(),
+            spec.health.contains.as_deref(),
+            HEALTH_BUDGET,
+        )
+        .await
+        .map_err(|f| {
+            fault(LaravelCloudError::HealthFailed {
+                service: service.to_owned(),
+                url: f.url,
+                detail: f.detail,
+                budget_secs: f.budget_secs,
+            })
+        })
     }
 }
 
@@ -385,7 +487,8 @@ impl<R: CommandRunner> Substrate for LaravelCloudSubstrate<R> {
             }
             StepKind::Start => self.start_service(ctx.def, ctx.instance, node).await,
             StepKind::HealthGate => {
-                // v0: placeholder origin — health polling deferred until a deploy client exists.
+                self.health_gate(ctx.def, ctx.instance, node, ctx.prior)
+                    .await?;
                 Ok(stackless_core::substrate::action_resource(&ctx.step.id))
             }
         }
@@ -494,6 +597,62 @@ impl<R: CommandRunner> Substrate for LaravelCloudSubstrate<R> {
             .await,
         )
     }
+
+    async fn fetch_logs(
+        &self,
+        _def: &StackDef,
+        instance: &str,
+        services: &[String],
+        tail: usize,
+    ) -> Result<Option<Vec<ServiceLog>>, SubstrateFault> {
+        let api = self.laravel_api(instance).await?;
+        let mut out = Vec::with_capacity(services.len());
+        for service in services {
+            let lines = self
+                .fetch_service_logs(&api, instance, service, tail)
+                .await?;
+            out.push(ServiceLog {
+                service: service.clone(),
+                source: "laravel_cloud_api",
+                log_path: None,
+                lines,
+            });
+        }
+        Ok(Some(out))
+    }
+}
+
+fn start_service_payload(instance: &str, service: &str) -> Option<LaravelCloudPayload> {
+    let store = stackless_core::state::Store::open_configured().ok()?;
+    let checkpoints = store.checkpoints(instance).ok()?;
+    checkpoints.into_iter().find_map(|checkpoint| {
+        if checkpoint.step_id == format!("start:{service}")
+            && checkpoint.resource_kind == "laravel-cloud-application"
+        {
+            serde_json::from_str::<LaravelCloudPayload>(&checkpoint.payload).ok()
+        } else {
+            None
+        }
+    })
+}
+
+impl<R: CommandRunner> LaravelCloudSubstrate<R> {
+    async fn fetch_service_logs(
+        &self,
+        api: &LaravelCloudApi,
+        instance: &str,
+        service: &str,
+        tail: usize,
+    ) -> Result<Vec<String>, SubstrateFault> {
+        let Some(payload) = start_service_payload(instance, service) else {
+            return Ok(vec![format!(
+                "(no start checkpoint for service {service}; run `stackless up` first)"
+            )]);
+        };
+        api.fetch_logs(&payload.deployment_id, &payload.environment_id, tail)
+            .await
+            .map_err(fault)
+    }
 }
 
 #[cfg(test)]
@@ -537,11 +696,12 @@ mod tests {
 
     fn subj() -> (tempfile::TempDir, LaravelCloudSubstrate<NoRunner>) {
         let dir = tempfile::tempdir().unwrap();
-        let s = LaravelCloudSubstrate::for_test(NoRunner, dir.path(), false);
+        std::fs::write(dir.path().join(api_key::KEY_FILE), "tok_test").unwrap();
+        let s = LaravelCloudSubstrate::for_test(NoRunner, dir.path(), "http://127.0.0.1:1", false);
         (dir, s)
     }
 
-    const PAYLOAD: &str = r#"{"stripe_resource":"demo-web","app_id":"app_1","app_name":"atto-demo-web","origin":"https://atto-demo-web.laravel.cloud"}"#;
+    const PAYLOAD: &str = r#"{"stripe_resource":"demo-web","app_id":"app_1","app_name":"atto-demo-web","environment_id":"env_1","deployment_id":"dep_1","origin":"https://atto-demo-web.laravel.cloud"}"#;
 
     #[test]
     fn resource_name_and_origin_are_dns_safe() {
@@ -569,7 +729,7 @@ mod tests {
     async fn application_present_when_stripe_registers_it() {
         let runner = test_support::ScriptedRunner::new(vec![test_support::services(&["demo-web"])]);
         let dir = tempfile::tempdir().unwrap();
-        let s = LaravelCloudSubstrate::for_test(&runner, dir.path(), false);
+        let s = LaravelCloudSubstrate::for_test(&runner, dir.path(), "http://127.0.0.1:1", false);
         let cp = checkpoint("laravel-cloud-application", "start:web", PAYLOAD);
         assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Present);
     }
@@ -578,7 +738,7 @@ mod tests {
     async fn application_gone_when_stripe_does_not_register_it() {
         let runner = test_support::ScriptedRunner::new(vec![test_support::services(&[])]);
         let dir = tempfile::tempdir().unwrap();
-        let s = LaravelCloudSubstrate::for_test(&runner, dir.path(), false);
+        let s = LaravelCloudSubstrate::for_test(&runner, dir.path(), "http://127.0.0.1:1", false);
         let cp = checkpoint("laravel-cloud-application", "start:web", PAYLOAD);
         assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Gone);
     }
@@ -610,7 +770,7 @@ mod tests {
             test_support::ok_empty(),
         ]);
         let dir = tempfile::tempdir().unwrap();
-        let s = LaravelCloudSubstrate::for_test(&runner, dir.path(), false);
+        let s = LaravelCloudSubstrate::for_test(&runner, dir.path(), "http://127.0.0.1:1", false);
         let cp = checkpoint("laravel-cloud-application", "start:web", PAYLOAD);
         s.destroy("demo", &cp).await.unwrap();
         let calls = runner.calls();

@@ -1,22 +1,33 @@
 //! The Netlify REST client (ARCHITECTURE.md §4): the post-provisioning steps
 //! Stripe Projects can't express — create/resolve the site, run the file-digest
 //! deploy (POST the per-file SHA1 map, PUT only the files Netlify still needs),
-//! and poll the deploy to `ready`.
+//! apply build settings + zip/git builds, and poll the deploy to `ready`.
 //!
-//! Hand-written over `reqwest`: the deploy lifecycle is ~5 endpoints with flat
-//! JSON + raw-bytes uploads, and the served spec is Swagger 2.0
-//! (`netlify/open-api`). Responses are parsed leniently so additive provider
-//! drift never breaks a deploy.
+//! Hand-written over `reqwest`: the deploy lifecycle is a small set of endpoints
+//! with flat JSON + raw-bytes / multipart uploads, and the served spec is
+//! Swagger 2.0 (`netlify/open-api`). Responses are parsed leniently so additive
+//! provider drift never breaks a deploy.
 
 use std::collections::HashSet;
 use std::time::Duration;
 
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
+use reqwest::multipart::{Form, Part};
 use reqwest::{Client, Method};
 use serde_json::{Value, json};
 use sha1::{Digest, Sha1};
 
 use crate::error::NetlifyError;
+
+/// Build settings applied to a site before a build-path deploy.
+#[derive(Debug, Clone)]
+pub struct BuildSettings {
+    pub cmd: String,
+    /// Publish directory (Netlify `dir`).
+    pub dir: Option<String>,
+    /// Base directory within the repo / zip (Netlify `base`).
+    pub base: Option<String>,
+}
 
 const DEFAULT_BASE: &str = "https://api.netlify.com/api/v1";
 
@@ -183,6 +194,124 @@ impl NetlifyApi {
         self.send_json(Method::DELETE, &format!("/sites/{site_id}"), None)
             .await
             .map(|_| ())
+    }
+
+    /// Apply build settings (cmd / publish dir / base) before a build deploy.
+    pub async fn update_build_settings(
+        &self,
+        site_id: &str,
+        settings: &BuildSettings,
+    ) -> Result<(), NetlifyError> {
+        let path = format!("/sites/{site_id}");
+        let mut build_settings = json!({ "cmd": settings.cmd });
+        if let Some(dir) = &settings.dir {
+            build_settings["dir"] = json!(dir);
+        }
+        if let Some(base) = &settings.base {
+            build_settings["base"] = json!(base);
+        }
+        self.send_json(
+            Method::PUT,
+            &path,
+            Some(json!({ "build_settings": build_settings })),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Link a public GitHub repo for continuous / git-triggered builds.
+    pub async fn link_github_repo(
+        &self,
+        site_id: &str,
+        org: &str,
+        repo: &str,
+        branch: &str,
+        settings: &BuildSettings,
+    ) -> Result<(), NetlifyError> {
+        let path = format!("/sites/{site_id}");
+        let repo_path = format!("{org}/{repo}");
+        let mut repo_body = json!({
+            "provider": "github",
+            "repo": repo_path,
+            "repo_path": repo_path,
+            "repo_url": format!("https://github.com/{org}/{repo}"),
+            "repo_branch": branch,
+            "cmd": settings.cmd,
+            "public_repo": true,
+        });
+        if let Some(dir) = &settings.dir {
+            repo_body["dir"] = json!(dir);
+        }
+        if let Some(base) = &settings.base {
+            repo_body["base"] = json!(base);
+        }
+        self.send_json(Method::PUT, &path, Some(json!({ "repo": repo_body })))
+            .await?;
+        Ok(())
+    }
+
+    /// Trigger a build from a zip of the source tree (build-path, no GitHub link).
+    pub async fn deploy_build_zip(
+        &self,
+        site_id: &str,
+        zip_bytes: Vec<u8>,
+        title: &str,
+        service: &str,
+        budget: Duration,
+    ) -> Result<(String, String), NetlifyError> {
+        let path = format!("/sites/{site_id}/builds");
+        let url = format!("{}{path}", self.base);
+        let part = Part::bytes(zip_bytes)
+            .file_name("site.zip")
+            .mime_str("application/zip")
+            .map_err(|err| api_failed("POST", &path, err))?;
+        let form = Form::new()
+            .text("title", title.to_owned())
+            .part("zip", part);
+        let resp = self
+            .client
+            .post(&url)
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|err| api_failed("POST", &path, err))?;
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        if !status.is_success() {
+            return Err(api_failed(
+                "POST",
+                &path,
+                format!("status {}: {}", status.as_u16(), truncate(&text)),
+            ));
+        }
+        let created: Value = serde_json::from_str(&text)
+            .map_err(|err| api_failed("POST", &path, format!("bad json: {err}")))?;
+        let deploy_id = deploy_id_from_build(&created)
+            .ok_or_else(|| api_failed("POST", &path, "build create returned no deploy id"))?;
+        let origin = self.wait_for_ready(&deploy_id, service, budget).await?;
+        Ok((origin, deploy_id))
+    }
+
+    /// Trigger a git-linked site build (Netlify clones the linked repo).
+    pub async fn deploy_build_git(
+        &self,
+        site_id: &str,
+        branch: &str,
+        service: &str,
+        budget: Duration,
+    ) -> Result<(String, String), NetlifyError> {
+        let path = format!("/sites/{site_id}/builds");
+        let created = self
+            .send_json(
+                Method::POST,
+                &format!("{path}?branch={branch}"),
+                Some(json!({ "clear_cache": true })),
+            )
+            .await?;
+        let deploy_id = deploy_id_from_build(&created)
+            .ok_or_else(|| api_failed("POST", &path, "build create returned no deploy id"))?;
+        let origin = self.wait_for_ready(&deploy_id, service, budget).await?;
+        Ok((origin, deploy_id))
     }
 
     /// Run the full file-digest deploy and return the live HTTPS URL: POST the
@@ -439,6 +568,16 @@ fn site_info(value: &Value) -> Option<SiteInfo> {
     })
 }
 
+fn deploy_id_from_build(value: &Value) -> Option<String> {
+    // Prefer deploy_id — top-level `id` on a build record is the build id.
+    value
+        .get("deploy_id")
+        .or_else(|| value.pointer("/deploy/id"))
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+}
+
 /// A Netlify deploy state. Modeled as an enum so the polling logic is
 /// exhaustive; `Unknown` preserves any state not in Netlify's documented set so
 /// drift is visible instead of silently misclassified.
@@ -627,6 +766,58 @@ mod tests {
         let api = NetlifyApi::with_base("tok", server.uri());
         let lines = api.recent_deploy_log("site_1", "dep_1", 10).await.unwrap();
         assert!(lines.iter().any(|line| line.contains("state: ready")));
+    }
+
+    #[tokio::test]
+    async fn deploy_build_zip_posts_multipart_and_polls_deploy() {
+        let server = MockServer::start().await;
+        Mock::given(method("PUT"))
+            .and(path("/sites/site_1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "id": "site_1" })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/sites/site_1/builds"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "build_1",
+                "deploy_id": "dep_build",
+                "state": "building",
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/deploys/dep_build"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "state": "ready",
+                "ssl_url": "https://site-1.netlify.app",
+            })))
+            .mount(&server)
+            .await;
+
+        let api =
+            NetlifyApi::with_base("tok", server.uri()).with_poll_interval(Duration::from_millis(1));
+        api.update_build_settings(
+            "site_1",
+            &BuildSettings {
+                cmd: "mkdir -p dist && cp static/index.html dist/index.html".into(),
+                dir: Some("dist".into()),
+                base: None,
+            },
+        )
+        .await
+        .unwrap();
+        let (url, deploy_id) = api
+            .deploy_build_zip(
+                "site_1",
+                b"PK\x03\x04fake".to_vec(),
+                "stackless test",
+                "web",
+                Duration::from_secs(5),
+            )
+            .await
+            .unwrap();
+        assert_eq!(url, "https://site-1.netlify.app");
+        assert_eq!(deploy_id, "dep_build");
     }
 
     #[tokio::test]

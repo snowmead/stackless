@@ -32,17 +32,26 @@ impl Hostable for SupabaseProject {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["url", "anon_key", "service_role_key"];
+    const OUTPUTS: &'static [&'static str] = &[
+        "db_url",
+        "db_pass",
+        "pooler_url",
+        "project_ref",
+        "project_url",
+        "publishable_key",
+    ];
 }
 
 impl FamilyResource for SupabaseProject {
     type Config = SupabaseProjectConfig;
     const PROVIDER_PREFIX: &'static str = "SUPABASE";
-    // Provisional until pinned by `mise run discover supabase/project`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
-        ("URL", "url", true),
-        ("ANON_KEY", "anon_key", true),
-        ("SERVICE_ROLE_KEY", "service_role_key", false),
+        ("DB_URL", "db_url", true),
+        ("DB_PASS", "db_pass", true),
+        ("POOLER_URL", "pooler_url", false),
+        ("PROJECT_REF", "project_ref", true),
+        ("PROJECT_URL", "project_url", true),
+        ("PUBLISHABLE_KEY", "publishable_key", false),
     ];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<SupabaseProjectConfig, IntegrationError> {
@@ -105,7 +114,7 @@ project = "project_1"
 provider = "supabase"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.url}" }
+env = { OUT = "${integrations.res.db_url}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -118,7 +127,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"SUPABASE_URL": "val_url", "SUPABASE_ANON_KEY": "val_anon_key", "SUPABASE_SERVICE_ROLE_KEY": "val_service_role_key"}),
+            serde_json::json!({"SUPABASE_DB_URL": "val_db_url", "SUPABASE_DB_PASS": "val_db_pass", "SUPABASE_POOLER_URL": "val_pooler_url", "SUPABASE_PROJECT_REF": "val_project_ref", "SUPABASE_PROJECT_URL": "val_project_url", "SUPABASE_PUBLISHABLE_KEY": "val_publishable_key"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -143,6 +152,6 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-supabase");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["url"], "val_url");
+        assert_eq!(payload.outputs["db_url"], "val_db_url");
     }
 }

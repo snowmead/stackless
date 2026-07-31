@@ -1,8 +1,4 @@
 //! Parsing the gitlab-specific blocks of the definition (§1 schema).
-//!
-//! Phase 1 is Stripe-only: the substrate provisions `gitlab/project` and records
-//! a best-effort origin. Deploying source to GitLab (Pages, CI pipeline trigger,
-//! container registry push) via the REST API is deferred — see `lib.rs`.
 
 use serde::Serialize;
 use stackless_core::def::StackDef;
@@ -12,11 +8,13 @@ use crate::error::GitLabError;
 use stackless_stripe_projects::CatalogService;
 
 /// A service's `[services.X.gitlab]` block. Optional — an absent block uses
-/// defaults (`visibility = "private"`).
+/// defaults (`visibility = "private"`, upload root `"."`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ServiceGitlab {
     /// Catalog `visibility` override (`private` or `public`).
     pub visibility: Option<String>,
+    /// Directory under the pinned ref to publish via GitLab Pages (`public/` prefix).
+    pub root: Option<String>,
 }
 
 /// The typed `gitlab/project` `--config`. `name` and `visibility` are the
@@ -44,13 +42,13 @@ pub fn service_gitlab(def: &StackDef, service: &str) -> Result<ServiceGitlab, Gi
     };
     let table = block.as_table().ok_or_else(|| GitLabError::ConfigInvalid {
         location: location.clone(),
-        detail: "must be a table { visibility?, env? }".into(),
+        detail: "must be a table { visibility?, root?, env? }".into(),
     })?;
     for key in table.keys() {
-        if !matches!(key.as_str(), "visibility" | "env") {
+        if !matches!(key.as_str(), "visibility" | "root" | "env") {
             return Err(GitLabError::ConfigInvalid {
                 location: location.clone(),
-                detail: format!("unknown key {key:?} (known: visibility, env)"),
+                detail: format!("unknown key {key:?} (known: visibility, root, env)"),
             });
         }
     }
@@ -73,7 +71,20 @@ pub fn service_gitlab(def: &StackDef, service: &str) -> Result<ServiceGitlab, Gi
             Some(vis.to_owned())
         }
     };
-    Ok(ServiceGitlab { visibility })
+    let root = match table.get("root") {
+        None => None,
+        Some(value) => {
+            let root = value
+                .as_str()
+                .filter(|s| !s.trim().is_empty())
+                .ok_or_else(|| GitLabError::ConfigInvalid {
+                    location: format!("{location}.root"),
+                    detail: "must be a non-empty string".into(),
+                })?;
+            Some(root.to_owned())
+        }
+    };
+    Ok(ServiceGitlab { visibility, root })
 }
 
 /// Catalog enum for `gitlab/project` visibility.
@@ -113,15 +124,15 @@ env = {}
 health = { path = "/", contains = "ok" }
 [services.web.gitlab]
 visibility = "private"
+root = "fixtures/smoke/site"
 "#;
 
     #[test]
-    fn parses_visibility_and_defaults_when_block_absent() {
+    fn parses_visibility_root_and_defaults_when_block_absent() {
         let def = parse(BASE);
-        assert_eq!(
-            service_gitlab(&def, "web").unwrap().visibility.as_deref(),
-            Some("private")
-        );
+        let cfg = service_gitlab(&def, "web").unwrap();
+        assert_eq!(cfg.visibility.as_deref(), Some("private"));
+        assert_eq!(cfg.root.as_deref(), Some("fixtures/smoke/site"));
         let no_block = parse(
             "[stack]\nname=\"atto\"\n[services.web]\nsource={repo=\"r\",ref=\"main\"}\nenv={}\nhealth={path=\"/\"}\n",
         );

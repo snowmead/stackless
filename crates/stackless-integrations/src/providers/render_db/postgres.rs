@@ -38,15 +38,13 @@ impl Hostable for RenderPostgres {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["database_url"];
+    const OUTPUTS: &'static [&'static str] = &["url"];
 }
 
 impl FamilyResource for RenderPostgres {
     type Config = RenderPostgresConfig;
     const PROVIDER_PREFIX: &'static str = "RENDER";
-    // Provisional until pinned by `mise run discover render/postgres`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("DATABASE_URL", "database_url", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[("URL", "url", true)];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<RenderPostgresConfig, IntegrationError> {
         let config = super::integration_config(ctx)?;
@@ -119,7 +117,7 @@ provider = "render-postgres"
 name = "test-name"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.database_url}" }
+env = { OUT = "${integrations.res.url}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -132,7 +130,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"RENDER_DATABASE_URL": "val_database_url"}),
+            serde_json::json!({"RENDER_URL": "val_url"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -157,6 +155,6 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-render-postgres");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["database_url"], "val_database_url");
+        assert_eq!(payload.outputs["url"], "val_url");
     }
 }

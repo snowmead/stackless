@@ -27,16 +27,26 @@ impl Hostable for NeonPostgres {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["database_url", "host"];
+    const OUTPUTS: &'static [&'static str] = &[
+        "connection_string",
+        "project_id",
+        "branch_id",
+        "branch_name",
+        "database_name",
+        "org_id",
+    ];
 }
 
 impl FamilyResource for NeonPostgres {
     type Config = NeonPostgresConfig;
     const PROVIDER_PREFIX: &'static str = "NEON";
-    // Provisional until pinned by `mise run discover neon/postgres`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
-        ("DATABASE_URL", "database_url", true),
-        ("HOST", "host", false),
+        ("CONNECTION_STRING", "connection_string", true),
+        ("PROJECT_ID", "project_id", true),
+        ("BRANCH_ID", "branch_id", false),
+        ("BRANCH_NAME", "branch_name", false),
+        ("DATABASE_NAME", "database_name", false),
+        ("ORG_ID", "org_id", false),
     ];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<NeonPostgresConfig, IntegrationError> {
@@ -90,7 +100,7 @@ project = "project_1"
 provider = "neon"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.database_url}" }
+env = { OUT = "${integrations.res.connection_string}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -103,7 +113,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"NEON_DATABASE_URL": "val_database_url", "NEON_HOST": "val_host"}),
+            serde_json::json!({"NEON_CONNECTION_STRING": "val_connection_string", "NEON_PROJECT_ID": "val_project_id", "NEON_BRANCH_ID": "val_branch_id", "NEON_BRANCH_NAME": "val_branch_name", "NEON_DATABASE_NAME": "val_database_name", "NEON_ORG_ID": "val_org_id"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -128,6 +138,9 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-neon");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["database_url"], "val_database_url");
+        assert_eq!(
+            payload.outputs["connection_string"],
+            "val_connection_string"
+        );
     }
 }

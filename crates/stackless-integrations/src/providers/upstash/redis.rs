@@ -40,16 +40,26 @@ impl Hostable for UpstashRedis {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["redis_url", "rest_token"];
+    const OUTPUTS: &'static [&'static str] = &[
+        "endpoint",
+        "password",
+        "port",
+        "rest_url",
+        "rest_token",
+        "read_only_rest_token",
+    ];
 }
 
 impl FamilyResource for UpstashRedis {
     type Config = UpstashRedisConfig;
     const PROVIDER_PREFIX: &'static str = "UPSTASH";
-    // Provisional until pinned by `mise run discover upstash/redis`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
-        ("REDIS_URL", "redis_url", true),
+        ("ENDPOINT", "endpoint", true),
+        ("PASSWORD", "password", true),
+        ("PORT", "port", false),
+        ("REST_URL", "rest_url", false),
         ("REST_TOKEN", "rest_token", false),
+        ("READ_ONLY_REST_TOKEN", "read_only_rest_token", false),
     ];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<UpstashRedisConfig, IntegrationError> {
@@ -120,7 +130,7 @@ project = "project_1"
 provider = "upstash-redis"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.redis_url}" }
+env = { OUT = "${integrations.res.endpoint}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -133,7 +143,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"UPSTASH_REDIS_URL": "val_redis_url", "UPSTASH_REST_TOKEN": "val_rest_token"}),
+            serde_json::json!({"UPSTASH_ENDPOINT": "val_endpoint", "UPSTASH_PASSWORD": "val_password", "UPSTASH_PORT": "val_port", "UPSTASH_REST_URL": "val_rest_url", "UPSTASH_REST_TOKEN": "val_rest_token", "UPSTASH_READ_ONLY_REST_TOKEN": "val_read_only_rest_token"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -158,6 +168,6 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-upstash-redis");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["redis_url"], "val_redis_url");
+        assert_eq!(payload.outputs["endpoint"], "val_endpoint");
     }
 }

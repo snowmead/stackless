@@ -31,15 +31,17 @@ impl Hostable for LaravelCloudValkey {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["redis_url"];
+    const OUTPUTS: &'static [&'static str] = &["host", "password", "port"];
 }
 
 impl FamilyResource for LaravelCloudValkey {
     type Config = LaravelCloudValkeyConfig;
     const PROVIDER_PREFIX: &'static str = "LARAVEL_CLOUD";
-    // Provisional until pinned by `mise run discover laravel_cloud/valkey`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("REDIS_URL", "redis_url", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("HOST", "host", false),
+        ("PASSWORD", "password", true),
+        ("PORT", "port", true),
+    ];
 
     fn build_config(
         ctx: &ProvisionContext<'_>,
@@ -115,7 +117,7 @@ instance_size = "valkey-flex-250mb"
 region = "us-east-1"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.redis_url}" }
+env = { OUT = "${integrations.res.password}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -128,7 +130,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"LARAVEL_CLOUD_REDIS_URL": "val_redis_url"}),
+            serde_json::json!({"LARAVEL_CLOUD_HOST": "val_host", "LARAVEL_CLOUD_PASSWORD": "val_password", "LARAVEL_CLOUD_PORT": "val_port"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -153,6 +155,7 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-laravel-cloud-valkey");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["redis_url"], "val_redis_url");
+        assert_eq!(payload.outputs["password"], "val_password");
+        assert_eq!(payload.outputs["port"], "val_port");
     }
 }

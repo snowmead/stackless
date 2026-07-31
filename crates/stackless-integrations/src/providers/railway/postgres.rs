@@ -30,15 +30,14 @@ impl Hostable for RailwayPostgres {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["database_url"];
+    const OUTPUTS: &'static [&'static str] = &["variables", "type"];
 }
 
 impl FamilyResource for RailwayPostgres {
     type Config = RailwayPostgresConfig;
     const PROVIDER_PREFIX: &'static str = "RAILWAY";
-    // Provisional until pinned by `mise run discover railway/postgres`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("DATABASE_URL", "database_url", true)];
+        &[("VARIABLES", "variables", true), ("TYPE", "type", false)];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<RailwayPostgresConfig, IntegrationError> {
         let config = super::integration_config(ctx)?;
@@ -96,7 +95,7 @@ project = "project_1"
 provider = "railway-postgres"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.database_url}" }
+env = { OUT = "${integrations.res.variables}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -109,7 +108,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"RAILWAY_DATABASE_URL": "val_database_url"}),
+            serde_json::json!({"RAILWAY_VARIABLES": "val_variables", "RAILWAY_TYPE": "val_type"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -134,6 +133,6 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-railway-postgres");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["database_url"], "val_database_url");
+        assert_eq!(payload.outputs["variables"], "val_variables");
     }
 }

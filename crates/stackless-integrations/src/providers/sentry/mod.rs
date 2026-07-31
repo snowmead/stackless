@@ -1,6 +1,4 @@
 //! Sentry catalog resources via Stripe Projects.
-//!
-//! Output envelopes are provisional until pinned by `xtask discover`.
 
 pub mod project;
 pub mod seer;

@@ -27,15 +27,14 @@ impl Hostable for OpenRouterApi {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["api_key"];
+    const OUTPUTS: &'static [&'static str] = &["api_key", "type"];
 }
 
 impl FamilyResource for OpenRouterApi {
     type Config = OpenRouterApiConfig;
     const PROVIDER_PREFIX: &'static str = "OPENROUTER";
-    // Provisional until pinned by `mise run discover openrouter/api`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("API_KEY", "api_key", true)];
+        &[("API_KEY", "api_key", true), ("TYPE", "type", false)];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<OpenRouterApiConfig, IntegrationError> {
         let _ = super::integration_config(ctx)?;
@@ -101,7 +100,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"OPENROUTER_API_KEY": "val_api_key"}),
+            serde_json::json!({"OPENROUTER_API_KEY": "val_api_key", "OPENROUTER_TYPE": "val_type"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();

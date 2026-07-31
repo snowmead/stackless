@@ -14,11 +14,15 @@
 //! `observe`/`destroy` key off the **Stripe resource registration**, not the
 //! Netlify API — the Netlify API is only touched at deploy time.
 //!
-//! ## v0 scope and cloud invariants
+//! ## Deploy paths and cloud invariants
 //!
-//! - **Static upload.** A service's source files (under `[services.X.netlify].root`
-//!   or the repo root) are uploaded via the file-digest deploy API; running a
-//!   framework build first is a later enhancement. `netlify/project` is free.
+//! - **Static upload** (default when `build` is absent): file-digest deploy of
+//!   files under `[services.X.netlify].root` (or the repo root). Explicit fast
+//!   path for pure static roots.
+//! - **Build** (when `build` is set): Vercel-shaped build settings
+//!   (`build` / `install` / `root` / `publish`) plus either zip-upload to
+//!   Netlify's build API (`deploy = "build"`, default) or a git-linked build
+//!   (`deploy = "git"`). `netlify/project` is free.
 //! - **Cloud resource names** are `{stack}-{instance}-{service}` — DNS-safe and a
 //!   legal Netlify site name. Origins are
 //!   `https://{stack}-{instance}-{service}.netlify.app`.
@@ -29,6 +33,7 @@ pub mod codes;
 pub mod config;
 pub mod error;
 pub mod netlify_api;
+pub mod zip_source;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -44,9 +49,12 @@ use stackless_core::substrate::{
 };
 use tokio::sync::Mutex;
 
-use crate::config::NetlifyProjectConfig;
+use crate::config::{NetlifyDeployMode, NetlifyProjectConfig, parse_github_repo};
 use crate::error::NetlifyError;
-use crate::netlify_api::{HEALTH_BUDGET, NETLIFY_DEPLOY_BUDGET, NetlifyApi, UploadFile};
+use crate::netlify_api::{
+    BuildSettings, HEALTH_BUDGET, NETLIFY_DEPLOY_BUDGET, NetlifyApi, UploadFile,
+};
+use crate::zip_source::zip_directory;
 use stackless_stripe_projects::ProjectsError;
 use stackless_stripe_projects::provision::{ProvisionContext, provision_outputs};
 use stackless_stripe_projects::stripe::{CommandRunner, StripeProjects, TokioRunner};
@@ -310,26 +318,104 @@ impl<R: CommandRunner> NetlifySubstrate<R> {
             }
         };
 
-        // Clone the pinned ref and collect the files under the publish root.
-        let repo = spec.source.repo.clone();
-        let reference = spec.source.reference.clone();
-        let root = netlify_cfg.root.clone();
-        let files = tokio::task::spawn_blocking(move || {
-            collect_upload_files(&repo, &reference, root.as_deref())
-        })
-        .await
-        .map_err(|err| {
-            fault(NetlifyError::ProvisionFailed {
-                resource: resource.clone(),
-                detail: format!("file collection task panicked: {err}"),
+        let (deployed_url, deploy_id) = if netlify_cfg.uses_build() {
+            let cmd = netlify_cfg.build_cmd().ok_or_else(|| {
+                fault(NetlifyError::ConfigInvalid {
+                    location: format!("services.{service}.netlify.build"),
+                    detail: "build path requires `build`".into(),
+                })
+            })?;
+            match netlify_cfg.deploy {
+                NetlifyDeployMode::Git => {
+                    // Git clones the full repo — `root` is Netlify's base dir.
+                    let settings = BuildSettings {
+                        cmd,
+                        dir: netlify_cfg.publish.clone(),
+                        base: netlify_cfg.root.clone(),
+                    };
+                    netlify
+                        .update_build_settings(&site_id, &settings)
+                        .await
+                        .map_err(fault)?;
+                    let (org, repo) = parse_github_repo(&spec.source.repo).map_err(fault)?;
+                    netlify
+                        .link_github_repo(&site_id, &org, &repo, &spec.source.reference, &settings)
+                        .await
+                        .map_err(fault)?;
+                    netlify
+                        .deploy_build_git(
+                            &site_id,
+                            &spec.source.reference,
+                            service,
+                            NETLIFY_DEPLOY_BUDGET,
+                        )
+                        .await
+                        .map_err(fault)?
+                }
+                NetlifyDeployMode::Build => {
+                    // Zip is already scoped to `root`; publish dir is relative to it.
+                    let settings = BuildSettings {
+                        cmd,
+                        dir: netlify_cfg.publish.clone(),
+                        base: None,
+                    };
+                    netlify
+                        .update_build_settings(&site_id, &settings)
+                        .await
+                        .map_err(fault)?;
+                    let repo = spec.source.repo.clone();
+                    let reference = spec.source.reference.clone();
+                    let base = netlify_cfg.root.clone();
+                    let zip = tokio::task::spawn_blocking(move || {
+                        zip_checkout_for_build(&repo, &reference, base.as_deref())
+                    })
+                    .await
+                    .map_err(|err| {
+                        fault(NetlifyError::ProvisionFailed {
+                            resource: resource.clone(),
+                            detail: format!("zip task panicked: {err}"),
+                        })
+                    })?
+                    .map_err(fault)?;
+                    netlify
+                        .deploy_build_zip(
+                            &site_id,
+                            zip,
+                            &format!("stackless {instance}/{service}"),
+                            service,
+                            NETLIFY_DEPLOY_BUDGET,
+                        )
+                        .await
+                        .map_err(fault)?
+                }
+                NetlifyDeployMode::Upload => {
+                    return Err(fault(NetlifyError::ConfigInvalid {
+                        location: format!("services.{service}.netlify.deploy"),
+                        detail: "internal: upload mode reached build branch".into(),
+                    }));
+                }
+            }
+        } else {
+            // Static fast path: clone + file-digest upload.
+            let repo = spec.source.repo.clone();
+            let reference = spec.source.reference.clone();
+            let root = netlify_cfg.root.clone();
+            let files = tokio::task::spawn_blocking(move || {
+                collect_upload_files(&repo, &reference, root.as_deref())
             })
-        })?
-        .map_err(fault)?;
-
-        let (deployed_url, deploy_id) = netlify
-            .deploy(&site_id, &files, service, NETLIFY_DEPLOY_BUDGET)
             .await
+            .map_err(|err| {
+                fault(NetlifyError::ProvisionFailed {
+                    resource: resource.clone(),
+                    detail: format!("file collection task panicked: {err}"),
+                })
+            })?
             .map_err(fault)?;
+            netlify
+                .deploy(&site_id, &files, service, NETLIFY_DEPLOY_BUDGET)
+                .await
+                .map_err(fault)?
+        };
         let origin = [deployed_url, provisioned_url.unwrap_or_default()]
             .into_iter()
             .find(|u| !u.trim().is_empty())
@@ -451,6 +537,37 @@ fn collect_upload_files(
         )));
     }
     Ok(files)
+}
+
+/// Clone the pinned ref and zip the base directory for a Netlify build upload.
+fn zip_checkout_for_build(
+    repo: &str,
+    reference: &str,
+    base: Option<&str>,
+) -> Result<Vec<u8>, NetlifyError> {
+    let provision_fault = |detail: String| NetlifyError::ProvisionFailed {
+        resource: repo.to_owned(),
+        detail,
+    };
+    let tmp = tempfile::tempdir().map_err(|err| provision_fault(format!("tempdir: {err}")))?;
+    stackless_git::clone_checkout(
+        repo,
+        reference,
+        tmp.path(),
+        &stackless_git::Credentials::default(),
+    )
+    .map_err(|err| provision_fault(format!("clone {repo}@{reference} failed: {err}")))?;
+    let root = match base {
+        Some(base) => tmp.path().join(base),
+        None => tmp.path().to_path_buf(),
+    };
+    if !root.is_dir() {
+        return Err(provision_fault(format!(
+            "build base {:?} not found in {repo}@{reference}",
+            base.unwrap_or(".")
+        )));
+    }
+    zip_directory(&root)
 }
 
 fn collect_dir(base: &Path, dir: &Path, out: &mut Vec<UploadFile>) -> std::io::Result<()> {

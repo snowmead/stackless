@@ -1,0 +1,23 @@
+# Live smoke stack: static HTML under fixtures/smoke/site embedded in a module
+# Worker and deployed to Cloudflare via the Workers Scripts API.
+#
+# Run: stackless up --on cloudflare --file fixtures/smoke/cloudflare-workers/stackless.toml --name smoke-cloudflare-workers
+# One-time human setup (from THIS dir):
+#   cd fixtures/smoke/cloudflare-workers
+#   stripe projects init smoke-cloudflare-workers --skip-skills --accept-tos
+#   stripe projects link cloudflare
+# The project anchor ([stack.projects.stripe].project) is recorded here on first up.
+[stack]
+name = "smoke-cloudflare-workers"
+
+[stack.projects]
+[stack.projects.stripe]
+# Filled on first `stackless up` from this directory.
+
+[services.web]
+source      = { repo = "https://github.com/snowmead/stackless", ref = "main" }
+root_origin = true
+health      = { path = "/", contains = "stackless-smoke-ok" }
+
+[services.web.cloudflare]
+root = "fixtures/smoke/site"

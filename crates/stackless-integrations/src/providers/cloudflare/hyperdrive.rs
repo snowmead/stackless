@@ -41,18 +41,16 @@ impl Hostable for CloudflareHyperdrive {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["hyperdrive_id", "connection_string", "account_id"];
+    const OUTPUTS: &'static [&'static str] = &["hyperdrive_id", "account_id", "name"];
 }
 
 impl CloudflareResource for CloudflareHyperdrive {
     type Config = HyperdriveConfig;
     const PROVIDER_PREFIX: &'static str = "CLOUDFLARE";
-    // Best-guess; unverified (Hyperdrive needs a real origin DB, so it is not in
-    // the live smoke). Pinned when first provisioned against a real origin.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
         ("HYPERDRIVE_ID", "hyperdrive_id", true),
-        ("CONNECTION_STRING", "connection_string", false),
         ("ACCOUNT_ID", "account_id", false),
+        ("NAME", "name", false),
     ];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<HyperdriveConfig, IntegrationError> {
@@ -169,7 +167,7 @@ scheme = "postgres"
 user = "app"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { HD_URL = "${integrations.hd.connection_string}" }
+env = { HD_ID = "${integrations.hd.hyperdrive_id}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -188,7 +186,8 @@ run = "true"
             out(r#"{"ok":true,"data":{"services":[]}}"#),
             out(&serde_json::json!({"ok":true,"data":{"variables":{
                 "CLOUDFLARE_HYPERDRIVE_ID": "hd_123",
-                "CLOUDFLARE_CONNECTION_STRING": "postgresql://hyperdrive/atto"
+                "CLOUDFLARE_ACCOUNT_ID": "acct_123",
+                "CLOUDFLARE_NAME": "disco-hyperdrive"
             }}})
             .to_string()),
             out(r#"{"ok":true,"data":null}"#),
@@ -217,10 +216,8 @@ run = "true"
         assert_eq!(resource.resource_kind, "integration-cloudflare-hyperdrive");
         let payload: CloudflarePayload = serde_json::from_str(&resource.payload).unwrap();
         assert_eq!(payload.outputs["hyperdrive_id"], "hd_123");
-        assert_eq!(
-            payload.outputs["connection_string"],
-            "postgresql://hyperdrive/atto"
-        );
+        assert_eq!(payload.outputs["account_id"], "acct_123");
+        assert_eq!(payload.outputs["name"], "disco-hyperdrive");
 
         // The add config must serialize `port` as an integer (catalog schema).
         let add = runner

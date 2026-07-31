@@ -40,6 +40,12 @@ jobs:
       - name: taplo
         run: mise run taplo
 
+      - name: catalog orphans
+        run: mise run catalog-orphans
+
+      - name: provisional allowlist
+        run: mise run provisional-check
+
   # Compilation-based lints. Run on all supported OSes so we catch
   # platform-specific warnings.
   clippy:
@@ -210,7 +216,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        provider: [vercel, render, fly, netlify]
+        provider: [vercel, render, fly, fly-build, netlify, netlify-build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

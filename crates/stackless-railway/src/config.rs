@@ -1,7 +1,9 @@
 //! Parsing the railway-specific blocks of the definition (§1 schema).
 //!
-//! Phase 1 is Stripe-only: the substrate provisions `railway/hosting` and records
-//! a best-effort origin. Deploying source to Railway (GraphQL/REST) is deferred.
+//! Two deploy paths:
+//! - **Image** (`image = "..."`): deploy a prebuilt container via Railway GraphQL.
+//! - **GitHub** (no `image`): link `source.repo` (GitHub HTTPS) and deploy the
+//!   pinned branch.
 
 use serde::Serialize;
 use stackless_core::def::StackDef;
@@ -10,9 +12,46 @@ use crate::SUBSTRATE_NAME;
 use crate::error::RailwayError;
 use stackless_stripe_projects::CatalogService;
 
-/// A service's `[services.X.railway]` block. Optional — an absent block is valid.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ServiceRailway {}
+/// How a Railway service reaches a runnable image.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RailwayDeployMode {
+    Image {
+        image: String,
+        cmd: Option<Vec<String>>,
+    },
+    GitHub,
+}
+
+/// A service's `[services.X.railway]` block. Optional — an absent block uses
+/// the GitHub path from `source.repo`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServiceRailway {
+    pub mode: RailwayDeployMode,
+}
+
+impl Default for ServiceRailway {
+    fn default() -> Self {
+        Self {
+            mode: RailwayDeployMode::GitHub,
+        }
+    }
+}
+
+impl ServiceRailway {
+    pub fn image(&self) -> Option<&str> {
+        match &self.mode {
+            RailwayDeployMode::Image { image, .. } => Some(image.as_str()),
+            RailwayDeployMode::GitHub => None,
+        }
+    }
+
+    pub fn cmd(&self) -> Option<&[String]> {
+        match &self.mode {
+            RailwayDeployMode::Image { cmd, .. } => cmd.as_deref(),
+            RailwayDeployMode::GitHub => None,
+        }
+    }
+}
 
 /// The typed `railway/hosting` `--config`. Empty object is the catalog contract.
 #[derive(Debug, Serialize)]
@@ -31,23 +70,77 @@ pub fn service_railway(def: &StackDef, service: &str) -> Result<ServiceRailway, 
         .get(service)
         .and_then(|spec| spec.substrates.get(SUBSTRATE_NAME))
     else {
-        return Ok(ServiceRailway::default());
+        return Ok(ServiceRailway {
+            mode: RailwayDeployMode::GitHub,
+        });
     };
     let table = block
         .as_table()
         .ok_or_else(|| RailwayError::ConfigInvalid {
             location: location.clone(),
-            detail: "must be a table { env? }".into(),
+            detail: "must be a table { image?, cmd?, env? }".into(),
         })?;
     for key in table.keys() {
-        if key.as_str() != "env" {
+        if !matches!(key.as_str(), "image" | "cmd" | "env") {
             return Err(RailwayError::ConfigInvalid {
                 location: location.clone(),
-                detail: format!("unknown key {key:?} (known: env)"),
+                detail: format!("unknown key {key:?} (known: image, cmd, env)"),
             });
         }
     }
-    Ok(ServiceRailway::default())
+    let image = table
+        .get("image")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    let cmd = table.get("cmd").and_then(parse_cmd_array);
+    if cmd.is_some() && image.is_none() {
+        return Err(RailwayError::ConfigInvalid {
+            location: location.clone(),
+            detail: "`cmd` requires `image`".into(),
+        });
+    }
+    let mode = match image {
+        Some(image) => RailwayDeployMode::Image { image, cmd },
+        None => RailwayDeployMode::GitHub,
+    };
+    Ok(ServiceRailway { mode })
+}
+
+fn parse_cmd_array(value: &toml::Value) -> Option<Vec<String>> {
+    let arr = value.as_array()?;
+    if arr.is_empty() {
+        return None;
+    }
+    let mut out = Vec::with_capacity(arr.len());
+    for item in arr {
+        out.push(item.as_str()?.to_owned());
+    }
+    Some(out)
+}
+
+/// Parse `https://github.com/{org}/{repo}` for git-linked deploys.
+pub fn parse_github_repo(url: &str) -> Result<(String, String), RailwayError> {
+    let trimmed = url.trim().trim_end_matches('/');
+    let rest = trimmed
+        .strip_prefix("https://github.com/")
+        .or_else(|| trimmed.strip_prefix("https://www.github.com/"))
+        .ok_or_else(|| RailwayError::ConfigInvalid {
+            location: "services.*.source.repo".into(),
+            detail: format!("Railway git deploy requires a GitHub HTTPS remote (got {url:?})"),
+        })?;
+    let rest = rest.strip_suffix(".git").unwrap_or(rest);
+    let mut parts = rest.split('/');
+    let org = parts.next().unwrap_or_default();
+    let repo = parts.next().unwrap_or_default();
+    if org.is_empty() || repo.is_empty() || parts.next().is_some() {
+        return Err(RailwayError::ConfigInvalid {
+            location: "services.*.source.repo".into(),
+            detail: format!("expected https://github.com/org/repo (got {url:?})"),
+        });
+    }
+    Ok((org.to_owned(), repo.to_owned()))
 }
 
 /// Whether `name` is a legal Railway service label: lowercase letter then
@@ -84,18 +177,40 @@ health = { path = "/", contains = "ok" }
 "#;
 
     #[test]
-    fn defaults_when_block_absent() {
+    fn defaults_to_github_when_block_empty() {
         let def = parse(BASE);
         assert_eq!(
-            service_railway(&def, "web").unwrap(),
-            ServiceRailway::default()
+            service_railway(&def, "web").unwrap().mode,
+            RailwayDeployMode::GitHub
         );
         let no_block = parse(
-            "[stack]\nname=\"atto\"\n[services.web]\nsource={repo=\"r\",ref=\"main\"}\nenv={}\nhealth={path=\"/\"}\n",
+            "[stack]\nname=\"atto\"\n[services.web]\nsource={repo=\"https://github.com/a/b\",ref=\"main\"}\nenv={}\nhealth={path=\"/\"}\n",
         );
         assert_eq!(
-            service_railway(&no_block, "web").unwrap(),
-            ServiceRailway::default()
+            service_railway(&no_block, "web").unwrap().mode,
+            RailwayDeployMode::GitHub
+        );
+    }
+
+    #[test]
+    fn image_and_cmd_parse() {
+        let toml = BASE.to_owned()
+            + "image = \"hashicorp/http-echo\"\ncmd = [\"-text=ok\", \"-listen=:8080\"]\n";
+        let cfg = service_railway(&parse(&toml), "web").unwrap();
+        assert_eq!(cfg.image(), Some("hashicorp/http-echo"));
+        assert_eq!(
+            cfg.cmd(),
+            Some(["-text=ok".into(), "-listen=:8080".into()].as_slice())
+        );
+    }
+
+    #[test]
+    fn cmd_without_image_is_rejected() {
+        let toml = BASE.to_owned() + "cmd = [\"x\"]\n";
+        let err = service_railway(&parse(&toml), "web").unwrap_err();
+        assert_eq!(
+            stackless_core::fault::Fault::code(&err),
+            crate::codes::RAILWAY_CONFIG_INVALID
         );
     }
 
@@ -107,6 +222,15 @@ health = { path = "/", contains = "ok" }
             stackless_core::fault::Fault::code(&err),
             crate::codes::RAILWAY_CONFIG_INVALID
         );
+    }
+
+    #[test]
+    fn parse_github_repo_accepts_https() {
+        assert_eq!(
+            parse_github_repo("https://github.com/acme/widget.git").unwrap(),
+            ("acme".into(), "widget".into())
+        );
+        assert!(parse_github_repo("https://gitlab.com/a/b").is_err());
     }
 
     #[test]
@@ -123,8 +247,6 @@ health = { path = "/", contains = "ok" }
         assert_eq!(RailwayHostingConfig::REFERENCE, "railway/hosting");
     }
 
-    /// Catalog gap check: the `railway/hosting` config must validate against the
-    /// committed catalog fixture. Fails loudly if Stripe drifts the schema.
     #[test]
     fn railway_config_matches_catalog() {
         const FIXTURE: &str = include_str!(concat!(

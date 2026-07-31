@@ -32,15 +32,14 @@ impl Hostable for UpstashQstash {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["token"];
+    const OUTPUTS: &'static [&'static str] = &["token", "qstash_id"];
 }
 
 impl FamilyResource for UpstashQstash {
     type Config = UpstashQstashConfig;
     const PROVIDER_PREFIX: &'static str = "UPSTASH";
-    // Provisional until pinned by `mise run discover upstash/qstash`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("TOKEN", "token", true)];
+        &[("TOKEN", "token", true), ("QSTASH_ID", "qstash_id", false)];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<UpstashQstashConfig, IntegrationError> {
         let config = super::integration_config(ctx)?;
@@ -115,7 +114,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"UPSTASH_TOKEN": "val_token"}),
+            serde_json::json!({"UPSTASH_TOKEN": "val_token", "UPSTASH_QSTASH_ID": "val_qstash_id"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();

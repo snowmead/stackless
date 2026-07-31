@@ -27,15 +27,14 @@ impl Hostable for HuggingFacePlatform {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["token"];
+    const OUTPUTS: &'static [&'static str] = &["hf_token"];
 }
 
 impl FamilyResource for HuggingFacePlatform {
     type Config = HuggingFacePlatformConfig;
     const PROVIDER_PREFIX: &'static str = "HUGGINGFACE";
-    // Provisional until pinned by `mise run discover huggingface/platform`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("TOKEN", "token", true)];
+        &[("HF_TOKEN", "hf_token", true)];
 
     fn build_config(
         ctx: &ProvisionContext<'_>,
@@ -91,7 +90,7 @@ project = "project_1"
 provider = "huggingface"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.token}" }
+env = { OUT = "${integrations.res.hf_token}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -104,7 +103,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"HUGGINGFACE_TOKEN": "val_token"}),
+            serde_json::json!({"HUGGINGFACE_HF_TOKEN": "val_hf_token"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -129,6 +128,6 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-huggingface");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["token"], "val_token");
+        assert_eq!(payload.outputs["hf_token"], "val_hf_token");
     }
 }

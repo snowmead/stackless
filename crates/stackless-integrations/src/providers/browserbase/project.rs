@@ -27,16 +27,15 @@ impl Hostable for BrowserbaseProject {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["api_key", "project_id"];
+    const OUTPUTS: &'static [&'static str] = &["browserbase_api_key", "browserbase_project_id"];
 }
 
 impl FamilyResource for BrowserbaseProject {
     type Config = BrowserbaseProjectConfig;
     const PROVIDER_PREFIX: &'static str = "BROWSERBASE";
-    // Provisional until pinned by `mise run discover browserbase/project`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
-        ("API_KEY", "api_key", true),
-        ("PROJECT_ID", "project_id", true),
+        ("BROWSERBASE_API_KEY", "browserbase_api_key", true),
+        ("BROWSERBASE_PROJECT_ID", "browserbase_project_id", true),
     ];
 
     fn build_config(
@@ -93,7 +92,7 @@ project = "project_1"
 provider = "browserbase"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.api_key}" }
+env = { OUT = "${integrations.res.browserbase_api_key}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -106,7 +105,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"BROWSERBASE_API_KEY": "val_api_key", "BROWSERBASE_PROJECT_ID": "val_project_id"}),
+            serde_json::json!({"BROWSERBASE_BROWSERBASE_API_KEY": "val_browserbase_api_key", "BROWSERBASE_BROWSERBASE_PROJECT_ID": "val_browserbase_project_id"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -131,6 +130,13 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-browserbase");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["api_key"], "val_api_key");
+        assert_eq!(
+            payload.outputs["browserbase_api_key"],
+            "val_browserbase_api_key"
+        );
+        assert_eq!(
+            payload.outputs["browserbase_project_id"],
+            "val_browserbase_project_id"
+        );
     }
 }

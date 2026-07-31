@@ -34,17 +34,14 @@ impl Hostable for UpstashSearch {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["rest_url", "rest_token"];
+    const OUTPUTS: &'static [&'static str] = &["token", "url"];
 }
 
 impl FamilyResource for UpstashSearch {
     type Config = UpstashSearchConfig;
     const PROVIDER_PREFIX: &'static str = "UPSTASH";
-    // Provisional until pinned by `mise run discover upstash/search`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
-        ("REST_URL", "rest_url", true),
-        ("REST_TOKEN", "rest_token", true),
-    ];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
+        &[("TOKEN", "token", true), ("URL", "url", true)];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<UpstashSearchConfig, IntegrationError> {
         let config = super::integration_config(ctx)?;
@@ -108,7 +105,7 @@ project = "project_1"
 provider = "upstash-search"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.rest_url}" }
+env = { OUT = "${integrations.res.url}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -121,7 +118,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"UPSTASH_REST_URL": "val_rest_url", "UPSTASH_REST_TOKEN": "val_rest_token"}),
+            serde_json::json!({"UPSTASH_TOKEN": "val_token", "UPSTASH_URL": "val_url"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -146,6 +143,6 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-upstash-search");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["rest_url"], "val_rest_url");
+        assert_eq!(payload.outputs["url"], "val_url");
     }
 }

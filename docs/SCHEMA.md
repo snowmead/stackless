@@ -343,25 +343,35 @@ Or a static site:
   set `VERCEL_TOKEN` or write `.vercel-token` next to the definition
   (`vercel.api_key.missing`). Optional `VERCEL_TEAM_ID` for team-scoped
   projects.
-- `stackless logs` is not wired for Vercel in v0 — use the Vercel
-  dashboard.
+- `stackless logs` returns a recent per-service window from Vercel
+  deployment build events (`source: "vercel_api"`; no streaming).
 
 ### `[services.<name>.fly]` — how Fly runs it
 
-Fly v0 is **image-only**: a service declares a prebuilt container image
-and the substrate runs it as a Fly machine.
+Two deploy paths: **image** (explicit fast path) or **source-build** via
+Fly's remote builder when `image` is omitted.
 
 ```toml
+  # Image fast path — prebuilt container
   [services.web.fly]
-  image = "ghcr.io/org/web:latest"      # required: prebuilt container image
+  image = "ghcr.io/org/web:latest"      # prebuilt container image
   internal_port = 8080                  # optional, the port the container listens on (default 8080)
   cmd = ["server", "--port", "8080"]    # optional: override the image CMD (container args)
   cpu_kind = "shared"                   # optional machine preset (default shared)
   cpus = 1                              # optional (default 1)
   memory_mb = 256                       # optional (default 256)
   env = { API_ORIGIN = "${services.api.origin}" }  # optional overlay
+
+  # Source-build path — remote builder from the pinned checkout
+  [services.api.fly]
+  dockerfile = "Dockerfile"             # optional (default Dockerfile); repo-relative
+  internal_port = 8080
 ```
 
+- Set **either** `image` **or** omit it for source-build (optional
+  `dockerfile`). Setting both is rejected. `cmd` is image-path only.
+- Source-build clones the pinned ref and runs
+  `flyctl deploy --remote-only` (`fly`/`flyctl` must be on `PATH`).
 - Cloud resource names are `{stack}-{instance}-{service}` — also the Fly
   app name, so it must be a legal app name (`^[a-z][a-z0-9-]{2,62}$`);
   origins are `https://{stack}-{instance}-{service}.fly.dev`.
@@ -373,23 +383,41 @@ and the substrate runs it as a Fly machine.
   operator's machine from a shallow `git clone` of the pinned ref.
 - **Two layers (same as Render):** Stripe Projects provisions the
   `flyio/app` catalog resource and returns a Stripe-managed, app-scoped
-  deploy token; the Fly Machines REST API uses that token to allocate the
-  app's public IPs, create the machine, and poll it to `started`. No
-  operator API token is needed — the credential comes from provisioning,
-  and `observe`/`down` use the Stripe resource registration.
-- `stackless logs` is not wired for Fly in v0 — use the Fly dashboard.
+  deploy token; the Fly Machines REST API (image path) or `flyctl` remote
+  builder (source-build) uses that token. No operator API token is needed
+  for the image path — the credential comes from provisioning, and
+  `observe`/`down` use the Stripe resource registration.
+- `stackless logs` returns a recent per-service window from Fly machine
+  events (`source: "fly_events"`; no streaming).
 
 ### `[services.<name>.netlify]` — how Netlify runs it
 
-Netlify v0 is **static upload**: the substrate clones the pinned ref and
-uploads the files under `root` (or the repo root) as a Netlify deploy. The
-block is optional.
+Two deploy paths: **static upload** (file-digest fast path) or **build**
+with Vercel-shaped settings when `build` is set. The block is optional
+(absent → upload the repo root).
 
 ```toml
+  # Static fast path — file-digest upload (default when `build` is absent)
   [services.web.netlify]
   root = "dist"                         # optional: subdir to publish (default: repo root)
+
+  # Build path — Netlify runs the build command
+  [services.app.netlify]
+  build = "npm run build"               # required for build path
+  install = "npm ci"                    # optional; prepended to build as the Netlify cmd
+  root = "apps/web"                     # optional base directory
+  publish = "dist"                      # optional publish dir (Netlify `dir`)
+  deploy = "build"                      # "build" (default when build is set), "git", or "upload"
 ```
 
+- `deploy` controls how source reaches Netlify on the build path.
+  `"build"` (default when `build` is set) zips the pinned checkout (scoped
+  to `root`) and POSTs it to Netlify's build API — no Netlify↔GitHub
+  connection required. `"git"` links the GitHub repo and triggers
+  `createSiteBuild` (requires the Stripe-managed Netlify account be
+  connected to GitHub). `"upload"` forces the static file-digest path.
+- With `deploy = "git"`, `source.repo` must be a public GitHub HTTPS
+  remote (`https://github.com/org/repo`).
 - Cloud resource names are `{stack}-{instance}-{service}` — also the Netlify
   site name; origins are `https://{stack}-{instance}-{service}.netlify.app`
   (the real URL is recorded from the deploy's `ssl_url`).
@@ -400,10 +428,11 @@ block is optional.
   shallow `git clone` of the pinned ref.
 - **Two layers (same as Render):** Stripe Projects provisions the
   `netlify/project` catalog resource and returns a Stripe-managed token + site
-  id; the Netlify REST API runs the file-digest deploy (SHA1 per file, PUT only
-  the files Netlify still needs) and polls to `ready`. No operator API token is
-  needed; `observe`/`down` use the Stripe resource registration.
-- `stackless logs` is not wired for Netlify in v0 — use the Netlify dashboard.
+  id; the Netlify REST API runs the file-digest deploy or build pipeline and
+  polls to `ready`. No operator API token is needed; `observe`/`down` use the
+  Stripe resource registration.
+- `stackless logs` returns a recent per-service window from the Netlify
+  deploy log API (`source: "netlify_api"`; no streaming).
 
 ## The interpolation namespace
 
@@ -559,8 +588,15 @@ that file is maintained from the registries.
 ### Platform
 
 - [x] `stackless logs` (local)
-- [x] `stackless logs` (render)
-- [ ] `stackless logs` (vercel)
+- [x] `stackless logs` (render — `render_api`)
+- [x] `stackless logs` (vercel — `vercel_api`)
+- [x] `stackless logs` (fly — `fly_events`)
+- [x] `stackless logs` (netlify — `netlify_api`)
+- [x] `stackless logs` (railway — `railway_api`)
+- [x] `stackless logs` (cloudflare — `cloudflare_api`)
+- [x] `stackless logs` (wordpress — `wordpress_api`)
+- [x] `stackless logs` (laravel-cloud — `laravel_cloud_api`)
+- [x] `stackless logs` (gitlab — `gitlab_api`)
 - [ ] fleet state plane (Turso Cloud)
 
 ## Checklist for agents writing a definition

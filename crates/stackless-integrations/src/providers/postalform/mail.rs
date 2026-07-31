@@ -32,15 +32,35 @@ impl Hostable for PostalFormMail {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["api_key"];
+    const OUTPUTS: &'static [&'static str] = &[
+        "api_base",
+        "billing",
+        "credentials",
+        "dashboard_url",
+        "env",
+        "environment",
+        "environment_variables",
+        "resource_id",
+        "webhooks",
+        "workspace_id",
+    ];
 }
 
 impl FamilyResource for PostalFormMail {
     type Config = PostalFormMailConfig;
     const PROVIDER_PREFIX: &'static str = "POSTALFORM";
-    // Provisional until pinned by `mise run discover postalform/mail`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("API_KEY", "api_key", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("API_BASE", "api_base", true),
+        ("BILLING", "billing", true),
+        ("CREDENTIALS", "credentials", true),
+        ("DASHBOARD_URL", "dashboard_url", true),
+        ("ENV", "env", true),
+        ("ENVIRONMENT", "environment", true),
+        ("ENVIRONMENT_VARIABLES", "environment_variables", true),
+        ("RESOURCE_ID", "resource_id", true),
+        ("WEBHOOKS", "webhooks", true),
+        ("WORKSPACE_ID", "workspace_id", true),
+    ];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<PostalFormMailConfig, IntegrationError> {
         let config = super::integration_config(ctx)?;
@@ -102,7 +122,7 @@ project = "project_1"
 provider = "postalform"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.api_key}" }
+env = { OUT = "${integrations.res.api_base}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -115,7 +135,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"POSTALFORM_API_KEY": "val_api_key"}),
+            serde_json::json!({"POSTALFORM_API_BASE": "val_api_base", "POSTALFORM_BILLING": "val_billing", "POSTALFORM_CREDENTIALS": "val_credentials", "POSTALFORM_DASHBOARD_URL": "val_dashboard_url", "POSTALFORM_ENV": "val_env", "POSTALFORM_ENVIRONMENT": "val_environment", "POSTALFORM_ENVIRONMENT_VARIABLES": "val_environment_variables", "POSTALFORM_RESOURCE_ID": "val_resource_id", "POSTALFORM_WEBHOOKS": "val_webhooks", "POSTALFORM_WORKSPACE_ID": "val_workspace_id"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -140,6 +160,18 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-postalform");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["api_key"], "val_api_key");
+        assert_eq!(payload.outputs["api_base"], "val_api_base");
+        assert_eq!(payload.outputs["billing"], "val_billing");
+        assert_eq!(payload.outputs["credentials"], "val_credentials");
+        assert_eq!(payload.outputs["dashboard_url"], "val_dashboard_url");
+        assert_eq!(payload.outputs["env"], "val_env");
+        assert_eq!(payload.outputs["environment"], "val_environment");
+        assert_eq!(
+            payload.outputs["environment_variables"],
+            "val_environment_variables"
+        );
+        assert_eq!(payload.outputs["resource_id"], "val_resource_id");
+        assert_eq!(payload.outputs["webhooks"], "val_webhooks");
+        assert_eq!(payload.outputs["workspace_id"], "val_workspace_id");
     }
 }

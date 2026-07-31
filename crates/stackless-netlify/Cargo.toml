@@ -16,6 +16,8 @@ reqwest = { version = "0.13.4", default-features = false, features = [
     "charset",
     "http2",
     "json",
+    "multipart",
+    "stream",
 ] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
@@ -29,6 +31,7 @@ tempfile = "3.27.0"
 thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["rt", "time", "macros", "sync"] }
 toml = "1.1.2"
+zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 stackless-stripe-projects = { workspace = true, features = ["test-support"] }

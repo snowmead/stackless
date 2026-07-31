@@ -1,0 +1,19 @@
+# Live smoke stack: GitLab Pages — commits fixtures/smoke/site under public/ and
+# runs a Pages CI job. Requires GITLAB_TOKEN (or Stripe-linked gitlab/project).
+#
+# Run: stackless up --on gitlab --file fixtures/smoke/gitlab/stackless.toml --name <inst>
+# One-time human setup (from THIS dir):
+#   cd fixtures/smoke/gitlab
+#   stripe projects init smoke-gitlab --skip-skills --accept-tos
+#   stripe projects link gitlab
+[stack]
+name = "smoke-gitlab"
+
+[services.web]
+source      = { repo = "https://github.com/snowmead/stackless", ref = "main" }
+root_origin = true
+health      = { path = "/", contains = "stackless-smoke-ok" }
+
+[services.web.gitlab]
+visibility = "public"
+root       = "fixtures/smoke/site"

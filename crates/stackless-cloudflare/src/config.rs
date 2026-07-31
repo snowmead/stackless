@@ -1,9 +1,5 @@
 //! Parsing the cloudflare-specific blocks of the definition (§1 schema).
 //!
-//! Phase 1 is Stripe-only: the substrate provisions `cloudflare/workers` and
-//! records a best-effort `*.workers.dev` origin. Deploying a service's source to
-//! Workers (Wrangler/API) is deferred.
-//!
 //! **Not** the Cloudflare catalog integrations in `stackless-integrations`
 //! (`cloudflare-r2`, `cloudflare-kv`, `cloudflare-workers` integration, etc.).
 
@@ -14,9 +10,13 @@ use crate::SUBSTRATE_NAME;
 use crate::error::CloudflareHostError;
 use stackless_stripe_projects::CatalogService;
 
-/// A service's `[services.X.cloudflare]` block. Optional — an absent block is valid.
+/// A service's `[services.X.cloudflare]` block. Optional — an absent block uses
+/// the repo root as the upload root.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ServiceCloudflare {}
+pub struct ServiceCloudflare {
+    /// Subdirectory of the cloned source used as the static root or worker script dir.
+    pub root: Option<String>,
+}
 
 /// The typed `cloudflare/workers` `--config`. Empty object is the catalog contract.
 #[derive(Debug, Serialize)]
@@ -44,17 +44,43 @@ pub fn service_cloudflare(
         .as_table()
         .ok_or_else(|| CloudflareHostError::ConfigInvalid {
             location: location.clone(),
-            detail: "must be a table { env? }".into(),
+            detail: "must be a table { root?, env? }".into(),
         })?;
     for key in table.keys() {
-        if key.as_str() != "env" {
+        if !matches!(key.as_str(), "root" | "env") {
             return Err(CloudflareHostError::ConfigInvalid {
                 location: location.clone(),
-                detail: format!("unknown key {key:?} (known: env)"),
+                detail: format!("unknown key {key:?} (known: root, env)"),
             });
         }
     }
-    Ok(ServiceCloudflare::default())
+    let root = optional_str(table, "root", &location)?;
+    Ok(ServiceCloudflare { root })
+}
+
+fn optional_str(
+    table: &toml::Table,
+    key: &str,
+    location: &str,
+) -> Result<Option<String>, CloudflareHostError> {
+    match table.get(key) {
+        None => Ok(None),
+        Some(value) => {
+            let Some(text) = value.as_str() else {
+                return Err(CloudflareHostError::ConfigInvalid {
+                    location: format!("{location}.{key}"),
+                    detail: "must be a string".into(),
+                });
+            };
+            if text.trim().is_empty() {
+                return Err(CloudflareHostError::ConfigInvalid {
+                    location: format!("{location}.{key}"),
+                    detail: "must not be empty".into(),
+                });
+            }
+            Ok(Some(text.to_owned()))
+        }
+    }
 }
 
 /// Whether `name` is a legal Workers script label: lowercase letter then
@@ -104,6 +130,13 @@ health = { path = "/", contains = "ok" }
             service_cloudflare(&no_block, "web").unwrap(),
             ServiceCloudflare::default()
         );
+    }
+
+    #[test]
+    fn root_is_parsed() {
+        let toml = BASE.to_owned() + "root = \"fixtures/smoke/site\"\n";
+        let cfg = service_cloudflare(&parse(&toml), "web").unwrap();
+        assert_eq!(cfg.root.as_deref(), Some("fixtures/smoke/site"));
     }
 
     #[test]

@@ -32,15 +32,27 @@ impl Hostable for RailwayBucket {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["bucket"];
+    const OUTPUTS: &'static [&'static str] = &[
+        "access_key_id",
+        "secret_access_key",
+        "bucket_name",
+        "endpoint",
+        "region",
+        "type",
+    ];
 }
 
 impl FamilyResource for RailwayBucket {
     type Config = RailwayBucketConfig;
     const PROVIDER_PREFIX: &'static str = "RAILWAY";
-    // Provisional until pinned by `mise run discover railway/bucket`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("BUCKET", "bucket", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("ACCESS_KEY_ID", "access_key_id", true),
+        ("SECRET_ACCESS_KEY", "secret_access_key", true),
+        ("BUCKET_NAME", "bucket_name", true),
+        ("ENDPOINT", "endpoint", true),
+        ("REGION", "region", false),
+        ("TYPE", "type", false),
+    ];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<RailwayBucketConfig, IntegrationError> {
         let config = super::integration_config(ctx)?;
@@ -102,7 +114,7 @@ project = "project_1"
 provider = "railway-bucket"
 [services.api]
 source = { repo = "r", ref = "main" }
-env = { OUT = "${integrations.res.bucket}" }
+env = { OUT = "${integrations.res.access_key_id}" }
 health = { path = "/health" }
 [services.api.local]
 run = "true"
@@ -115,7 +127,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"RAILWAY_BUCKET": "val_bucket"}),
+            serde_json::json!({"RAILWAY_ACCESS_KEY_ID": "val_access_key_id", "RAILWAY_SECRET_ACCESS_KEY": "val_secret_access_key", "RAILWAY_BUCKET_NAME": "val_access_key_id_name", "RAILWAY_ENDPOINT": "val_endpoint", "RAILWAY_REGION": "val_region", "RAILWAY_TYPE": "val_type"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -140,6 +152,6 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-railway-bucket");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
-        assert_eq!(payload.outputs["bucket"], "val_bucket");
+        assert_eq!(payload.outputs["access_key_id"], "val_access_key_id");
     }
 }

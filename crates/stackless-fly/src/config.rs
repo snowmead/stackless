@@ -4,10 +4,11 @@
 //! (agent-trap protection, mirroring stackless-render). The same parsers feed
 //! the Substrate impl so config is read in exactly one place.
 //!
-//! v0 Fly is **image-only**: a service declares a prebuilt container `image`
-//! (and the port it listens on). Building from source via a remote builder is a
-//! later enhancement — the deploy lifecycle (provision app → machine →
-//! health → teardown) is identical either way.
+//! Two deploy paths:
+//! - **Image** (`image = "..."`): explicit fast path — deploy a prebuilt container.
+//! - **Source-build** (no `image`): clone the pinned ref and build via Fly's
+//!   remote builder (`flyctl deploy --remote-only`), then run the resulting
+//!   machine. Optional `dockerfile` (default `Dockerfile`).
 
 use serde::Serialize;
 use stackless_core::def::StackDef;
@@ -23,17 +24,44 @@ const DEFAULT_MEMORY_MB: i64 = 256;
 /// Default port the container listens on if `[services.X.fly].internal_port` is
 /// omitted (Fly's own convention for autodetected web services).
 const DEFAULT_INTERNAL_PORT: i64 = 8080;
+const DEFAULT_DOCKERFILE: &str = "Dockerfile";
 
-/// A service's `[services.X.fly]` block: a prebuilt image plus the machine
-/// shape to run it as.
+/// How a Fly service reaches a runnable image.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FlyDeployMode {
+    /// Prebuilt container image (explicit fast path).
+    Image { image: String },
+    /// Build from the pinned checkout via Fly remote builder.
+    Build { dockerfile: String },
+}
+
+/// A service's `[services.X.fly]` block.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServiceFly {
-    pub image: String,
+    pub mode: FlyDeployMode,
     pub internal_port: u16,
     /// Overrides the image entrypoint/cmd (Fly `config.init.cmd` / container
-    /// args), e.g. `["-text=ok", "-listen=:5678"]`.
+    /// args), e.g. `["-text=ok", "-listen=:5678"]`. Image path only.
     pub cmd: Option<Vec<String>>,
     pub guest: FlyGuest,
+}
+
+impl ServiceFly {
+    /// Prebuilt image ref when `mode` is [`FlyDeployMode::Image`].
+    pub fn image(&self) -> Option<&str> {
+        match &self.mode {
+            FlyDeployMode::Image { image } => Some(image.as_str()),
+            FlyDeployMode::Build { .. } => None,
+        }
+    }
+
+    /// Dockerfile path (repo-relative) when `mode` is [`FlyDeployMode::Build`].
+    pub fn dockerfile(&self) -> Option<&str> {
+        match &self.mode {
+            FlyDeployMode::Build { dockerfile } => Some(dockerfile.as_str()),
+            FlyDeployMode::Image { .. } => None,
+        }
+    }
 }
 
 /// The Fly machine guest (CPU/memory preset).
@@ -81,19 +109,42 @@ pub fn service_fly(def: &StackDef, service: &str) -> Result<ServiceFly, FlyError
     for key in block.keys() {
         if !matches!(
             key.as_str(),
-            "image" | "internal_port" | "cmd" | "env" | "cpu_kind" | "cpus" | "memory_mb"
+            "image"
+                | "dockerfile"
+                | "internal_port"
+                | "cmd"
+                | "env"
+                | "cpu_kind"
+                | "cpus"
+                | "memory_mb"
         ) {
             return Err(FlyError::ConfigInvalid {
                 location: location.clone(),
                 detail: format!(
-                    "unknown key {key:?} (known: image, internal_port, cmd, env, cpu_kind, \
-                     cpus, memory_mb)"
+                    "unknown key {key:?} (known: image, dockerfile, internal_port, cmd, env, \
+                     cpu_kind, cpus, memory_mb)"
                 ),
             });
         }
     }
 
-    let image = required_str(block, "image", &location)?;
+    let image = opt_str(block, "image");
+    let dockerfile = opt_str(block, "dockerfile");
+    let mode = match (image, dockerfile) {
+        (Some(_image), Some(_)) => {
+            return Err(FlyError::ConfigInvalid {
+                location: location.clone(),
+                detail: "set either `image` (prebuilt fast path) or `dockerfile` / omit both for \
+                         source-build — not both"
+                    .into(),
+            });
+        }
+        (Some(image), None) => FlyDeployMode::Image { image },
+        (None, dockerfile) => FlyDeployMode::Build {
+            dockerfile: dockerfile.unwrap_or_else(|| DEFAULT_DOCKERFILE.to_owned()),
+        },
+    };
+
     let internal_port =
         u16::try_from(opt_int(block, "internal_port", &location)?.unwrap_or(DEFAULT_INTERNAL_PORT))
             .map_err(|_| FlyError::ConfigInvalid {
@@ -107,6 +158,13 @@ pub fn service_fly(def: &StackDef, service: &str) -> Result<ServiceFly, FlyError
         });
     }
     let cmd = opt_string_array(block, "cmd", &location)?;
+    if cmd.is_some() && matches!(mode, FlyDeployMode::Build { .. }) {
+        return Err(FlyError::ConfigInvalid {
+            location: format!("{location}.cmd"),
+            detail: "`cmd` is only supported with `image` (source-build uses the Dockerfile CMD)"
+                .into(),
+        });
+    }
     let guest = FlyGuest {
         cpu_kind: opt_str(block, "cpu_kind").unwrap_or_else(|| DEFAULT_CPU_KIND.to_owned()),
         cpus: u32::try_from(opt_int(block, "cpus", &location)?.unwrap_or(DEFAULT_CPUS)).map_err(
@@ -125,7 +183,7 @@ pub fn service_fly(def: &StackDef, service: &str) -> Result<ServiceFly, FlyError
     };
 
     Ok(ServiceFly {
-        image,
+        mode,
         internal_port,
         cmd,
         guest,
@@ -158,18 +216,6 @@ pub fn is_valid_app_name(name: &str) -> bool {
         _ => return false,
     }
     chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-}
-
-fn required_str(table: &toml::Table, key: &str, location: &str) -> Result<String, FlyError> {
-    table
-        .get(key)
-        .and_then(|value| value.as_str())
-        .filter(|s| !s.trim().is_empty())
-        .map(str::to_owned)
-        .ok_or_else(|| FlyError::ConfigInvalid {
-            location: location.to_owned(),
-            detail: format!("missing or empty `{key}`"),
-        })
 }
 
 fn opt_str(table: &toml::Table, key: &str) -> Option<String> {
@@ -240,10 +286,10 @@ cmd = ["-text=stackless-smoke-ok", "-listen=:5678"]
 "#;
 
     #[test]
-    fn parses_service_block_with_defaults_and_overrides() {
+    fn parses_image_block_with_defaults_and_overrides() {
         let def = parse(BASE);
         let svc = service_fly(&def, "web").unwrap();
-        assert_eq!(svc.image, "hashicorp/http-echo");
+        assert_eq!(svc.image(), Some("hashicorp/http-echo"));
         assert_eq!(svc.internal_port, 5678);
         assert_eq!(
             svc.cmd.as_deref(),
@@ -256,6 +302,81 @@ cmd = ["-text=stackless-smoke-ok", "-listen=:5678"]
         );
         assert_eq!(svc.guest, FlyGuest::default());
         assert_eq!(stack_region(&def), "iad");
+        assert!(matches!(svc.mode, FlyDeployMode::Image { .. }));
+    }
+
+    #[test]
+    fn source_build_defaults_dockerfile_when_image_absent() {
+        let def = parse(
+            r#"
+[stack]
+name = "atto"
+[services.web]
+source = { repo = "r", ref = "main" }
+env = {}
+health = { path = "/" }
+[services.web.fly]
+internal_port = 8080
+"#,
+        );
+        let svc = service_fly(&def, "web").unwrap();
+        assert_eq!(
+            svc.mode,
+            FlyDeployMode::Build {
+                dockerfile: "Dockerfile".into()
+            }
+        );
+        assert_eq!(svc.dockerfile(), Some("Dockerfile"));
+        assert_eq!(svc.image(), None);
+    }
+
+    #[test]
+    fn source_build_honors_explicit_dockerfile() {
+        let def = parse(
+            r#"
+[stack]
+name = "atto"
+[services.web]
+source = { repo = "r", ref = "main" }
+env = {}
+health = { path = "/" }
+[services.web.fly]
+dockerfile = "fixtures/smoke/fly-site/Dockerfile"
+"#,
+        );
+        let svc = service_fly(&def, "web").unwrap();
+        assert_eq!(svc.dockerfile(), Some("fixtures/smoke/fly-site/Dockerfile"));
+    }
+
+    #[test]
+    fn image_and_dockerfile_together_rejected() {
+        let toml = BASE.replace(
+            "image = \"hashicorp/http-echo\"",
+            "image = \"hashicorp/http-echo\"\ndockerfile = \"Dockerfile\"",
+        );
+        let err = service_fly(&parse(&toml), "web").unwrap_err();
+        assert!(matches!(err, FlyError::ConfigInvalid { .. }));
+        assert!(err.to_string().contains("either `image`"));
+    }
+
+    #[test]
+    fn cmd_rejected_on_source_build() {
+        let def = parse(
+            r#"
+[stack]
+name = "atto"
+[services.web]
+source = { repo = "r", ref = "main" }
+env = {}
+health = { path = "/" }
+[services.web.fly]
+dockerfile = "Dockerfile"
+cmd = ["server"]
+"#,
+        );
+        let err = service_fly(&def, "web").unwrap_err();
+        assert!(matches!(err, FlyError::ConfigInvalid { .. }));
+        assert!(err.to_string().contains("`cmd`"));
     }
 
     #[test]
@@ -288,13 +409,6 @@ image = "nginx"
             stackless_core::fault::Fault::code(&err),
             crate::codes::FLY_CONFIG_INVALID
         );
-    }
-
-    #[test]
-    fn missing_image_is_rejected() {
-        let toml = BASE.replace("image = \"hashicorp/http-echo\"", "");
-        let err = service_fly(&parse(&toml), "web").unwrap_err();
-        assert!(matches!(err, FlyError::ConfigInvalid { .. }));
     }
 
     #[test]

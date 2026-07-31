@@ -30,15 +30,19 @@ impl Hostable for KERNELProject {
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &["api_key"];
+    const OUTPUTS: &'static [&'static str] =
+        &["api_base_url", "api_key", "dashboard_url", "project_id"];
 }
 
 impl FamilyResource for KERNELProject {
     type Config = KERNELProjectConfig;
     const PROVIDER_PREFIX: &'static str = "KERNEL";
-    // Provisional until pinned by `mise run discover kernel/project`.
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
-        &[("API_KEY", "api_key", true)];
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
+        ("API_BASE_URL", "api_base_url", true),
+        ("API_KEY", "api_key", true),
+        ("DASHBOARD_URL", "dashboard_url", true),
+        ("PROJECT_ID", "project_id", true),
+    ];
 
     fn build_config(ctx: &ProvisionContext<'_>) -> Result<KERNELProjectConfig, IntegrationError> {
         let config = super::integration_config(ctx)?;
@@ -116,7 +120,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"KERNEL_API_KEY": "val_api_key"}),
+            serde_json::json!({"KERNEL_API_BASE_URL": "val_api_base_url", "KERNEL_API_KEY": "val_api_key", "KERNEL_DASHBOARD_URL": "val_dashboard_url", "KERNEL_PROJECT_ID": "val_project_id"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -141,6 +145,9 @@ run = "true"
             .unwrap();
         assert_eq!(resource.resource_kind, "integration-kernel");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
+        assert_eq!(payload.outputs["api_base_url"], "val_api_base_url");
         assert_eq!(payload.outputs["api_key"], "val_api_key");
+        assert_eq!(payload.outputs["dashboard_url"], "val_dashboard_url");
+        assert_eq!(payload.outputs["project_id"], "val_project_id");
     }
 }

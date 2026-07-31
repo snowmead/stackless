@@ -20,15 +20,15 @@ hand and expect them to stay correct.
 | `--on` | Crate | Notes |
 |---|---|---|
 | `local` | `stackless-local` | Host processes + daemon reverse proxy; supports `--source` / `--dirty` |
-| `render` | `stackless-render` | Stripe + Render REST: web services / static sites, deploy poll, health, logs |
-| `vercel` | `stackless-vercel` | Stripe + Vercel REST: git-backed projects, deploy poll, health |
-| `fly` | `stackless-fly` | Stripe + Fly Machines API; v0 **image-only** |
-| `netlify` | `stackless-netlify` | Stripe + Netlify REST; v0 **static upload** |
-| `railway` | `stackless-railway` | Stripe `railway/hosting`; Phase 1 provision (deploy API later) |
-| `cloudflare` | `stackless-cloudflare` | Stripe `cloudflare/workers` host substrate (distinct from Cloudflare *integrations*) |
-| `wordpress` | `stackless-wordpress` | Stripe `wordpress.com/site`; Phase 1 provision |
-| `laravel-cloud` | `stackless-laravel-cloud` | Stripe `laravel_cloud/application`; Phase 1 provision |
-| `gitlab` | `stackless-gitlab` | Stripe `gitlab/project`; Phase 1 provision |
+| `render` | `stackless-render` | Stripe + Render REST: web/static deploy, health, logs (`render_api`) |
+| `vercel` | `stackless-vercel` | Stripe + Vercel REST: git/upload deploy, health, logs (`vercel_api`) |
+| `fly` | `stackless-fly` | Stripe + Fly Machines (image) or flyctl remote builder (source-build); logs (`fly_events`) |
+| `netlify` | `stackless-netlify` | Stripe + Netlify REST: static upload or build/git deploy; logs (`netlify_api`) |
+| `railway` | `stackless-railway` | Stripe `railway/hosting` + GraphQL image/GitHub deploy, health, logs (`railway_api`) |
+| `cloudflare` | `stackless-cloudflare` | Stripe `cloudflare/workers` + Workers upload (not CF catalog integrations); logs (`cloudflare_api`) |
+| `wordpress` | `stackless-wordpress` | Stripe `wordpress.com/site` + WP.com REST static deploy, health, logs (`wordpress_api`) |
+| `laravel-cloud` | `stackless-laravel-cloud` | Stripe `laravel_cloud/application` + JSON:API deploy, health, logs (`laravel_cloud_api`) |
+| `gitlab` | `stackless-gitlab` | Stripe `gitlab/project` + Pages CI deploy, health, job logs (`gitlab_api`) |
 
 Cloud substrates share the Stripe Projects + provider-API pattern
 described in [ARCHITECTURE.md](ARCHITECTURE.md) §4.

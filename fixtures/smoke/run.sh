@@ -38,6 +38,26 @@ if [ "$substrate" = "netlify" ] && [ -z "${NETLIFY_AUTH_TOKEN:-}" ]; then
   echo "skip live-smoke (netlify): NETLIFY_AUTH_TOKEN not configured (run stripe projects link netlify or set the secret)"
   exit 0
 fi
+if [ "$substrate" = "railway" ] && [ -z "${RAILWAY_TOKEN:-}${RAILWAY_API_TOKEN:-}" ]; then
+  echo "skip live-smoke (railway): RAILWAY_TOKEN not configured (run stripe projects link railway or set the secret)"
+  exit 0
+fi
+if [ "$substrate" = "cloudflare" ] && [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+  echo "skip live-smoke (cloudflare): CLOUDFLARE_API_TOKEN not configured (run stripe projects link cloudflare or set the secret)"
+  exit 0
+fi
+if [ "$substrate" = "wordpress" ] && [ -z "${WORDPRESS_COM_ACCESS_TOKEN:-}${WORDPRESS_ACCESS_TOKEN:-}" ]; then
+  echo "skip live-smoke (wordpress): WORDPRESS_COM_ACCESS_TOKEN not configured"
+  exit 0
+fi
+if [ "$substrate" = "laravel-cloud" ] && [ -z "${LARAVEL_CLOUD_API_TOKEN:-}" ]; then
+  echo "skip live-smoke (laravel-cloud): LARAVEL_CLOUD_API_TOKEN not configured"
+  exit 0
+fi
+if [ "$substrate" = "gitlab" ] && [ -z "${GITLAB_TOKEN:-}${GITLAB_ACCESS_TOKEN:-}" ]; then
+  echo "skip live-smoke (gitlab): GITLAB_TOKEN not configured (run stripe projects link gitlab or set the secret)"
+  exit 0
+fi
 
 inst="${prefix}-$(date +%s)"
 
@@ -51,17 +71,57 @@ assert doc.get("ok") is True, doc
 '
 }
 
+# Expected `logs` provenance for cloud hosts that implement fetch_logs.
+# Empty means "ok:true envelope only" (e.g. local / Phase-1 hosts).
+expected_logs_source() {
+  case "$1" in
+    vercel) echo vercel_api ;;
+    fly) echo fly_events ;;
+    netlify) echo netlify_api ;;
+    render) echo render_api ;;
+    railway) echo railway_api ;;
+    cloudflare) echo cloudflare_api ;;
+    wordpress) echo wordpress_api ;;
+    laravel-cloud) echo laravel_cloud_api ;;
+    gitlab) echo gitlab_api ;;
+    *) echo "" ;;
+  esac
+}
+
+# Assert logs --json: ok, every service carries the expected source, and at
+# least one service returns a non-empty window (DoD for listed cloud hosts).
+assert_logs_window() {
+  local expected_source="$1"
+  python3 -c '
+import json, sys
+expected = sys.argv[1]
+doc = json.load(sys.stdin)
+assert doc.get("ok") is True, doc
+services = doc.get("services") or []
+assert services, ("no services in logs envelope", doc)
+for svc in services:
+    assert svc.get("source") == expected, (svc, expected)
+assert any(svc.get("lines") for svc in services), ("empty log window", doc)
+' "$expected_source"
+}
+
 up=0
 # shellcheck disable=SC2086  # $extra is intentionally word-split
 cargo run -q -p stackless -- up --name "$inst" --on "$substrate" --file "$fixture" $extra --json | assert_json_ok || up=$?
 
-# Live coverage for the machine contract on a real substrate: status and logs
-# must emit ok:true envelopes (logs may report per-service source:"unavailable"
-# but the envelope itself must be well-formed). Only gated when up succeeded.
+# Live coverage for the machine contract on a real substrate: status must emit
+# ok:true; logs must emit ok:true, and for hosts with wired fetch_logs the
+# envelope must carry the expected source plus a non-empty window. Only gated
+# when up succeeded.
 post=0
 if [ "$up" -eq 0 ]; then
   cargo run -q -p stackless -- status "$inst" --json | assert_json_ok || post=$?
-  cargo run -q -p stackless -- logs "$inst" --tail 20 --json | assert_json_ok || post=$?
+  logs_source="$(expected_logs_source "$substrate")"
+  if [ -n "$logs_source" ]; then
+    cargo run -q -p stackless -- logs "$inst" --tail 20 --json | assert_logs_window "$logs_source" || post=$?
+  else
+    cargo run -q -p stackless -- logs "$inst" --tail 20 --json | assert_json_ok || post=$?
+  fi
 fi
 
 # Teardown always runs; verified-gone is part of `down`. Exit non-zero if either
