@@ -15,6 +15,47 @@ Generate with:
 
 ## Unreleased
 
+## v0.3.0 — 2026-07-31
+
+Phase-1 host substrates with real deploy/health/logs, pinned Stripe catalog
+credential envelopes, and publish/CI hardening.
+
+### Added
+
+- Host substrates: Railway, Cloudflare Workers, WordPress.com, Laravel Cloud,
+  and GitLab deploy/health/logs; Fly and Netlify source-build paths (#90).
+- discover-apply / provisional allowlist CI for catalog `OUTPUT_FIELDS`
+  envelopes (#90).
+- Flue-style Copy Prompt hero CTA on the marketing site (#89).
+
+### Changed
+
+- Pin Stripe catalog envelopes across integrations; hold externally blocked
+  providers instead of registering them (#90, issues #91–#97).
+
+### Fixed
+
+- npm Trusted Publishing: upgrade npm in CI; skip publish when the version
+  already exists.
+- cargo-dist Release no longer triggers on `sdks/go/*` tags.
+- Document Actions write permissions required for cargo-dist releases.
+
+### Commits
+
+- [a2061ec](https://github.com/snowmead/stackless/commit/a2061ec7234bacdfb6ad83d4221ddf895cc85fa6) fix(ci): upgrade npm for Trusted Publishing publish.
+- [15447ae](https://github.com/snowmead/stackless/commit/15447aeff3a38b4372c826d229f5ffd839af49e6) fix(ci): stop cargo-dist Release on sdks/go tags
+- [4f6bfee](https://github.com/snowmead/stackless/commit/4f6bfee67b43b3ccecf4f09bce7092d829553eb4) docs: require Actions write permissions for cargo-dist releases
+- [221b4f8](https://github.com/snowmead/stackless/commit/221b4f881261bd07af5c0a422119b59d53b53c5d) fix(ci): skip npm publish when version already exists
+- [21b57de](https://github.com/snowmead/stackless/commit/21b57dea0d4fbcf8ef22d1766050fb6d6d5b50b1) feat(web): Flue-style Copy Prompt hero CTA (#89)
+- [c37dcb1](https://github.com/snowmead/stackless/commit/c37dcb1e21b4f767dbefe9537511833f8a10689b) Pin Stripe catalog envelopes and host substrates (#90)
+
+### Install
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/download/v0.3.0/stackless-installer.sh | sh
+stackless --version
+```
+
 ## v0.2.2 — 2026-07-31
 
 CLI self-update for dist installs, Stripe Projects plugin 0.30.0 with

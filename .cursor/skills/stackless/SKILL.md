@@ -20,7 +20,7 @@ branching.
 
 ```bash
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/latest/download/stackless-installer.sh | sh
-stackless --version   # expect 0.2.2 or newer
+stackless --version   # expect 0.3.0 or newer
 ```
 
 **From source (this repo):**

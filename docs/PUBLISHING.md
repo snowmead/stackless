@@ -1,7 +1,7 @@
 # Publishing stackless packages
 
 Release surfaces, lockstep with `[workspace.package].version` (today
-`0.2.2`):
+`0.3.0`):
 
 | Surface | Package | How it ships |
 | --- | --- | --- |
@@ -58,16 +58,16 @@ consume the environment SDK, but it is published in the crates wave below.
 4. Open a PR; wait for CI including the `sdk` job (`mise run sdk-test` locally).
 5. Merge, then from the release commit:
    ```bash
-   git tag v0.2.2
-   git tag sdks/go/v0.2.2
-   git push origin v0.2.2 sdks/go/v0.2.2
+   git tag v0.3.0
+   git tag sdks/go/v0.3.0
+   git push origin v0.3.0 sdks/go/v0.3.0
 ```
-   `v0.2.2` triggers cargo-dist + `publish-packages`. `sdks/go/v0.2.2` is for
+   `v0.3.0` triggers cargo-dist + `publish-packages`. `sdks/go/v0.3.0` is for
    the Go module proxy only (not a GitHub Release).
 6. Confirm:
    - GitHub Release + installer (cargo-dist on `v*`)
    - `publish-packages` workflow green (crates.io, npm, PyPI)
-   - `go list -m github.com/snowmead/stackless/sdks/go@v0.2.2` resolves
+   - `go list -m github.com/snowmead/stackless/sdks/go@v0.3.0` resolves
 
 Manual re-publish of an existing tag (e.g. language SDKs after crates.io
 already shipped):
@@ -75,7 +75,7 @@ already shipped):
 ```bash
 # Use --ref main so the latest publish scripts run; pypi env must allow main
 # (or dispatch from a v* tag that contains the fixed workflow).
-gh workflow run publish-packages.yml --ref main -f tag=v0.2.2
+gh workflow run publish-packages.yml --ref main -f tag=v0.3.0
 ```
 
 ---
@@ -128,8 +128,8 @@ Later waves only need a version bump + tag.
   && python -m twine upload dist/*)
 
 # Go (tag only)
-git tag sdks/go/v0.2.2
-git push origin sdks/go/v0.2.2
+git tag sdks/go/v0.3.0
+git push origin sdks/go/v0.3.0
 ```
 
 ---
