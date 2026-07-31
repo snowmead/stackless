@@ -60,9 +60,9 @@ stackless verify demo --json
 stackless down demo --json
 ```
 
-- `--on <substrate>` is required at creation. Deploy-ready hosts: `local`,
-`render`, `vercel`, `fly`, `netlify`. Resume by name; substrate is fixed
-after create.
+- `--on <substrate>` is required at creation. Supported hosts and
+catalog integrations: [PROVIDERS.md](PROVIDERS.md). Resume by name;
+substrate is fixed after create.
 - Cloud needs provider API keys (see `stackless doctor`); paid resources
 need `--confirm-paid`.
 - Local edit loop: `--source svc=/path` pins a service to a checkout
@@ -223,6 +223,7 @@ shell). Gates live in `mise.toml` `[tasks]`:
 
 
 Plain `cargo build` / `cargo test` also work. Architecture:
-[ARCHITECTURE.md](ARCHITECTURE.md). Contributor map and provider tooling:
+[ARCHITECTURE.md](ARCHITECTURE.md). Supported providers:
+[PROVIDERS.md](PROVIDERS.md). Contributor map and provider tooling:
 [CLAUDE.md](CLAUDE.md). Releases: [CHANGELOG.md](CHANGELOG.md). Cursor Cloud
 notes: [AGENTS.md](AGENTS.md).

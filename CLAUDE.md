@@ -5,9 +5,9 @@ A Rust workspace (edition 2024); `crates/stackless` is the CLI.
 
 ## Project docs — read the relevant one before working in that area
 
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** — the architecture in numbered sections;
-  code comments cite it as `§N`. Read before touching core / engine / the
-  `Substrate` & integration seams.
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — systems map and lifecycle pipelines
+  in numbered sections (with Mermaid); code comments cite it as `§N`. Read
+  before touching core / engine / the `Substrate` & integration seams.
 - **[VISION.md](VISION.md)** — founding vision: what stackless is and why.
 - **[README.md](README.md)** — What / Why / How (agent-first overview).
 - **[docs/SCHEMA.md](docs/SCHEMA.md)** — the complete `stackless.toml` schema

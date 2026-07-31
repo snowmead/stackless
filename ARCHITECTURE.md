@@ -1,170 +1,166 @@
 # stackless — architecture
 
-Companion to [VISION.md](VISION.md). This document is being designed
-section by section; sections marked **TBD** have not been discussed yet
-and contain no decisions. Nothing here is speculative — if it's written
-as decided, it was decided deliberately.
+Companion to [VISION.md](VISION.md). This document is the systems map: how
+the binary is wired, how the lifecycle pipeline runs, and where each seam
+lives. Schema detail lives in [docs/SCHEMA.md](docs/SCHEMA.md). Provider
+onboarding is in [docs/ADDING-A-PROVIDER.md](docs/ADDING-A-PROVIDER.md).
+Code comments cite sections as `ARCHITECTURE.md §N` — section numbers are
+stable.
+
+Nothing here is speculative. §5 is explicitly phased/TBD; everything else
+is decided and reflected in the workspace.
+
+---
+
+## System map
+
+```mermaid
+flowchart TB
+  CLI["stackless CLI / Client"]
+  Engine["Engine<br/>plan · execute · checkpoint"]
+  Store[("SQLite state store")]
+  Sub["dyn Substrate"]
+  Int["stackless-integrations"]
+  Stripe["stackless-stripe-projects"]
+  Daemon["stackless-daemon"]
+  Git["stackless-git"]
+
+  CLI --> Engine
+  Engine --> Store
+  Engine --> Sub
+  Sub --> Int
+  Int --> Stripe
+  Sub -->|local| Daemon
+  Sub --> Git
+  Daemon -->|reaper spawns down| CLI
+```
+
+**Layers.** The CLI/`Client` opens the store, resolves secrets, builds a
+substrate from the binary registry, and drives the engine. The engine is
+substrate-agnostic: it plans steps, checkpoints, and reconciles via
+`observe`. Substrates own materialization, hooks, start, and health.
+Integrations are not substrates — substrates call
+`stackless-integrations` for provision/observe/destroy, which drives the
+Stripe Projects catalog. Only the local substrate needs the daemon
+(proxy, supervision, reaper host).
+
+### End-to-end `up` pipeline
+
+```mermaid
+flowchart TD
+  A["Client::up"] --> B["secrets + validate_all"]
+  B --> C["substrates::build"]
+  C --> D["Engine::up"]
+  D --> E["claim_lock + renew_lease"]
+  E --> F["StackDef::plan"]
+  F --> G{"for each Step"}
+  G -->|checkpoint Present| H["skip"]
+  G -->|absent| I["Substrate::execute"]
+  I --> J["record_checkpoint"]
+  H --> G
+  J --> G
+  G -->|done| K["renew_lease"]
+```
+
+Step kinds, in plan order per dependency-graph topo node
+(`engine/plan.rs`):
+
+| `StepKind` | Prefix | Role |
+|---|---|---|
+| `ProvisionIntegration` | `integration:` | catalog resource for each integration |
+| `Materialize` | `materialize:` | source checkout or source-ref journal |
+| `Setup` | `setup:` | once-ish toolchain/deps (if declared) |
+| `Prepare` | `prepare:` | every `up`, deps ready → before start |
+| `Start` | `start:` | process / cloud deploy |
+| `HealthGate` | `health:` | public-origin health |
+
+There is no separate resume verb: `up` on an existing name resumes.
+Recorded steps whose `observe` returns `Present` are skipped.
+
+`down` runs the journal in reverse (`destroy` + `observe` survivors) and
+tombstones the instance. `verify` is outside the plan — see §7.
+
+---
 
 ## 0. Posture (v0)
 
-- **Rust core, pluggable provisioning.** One Rust workspace, one
-  `stackless` binary. The core owns everything the vision is opinionated
-  about: identity, state, lifecycle, wiring, verification, leases,
-  teardown. Substrate backends may drive external CLIs where those earn
-  their keep — the Stripe Projects CLI is the internal catalog driver
-  for cloud provisioning and spend tracking (Render, Vercel, Clerk,
-  …). Each cloud substrate also talks to the provider's REST API for
-  what Stripe Projects cannot express: interpolated env vars, deploy
-  triggers, deploy polling, health waits, and teardown verification.
-  Operators never declare "use Stripe Projects" in `stackless.toml` —
-  stackless always does when a catalog resource is needed. This split is
-  proven by atto-web's `cloud-env.ts` (Render) and mirrored on Vercel.
+v0 ships the lifecycle layer in the system map above. Destination trust
+boundary work (§5) stays additive.
+
+- **Rust core, pluggable provisioning.** One workspace, one `stackless`
+  binary. The core owns identity, state, lifecycle, wiring, verification,
+  leases, and teardown. Substrate backends may drive external CLIs where
+  those earn their keep — the Stripe Projects CLI is the internal catalog
+  driver for cloud provisioning and spend tracking. Each cloud substrate
+  also talks to the provider's REST API for what Stripe Projects cannot
+  express: interpolated env vars, deploy triggers, deploy polling, health
+  waits, and teardown verification. Operators never declare "use Stripe
+  Projects" in `stackless.toml` — stackless always does when a catalog
+  resource is needed.
 - **The trust boundary is sequenced, not shipped, in v0.** Default-deny
   egress and secret blinding remain the destination (VISION.md), but v0
-  ships the lifecycle layer first. v0 keeps the seam that makes the
-  boundary additive later: every resource an instance owns (process,
-  container, volume, cloud service) is named and labeled with the
-  instance name, so wrapping an instance in its own network later is an
-  addition, not a redesign.
+  keeps the seam: every resource an instance owns is named and labeled
+  with the instance name, so wrapping an instance in its own network later
+  is an addition, not a redesign.
 - **v0 secrets posture:** secrets flow as env vars, sourced from the
   Stripe Projects vault / pulled env files, visible to the operator,
-  protected by being test-scoped credentials (the atto model today).
+  protected by being test-scoped credentials.
+
+---
 
 ## 1. Stack definition
 
+The definition subsystem turns `stackless.toml` into an ordered step plan.
+Full field reference: [docs/SCHEMA.md](docs/SCHEMA.md).
+
+```mermaid
+flowchart LR
+  Toml["stackless.toml"] --> Parse["def model"]
+  Parse --> Interp["interp refs"]
+  Interp --> Graph["DependencyGraph"]
+  Graph --> Plan["Step plan"]
+```
+
 Decided:
 
-- **Format: TOML**, in a `stackless.toml`. Rust-native culture, serde,
-  comments; the schema is deliberately shallow enough that TOML's
-  nesting limits don't bite.
-- **A service is substrate-independent identity + wiring + health**;
-  how a substrate runs it is nested per substrate
-  (`[services.api.local]` with a `run` command,
-  `[services.api.render]` with repo/runtime/build/start,
-  `[services.web.vercel]` with framework/build settings).
-- **Code sources are git references** (`repo` + `ref` per service).
-  `up` materializes each service's source into instance-owned space
-  (clone/worktree). A per-invocation override pins a service to an
-  existing checkout instead — the agent's "run my dirty worktree" loop
-  is first-class, but it is an explicit, recorded choice, never ambient
-  discovery, and it is **local-only**: cloud substrates deploy committed
-  refs, so `up --on render` or `up --on vercel` with `--source` fails
-  validation, remediation "commit and push, then pin the ref". With
-  `--source … --dirty`, each pin's working tree (tracked modifications
-  plus untracked non-ignored files) is snapshotted into instance-owned
-  space as a content-addressed synthetic commit; services run from the
-  snapshot, so parallel instances may share the same checkout path.
-  Bare `--source` uses the checkout in place (single active instance
-  per path). Declared sources are symmetric with cloud deploys (repo +
-  ref) and pass the stranger test: one repo with a `stackless.toml` is
-  enough. On Vercel, `source.repo` must be a public GitHub HTTPS remote
-  (`https://github.com/org/repo`).
-- **Wiring is interpolation, and the dependency graph is derived from
-  it.** Env values reference a namespace evaluated per instance per
-  substrate: `${instance.name}`, `${services.api.origin}`,
-  `${secrets.KEY}`. If service A's env references service B, that *is*
-  the dependency edge — startup order is derived from wiring, never
-  declared separately (nothing to drift). Origins are derivable from
-  the instance name alone on local and Render (Vercel uses the
-  deployment URL after `start`), so mutual references between services
-  (api ↔ web CORS) are not cycles.
-
-- **Two per-service lifecycle hooks, both optional.** `setup` runs once
-  after the service's source is materialized (toolchain, deps —
-  `mise install`, `bun install`). `prepare` runs on every `up`, after
-  the service's dependencies are ready and before the service itself
-  starts (migrations, seed). `prepare` runs on **every substrate**: on
-  cloud substrates it executes on the operator's machine from the
-  materialized source, with the instance's env exported, sequenced before
-  services deploy. Stacks whose services migrate on boot (atto-server runs
-  sqlx migrations in `serve`) simply omit migration from `prepare` —
-  migrate-on-boot is the less common pattern, so stackless cannot require
-  it. Both hooks are contractually safe to re-run: resume re-runs an
-  interrupted `setup` in place (warm caches survive, and `mise install`/`bun
-  install` are naturally idempotent), and `prepare` already runs on every
-  `up`.
+- **Format: TOML**, in a `stackless.toml`. The schema is deliberately
+  shallow; serde + comments fit Rust-native culture.
+- **A service is substrate-independent identity + wiring + health**; how
+  a substrate runs it is nested per substrate (`[services.api.local]`,
+  `[services.api.render]`, `[services.web.vercel]`, …).
+- **Code sources are git references** (`repo` + `ref` per service). `up`
+  materializes each service's source into instance-owned space. A
+  per-invocation `--source` pin uses an existing checkout — local-only;
+  cloud substrates deploy committed refs, so `--source` with
+  `--on render|vercel|…` fails validation. With `--source … --dirty`,
+  each pin's working tree is snapshotted as a content-addressed synthetic
+  commit in instance-owned space. Bare `--source` uses the checkout in
+  place (single active instance per path). On Vercel, `source.repo` must
+  be a public GitHub HTTPS remote.
+- **Wiring is interpolation; the dependency graph is derived from it.**
+  Env values reference a namespace evaluated per instance per substrate.
+  If service A's env references an integration, that *is* an ordering
+  edge. `${services.X.origin}` is recorded as wiring but is **not** a
+  topo edge — origins are derivable from the instance name alone on
+  local/Render (Vercel uses the deployment URL after `start`), so mutual
+  CORS references (api ↔ web) are not cycles. No separate `depends_on`.
+- **Two optional per-service lifecycle hooks.** `setup` runs after
+  materialization (toolchain, deps). `prepare` runs on every `up`, after
+  dependencies are ready and before the service starts (migrations, seed).
+  On cloud substrates, `prepare` executes on the operator's machine from
+  materialized source with the instance env exported. Both hooks are
+  contractually safe to re-run.
 - **Health gates `up`; `verify` proves.** Every service declares a
-  `health` check (HTTP path + expected status/content, with retry
-  budget); `up` refuses to report success until all pass — invariant 2.
-  The stack declares one `verify` command (atto: the smoke tier), run
-  by the `verify` verb with the instance's origins/env exported. One
-  command in v0; named tiers can be added later without breaking the
-  schema.
+  `health` check; `up` refuses success until all pass. The stack declares
+  one `verify` command (named tiers can be added later) run by the
+  `verify` verb with origins/env exported.
 - **Hosted integrations separate logical name from catalog provider.**
   `[integrations.<name>]` is the interpolation slot
   (`${integrations.<name>.<output>}`); `provider` names the catalog
-  adapter (e.g. `neon` → its Stripe Projects catalog reference),
-  provisioned via Stripe Projects internally. Each provider declares
-  **managed** (global config only, runs on the provider's cloud) or
-  **host-bound** (tied to explicit stack hosts, optional per-host
-  overrides). Every entry in the integrations registry is first-class.
-  Provider-specific config is validated by `stackless-integrations`;
-  `${integrations.*}` references are ordering edges in the derived graph.
-
-### Schema reference (the atto dogfood as the example)
-
-```toml
-# stackless.toml — lives in any repo (the stranger test: this file is enough)
-
-[stack]
-name = "atto"
-
-[stack.render]
-region = "oregon"
-
-[stack.projects.stripe]
-# Recorded after the first `up` provisions hosted integrations/cloud resources.
-project = "project_61UqVKJia4fs..."
-
-[stack.verify]
-# The proof contract, run by `stackless verify` (§7).
-run = "bun e2e/smoke.ts"
-env = { ATTO_STACKLESS = "1", ATTO_E2E_WEB_ORIGIN = "${services.web.origin}", ATTO_E2E_API_ORIGIN = "${services.api.origin}", ATTO_E2E_TENANT_SLUG = "${instance.name}", CLERK_SECRET_KEY = "${integrations.clerk.secret_key}", VITE_CLERK_PUBLISHABLE_KEY = "${integrations.clerk.publishable_key}" }
-
-[secrets]
-# v0 posture (§0): operator-visible, test-scoped. Resolved from the stack's
-# Stripe Projects vault pull, with a local env-file override for
-# hand-managed keys.
-required = ["GITHUB_PACKAGES_TOKEN"]
-
-[integrations.clerk]
-provider = "clerk"
-app_name = "${stack.name}-${instance.name}"
-credential_set = "development"
-organizations = true
-
-# ── services: identity + wiring + health, substrate run config nested ──
-
-[services.api]
-source = { repo = "https://github.com/haaku-co/atto-server", ref = "main" }
-setup = "mise install"     # once, after materialization
-prepare = "just migrate-run && just seed"      # every up, deps ready → before start
-env = { CORS_ALLOWED_ORIGINS = "${services.web.origin}", TENANT_SLUG = "${instance.name}", CLERK_SECRET_KEY = "${integrations.clerk.secret_key}", RUST_LOG = "info" }
-health = { path = "/health", contains = "ok" }   # status defaults to 200
-
-  [services.api.local]
-  run = "cargo run"        # $PORT injected; runs in the materialized source dir
-
-  [services.api.render]
-  runtime = "rust"
-  build = "cargo build --release"
-  start = "./target/release/atto-server"
-  env = { SQLX_OFFLINE = "true", RUSTUP_TOOLCHAIN = "1.94.0" }   # overlays the common env
-
-[services.web]
-source = { repo = "https://github.com/haaku-co/atto-web", ref = "main" }
-setup = "mise install && bun install"
-root_origin = true         # also claims http://{instance}.localhost (§3)
-env = { VITE_API_ORIGIN = "${services.api.origin}", VITE_CLERK_PUBLISHABLE_KEY = "${integrations.clerk.publishable_key}" }
-health = { path = "/", contains = 'id="root"' }   # the SPA shell check, productized
-
-  [services.web.local]
-  run = "bunx vite --host 127.0.0.1 --port $PORT --strictPort"
-
-  [services.web.render]
-  static = { build = "bun install && bun run build", publish = "./dist", spa_rewrite = true }
-  env = { BUN_VERSION = "1.3.11", GITHUB_PACKAGES_TOKEN = "${secrets.GITHUB_PACKAGES_TOKEN}" }
-```
+  adapter. Each provider declares **managed** (global config only) or
+  **host-bound** (tied to stack hosts). Provider config is validated by
+  `stackless-integrations`; `${integrations.*}` references are ordering
+  edges.
 
 ### The interpolation namespace
 
@@ -172,404 +168,284 @@ health = { path = "/", contains = 'id="root"' }   # the SPA shell check, product
 |---|---|---|
 | `${stack.name}` | the stack's declared name | useful for hosted integration names |
 | `${instance.name}` | the instance's name | the one identity everything derives from |
-| `${services.X.origin}` | substrate-appropriate origin | local: `http://x.{instance}.localhost:<port>`; Render: `https://{stack}-{instance}-x.onrender.com`; Vercel: deployment URL after `start` (best-effort `https://{stack}-{instance}-x.vercel.app` before deploy). Derived from the name alone on local/Render; mutual references (api ↔ web) are not cycles |
-| `${secrets.KEY}` | resolved secret value | for renaming; the `secrets = [...]` list injects same-named vars |
-| `${integrations.clerk.secret_key}` | Clerk secret key | selected from Stripe Projects' Clerk environments JSON (`CLERK_AUTH_ENVIRONMENTS` or `CLERK_ENVIRONMENTS`) |
-| `${integrations.clerk.publishable_key}` | Clerk publishable key | selected from Stripe Projects' Clerk environments JSON (`CLERK_AUTH_ENVIRONMENTS` or `CLERK_ENVIRONMENTS`) |
-| `$PORT` | OS-allocated port | injected into local `run` commands only |
+| `${services.X.origin}` | substrate-appropriate origin | local: `http://x.{instance}.localhost:<port>`; Render: `https://{stack}-{instance}-x.onrender.com`; Vercel: deployment URL after `start`. Mutual service refs are not topo edges |
+| `${secrets.KEY}` | resolved secret value | `secrets.required` injects same-named vars |
+| `${integrations.X.<output>}` | provider output | from integration checkpoint payloads |
+| `$PORT` | OS-allocated port | injected into local `run` only — not interpolation |
 
-Resolution rules: substrate `env` blocks overlay the common `env`; any
-reference from service A to service B *is* the dependency edge that
-orders startup and `prepare`; references to anything undeclared fail
-validation at parse time, not at `up` time.
+Resolution rules: substrate `env` overlays the common `env`; references
+to anything undeclared fail validation at parse time, not at `up` time.
 
-Deliberately absent from the schema: lease duration (a per-invocation
-`--lease` flag with substrate defaults, not stack policy), the
-dirty-worktree override (per-invocation `--source api=../atto-server`,
-local-only, recorded in the manifest, never in the definition),
-`image:` runners and third-party egress declarations (both reserved
-seams for later phases), and any `depends_on` key — a dependency must
-be expressed in wiring, and an ordering need with no wiring expression
-is a definition bug. `depends_on` could be added compatibly later, but
-only a real stack proving the need reopens that door; a declared-
-separately edge is exactly the drift the derived graph exists to
-prevent.
+Deliberately absent from the schema: lease duration (`--lease` flag with
+substrate defaults), dirty-worktree override (per-invocation, local-only,
+recorded in the manifest), `image:` runners and third-party egress
+(reserved seams), and any `depends_on` key.
 
-Secrets resolution: when `[stack.projects.stripe].project` is recorded,
-stackless pulls the Stripe Projects vault (`.env` / `.env.<instance>`)
-as the base; backend-backed project variables
-(`stripe projects variables set/list/delete`) hold shared team secrets.
-A gitignored `.stackless.env` next to `stackless.toml` overlays the
-vault — the file wins. Local-only stacks without a Stripe anchor stay
-env-file-only. A `required` key that resolves from neither fails before
-anything provisions. `stackless doctor` runs `stripe projects --preflight`
-to surface auth, ToS, and provider-link blockers before `up`.
+**Secrets resolution.** When `[stack.projects.stripe].project` is
+recorded, stackless pulls the Stripe Projects vault as the base; a
+gitignored `.stackless.env` next to `stackless.toml` overlays it (file
+wins). Local-only stacks without a Stripe anchor stay env-file-only. A
+`required` key that resolves from neither fails before anything
+provisions. `stackless doctor` runs `stripe projects --preflight` to
+surface auth/ToS/provider-link blockers before `up`.
 
-Known soft spot, to revisit before implementation freezes it:
-`runtime = "rust"` under a `render` block passes Render's own
-runtime vocabulary through — acceptable inside a substrate-specific
-block, but worth saying out loud.
+---
 
 ## 2. CLI surface, instance identity & state
 
-Decided (generalized from `cloud-env.ts`'s manifest model and the
-vision's invariants; flag anything to veto):
+The control plane: verbs, identity, locks, and the durable journal.
 
-- **Verbs.** `stackless up [--name <name>]`, `down <name>`, `verify
-  <name>`, `status <name>`, `list`, `logs <name>` (locally the daemon
-  captures service output per instance; on Render it fetches recent
-  per-service logs through the Render REST API's logs endpoint — recent
-  window, no streaming in v0; Vercel has no `logs` verb in v0 — use the
-  dashboard; agents need logs to debug a failed health gate, which bites
-  hardest on slow cloud deploys). `up` on an existing
-  instance resumes it (invariant 3) — there is no separate resume
-  verb. **`--name` is optional at creation** (`{stack.name}-{uuid}`
-  when omitted); resume needs only `--name`. **The substrate is chosen
-  at creation only** (`--on local|render|vercel|fly|netlify`, required on first
-  `up` for
-  a name), becomes part of the instance's
-  identity in the state store, and is never asked for again —
-  `verify`/`down`/`status` resolve it by name. Names are unique across
-  substrates: creating `demo` on Render while a local `demo` exists is
-  an error, not a sibling (uniqueness is scoped to the state store —
-  per machine by default, fleet-wide when the shared plane is
-  configured). `up --on <s>` fails at validation if any service lacks
-  the config that substrate requires. All commands are
-  non-interactive, support `--json`, and use exit codes an agent can
-  branch on. Anything that spends money requires explicit
-  per-invocation consent (`--confirm-paid`, the proven pattern).
-- **One operation at a time per instance.** Every mutating verb takes
-  a per-instance operation lock before touching anything; a second
-  invocation fails fast with a stable code rather than interleaving
-  checkpoint writes — agents retry stuck commands, so overlapping
-  `up`s are a likely event, not a theoretical one. The lock records
-  its holder's PID and process start time, so a crashed holder is
-  detected with the same liveness check the daemon uses for service
-  processes. The reaper respects the lock (§6): an instance
-  mid-operation is never reaped, even past lease expiry.
-- **Parallel `up` across different instance names** is supported. Two
-  cross-process file locks serialize the shared writers that are not
-  per-instance: Stripe Projects CLI invocations keyed by canonical
-  `definition_dir` (`.projects/state.json`, `env use`, `env --pull`),
-  and bare git cache clone/fetch keyed by source URL. Per-instance
-  checkouts (`sources/<instance>/`), processes, proxy routes, and
-  containers remain parallel. **Parallel agents should use one git
-  worktree per agent** so each has a distinct `definition_dir` and
-  Stripe lock; reusing the same checkout with bare `--source` on multiple
-  active instances is refused (`engine.source_override.shared`) — use
-  `--source … --dirty` to snapshot into instance-owned space instead, or
-  one git worktree per agent so each has a distinct checkout path.
-- **Errors are an agent-facing contract, not diagnostics.** The vision
-  requires "every error stating what to do next"; agents are the
-  primary users, so every error stackless emits carries three parts:
-  *what* failed (the step and instance), *why* (the observed cause,
-  not a guess), and *how to proceed* (a concrete command, flag, or
-  fix). In `--json` mode errors serialize as structured objects with
-  `schema_version`, a **stable machine-readable code**, optional `step`
-  and `instance`, a `context` object (service, hook, command,
-  log_path, log_tail, … — only fields with observables), and
-  `remediation` — agents branch on codes, never parse prose (the
-  lesson of `cloud-env.ts` branching on the Stripe plugin's
-  `JSON_REQUIRES_CONFIRMATION`-style codes). Codes are versioned API
-  surface: renaming one is a breaking change. **stdout** carries
-  final success/failure envelopes; **stderr** carries NDJSON `up`
-  progress (`step_started`/`step_skipped`/`step_completed`/`step_failed`)
-  in `--json` mode so stdout stays parseable.
-- **Identity.** The instance name is given at creation (`--name`, or
-  auto-assigned `{stack.name}-{uuid}` when omitted), validated against
-  a DNS-safe pattern (it becomes hostnames and cloud service names —
-  same constraint `cloud-env.ts` enforces), and persisted in the
-  instance manifest. Nothing is ever re-derived from the working
-  directory or other ambient context at runtime (invariant 1 — the
-  lesson of `.atto-env`'s guard rails).
-- **State: a SQL state store.** Instance records, leases, operation
-  locks, and the per-step checkpoint journal `cloud-env.ts` proved
-  (every step that creates a resource records it before moving on, so
-  an interrupted `up` resumes and an interrupted `down` knows
-  everything it must hunt down) live in a Turso database. By default
-  it is a local file in the per-user XDG state dir (not inside any
-  checkout — instances own their materialized code, so no checkout is
-  "the" home); no cloud account is ever required for that. Pointing
-  stackless at a Turso Cloud database is the opt-in **fleet plane**:
-  multiple operator machines share one state store, name uniqueness
-  becomes a `UNIQUE` constraint, and lease/lock claims become
-  single-statement compare-and-swap `UPDATE`s — the multi-agent
-  conflict case most developers never hit. Crate choice, recorded to
-  veto: the `turso` crate was the intended local engine, **revised
-  2026-06-11 during implementation** — a spike against turso 0.6.1
-  proved it takes an exclusive per-process file lock: a second process
-  cannot even open the database while one is connected, idle or not,
-  `experimental_multiprocess_wal` included. CLI invocations and the
-  daemon must share the state store concurrently by design, so the
-  local engine is `rusqlite` (bundled SQLite, WAL, busy timeout)
-  behind the same `store.rs` seam — same file format, same SQL, a
-  contained substitution; revisit when turso ships real multi-process
-  support. Fleet mode is unchanged: it needs
-  synchronous CAS against the primary, which today only the `libsql`
-  crate's remote mode provides — the `turso` crate's cloud story is
-  asynchronous last-push-wins sync, which structurally cannot express
-  a lease (and its sync engine carries open correctness bugs:
-  turso#6617's LWW mega-issue, #6363, #5640). Verified 2026-06-11: the
-  `turso` crate has no synchronous remote mode, no open issue or PR
-  proposes one, and Turso's own docs direct over-the-wire access to
-  `libsql` — so the split is the design, not a stopgap; revisit only
-  if upstream posture changes.
-- **Teardown leaves a tombstone, not amnesia.** After a verified
-  `down` (or reap), the instance's state rows flip to a tombstone and
-  its log files survive until a GC window expires — an agent whose
-  instance was reaped overnight can still ask `logs`/`status` why.
-  Runtime and billable resources are verifiably gone; records on the
-  operator's own disk bill nobody, and the vision's "without residue"
-  is about the former.
-- **Resume reconciles against observation, not memory** (invariant 4):
-  on resume, each recorded step is re-checked against the substrate
-  (does the container exist? does the Render service answer?) rather
-  than trusted from the manifest alone — the manifest says where to
-  look, the substrate says what's true.
+```mermaid
+flowchart LR
+  subgraph verbs [CLI verbs]
+    up[up]
+    down[down]
+    verify[verify]
+    status[status / list]
+    logs[logs]
+  end
+  Engine[Engine]
+  Store[(Store)]
+  Sub[Substrate]
+  VerifyCmd["stack.verify command"]
 
-## 3. Local substrate
+  up --> Engine
+  down --> Engine
+  Engine --> Store
+  Engine --> Sub
+  verify --> VerifyCmd
+  verify --> Store
+  status --> Store
+  logs --> Sub
+```
 
 Decided:
 
-- **App services run as host processes** from commands declared in the
-  definition. Toolchain provisioning is the repo's business (e.g.
-  `mise install` in a setup hook) — stackless stays unopinionated.
-- **One wiring story:** everything meets at `localhost` ports allocated
-  per instance. stackless's built-in Rust reverse proxy plays the
-  portless role: `{instance}.localhost` (and per-service subdomains)
-  route to the allocated ports, so origins are derivable from the
-  instance name alone and nothing collides.
-- **The schema separates what a service *is* from how a substrate *runs*
-  it.** A service is name + wiring + env + health contract; *local* runs
-  it via its command, *Render* via repo/runtime config. A container
-  `image:` runner for app services can be added later (e.g. when the
-  boundary work wants topology control) without breaking any definition
-  written today.
-- **Teardown is verified locally too, mirroring §4's contract:**
-  services get SIGTERM then SIGKILL on their process group, confirmed
-  dead by PID + start time; the proxy route is withdrawn. `down` exits
-  non-zero listing survivors if anything remains — invariant 4 does not
-  have a cloud-only clause. The state rows then flip to the §2 tombstone.
+- **Verbs.** `up [--name]`, `down`, `verify`, `status`, `list`, `logs`
+  (local: daemon-captured output; Render: recent REST window; Vercel/Fly/
+  Netlify: not wired in v0 — use the dashboard). `up` on an existing
+  instance resumes. **`--name` is optional at creation**
+  (`{stack.name}-{uuid}` when omitted). **The substrate is chosen at
+  creation only** (`--on local|render|vercel|fly|netlify|…`), becomes
+  part of instance identity, and is never asked again. Names are unique
+  across substrates in the state store. `up --on <s>` fails if any
+  service lacks that substrate's config. All commands are
+  non-interactive, support `--json`, and use agent-branchable exit codes.
+  Anything that spends money requires `--confirm-paid`.
+- **One operation at a time per instance.** Mutating verbs take a
+  per-instance operation lock (PID + process start time); a second
+  invocation fails fast. The reaper respects the lock (§6).
+- **Parallel `up` across different names** is supported. Cross-process
+  file locks serialize shared writers: Stripe Projects CLI invocations
+  keyed by `definition_dir`, and bare git cache clone/fetch keyed by
+  source URL. Parallel agents should use one git worktree each; bare
+  `--source` on multiple active instances is refused — use `--dirty` or
+  distinct checkouts.
+- **Errors are an agent-facing contract.** Every error carries *what*
+  failed, *why*, and *how to proceed*. In `--json` mode:
+  `schema_version`, stable `code`, optional `step`/`instance`, `context`,
+  `remediation`. Agents branch on codes, never prose. **stdout** carries
+  final envelopes; **stderr** carries NDJSON `up` progress in `--json`
+  mode.
+- **Identity.** DNS-safe instance name, persisted in the manifest. Nothing
+  is re-derived from the working directory at runtime.
+- **State: a SQL state store.** Instance records, leases, operation
+  locks, and the per-step checkpoint journal live in SQLite under the
+  per-user XDG state dir. Local engine: `rusqlite` (bundled SQLite, WAL)
+  — the `turso` crate's exclusive per-process file lock cannot serve
+  concurrent CLI + daemon. Opt-in **fleet plane**: `libsql` remote mode
+  for shared CAS leases/locks across operator machines.
+- **Teardown leaves a tombstone.** After verified `down`/reap, rows flip
+  to tombstone and logs survive a GC window; billable resources are gone.
+- **Resume reconciles against observation.** On resume, each recorded
+  step is re-checked via `substrate.observe` — the manifest says where to
+  look; the substrate says what's true.
+
+### On-disk layout
+
+```mermaid
+flowchart TB
+  Root["$XDG_STATE_HOME/stackless"]
+  Root --> DB["state.db"]
+  Root --> Sock["daemon.sock"]
+  Root --> Sources["sources/instance/service/"]
+  Root --> Logs["logs/instance/"]
+  Root --> Cache["cache/git/"]
+  DB --> T1["instances"]
+  DB --> T2["leases"]
+  DB --> T3["op_locks"]
+  DB --> T4["checkpoints"]
+  DB --> T5["reap_attempts"]
+```
+
+Definition-dir sidecars (not in XDG): `.stackless.env`, Stripe
+`.projects/`, pulled `.env` / `.env.<instance>`.
+
+---
+
+## 3. Local substrate
+
+App services run as host processes from commands in the definition.
+Toolchain provisioning is the repo's business (`setup` hooks). Everything
+meets at `localhost` ports allocated per instance; the built-in reverse
+proxy plays the portless role so origins derive from the instance name
+alone.
+
+```mermaid
+flowchart TB
+  Local[LocalSubstrate]
+  Daemon[Daemon unix socket]
+  Proxy[Host-header proxy]
+  Sup[PID supervision]
+  Reaper[Lease reaper]
+
+  Local -->|RouteSet / Supervise| Daemon
+  Daemon --> Proxy
+  Daemon --> Sup
+  Daemon --> Reaper
+  Reaper -->|"stackless down --json"| DownPath[verified down path]
+```
+
+- **Schema separates what a service *is* from how a substrate *runs*
+  it.** A container `image:` runner can be added later without breaking
+  definitions written today.
+- **Teardown is verified:** SIGTERM then SIGKILL on the process group,
+  confirmed dead by PID + start time; proxy route withdrawn. `down` exits
+  non-zero listing survivors if anything remains. Then tombstone (§2).
 
 Rationale for host processes over containers-only: the container-build
-penalty on macOS (virtiofs I/O on cargo builds) is paid on every
-instance an agent cycles, while the fidelity containers would buy
-(Linux, release builds) is exactly what the Render substrate exists to
-prove — VISION.md invariant 9.
+penalty on macOS is paid on every agent cycle, while the fidelity
+containers would buy is exactly what cloud substrates exist to prove.
 
 ### The daemon (local substrate only)
 
-One small resident component per user hosts everything that must
-outlive a CLI invocation: the reverse proxy, instance process
-bookkeeping, and the lease reaper. Cloud substrates need none of this —
-Render keeps services alive and lease expiry there is enforced by the
-same reaper from the operator's machine.
+One resident component per user hosts everything that must outlive a CLI
+invocation: reverse proxy, process bookkeeping, and the lease reaper.
+Cloud substrates need none of this for process keep-alive — but the same
+reaper enforces **all** substrates' leases from the operator machine.
 
-- **Same binary, no separate artifact.** The daemon is the `stackless`
-  CLI binary running an internal `daemon run` subcommand. Distribution and
-  upgrades are the CLI's story; there is no second thing to install or
-  version. The Rust SDK's `Client::system()` resolves that CLI via
-  `STACKLESS_BIN` / `PATH` (it does not spawn the linking consumer binary).
-- **Spin-up is on demand.** Commands that need the daemon connect to a
-  unix socket at a fixed path in the user's state dir. If nothing
-  answers, the CLI spawns the daemon detached (under a lock file, so
-  concurrent commands race safely) and waits for the socket. No setup
-  step, no "is the daemon running" knowledge required — the portless
-  `ensure-proxy` pattern, internalized.
-- **Boot persistence.** On first start the daemon registers itself as a
-  launchd user agent (macOS) / systemd user unit (Linux) with
-  keep-alive, pointing at the stable binary path. This is what makes
-  the lease a system guarantee across reboots and crashes. If
-  registration is refused, stackless degrades loudly: leases are then
-  enforced only when the daemon happens to be running, and `status`
-  says so.
-- **Instance processes are not the daemon's children.** Service
-  processes are spawned in their own sessions and survive a daemon
-  restart; the daemon supervises by recorded PID + process start time
-  (PID-reuse-safe), with stdout/stderr captured to per-instance log
-  files in the state dir — size-capped, rotated with a small number of
-  generations kept, so disk is bounded by construction and the tail an
-  agent needs to debug a health gate is always in the newest
-  generation.
-- **Upgrade = restart + re-adopt, and re-adoption is just resume.**
-  The socket handshake carries the daemon's version; when a newer CLI
-  meets an older daemon, it tells it to drain and exit, and the next
-  connection (or launchd) starts the new binary. A starting daemon
-  always reconciles manifests against observed reality — the same
-  invariant-3/4 machinery `up` uses — re-adopting live processes and
-  noting dead ones. Nothing is checkpointed specially for upgrades;
-  the manifest is already the truth.
-- **v0 supervision policy: observe, don't restart.** A crashed service
-  marks the instance unhealthy in `status`; agents re-run `up`
-  (resume) to recover. Auto-restart is a later policy knob, not a v0
-  behavior.
+- **Same binary.** `stackless` running internal `daemon run`. The Rust
+  SDK's `Client::system()` resolves that CLI via `STACKLESS_BIN` / `PATH`.
+- **Spin-up on demand.** Commands connect to a unix socket in the state
+  dir; if nothing answers, the CLI spawns the daemon under a lock and
+  waits. No setup step.
+- **Boot persistence.** On first start the daemon registers as a launchd
+  user agent (macOS) / systemd user unit (Linux). If registration is
+  refused, stackless degrades loudly: leases are enforced only while the
+  daemon happens to be running, and `status` says so.
+- **Instance processes are not the daemon's children.** Spawned in their
+  own sessions; supervised by recorded PID + start time (PID-reuse-safe);
+  stdout/stderr to size-capped, rotated log files.
+- **Upgrade = restart + re-adopt.** Socket handshake carries version;
+  newer CLI drains older daemon. Starting daemon reconciles manifests
+  against observed reality — re-adopting live processes, noting dead ones.
+- **v0 supervision: observe, don't restart.** A crashed service marks the
+  instance unhealthy; agents re-run `up` to recover.
 
 ### Ports, origins, routing
 
-- **The proxy is HTTP-only in v0**, listening on one fixed unprivileged
-  port — configurable globally, never per instance, because origins
-  must stay derivable from the instance name alone:
-  `http://{service}.{instance}.localhost:<port>`. Browsers and modern
-  resolvers send `*.localhost` to loopback without /etc/hosts entries.
-  TLS mode (:443 + a trusted local CA, one-time sudo) is a later
-  opt-in, exactly as portless treats it.
-- **One service may declare itself the stack's root origin** and
-  additionally claims `http://{instance}.localhost:<port>` (atto: web).
-- **Service ports are OS-allocated at `up`** (bind `:0`, record in the
-  manifest) and injected as `$PORT` alongside the interpolated env.
-- **The proxy routes on the Host header** from a routing table the
-  daemon updates as instances come and go.
+- **HTTP-only proxy in v0**, one fixed unprivileged port (configurable
+  globally, never per instance): origins stay
+  `http://{service}.{instance}.localhost:<port>`. TLS mode is a later
+  opt-in.
+- **One service may declare `root_origin`** and also claim
+  `http://{instance}.localhost:<port>`.
+- **Ports are OS-allocated at `up`** (bind `:0`) and injected as `$PORT`.
+- **Routes on the Host header** from a table the daemon updates as
+  instances come and go.
 
-## 4. Render substrate
+---
 
-Generalizes `cloud-env.ts` wholesale — every mechanism here is already
-proven there.
+## 4. Cloud substrates
+
+All cloud substrates share one pattern: **Stripe Projects provisions and
+tracks spend; the provider REST API operates** (env, deploy, poll,
+health, teardown verify). Shared helpers live in `stackless-cloud`
+(prepare, health, credentials, checkpoints). Registration is one row in
+`crates/stackless/src/substrates.rs`.
+
+```mermaid
+sequenceDiagram
+  participant Eng as Engine
+  participant Sub as CloudSubstrate
+  participant SP as StripeProjects
+  participant API as ProviderREST
+  Eng->>Sub: execute Start
+  Sub->>SP: catalog add / env membership
+  Sub->>API: push env + deploy + poll
+  Sub->>API: health on public origin
+  Note over Eng,API: down reverses: destroy via Stripe/API then observe survivors
+```
+
+Shared rules:
 
 - **One long-lived Stripe project per stack** holds hosted integrations
-  and cloud instances as named environments (plugin v0.19+). The project
-  id is recorded at `[stack.projects.stripe].project` after first
-  creation — the reproducibility anchor that lets any fresh checkout
-  re-link with a `pull`.
-- **Per-instance resources derive from the definition:** services →
-  `render/web-service` or `render/static-site` per their
-  `[services.X.render]` config, and integrations with `provider = "clerk"`
-  → `clerk/auth` (optionally enabling Clerk Organizations and slugs for
-  app/test fixtures). Cloud resource names are
-  `{stack}-{instance}-{service}`, DNS-safe by construction (§2 name
-  rules).
-- **Stripe Projects provisions and tracks spend; the Render REST API
-  fills its gaps:** interpolated env vars, SPA rewrite routes, deploy
-  triggers, deploy polling with per-kind timeouts (a Rust release build
-  can take 30+ minutes on small tiers), and the health wait. JSON-mode
-  CLI calls with the plain-mode fallbacks `cloud-env.ts` had to learn
-  are part of the backend, not rediscovered per stack. The Render API
-  key resolves from env or a scoped key file.
-- **Sequencing per instance:** provision hosted integrations → run
-  `prepare` hooks from the operator's machine → push env vars → deploy
-  services → health gate → `up`.
-- **Every step checkpoints into the manifest before proceeding** (§2);
-  interrupted runs resume rather than duplicate.
-- **Teardown is verified, dependents-first:** remove services, delete the
-  named environment — then query the Render API for survivors and
-  **exit non-zero listing them if anything that bills or holds state
-  remains** (the vision demands refusal here, not the warning
-  `cloud-env.ts` settled for). Spend is printed after every `up` and
+  and cloud instances as named environments. Project id is recorded at
+  `[stack.projects.stripe].project` after first creation.
+- **Per-instance resource names:** `{stack}-{instance}-{service}`,
+  DNS-safe by construction (§2).
+- **Sequencing:** provision integrations → `prepare` on the operator
+  machine → push env → deploy → health gate.
+- **Every step checkpoints before proceeding**; interrupted runs resume
+  rather than duplicate.
+- **Teardown is verified, dependents-first**; exit non-zero if anything
+  that bills or holds state remains. Spend is printed after cloud `up` /
   `down`.
-- **Stripe Projects is the authoritative inventory for recovery.** If
-  the state store and reality drift — a lost local state file, a
-  hand-deleted service — `stripe projects pull` re-links a fresh
-  checkout or machine to the stack's project, and `services list
-  --json` is the inventory the §2 reconcile-against-observation
-  machinery compares against, so orphans are found and either
-  re-adopted or torn down rather than leaked. The fleet plane (§2)
-  makes this rare; this path exists so it is never fatal.
+- **Stripe Projects is the authoritative inventory for recovery** when
+  the state store and reality drift (`stripe projects pull`,
+  `services list --json`).
 - **Paid tiers are never auto-confirmed** — `--confirm-paid` per
-  invocation (§2), backed by **hard spend caps**: the backend sets a
-  per-provider spend limit on the stack's project
-  (`stripe projects billing update --limit <amount> --provider render`)
-  so a leak is bounded even if reaping fails. Tested present in plugin
-  v0.19.0 on 2026-06-11 — available from day one.
-- **Plugin surface, pinned at v0.29.0** (committed snapshots in
-  `crates/stackless-stripe-projects/tests/fixtures/`; nightly watcher
-  opens upgrade PRs): `--json`, `--yes`, `--preflight` on `init`/`add`
-  (aggregated blockers), backend-backed **project variables**
-  (`variables set/list/delete`), member-aware `env add/remove`
-  (`--resource` / `--variable --env-key`), `billing update --limit`,
-  `rotate`, `catalog`/`search`. **Not yet shipped** — documented
-  `--no-interactive`/`--auto-confirm`/`--quiet` and shareable
-  `import`/`share` URLs. Until those land, plain-mode fallbacks remain
-  for `--json` confirmation/auth quirks. Environment membership uses
-  explicit `env add <name> --resource`; project variables use
-  `variables set` + `env add --variable`.
+  invocation, backed by hard per-provider spend caps on the stack
+  project.
+- **No root-origin alias on cloud**; each service keeps its own public
+  URL. Setup is typically skipped (cloud builds own the toolchain);
+  prepare still runs on the operator machine from a shallow clone.
+- **Plugin surface** pinned via committed snapshots in
+  `crates/stackless-stripe-projects/tests/fixtures/` (nightly watcher
+  opens upgrade PRs).
 
-## 4b. Vercel substrate
+### Render (§4)
 
-Mirrors §4's Stripe + provider-API split for
-[Vercel](https://vercel.com) git-backed projects.
+- Catalog: `render/web-service` or `render/static-site` from
+  `[services.X.render]`.
+- Stripe provisions; Render REST fills env, SPA rewrite, deploy trigger,
+  deploy polling (Rust release builds can take 30+ minutes on small
+  tiers), health wait. API key from env or scoped key file.
+- `stackless logs` fetches a recent per-service window (no streaming).
 
-- **Same Stripe project per stack** as Render and hosted integrations
-  (§4). Per-instance resources are named environments; cloud resource
-  names remain `{stack}-{instance}-{service}`.
-- **Catalog resources:** services → `vercel/project` with
-  `{"name": "<resource-name>"}` only at provision time; optional
-  stack-level `vercel/pro` when `[stack.vercel].plan = "pro"` (paid →
-  `--confirm-paid`). Hobby projects are free-tier catalog resources.
-- **Stripe Projects provisions; the Vercel REST API operates:** after
-  Stripe creates/links the project, stackless pushes interpolated env
-  vars, creates a git deployment from the pinned `ref` and
-  `[services.X.vercel]` build settings, polls until `READY`, runs the
-  health gate against the deployment URL, and on `down` deletes the
-  project and polls until gone. The Vercel API token resolves from
-  `VERCEL_TOKEN` or a scoped `.vercel-token` file next to the
-  definition (`VERCEL_TEAM_ID` optional for team-scoped projects).
-- **No root-origin alias on cloud** (same as Render): every service
-  keeps its own deployment URL; `${services.X.origin}` resolves
-  accordingly.
-- **Setup is skipped** (cloud builds run in Vercel's pipeline);
-  **prepare** runs on the operator's machine from a shallow git clone,
-  same as Render (§1).
-- **Spend caps and summaries** follow §4 (`billing update --provider
-  vercel`; spend line printed after cloud `up`/`down`).
-- **`stackless logs` is not wired for Vercel in v0** — use the Vercel
-  dashboard; Render and local substrates support the `logs` verb.
+### 4b. Vercel
 
-## 4c. Fly substrate
+- Catalog: `vercel/project` (`{"name": …}`); optional stack-level
+  `vercel/pro` when `[stack.vercel].plan = "pro"`.
+- After Stripe links the project: push env, git deployment from pinned
+  `ref` + `[services.X.vercel]` build settings, poll until `READY`,
+  health-gate on deployment URL. Token: `VERCEL_TOKEN` or `.vercel-token`.
+- `logs` not wired in v0.
 
-Mirrors §4's Stripe + provider-API split for [Fly.io](https://fly.io)
-container apps. v0 is **image-only**.
+### 4c. Fly
 
-- **Same Stripe project per stack** as Render/Vercel and hosted
-  integrations (§4); cloud resource names remain
-  `{stack}-{instance}-{service}` — which is also the Fly app name, so it
-  must be a legal Fly app name (`^[a-z][a-z0-9-]{2,62}$`).
-- **Catalog resource:** services → `flyio/app` with
-  `{"app_name": "<resource-name>"}` at provision time. `flyio/app` is
-  usage-billed (freeform pricing) → always `--confirm-paid`.
-- **Stripe Projects provisions; the Fly Machines REST API operates:**
-  after Stripe creates the app, stackless allocates its public IPs
-  (shared IPv4 + IPv6), creates a machine running the service's prebuilt
-  `image` with the interpolated env and an always-on HTTP service
-  (443/80 → the container's `internal_port`), polls the machine to
-  `started`, health-gates on `https://{app}.fly.dev`, and on `down`
-  removes the Stripe resource (Stripe tears down the app). The deploy token
-  is **Stripe-managed and returned by provisioning** (pinned by
-  `mise run discover flyio/app`); because it is app-scoped and ephemeral,
-  `observe`/`down` key off the Stripe resource registration and the Fly API
-  is touched only at deploy time.
-  The client (`stackless-fly::fly_api`) is hand-written reqwest/serde
-  rather than a generated client — the Machines surface we use is a
-  handful of endpoints and the published spec is Swagger 2.0.
-- **No build-from-source in v0** — a service supplies a prebuilt
-  `image`.
-- **No root-origin alias on cloud** (same as Render/Vercel); setup is
-  skipped; prepare runs on the operator's machine from a shallow clone.
-- **Spend caps and summaries** follow §4 (`billing update --provider
-  flyio`; spend line printed after cloud `up`/`down`).
-- **`stackless logs` is not wired for Fly in v0** — use the Fly dashboard.
+- v0 is **image-only**. Catalog: `flyio/app` (usage-billed → always
+  `--confirm-paid`). App name = resource name (Fly naming rules).
+- Stripe provisions; Fly Machines API allocates IPs, creates always-on
+  HTTP machine, health-gates on `https://{app}.fly.dev`. Deploy token is
+  Stripe-managed and ephemeral — `observe`/`down` key off Stripe
+  registration. Hand-written reqwest client (small Machines surface).
+- `logs` not wired in v0.
 
-## 4d. Netlify substrate
+### 4d. Netlify
 
-Mirrors §4's Stripe + provider-API split for
-[Netlify](https://netlify.com) static sites. v0 is **static upload**.
+- v0 is **static upload**. Catalog: `netlify/project` (free — no
+  `--confirm-paid`).
+- Stripe provisions; Netlify REST does file-digest deploy (POST SHA1 map,
+  PUT required files, poll to `ready`), health-gates on `ssl_url`. Token
+  ephemeral — `observe`/`down` key off Stripe. Hand-written client.
+- `logs` not wired in v0.
 
-- **Same Stripe project per stack** as the other cloud substrates; cloud
-  resource names remain `{stack}-{instance}-{service}` — also the Netlify
-  site name.
-- **Catalog resource:** services → `netlify/project` with `{"name": "<site>"}`.
-  `netlify/project` is **free**, so no `--confirm-paid`.
-- **Stripe Projects provisions; the Netlify REST API operates:** provisioning
-  creates the site and returns a Stripe-managed token + site id (pinned by
-  `mise run discover netlify/project`; the token only surfaces on a refreshed
-  env read). stackless clones the pinned ref, then runs the **file-digest
-  deploy** — POST the per-file SHA1 map, PUT only the files Netlify reports as
-  `required`, poll the deploy to `ready` — and health-gates on the deploy's
-  `ssl_url`. The client (`stackless-netlify::netlify_api`) is hand-written
-  reqwest/serde (Swagger-2.0 source, ~5 endpoints).
-- **No build step in v0** — pre-built static files only.
-- **No root-origin alias on cloud**; setup is skipped; prepare runs on the
-  operator's machine. The token is ephemeral, so `observe`/`down` key off the
-  Stripe resource registration.
-- **`stackless logs` is not wired for Netlify in v0** — use the Netlify dashboard.
+Other registered substrates (`railway`, `cloudflare`, `wordpress`,
+`laravel-cloud`, `gitlab`) follow the same Stripe + provider-API pattern;
+see each crate and [docs/ADDING-A-PROVIDER.md](docs/ADDING-A-PROVIDER.md).
+
+---
 
 ## 5. Trust boundary (phased, post-v0) — TBD
 
@@ -584,129 +460,137 @@ Recorded from design discussion, to be developed when sequenced:
   **Third-party durable** secrets are the dangerous class and the only
   candidates for blinding.
 
+---
+
 ## 6. Leases & the reaper
 
-The reaper lives in the local daemon (see §3), which
-makes lease expiry a system guarantee across reboots via launchd/
-systemd keep-alive. It enforces leases for instances on **all**
-substrates — a cloud instance's lease is reaped from the operator's
-machine through the same teardown path `down` uses. Known gap, recorded
-honestly: if the operator's machine is off/asleep past a cloud lease's
-expiry, the instance outlives its lease until the machine returns (the
-daemon reaps overdue leases immediately on start/wake). A
-substrate-side backstop is a candidate for later.
+The reaper lives in the local daemon (§3) and enforces leases for
+instances on **all** substrates through the same teardown path `down`
+uses. Known gap: if the operator's machine is off/asleep past a cloud
+lease's expiry, the instance outlives its lease until wake (the daemon
+reaps overdue leases immediately on start/wake). A substrate-side
+backstop is a candidate for later.
+
+```mermaid
+flowchart TD
+  Birth["up: lease from birth"] --> Renew["renew at mutating verb start"]
+  Renew --> Success["renew again on successful up / verify"]
+  Success --> Tick["reaper tick ~60s"]
+  Tick --> Locked{"op lock held?"}
+  Locked -->|yes| Skip[skip]
+  Locked -->|no + expired| Down["spawn stackless down"]
+  Down --> Tomb["tombstone + GC window"]
+  Skip --> Tick
+```
 
 Lease semantics:
 
-- **Every instance carries a lease from birth** — `--lease <duration>`
-  at `up`, with per-substrate defaults (local: 24h; Render and Vercel:
-  8h — cloud instances bill, so abandonment must be expensive to nobody).
-- **The lease renews to its full duration at the start of every
-  mutating verb, and again on a successful `up` or `verify`.**
-  "In use" means exactly "recently verbed": `verify` is the keepalive
-  an agent runs mid-work — it renews *and* proves health, which is
-  what the agent wants anyway. Traffic through an instance
-  deliberately does not renew: a forgotten browser tab with a polling
-  SPA must not keep an instance alive forever. Renewal is not new
-  spend — consent at creation covers renewals within the lease model,
-  and the project's hard spend cap (§4) bounds total exposure
-  regardless. No separate renew verb in v0.
-- **The reaper ticks every minute** and sends overdue instances through
-  the same verified-teardown path as `down`. It never reaps an
-  instance holding its operation lock (§2) — an operation that
-  outlives its whole lease finishes before the reaper acts. A failed
-  reap retries with backoff and is surfaced in `list`/`status` until
-  it succeeds — silence is not success (invariant 4).
-- **`list` shows remaining lease** for every instance, both substrates.
+- **Every instance carries a lease from birth** — `--lease <duration>` at
+  `up`, with per-substrate defaults (local: 24h; cloud: typically 8h).
+- **The lease renews to its full duration at the start of every mutating
+  verb, and again on a successful `up` or `verify`.** Traffic does not
+  renew. No separate renew verb in v0. Consent at creation covers
+  renewals; spend caps (§4) bound total exposure.
+- **The reaper never reaps an instance holding its operation lock.** A
+  failed reap retries with backoff and surfaces in `list`/`status`.
+- **`list` shows remaining lease** for every instance.
+
+---
 
 ## 7. Health & proof
 
-The contract shapes were decided in §1; this is how they execute.
-
 - **Per-service health checks run through the instance's public
-  origin** — locally the proxy; on Render the `onrender.com` URL; on
-  Vercel the recorded deployment URL — never the raw port, so routing
-  is part of what "healthy" proves. Shape:
+  origin** — locally the proxy; on cloud the provider URL — never the
+  raw port, so routing is part of what "healthy" proves. Shape:
   `health = { path, status = 200, contains = "..." }` with a retry
   budget defaulting per substrate (seconds locally; minutes against a
-  cold cloud deploy, as `cloud-env.ts`'s 5-minute health wait proved
-  necessary). This covers both atto checks: `/health` == `ok` and the
-  SPA shell containing `id="root"`.
+  cold cloud deploy).
 - **`up` reports staged truth:** provisioned → configured → prepared →
-  started → healthy, each stage gated on the previous (invariant 2).
-  `status` shows the stage an instance actually reached, per service.
-- **`verify` runs the stack's verify command** with env built by the
-  same interpolation mechanism services use (`[stack.verify]` has
-  `run` and `env` with `${...}` references) — origins, instance name,
-  whatever the smoke tier needs. App-level fixtures (atto's Clerk e2e
-  user/org) are the stack's own business, created in `prepare` or in
-  the verify command itself; stackless stays unopinionated about them.
+  started → healthy, each stage gated on the previous. `status` shows the
+  stage an instance actually reached, per service.
+- **`verify` runs the stack's verify command** with env built by the same
+  interpolation mechanism services use (`[stack.verify]` has `run` and
+  `env` with `${...}` references). It renews the lease on the way in and
+  again on success — keepalive plus proof. App-level fixtures are the
+  stack's own business.
+
+```mermaid
+flowchart LR
+  Up["up HealthGate"] --> Origin["public origin"]
+  Verify["verify verb"] --> Interp["build namespace"]
+  Interp --> Cmd["stack.verify.run"]
+  Cmd --> Lease["renew lease on success"]
+```
+
+---
 
 ## 8. Crate layout
 
-One Cargo workspace; the seams mirror the load-bearing boundaries above
-so each substrate compiles and tests in isolation.
+One Cargo workspace; seams mirror the load-bearing boundaries so each
+substrate compiles and tests in isolation.
 
-Workspace-wide conventions:
+```mermaid
+flowchart TB
+  Bin["stackless bin<br/>CLI · Client · substrates.rs"]
+  Core["stackless-core<br/>def · store · Engine · Substrate trait"]
+  Daemon["stackless-daemon"]
+  Local["stackless-local"]
+  CloudHelp["stackless-cloud"]
+  Git["stackless-git"]
+  Int["stackless-integrations"]
+  Sdk["stackless-provider-sdk"]
+  Stripe["stackless-stripe-projects"]
+  CloudSubs["render · vercel · fly · netlify · …"]
+  Clients["render-client · vercel-client"]
 
-- **Parsing/CLI foundations are pinned:** the `toml` crate (with serde)
-  parses `stackless.toml`; `clap` (derive) owns the CLI surface.
-- **Errors are `thiserror` enums end-to-end — no untyped propagation**
-  (no `anyhow` in any crate, including the binary). The reason is the
-  §2 error contract: every error must carry its stable code, the
-  failed step/instance context, and a remediation, all the way from
-  where it occurs to where it's serialized — an opaque boxed error
-  can't. Each crate defines its own error types; the CLI layer maps
-  them onto the agent-facing `{schema_version, code, message, step,
-  instance, context, remediation}` shape and exit codes. A new error
-  variant is only complete when its remediation text says what the
-  operator should actually do.
+  Bin --> Core
+  Bin --> Daemon
+  Bin --> Local
+  Bin --> CloudSubs
+  Bin --> Int
+  Local --> Core
+  Local --> Daemon
+  Local --> Git
+  CloudSubs --> Core
+  CloudSubs --> CloudHelp
+  CloudSubs --> Git
+  CloudSubs --> Int
+  CloudSubs --> Clients
+  Int --> Sdk
+  Int --> Stripe
+  CloudHelp --> Core
+  Daemon --> Core
+```
 
-- **`stackless-core`** — the definition model (serde + validation,
-  interpolation, the derived dependency graph), the SQL state store
-  (instance records, leases, operation locks, checkpoint journal;
-  local file via `rusqlite` — bundled SQLite, WAL; `libsql` remote
-  mode for the opt-in fleet plane — §2), and the lifecycle
-  engine: plan steps, checkpoint, reconcile recorded state against
-  observation. The engine is shared by `up`, resume, daemon adoption,
-  and the reaper — they are the same machinery. Defines the
-  `Substrate` trait.
-- **`stackless-local`** — `Substrate` impl: process spawn/adoption,
-  port allocation. Source materialization is delegated to
-  `stackless-git` (below).
-- **`stackless-git`** — pure-Rust git, backed by **`grit-lib`** (the
-  sole owner of that dependency), shared by local materialization and
-  cloud prepare. Local: one bare cache repo per source URL
-  (`fetch_bare`), then per instance a thin checkout
-  (`checkout_detached`) whose `objects/info/alternates` points at the
-  cache (object sharing without copies), HEAD set to the pinned commit.
-  `--source … --dirty` uses `snapshot_worktree` instead: the operator's
-  dirty tree is written into the instance checkout as a synthetic commit
-  keyed by content hash, re-snapshotted on every `up`. grit-lib's `Odb` honors that alternates file, so instances duplicate
-  no objects, and the checkout is real enough for builds that shell out
-  to `git rev-parse`. Cloud prepare (`stackless-render` /
-  `stackless-vercel`) uses a self-contained shallow `clone_checkout`.
-  Credentials are non-interactive by design — a `GITHUB_TOKEN` override
-  for GitHub HTTPS, otherwise the operator's git credential helpers; a
-  missing credential fails fast. No git CLI dependency, no fork.
-- **`stackless-stripe-projects`** — neutral Stripe Projects CLI
-  driver: project anchor (`[stack.projects.stripe]`), per-instance
-  environments, catalog add/remove, env materialization, spend caps.
-- **`stackless-integrations`** — hosted integration routing and
-  provider adapters (catalog registry; all entries first-class);
-  substrates call here for provision /
-  observe / destroy. Each provider declares managed vs host-bound
-  hosting and config scope via the `Hostable` trait.
-- **`stackless-render`** — `Substrate` impl; Render REST calls go
-  through the generated `render-client` crate.
-- **`stackless-vercel`** — `Substrate` impl; Vercel REST calls go
-  through the generated `vercel-client` crate.
-- **`render-client`** / **`vercel-client`** — provider REST API clients
-  generated by `cargo-progenitor` from the vendored OpenAPI specs in
-  `specs/`; regenerate with `specs/regen-clients.sh`. They intentionally
-  opt out of `[workspace.lints]` (generated code).
-- **`stackless-daemon`** — unix-socket RPC server, process
-  bookkeeping, the reaper tick, and the reverse proxy (hyper,
-  Host-header routing).
-- **`stackless`** (bin) — the clap CLI: substrate registry, daemon
-  client/spawner, human and `--json` output.
+**Ground rule:** `stackless-core` never names a substrate. The binary
+registers hosting providers in `substrates.rs` (one row + crate).
+Integrations register via `Hostable` / `ProviderOps` in
+`stackless-integrations`. See [docs/ADDING-A-PROVIDER.md](docs/ADDING-A-PROVIDER.md).
+
+Workspace conventions:
+
+- **Parsing/CLI foundations are pinned:** `toml` + serde for
+  `stackless.toml`; `clap` (derive) for the CLI.
+- **Errors are `thiserror` enums end-to-end — no `anyhow`.** Every error
+  must carry its stable code, step/instance context, and remediation to
+  the agent-facing envelope (§2). A new error variant is only complete
+  when its remediation says what the operator should actually do.
+
+| Crate | Role |
+|---|---|
+| `stackless-core` | Definition model (serde, validation, interpolation, derived graph), SQL state store, lifecycle engine (`plan` / execute / checkpoint / observe). Defines the `Substrate` trait. |
+| `stackless-local` | Local `Substrate`: process spawn/adoption, port allocation; materialization via `stackless-git`. |
+| `stackless-git` | Pure-Rust git (`grit-lib`): bare cache + alternates checkout for local; shallow `clone_checkout` for cloud prepare; `snapshot_worktree` for `--dirty`. |
+| `stackless-daemon` | Unix-socket RPC, process bookkeeping, reaper tick, Host-header reverse proxy. |
+| `stackless-cloud` | Shared cloud scaffolding: prepare hooks, health poll, credentials, checkpoint helpers. |
+| `stackless-stripe-projects` | Neutral Stripe Projects CLI driver: project anchor, environments, catalog add/remove, env materialization, spend caps. |
+| `stackless-integrations` | Hosted integration routing + provider adapters; substrates call provision/observe/destroy. |
+| `stackless-provider-sdk` | Extension traits: `Hostable`, `ProviderOps`, `CatalogResource`. |
+| `stackless-render` / `-vercel` / `-fly` / `-netlify` / `-railway` / `-cloudflare` / `-wordpress` / `-laravel-cloud` / `-gitlab` | Cloud `Substrate` impls. |
+| `render-client` / `vercel-client` | Generated REST clients from vendored OpenAPI (`specs/regen-clients.sh`); opt out of workspace lints. |
+| `stackless-idl` / `stackless-bindgen` | Language-neutral stack IDL + checked-in bindings helper. |
+| `stackless` | Clap CLI, sync `Client`, substrate registry, daemon spawner, human/`--json` output. |
+| `xtask` | Provider onboarding: `catalog`, `discover`, `new-integration`. |
+
+The engine is shared by `up`, resume, daemon adoption, and the reaper —
+they are the same machinery, not parallel lifecycle implementations.

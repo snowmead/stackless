@@ -87,11 +87,9 @@ impl Fault for DefError {
     fn remediation(&self) -> String {
         match self {
             Self::Syntax { .. } => "fix the TOML syntax at the location shown, then re-run".into(),
-            Self::Schema { .. } => {
-                "compare the failing key against the schema reference in ARCHITECTURE.md §1; \
+            Self::Schema { .. } => "compare the failing key against docs/SCHEMA.md; \
                  remove or rename keys the schema does not define"
-                    .into()
-            }
+                .into(),
             Self::NameInvalid { kind, .. } => format!(
                 "rename the {kind} to lowercase letters, digits, and hyphens, starting with a \
                  letter (it becomes hostnames and cloud service names)"
