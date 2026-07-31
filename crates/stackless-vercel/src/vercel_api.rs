@@ -344,7 +344,7 @@ impl VercelApi {
     }
 
     /// Make the project's deployments publicly reachable so the health gate can
-    /// hit them: stackless owns disposable stacks, so it clears Vercel's SSO /
+    /// hit them: stackless owns ephemeral stacks, so it clears Vercel's SSO /
     /// deployment protection on the projects it provisions.
     pub async fn disable_deployment_protection(&self, project_id: &str) -> Result<(), VercelError> {
         let url = self.project_url(project_id);

@@ -1,13 +1,16 @@
+<p align="center">
+  <img src="docs/assets/banner.png" alt="stackless" width="720" />
+</p>
+
 # stackless
 
-**Disposable software stacks: named, leased, isolated, proven,
-accounted for, destroyed.**
+**Ephemeral software stacks: named, leased, isolated, proven, destroyed.**
 
 ## What
 
-stackless is a CLI that owns the full lifecycle of a disposable stack.
+stackless is a CLI that owns the full lifecycle of an ephemeral stack.
 One `stackless.toml` describes the product — services, secrets, wiring,
-health. One verb (`up`) spawns an isolated, named copy with a URL; one
+health. One verb (`up`) spawns an isolated, named instance with a URL; one
 verb (`verify`) proves it; one verb (`down`) or an expired lease destroys
 it verifiably.
 
@@ -18,7 +21,7 @@ interface shaped for machines — do not drive stacks by hand.
 
 ## Why
 
-Agent fleets need many simultaneous, isolated, abandonable stacks per
+Agent fleets need many simultaneous, isolated, ephemeral instances per
 day. Container tools, IaC, and provider CLIs each own a layer and none
 of the whole — so every team rebuilds naming, wiring, teardown, and cost
 hygiene, and rediscovers the same failure modes.
@@ -38,13 +41,14 @@ Invariants and the trust boundary: [VISION.md](VISION.md).
 Binary:
 
 ```console
-$ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/latest/download/stackless-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/snowmead/stackless/releases/latest/download/stackless-installer.sh | sh
 ```
 
-Agent skill (optional; needs Bun or Node):
+Agent skill:
 
 ```console
-$ bunx skills add snowmead/stackless --skill stackless -g
+bunx skills add snowmead/stackless --skill stackless -g
 ```
 
 ### Lifecycle
@@ -56,38 +60,43 @@ stackless verify demo --json
 stackless down demo --json
 ```
 
-- `--on <substrate>` is required at creation (`local`, `render`, `vercel`,
-  `fly`, `netlify`). Resume by name; substrate is fixed after create.
+- `--on <substrate>` is required at creation. Deploy-ready hosts: `local`,
+`render`, `vercel`, `fly`, `netlify`. Resume by name; substrate is fixed
+after create.
 - Cloud needs provider API keys (see `stackless doctor`); paid resources
-  need `--confirm-paid`.
+need `--confirm-paid`.
 - Local edit loop: `--source svc=/path` pins a service to a checkout
-  (cloud rejects `--source`).
-- Integrations today: Clerk via `[integrations.*]`. Authoring:
-  `init` / `adopt`, then `check`.
+(cloud rejects `--source`).
+- Integrations via `[integrations.*]` provision through Stripe Projects
+(every provider in the catalog registry is first-class). Authoring:
+`init` / `adopt`, then `check`. Full `stackless.toml` reference:
+[docs/SCHEMA.md](docs/SCHEMA.md).
 
 ### Machine contract
 
 - **stdout** — final envelope: `{ "ok": true, … }` or
-  `{ "ok": false, "error": { … } }`.
+`{ "ok": false, "error": { … } }`.
 - **stderr** — NDJSON progress events during `up --json`.
 - Every error carries what failed, why (observed), and remediation.
-  Branch on `error.code` only.
+Branch on `error.code` only.
 
-Fleets, parallel agents, MCP: [docs/AGENT-FLEETS.md](docs/AGENT-FLEETS.md).
-Full agent playbook: [`.cursor/skills/stackless/SKILL.md`](.cursor/skills/stackless/SKILL.md).
+Fleets, parallel agents, and MCP:
+[docs/AGENT-FLEETS.md](docs/AGENT-FLEETS.md).
 
 ### Verbs
 
-| Verb | Does |
-|---|---|
-| `up [--name]` | Create or resume; `--on` required at creation |
-| `down <name>` | Verified teardown |
-| `verify <name>` | Run proof contract; renews lease |
-| `status` / `list` | Staged truth / all instances |
-| `logs <name>` | Captured output (survives teardown) |
-| `check <file>` | Validate definition + derived graph |
-| `bind` | Compile `stackless.toml` → IDL + typed language bindings |
-| `init` / `adopt` / `doctor` | Scaffold, detect, preflight |
+
+| Verb                        | Does                                                     |
+| --------------------------- | -------------------------------------------------------- |
+| `up [--name]`               | Create or resume; `--on` required at creation            |
+| `down <name>`               | Verified teardown                                        |
+| `verify <name>`             | Run proof contract; renews lease                         |
+| `status` / `list`           | Staged truth / all instances                             |
+| `logs <name>`               | Captured output (survives teardown)                      |
+| `check <file>`              | Validate definition + derived graph                      |
+| `bind`                      | Compile `stackless.toml` → IDL + typed language bindings |
+| `init` / `adopt` / `doctor` | Scaffold, detect, preflight                              |
+
 
 Every command is non-interactive and exits with codes an agent can branch on.
 
@@ -131,36 +140,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### Rust SDK
+### Language SDKs
 
-The `stackless` crate is both the CLI and a sync library. Depend on it to
-bring environments up and down from Rust (integration tests, CI tooling,
-or operators that prefer an in-process API over shelling out). Linking
-the crate does **not** require your binary to implement CLI subcommands.
-A successful `up` returns service origins and integration outputs (from
-checkpoints) on `UpOutcome` for use with generated bind helpers.
+Published packages for Rust, TypeScript, Python, and Go — same lifecycle
+verbs (`up` / `verify` / `down` / …), same envelopes. Versioned in lockstep
+with the CLI; publish runbook: [docs/PUBLISHING.md](docs/PUBLISHING.md).
 
-Two modes:
 
-| Mode | API | Purpose |
-| --- | --- | --- |
-| **Operator / system** | `Client::system()` | Shared user daemon (`$XDG_STATE_HOME/stackless`), same as the CLI. Requires the **stackless CLI** installed (`stackless` on `PATH`, or `STACKLESS_BIN` pointing at it). |
-| **Hermetic / embed** | `Client::builder().paths(...)` + feature `test-support` / `TestContext` | Private state dir and embedded daemon for unit/integration tests. |
+| Language   | Package                                                             | Source                               |
+| ---------- | ------------------------------------------------------------------- | ------------------------------------ |
+| Rust       | [stackless](https://crates.io/crates/stackless) (crates.io)         | [crates/stackless](crates/stackless) |
+| TypeScript | [stackless-sdk](https://www.npmjs.com/package/stackless-sdk) (npm)  | [sdks/typescript](sdks/typescript)   |
+| Python     | [stackless-sdk](https://pypi.org/project/stackless-sdk/) (PyPI)     | [sdks/python](sdks/python)           |
+| Go         | [sdks/go](https://pkg.go.dev/github.com/snowmead/stackless/sdks/go) | [sdks/go](sdks/go)                   |
+
 
 ```toml
+# Rust
 [dependencies]
-stackless = "0.1"
-
-# Hermetic local tests (embedded daemon + temp state dir):
-[dev-dependencies]
-stackless = { version = "0.1", features = ["test-support"] }
+stackless = "0.2"
 ```
+
+```bash
+# TypeScript
+npm i stackless-sdk
+
+# Python (import stackless)
+pip install stackless-sdk
+
+# Go
+go get github.com/snowmead/stackless/sdks/go@v0.2.1
+```
+
+All clients need the `stackless` CLI on `PATH` (or `STACKLESS_BIN`) for the
+operator daemon. Rust can also embed a hermetic daemon via feature
+`test-support` / `TestContext`. Non-Rust packages speak the CLI JSON
+protocol ([sdks/PROTOCOL.md](sdks/PROTOCOL.md)).
 
 ```rust
 use stackless::{Client, Create, UpRequest};
 
-// Needs the stackless CLI on PATH (or STACKLESS_BIN). Spawns the CLI as
-// the operator daemon — not your test/CI binary.
 let client = Client::system()?;
 let created = client.up(UpRequest::Create(
     Create::new("stackless.toml", "local").named("demo"),
@@ -170,44 +189,40 @@ client.verify(&created.name, None)?;
 client.down(&created.name)?;
 ```
 
-Paid cloud substrates use `PaidConsent::confirmed()` (same gate as
-`--confirm-paid`). Feature flags select substrates (`local`, `render`,
-`cloud`, …); defaults match the full CLI. Publishing notes:
-[docs/PUBLISHING.md](docs/PUBLISHING.md).
+```typescript
+import { Client } from "stackless-sdk";
 
-### CLI-backed SDKs (TypeScript, Python, Go)
+const client = Client.system();
+const up = await client.up({
+  kind: "create",
+  name: "demo",
+  on: "local",
+  file: "stackless.toml",
+});
+console.log(up.origins.web);
+await client.verify(up.instance);
+await client.down(up.instance);
+```
 
-Non-Rust languages do not embed the Engine. Packages under [`sdks/`](sdks/)
-spawn the `stackless` CLI with `--json` and parse envelopes (see
-[sdks/PROTOCOL.md](sdks/PROTOCOL.md)). Resolve the binary via `STACKLESS_BIN`
-then `PATH`.
+`up` returns service origins and, when present, nested integration outputs.
+Prefer verify-tier env interpolation when secrets must not appear on stdout.
+Product test harnesses (Playwright fixtures, etc.) belong in the application
+repo; stackless stops at Client + bind + delivery.
 
-| Package | Path |
-| --- | --- |
-| `stackless-sdk` (npm) | [`sdks/typescript/`](sdks/typescript/) |
-| `stackless-sdk` (PyPI; `import stackless`) | [`sdks/python/`](sdks/python/) |
-| `github.com/snowmead/stackless/sdks/go` | [`sdks/go/`](sdks/go/) |
+## Development
 
-`up` JSON includes `origins` and, when present, nested `integrations`
-(credential values). Prefer verify-tier env interpolation when secrets must
-not appear on stdout. Product test harnesses (Playwright fixtures, etc.)
-belong in the application repo; stackless stops at Client + bind + delivery.
+Activate mise tools (`mise install`, then `mise exec --` or an activated
+shell). Gates live in `mise.toml` `[tasks]`:
 
-## Docs
 
-- [VISION.md](VISION.md) — why and invariants
-- [ARCHITECTURE.md](ARCHITECTURE.md) — how it is built
-- [docs/SCHEMA.md](docs/SCHEMA.md) — `stackless.toml` reference
-- [docs/AGENT-FLEETS.md](docs/AGENT-FLEETS.md) — parallel agents and shared state
-- [sdks/PROTOCOL.md](sdks/PROTOCOL.md) — CLI JSON contract for language SDKs
-- [`.cursor/skills/stackless/SKILL.md`](.cursor/skills/stackless/SKILL.md) — agent skill
-- [CLAUDE.md](CLAUDE.md) — contributor map (crates, mise, provider tooling)
-- [docs/PUBLISHING.md](docs/PUBLISHING.md) — multi-registry publish runbook
-- [CHANGELOG.md](CHANGELOG.md) — releases
+| Task             | Does                                           |
+| ---------------- | ---------------------------------------------- |
+| `mise run check` | fmt + clippy + taplo                           |
+| `mise run test`  | `cargo nextest run --workspace --all-features` |
+| `mise run ci`    | check + test + supply-chain audit/deny/vet     |
 
-## Status
 
-v0 lifecycle, under active development. Substrates: local, Render, Vercel,
-Fly, Netlify. Cloud lease reaping runs from the operator daemon — a sleeping
-machine defers reap until wake; spend caps bound leakage. Secrets posture
-(v0): [ARCHITECTURE.md](ARCHITECTURE.md) §0.
+Plain `cargo build` / `cargo test` also work. Architecture:
+[ARCHITECTURE.md](ARCHITECTURE.md). Contributor map and provider tooling:
+[CLAUDE.md](CLAUDE.md). Releases: [CHANGELOG.md](CHANGELOG.md). Cursor Cloud
+notes: [AGENTS.md](AGENTS.md).

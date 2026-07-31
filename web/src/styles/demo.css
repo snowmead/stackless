@@ -1191,7 +1191,7 @@ main {
   text-decoration: underline;
 }
 
-/* Layer wall — 3 agents, 3 parallel E2E worlds.
+/* Layer wall — 3 agents, 3 parallel E2E instances.
    One grid row per lane: agent, wall port, hub port, and env card share the
    row, so every edge is a straight horizontal line. The stackless wall and
    the Stripe Projects bar are vertical slabs spanning all lane rows.
@@ -1323,7 +1323,7 @@ main {
 }
 
 /* Deploy edge hub→env: bright during provisioning, host tint while the
-   world lives, green when the suite passes. */
+   instance lives, green when the suite passes. */
 @keyframes layer-edge-dep {
   0%,
   15% {
@@ -1771,7 +1771,7 @@ main {
   min-width: 0;
 }
 
-/* Env card materializes as its world provisions, holds while the spec
+/* Env card materializes as its instance provisions, holds while the spec
    runs, glows on pass, then burns down — per lane, never globally. */
 .layer-env-card {
   width: 100%;
@@ -2000,7 +2000,7 @@ main {
   font-weight: 500;
 }
 
-/* Static (reduced-motion) end state: every world up, every suite green. */
+/* Static (reduced-motion) end state: every instance up, every suite green. */
 .layer-wall[data-static] .layer-edge {
   animation: none;
   opacity: 0.55;

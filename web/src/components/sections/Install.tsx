@@ -19,7 +19,7 @@ export function Install() {
       <p className="section-label">Install</p>
       <h2>Install once. Hand the rest to an agent.</h2>
       <p>
-        Latest release installer. Expect <code>stackless 0.1.7</code> or newer.
+        Latest release installer. Expect <code>stackless 0.2.1</code> or newer.
       </p>
       <div className="code-with-copy">
         <CodeBlock

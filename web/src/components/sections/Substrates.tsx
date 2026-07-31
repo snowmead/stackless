@@ -35,7 +35,7 @@ export function Substrates() {
         ))}
       </ul>
       <p className="substrate-phase2">
-        Phase-2 hosts in-tree:{" "}
+        Phase-2 hosts registered (not yet deploy-ready):{" "}
         {PHASE2.map((name, i) => (
           <span key={name}>
             <code>{name}</code>

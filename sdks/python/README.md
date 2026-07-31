@@ -1,8 +1,9 @@
 # stackless-sdk (Python)
 
-CLI-backed SDK for [`stackless`](https://github.com/snowmead/stackless). Spawns the
-`stackless` binary with `--json` and parses stdout envelopes (see
-[`../PROTOCOL.md`](../PROTOCOL.md)).
+Python SDK for [`stackless`](https://github.com/snowmead/stackless). Published as
+[`stackless-sdk`](https://pypi.org/project/stackless-sdk/) on PyPI
+(`import stackless`). Speaks the JSON protocol
+([`../PROTOCOL.md`](../PROTOCOL.md)) via the `stackless` CLI.
 
 The PyPI distribution is **`stackless-sdk`**; the import package remains
 `stackless`.

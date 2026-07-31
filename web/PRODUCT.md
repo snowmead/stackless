@@ -10,7 +10,7 @@ AI agents (and the engineers who hand them tools) that need to test changes agai
 
 ## Product Purpose
 
-stackless is the lifecycle contract between an agent and a disposable stack: one `stackless.toml`, then `up` / `verify` / `down` (or lease expiry). Not a PaaS, not IaC state management, not a production orchestrator. Success for this site: understand the contract in seconds, install once, hand the rest to an agent.
+stackless is the lifecycle contract between an agent and an ephemeral stack: one `stackless.toml`, then `up` / `verify` / `down` (or lease expiry). Not a PaaS, not IaC state management, not a production orchestrator. Success for this site: understand the contract in seconds, install once, hand the rest to an agent.
 
 ## Brand Personality
 

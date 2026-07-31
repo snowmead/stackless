@@ -161,7 +161,7 @@ fn tool_definitions() -> Vec<ToolDefinition> {
                 "type": "object",
                 "properties": {
                     "file": { "type": "string", "description": "Path to stackless.toml" },
-                    "substrate": { "type": "string", "description": "Also validate for substrate (local, render, vercel, fly, netlify)" }
+                    "substrate": { "type": "string", "description": "Also validate for deploy-ready substrate (local, render, vercel, fly, netlify)" }
                 },
                 "required": ["file"]
             }),
@@ -185,7 +185,7 @@ fn tool_definitions() -> Vec<ToolDefinition> {
                 "properties": {
                     "name": { "type": "string", "description": "Instance name (DNS-safe)" },
                     "file": { "type": "string", "description": "Definition file path" },
-                    "on": { "type": "string", "description": "Substrate at creation (local, render, vercel, fly, netlify)" },
+                    "on": { "type": "string", "description": "Deploy-ready substrate at creation (local, render, vercel, fly, netlify)" },
                     "sources": {
                         "type": "array",
                         "items": { "type": "string" },

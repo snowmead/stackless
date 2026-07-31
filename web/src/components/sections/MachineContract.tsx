@@ -9,7 +9,7 @@ const OK_JSON = `{
     { "service": "web", "origin": "http://demo.localhost:4444/" }
   ],
   "integrations": {
-    "clerk": { "publishable_key": "pk_test_…" }
+    "db": { "database_url": "postgres://…" }
   }
 }`;
 

@@ -10,21 +10,18 @@ health = { http = { path = "/", expect = 200 } }
 [services.api]
 source = { repo = "https://github.com/acme/api", ref = "main" }
 health = { http = { path = "/health", expect = 200 } }
-env = { CLERK_SECRET = "\${integrations.clerk.secret_key}" }
+env = { DATABASE_URL = "\${integrations.db.database_url}" }
 
   [services.api.local]
   run = "npm start -- --port $PORT"`;
 
-const INTEGRATIONS_TOML = `[integrations.clerk]
-provider = "clerk"
+const INTEGRATIONS_TOML = `[integrations.db]
+provider = "neon"
 
-# Stripe Projects provisions the third party
-# into the instance vault. Wire credentials
-# into services with \${integrations.<name>.*}.
-#
-# Clerk is live today. The catalog covers
-# dozens of provider families (Neon, Auth0,
-# Supabase, …) as the surface expands.`;
+# Any registry provider is first-class.
+# Stripe Projects provisions it into the
+# instance vault; wire outputs with
+# \${integrations.<name>.*}.`;
 
 export function Primitives() {
   return (
@@ -59,8 +56,8 @@ export function Primitives() {
           <h3>Hosted third parties</h3>
           <p>
             Provisioned through Stripe Projects into the stack vault. Wire with{" "}
-            <code>{("${integrations.<name>.*}")}</code>. Clerk ships today; the
-            catalog is the expanding surface.
+            <code>{("${integrations.<name>.*}")}</code>. Every provider in the
+            catalog registry is first-class — same lifecycle, same wiring.
           </p>
           <CodeBlock code={INTEGRATIONS_TOML} lang="toml" />
         </div>

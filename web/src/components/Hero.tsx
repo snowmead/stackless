@@ -44,11 +44,12 @@ export function Hero({ reduceMotion, conductor }: Props) {
           <h1>
             One toml.
             <br />
-            One disposable stack.
+            One ephemeral stack.
           </h1>
           <p className="lede">
-            Disposable e2e stacks: your services, Stripe Projects integrations,{" "}
-            <code>up</code> / <code>verify</code> / <code>down</code>.
+            Ephemeral e2e stacks: your services, Stripe Projects integrations,{" "}
+            <code>up</code> / <code>verify</code> / <code>down</code> — or lease
+            expiry.
           </p>
           <div className="cta-row">
             <Button

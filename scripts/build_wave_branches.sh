@@ -23,7 +23,7 @@ build_wave() {
   # infra from tip
   git checkout "$TIP" -- \
     crates/stackless-provider-sdk/src/resource.rs \
-    docs/PROVIDER-WAVES.md docs/DECISIONS.md docs/ADDING-A-PROVIDER.md \
+    docs/ADDING-A-PROVIDER.md \
     scripts/generate_catalog_integrations.py || true
   IFS=',' read -ra FAR <<< "$fams"
   for fam in "${FAR[@]}"; do
@@ -102,7 +102,7 @@ print("wrote registry+mod for", fams)
 PY
   # docs checklist only on wave 1 + copy SCHEMA/README partial on last wave
   if [[ "$num" == "1" ]]; then
-    git add docs/PROVIDER-WAVES.md docs/DECISIONS.md docs/ADDING-A-PROVIDER.md scripts/generate_catalog_integrations.py crates/stackless-provider-sdk/src/resource.rs
+    git add docs/ADDING-A-PROVIDER.md scripts/generate_catalog_integrations.py crates/stackless-provider-sdk/src/resource.rs
   fi
   git add crates/stackless-integrations
   git commit -m "feat(integrations): wave ${num} Stripe catalog providers (${fams})" || true

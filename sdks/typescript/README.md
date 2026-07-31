@@ -1,6 +1,8 @@
 # stackless-sdk
 
-TypeScript client for [Stackless](https://github.com/snowmead/stackless). It shells out to the `stackless` CLI with `--json` and parses stdout envelopes. It does **not** embed the Rust Engine (unlike the in-process Rust `Client::system()`).
+TypeScript SDK for [stackless](https://github.com/snowmead/stackless). Published
+as [`stackless-sdk`](https://www.npmjs.com/package/stackless-sdk) on npm. Speaks
+the JSON protocol (`../PROTOCOL.md`) via the `stackless` CLI.
 
 ## Install
 

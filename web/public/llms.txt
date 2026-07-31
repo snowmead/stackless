@@ -1,6 +1,6 @@
 # stackless
 
-> Disposable software stacks: named, leased, isolated, proven, accounted for, destroyed. A CLI that owns the full lifecycle of a disposable stack for AI agents first. One stackless.toml describes the product. up spawns an isolated named copy with a URL. verify proves it. down or an expired lease destroys it verifiably.
+> Ephemeral software stacks: named, leased, isolated, proven, destroyed. A CLI that owns the full lifecycle of an ephemeral stack for AI agents first. One stackless.toml describes the product. up spawns an isolated named instance with a URL. verify proves it. down or an expired lease destroys it verifiably.
 
 ## Agent instructions
 
@@ -15,7 +15,7 @@
 
 ```
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/latest/download/stackless-installer.sh | sh
-stackless --version
+stackless --version   # expect 0.2.1 or newer
 ```
 
 From source: `cargo build --release` → `target/release/stackless`.
@@ -37,7 +37,7 @@ stackless down demo --json
 - `check <file>` — validate definition + derived graph
 - `init` / `adopt` / `doctor` — scaffold, detect, preflight
 
-Substrates at creation (`--on`): `local`, `render`, `vercel`, `fly`, `netlify`. Resume by name; substrate is fixed after create. Paid cloud resources need `--confirm-paid`.
+Deploy-ready substrates at creation (`--on`): `local`, `render`, `vercel`, `fly`, `netlify`. Resume by name; substrate is fixed after create. Paid cloud resources need `--confirm-paid`. Integrations via `[integrations.*]` provision through Stripe Projects.
 
 ## Machine contract
 
@@ -65,4 +65,4 @@ Same `stackless.toml`, many named instances. Prefer one git worktree per agent. 
 
 ## Status
 
-v0 lifecycle, under active development. MIT license. stackless is not a PaaS, not IaC state management, and not a production orchestrator. It is the lifecycle layer between an agent and the stack it works on.
+v0.2.1 lifecycle, under active development. MIT license. stackless is not a PaaS, not IaC state management, and not a production orchestrator. It is the lifecycle layer between an agent and the stack it works on.

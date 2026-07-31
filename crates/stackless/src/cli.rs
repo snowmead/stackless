@@ -15,7 +15,7 @@ use crate::output::{self, Output};
 use crate::{adopt, doctor, init, mcp, verify};
 
 #[derive(Parser)]
-#[command(name = "stackless", version, about = "Disposable software stacks")]
+#[command(name = "stackless", version, about = "Ephemeral software stacks")]
 struct Cli {
     /// Emit machine-readable JSON on stdout.
     #[arg(long, global = true)]
@@ -42,7 +42,7 @@ enum Command {
         /// instance's snapshot on resume).
         #[arg(long)]
         file: Option<PathBuf>,
-        /// Substrate, required at creation (`local`, `render`, `vercel`, `fly`, or `netlify`); ignored on resume.
+        /// Deploy-ready substrate at creation (`local`, `render`, `vercel`, `fly`, or `netlify`); ignored on resume.
         #[arg(long = "on", value_name = "SUBSTRATE")]
         on: Option<String>,
         /// Pin a service to a checkout: SERVICE or SERVICE=PATH (PATH

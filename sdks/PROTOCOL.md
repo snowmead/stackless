@@ -1,9 +1,10 @@
-# CLI JSON protocol for language SDKs
+# JSON protocol for language SDKs
 
-Non-Rust SDKs (`stackless-sdk` on npm/PyPI, Go module) are **CLI-backed**. They spawn the
-`stackless` binary with `--json` and parse stdout envelopes. This is not the
-same as Rust `Client::system()`, which runs the Engine in-process and only uses
-`STACKLESS_BIN` / `PATH` for daemon binary resolution.
+Published clients exist for Rust (`stackless` on crates.io), TypeScript and
+Python (`stackless-sdk` on npm/PyPI), and Go (`github.com/snowmead/stackless/sdks/go`).
+TypeScript, Python, and Go spawn the `stackless` binary with `--json` and parse
+stdout envelopes. Rust `Client::system()` runs the Engine in-process and uses
+`STACKLESS_BIN` / `PATH` for daemon binary resolution only.
 
 ## Binary resolution
 

@@ -85,8 +85,8 @@ const LANES: Lane[] = [
     env: "e2e-auth",
     host: { label: "render", Logo: LogoRender },
     integrations: [
-      { label: "clerk", Logo: LogoClerk },
       { label: "supabase", Logo: LogoSupabase },
+      { label: "neon", Logo: LogoNeon },
     ],
     result: "24 passed · 9.6s",
     offset: 1.6,
@@ -313,7 +313,7 @@ export function LayerWall({ reduceMotion }: Props) {
       </svg>
 
       <p className="layer-col-label layer-label-agents">E2E fleet</p>
-      <p className="layer-col-label layer-label-envs">Isolated worlds</p>
+      <p className="layer-col-label layer-label-envs">Isolated instances</p>
 
       <div className="layer-agents">
         {LANES.map((lane) => (
@@ -436,7 +436,7 @@ export function LayerWall({ reduceMotion }: Props) {
           <strong>3</strong> agents
         </span>
         <span>
-          <strong>3</strong> isolated worlds
+          <strong>3</strong> isolated instances
         </span>
         <span>
           <strong>0</strong> shared state

@@ -405,7 +405,7 @@ impl<R: CommandRunner> VercelSubstrate<R> {
 
         let vercel = self.vercel(Some(instance)).await?;
         let project_id = wait_for_project(&vercel, &vercel_name).await?;
-        // Disposable stacks must be reachable for the health gate (and to be
+        // Ephemeral stacks must be reachable for the health gate (and to be
         // used), so clear Vercel's deployment protection on the project we
         // provisioned.
         vercel

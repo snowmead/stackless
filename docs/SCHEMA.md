@@ -164,34 +164,32 @@ organizations = true
   `[integrations.auth]` with `provider = "clerk"` does not require a
   schema change.
 - Each provider declares a **hosting model** in the integrations registry:
-  - **Managed** (Clerk): runs on the provider's cloud, not on your stack
-    host. Config is **global only** — `[integrations.clerk.render]` and
-    other per-host tables are rejected (`integration.config.invalid`).
+  - **Managed**: runs on the provider's cloud, not on your stack host.
+    Config is **global only** — per-host tables like
+    `[integrations.<name>.render]` are rejected (`integration.config.invalid`).
     Managed integrations are available on every `--on` host.
-  - **Host-bound** (future): tied to explicit stack hosts (`local`,
-    `render`, `vercel`). `stackless check --on <host>` rejects providers
-    not listed for that host (`integration.host.unsupported`). Host-bound
+  - **Host-bound**: tied to explicit stack hosts (`local`, `render`,
+    `vercel`, …). `stackless check --on <host>` rejects providers not
+    listed for that host (`integration.host.unsupported`). Host-bound
     providers may allow per-host override tables when declared.
 - `${integrations.<name>.<output>}` references are **ordering edges**
   in the derived dependency graph: integrations provision before any
   service whose env references them.
-- `clerk` is the only v0 provider. Stackless provisions a Clerk app
-  through Stripe Projects and exposes the selected keys through
-  interpolation. Provider-specific fields are validated by
+- Every provider registered in
+  `crates/stackless-integrations/src/registry.rs` is first-class.
+  Stackless provisions through Stripe Projects and exposes outputs
+  through interpolation. Provider-specific fields are validated by
   `stackless-integrations` during `stackless check`.
-- `provider` — required string naming a known catalog provider (`clerk`
-  today).
-- `app_name` — required string, interpolation allowed.
-- `credential_set` — optional, `"development"` by default. `"production"`
-  requires `production_domain`.
-- `production_domain` — optional domain passed to Clerk provisioning so
-  Stripe Projects can return production credentials.
-- `organizations` — optional boolean, `false` by default. When `true`,
-  Stackless enables Clerk Organizations and organization slugs on the
-  provisioned app so the application/test layer can create tenant org
-  fixtures named by `${instance.name}`.
-- Stackless does not create app-specific Clerk orgs/users. Tests or
-  application setup own that fixture layer.
+- `provider` — required string naming a known catalog provider (any
+  registry entry).
+- Provider-specific keys vary by adapter. For `provider = "clerk"` (example
+  below): `app_name` (required, interpolation allowed);
+  `credential_set` (optional, `"development"` by default; `"production"`
+  requires `production_domain`); `production_domain` (optional);
+  `organizations` (optional boolean, `false` by default — when `true`,
+  enables Clerk Organizations / slugs so tests can create tenant org
+  fixtures named by `${instance.name}`). Stackless does not create
+  app-specific Clerk orgs/users; the application/test layer owns that.
 
 ### Delivering integration credentials to tests
 

@@ -93,10 +93,11 @@ Decided:
 - **Hosted integrations separate logical name from catalog provider.**
   `[integrations.<name>]` is the interpolation slot
   (`${integrations.<name>.<output>}`); `provider` names the catalog
-  adapter (`clerk` → `clerk/auth`, provisioned via Stripe Projects
-  internally). Each provider declares **managed** (Clerk — global config
-  only, runs on provider cloud) or **host-bound** (future — explicit
-  `local`/`render`/`vercel`/`fly`/`netlify` support, optional per-host overrides).
+  adapter (e.g. `neon` → its Stripe Projects catalog reference),
+  provisioned via Stripe Projects internally. Each provider declares
+  **managed** (global config only, runs on the provider's cloud) or
+  **host-bound** (tied to explicit stack hosts, optional per-host
+  overrides). Every entry in the integrations registry is first-class.
   Provider-specific config is validated by `stackless-integrations`;
   `${integrations.*}` references are ordering edges in the derived graph.
 
@@ -692,7 +693,8 @@ Workspace-wide conventions:
   driver: project anchor (`[stack.projects.stripe]`), per-instance
   environments, catalog add/remove, env materialization, spend caps.
 - **`stackless-integrations`** — hosted integration routing and
-  provider adapters (Clerk today); substrates call here for provision /
+  provider adapters (catalog registry; all entries first-class);
+  substrates call here for provision /
   observe / destroy. Each provider declares managed vs host-bound
   hosting and config scope via the `Hostable` trait.
 - **`stackless-render`** — `Substrate` impl; Render REST calls go

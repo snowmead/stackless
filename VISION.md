@@ -2,27 +2,27 @@
 
 ## What this is
 
-stackless is a CLI that owns the complete lifecycle of disposable software
+stackless is a CLI that owns the complete lifecycle of ephemeral software
 stacks. It spawns a full, isolated, working copy of a product — every
 service, database, and credential it needs — gives it a name, proves it
-works, guarantees its death when it is no longer needed, and ensures the
-operator never sees a single real secret along the way. On a laptop or on
-a cloud provider, for a human, a CI job, or — first and foremost — an AI
-agent.
+works, guarantees its death when it is no longer needed, and (as
+destination) ensures the operator never holds a durable secret along the
+way. On a laptop or on a cloud provider, for a human, a CI job, or — first
+and foremost — an AI agent.
 
-The unit of thought is the **stack instance**: a named, short-lived,
-fully-wired incarnation of an application, born from one command and one
-declarative definition, sealed behind a secret-blind boundary, gone
-without residue from one command or one expired lease.
+The unit of thought is the **instance**: a named, short-lived, fully-wired
+incarnation of an application, born from one command and one declarative
+definition, gone without residue from one command or one expired lease.
 
 ## Who it is for
 
 stackless is built for autonomous agents first and humans second. Every
 design tension resolves in favor of what a fleet of untrusted, tireless,
 fallible agents needs: no interactive prompts, no tribal knowledge, no
-trust extended that isn't enforced, no secret an agent could read even if
-it tried, no cost left running because something forgot to clean up. A
-human at a terminal is a welcome guest in an interface shaped for machines.
+trust extended that isn't enforced, no durable secret an agent could keep
+even if it tried, no cost left running because something forgot to clean
+up. A human at a terminal is a welcome guest in an interface shaped for
+machines.
 
 ## Why it should exist
 
@@ -52,10 +52,10 @@ Uncompromising about secrets.**
 
 stackless never cares what your services are — any language, any runtime,
 any command, any wiring between them. It is ruthlessly opinionated about
-how instances live: named, leased, isolated, proven, accounted for,
-destroyed. And it is absolute about one thing above all: the operator
-driving stackless — the agent — never holds a real credential and can
-never reach the network except where the stack itself declares. That
+how instances live: named, leased, isolated, proven, destroyed. And it
+is absolute about one thing above all: the operator
+driving stackless — the agent — never holds a real durable credential and
+can never reach the network except where the stack itself declares. That
 asymmetry is the product.
 
 ## The trust boundary
@@ -85,11 +85,10 @@ between the agent (and the stack's own services) and everything else:
   There is no separate firewall to configure, no allowlist to hand-maintain,
   no secret store for the agent to discover.
 
-This is not a bolt-on security mode, but it is sequenced after the
-lifecycle layer: v0 ships without it, on operator-visible, test-scoped
-secrets, keeping the seam that makes the boundary an addition rather
-than a redesign (ARCHITECTURE.md §0). Once the boundary ships, an
-instance without it is the rare, loud, deliberate exception — never the
+This is not a bolt-on security mode. The lifecycle layer ships first; the
+boundary is sequenced after it, on the seam that makes the addition
+possible without a redesign (ARCHITECTURE.md §0). Once the boundary ships,
+an instance without it is the rare, loud, deliberate exception — never the
 default.
 
 ## What done looks like
@@ -111,8 +110,9 @@ default.
 - Teardown is verified, not assumed: after destruction stackless checks the
   substrate for survivors and refuses to report success while anything that
   costs money or holds state remains.
-- The agent never sees a secret, and cannot leave the network except where
-  the stack allows — by construction, not by policy it could edit around.
+- The agent never sees a durable secret, and cannot leave the network
+  except where the stack allows — by construction, not by policy it could
+  edit around.
 - The entire surface is equally usable by a person, a CI job, and an
   autonomous agent: non-interactive by default, structured output always
   available, every operation resumable after interruption, every error
@@ -160,22 +160,25 @@ default.
 stackless is not a PaaS, not an infrastructure-as-code state manager, not a
 CI system, not a production orchestrator, not a general-purpose firewall,
 and not a framework. It does not deploy your production. It has no opinion
-about how applications are built — only about how their disposable
+about how applications are built — only about how their ephemeral
 incarnations live, prove themselves, stay contained, and die.
 
-## v0 direction
+## Today vs destination
 
-Two substrates — the developer's machine and Render — chosen because
-together they force every hard problem: local isolation and routing, remote
-provisioning, paid resources, credential flow, verified remote teardown,
-and — when its phase comes — the secret-blind egress boundary in both a
-local and a cloud shape. v0 ships the lifecycle layer first; the boundary
-is sequenced after it (ARCHITECTURE.md §0). One real product (atto: SPA +
-Rust API + Postgres + third-party auth) is the dogfood from the first
-commit: if stackless cannot express it, stackless is wrong. When the
-boundary ships, "express it" includes routing the API's own calls to its
-auth provider through the boundary so the secret never touches the
-service.
+**Today** the product is the lifecycle layer for instances: one
+`stackless.toml`, health-gated `up`, `verify`, verified `down` or lease
+expiry, machine-readable envelopes, bind/IDL, MCP, and language SDKs.
+Hosting substrates that actually deploy: local, Render, Vercel, Fly,
+Netlify. Catalog integrations provision through Stripe Projects. Current
+surface and secrets posture: [README.md](README.md),
+[ARCHITECTURE.md](ARCHITECTURE.md) §0.
+
+**Destination** still open: the secret-blind trust boundary and
+default-deny egress (ARCHITECTURE.md §5). Lifecycle ships first; the
+boundary is additive on the seams already kept for it. Dogfood remains a
+real product (atto): if stackless cannot express it — and, once the
+boundary ships, route the API's own calls to auth through the boundary so
+the secret never touches the service — stackless is wrong.
 
 ## The test
 
@@ -188,6 +191,6 @@ teammate, or a manual cleanup, stackless has failed its purpose.
 
 The boundary phase tightens the test: throughout, the agent never holds a
 real durable secret, cannot reach anything the stack didn't declare, and
-no secret is ever pasted by hand. v0 passes the lifecycle test on
+no secret is ever pasted by hand. Today passes the lifecycle test on
 test-scoped, operator-visible secrets (ARCHITECTURE.md §0); it does not
 yet claim the tightened one.

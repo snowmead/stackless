@@ -1,7 +1,7 @@
 # stackless
 
-Disposable software stacks: named, leased, isolated, proven, accounted for,
-destroyed. A Rust workspace (edition 2024); `crates/stackless` is the CLI.
+Ephemeral software stacks: named, leased, isolated, proven, destroyed.
+A Rust workspace (edition 2024); `crates/stackless` is the CLI.
 
 ## Project docs — read the relevant one before working in that area
 

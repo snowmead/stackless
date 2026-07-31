@@ -26,40 +26,41 @@ export function Sdk() {
       <p className="section-label">SDKs and bind</p>
       <h2>Program the e2e loop. Typed names, not stringly DNS.</h2>
       <p>
-        Rust embeds a sync <code>Client</code>. TypeScript, Python, and Go shell{" "}
-        <code>stackless --json</code>. <code>stackless bind</code> emits typed{" "}
+        Published packages for Rust, TypeScript, Python, and Go — same
+        lifecycle verbs. <code>stackless bind</code> emits typed{" "}
         <code>Origins</code>, <code>Integrations</code>, and{" "}
-        <code>VerifyTier</code> for all four languages.
+        <code>VerifyTier</code> for all four.
       </p>
 
       <ul className="sdk-list">
         <li>
           <a href="https://crates.io/crates/stackless">
-            <code>stackless</code> (crate)
+            <code>stackless</code> (crates.io)
           </a>
           <span>
-            <code>Client::system()</code> or hermetic <code>TestContext</code>
+            Rust · <code>Client::system()</code> or hermetic{" "}
+            <code>TestContext</code>
           </span>
         </li>
         <li>
           <a href="https://www.npmjs.com/package/stackless-sdk">
             <code>stackless-sdk</code> (npm)
           </a>
-          <span>TypeScript CLI client</span>
+          <span>TypeScript · <code>Client.system()</code></span>
         </li>
         <li>
           <a href="https://pypi.org/project/stackless-sdk/">
             <code>stackless-sdk</code> (PyPI)
           </a>
           <span>
-            Python CLI client (<code>import stackless</code>)
+            Python · <code>import stackless</code>
           </span>
         </li>
         <li>
           <a href="https://pkg.go.dev/github.com/snowmead/stackless/sdks/go">
             <code>sdks/go</code>
           </a>
-          <span>Go module CLI client</span>
+          <span>Go · <code>stackless.System()</code></span>
         </li>
       </ul>
 

@@ -1,7 +1,7 @@
 ---
 name: stackless
 description: >-
-  Install stackless, author stackless.toml, and run the full disposable-stack
+  Install stackless, author stackless.toml, and run the full ephemeral-stack
   lifecycle (check, up, verify, status, logs, down) with --json. Branch on
   error.code, never prose. Use for stackless.toml, local/cloud up, and agent
   automation against the stackless CLI.
@@ -9,9 +9,10 @@ description: >-
 
 # stackless agent skill
 
-Disposable software stacks: named, leased, isolated, proven, destroyed. The
-schema reference is [docs/SCHEMA.md](../../docs/SCHEMA.md); this skill covers
-install, authoring, lifecycle, machine output, and error branching.
+Ephemeral software stacks: named, leased, isolated, proven, destroyed.
+The schema reference is [docs/SCHEMA.md](../../docs/SCHEMA.md);
+this skill covers install, authoring, lifecycle, machine output, and error
+branching.
 
 ## Install
 
@@ -94,10 +95,9 @@ stackless bind --file stackless.toml \
   --check
 ```
 
-**CLI-backed SDKs** (TypeScript / Python / Go under `sdks/`) shell
-`stackless --json` per `sdks/PROTOCOL.md`. Rust `Client` is in-process Engine;
-`STACKLESS_BIN` there is daemon resolution only. Integration credentials for
-out-of-process tests: verify-tier env (preferred off-stdout) or
+**Language SDKs** (Rust crate + TypeScript/Python/Go packages) share the same
+lifecycle verbs. Transport details: `sdks/PROTOCOL.md`. Integration credentials
+for out-of-process tests: verify-tier env (preferred off-stdout) or
 `up --json` / `UpOutcome.integrations` (do not scrape vault/`state.db`).
 
 ## Machine output contract
@@ -187,7 +187,7 @@ error.code?
 ├─ def.validate.root_origin_conflict
 │  └─ Set root_origin = true on at most one service
 ├─ def.validate.integration_invalid | integration.config.invalid
-│  └─ Fix [integrations.*] block; Clerk is managed/global-only (no per-host tables)
+│  └─ Fix [integrations.*] block; managed providers are global-only (no per-host tables)
 ├─ integration.host.unsupported
 │  └─ Change --on host or integration provider
 ├─ state.lock.held

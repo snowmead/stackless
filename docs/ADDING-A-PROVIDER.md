@@ -1,8 +1,5 @@
 # Adding a provider
 
-For parallel catalog rollouts (waves, merge gates, exclusions), see
-[PROVIDER-WAVES.md](PROVIDER-WAVES.md).
-
 stackless has two provider families. Adding one touches **exactly one
 registration site** plus the provider's own module/crate — the engine, core, and
 sibling providers stay untouched (core never names a provider).
@@ -85,8 +82,7 @@ traits from `stackless-provider-sdk`):
    (`GlobalOnly`), `RESOURCE_KIND` (unique), `OUTPUTS`. *Optional:*
    `BLOCKED_SETTINGS` — config keys the credentials can't toggle (no secret-key
    endpoint); each `(key, remediation)` fails `check`/`up` loudly instead of
-   being silently ignored. Defaults to empty; see `providers/clerk.rs` and
-   docs/DECISIONS.md.
+   being silently ignored. Defaults to empty; see `providers/clerk.rs`.
 3. **`impl CatalogResource`** — `type Config`, `PROVIDER_PREFIX`
    (the unambiguous env-var prefix, e.g. `"CLOUDFLARE"`), `OUTPUT_FIELDS`
    (`(env-suffix, output, required)` — get the real suffixes from `discover`),
@@ -170,5 +166,5 @@ fixture dir (see "One-time setup" above) — the smoke fails at the first
   `down` reports "verified gone" via the Stripe registration; the underlying
   provider resource may linger (e.g. a Cloudflare namespace), which is why smokes
   use unique names. Don't assume re-provisioning the same name is collision-free.
-- **Not everything is disposable.** `registrar:domain` is a one-time non-refundable
-  domain purchase — never smoke it.
+- **Not everything belongs in the leased lifecycle.** `registrar:domain` is a
+  one-time non-refundable domain purchase — never smoke it.

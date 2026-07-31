@@ -84,7 +84,7 @@ impl Hostable for ClerkAuth {
     /// Sign-in identifiers have no Clerk secret-key Backend API endpoint (only
     /// `organizations` does), so they cannot be toggled during provisioning —
     /// fail loud with the Dashboard remediation instead of silently ignoring the
-    /// key. See docs/DECISIONS.md.
+    /// key.
     const BLOCKED_SETTINGS: &'static [BlockedSetting] = &[
         BlockedSetting {
             key: "username",

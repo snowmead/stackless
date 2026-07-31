@@ -1,7 +1,7 @@
 # stackless (Go)
 
-CLI-backed SDK for [stackless](https://github.com/snowmead/stackless). Runs
-`stackless --json …` and parses stdout envelopes ([`../PROTOCOL.md`](../PROTOCOL.md)).
+Go SDK for [stackless](https://github.com/snowmead/stackless). Speaks the JSON
+protocol ([`../PROTOCOL.md`](../PROTOCOL.md)) via the `stackless` CLI.
 
 ## Module
 
