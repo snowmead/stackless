@@ -25,6 +25,7 @@ export function Hero({ reduceMotion }: Props) {
             <a
               className="topbar-link"
               href="https://github.com/snowmead/stackless"
+              target="_blank"
               rel="noopener noreferrer"
             >
               GitHub
