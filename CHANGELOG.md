@@ -15,6 +15,48 @@ Generate with:
 
 ## Unreleased
 
+## v0.2.2 — 2026-07-31
+
+CLI self-update for dist installs, Stripe Projects plugin 0.30.0 with
+provider-scoped spend, dual MIT OR Apache-2.0, and docs/provider registry sync.
+
+### Added
+
+- CLI self-update for cargo-dist installs: auto-check GitHub Releases (24h
+  throttle), `stackless update` for a forced check, and
+  `STACKLESS_NO_SELF_UPDATE=1` kill switch (#87).
+
+### Changed
+
+- Stripe Projects plugin pin 0.29.0 → 0.30.0; cloud spend reporting is
+  provider-scoped (#86).
+- Dual-license under MIT OR Apache-2.0; README badges and package metadata.
+- Provider docs synced with registries (`PROVIDERS.md`, ARCHITECTURE, SCHEMA)
+  (#85); marketing site and product copy polish.
+
+### Commits
+
+- [cd7d9e4](https://github.com/snowmead/stackless/commit/cd7d9e4a17b606c2033f230f3694c4b8d02d5b3e) Polish landing hero CTAs and Layer agent brands.
+- [12a8d22](https://github.com/snowmead/stackless/commit/12a8d2298da2fd0f4567103c2838e6ed66ed98d7) docs: align copy with shipped lifecycle and ephemeral pitch
+- [1c48781](https://github.com/snowmead/stackless/commit/1c487812878659520daf200a07c8de9f9ca639b6) docs: map systems architecture and list supported providers
+- [d494a07](https://github.com/snowmead/stackless/commit/d494a071e809ad02ec15911d93119676494d1c0f) Redesign the landing hero and trim body sections.
+- [b8c15ab](https://github.com/snowmead/stackless/commit/b8c15ab16d440b5165f4e95694d656782e438961) Clarify landing copy and match body code panels to the hero chrome.
+- [a0d0db8](https://github.com/snowmead/stackless/commit/a0d0db8716bd3883c3d4db8735f4af990ae1d7a0) Animate primitives integrations with a letter-by-letter rewrite.
+- [767af6c](https://github.com/snowmead/stackless/commit/767af6c69ebbf0cff67e79cb94ef45afc1c53e69) Make the README banner span the full content width.
+- [1fff975](https://github.com/snowmead/stackless/commit/1fff975e576d88a8ba7d5bde9ebe683bba5270b1) Dual-license under MIT OR Apache-2.0 and add README badges.
+- [839a143](https://github.com/snowmead/stackless/commit/839a1433674f80db992c5428cbb592e3de6b6394) Left-align README package badges under the title.
+- [5c3be85](https://github.com/snowmead/stackless/commit/5c3be854a3e25cc204b260521a1a827e7411cfe0) feat(stripe-projects): integrate plugin 0.29.0 → 0.30.0 (#86)
+- [1218b9a](https://github.com/snowmead/stackless/commit/1218b9ab511b5830fec883c9e81bddf52ac8dd08) sync provider docs with registries (#85)
+- [226c746](https://github.com/snowmead/stackless/commit/226c7463db96f4507a732921f75ff8c796c62bd5) fix(ci): repair mise force-retry after install flakiness (#88)
+- [c3a38e1](https://github.com/snowmead/stackless/commit/c3a38e139c991636b5a38895efa7229094f03b2d) Add CLI self-update via axoupdater for dist installs (#87)
+
+### Install
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/download/v0.2.2/stackless-installer.sh | sh
+stackless --version
+```
+
 ## v0.2.1 — 2026-07-30
 
 ### Changed

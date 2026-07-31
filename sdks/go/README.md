@@ -9,7 +9,7 @@ protocol ([`../PROTOCOL.md`](../PROTOCOL.md)) via the `stackless` CLI.
 github.com/snowmead/stackless/sdks/go
 ```
 
-Publish tags use the subdirectory prefix, e.g. `sdks/go/v0.2.1` (lockstep with
+Publish tags use the subdirectory prefix, e.g. `sdks/go/v0.2.2` (lockstep with
 the workspace version).
 
 ## Usage
