@@ -8,8 +8,8 @@ Release surfaces, lockstep with `[workspace.package].version` (today
 | crates.io | `stackless` + workspace crates | tag `vX.Y.Z` → `publish-packages.yml` |
 | npm | `stackless-sdk` | same tag |
 | PyPI | `stackless-sdk` (`import stackless`) | same tag |
-| Go module | `github.com/snowmead/stackless/sdks/go` | tag `sdks/go/vX.Y.Z` |
-| GitHub Release / installer | CLI binaries | same `vX.Y.Z` via cargo-dist `release.yml` |
+| Go module | `github.com/snowmead/stackless/sdks/go` | tag `sdks/go/vX.Y.Z` (git tag only; does not run `release.yml`) |
+| GitHub Release / installer | CLI binaries | tag `vX.Y.Z` via cargo-dist `release.yml` |
 
 Language SDK versions live in
 [`sdks/typescript/package.json`](../sdks/typescript/package.json) and
@@ -38,7 +38,8 @@ consume the environment SDK, but it is published in the crates wave below.
    - Workflow: `publish-packages.yml`
    - Repository: `snowmead/stackless`
 4. **Go** — No registry token. Consumers resolve via `proxy.golang.org` after
-   the `sdks/go/vX.Y.Z` tag is pushed.
+   the `sdks/go/vX.Y.Z` tag is pushed. That tag must not trigger cargo-dist;
+   `release.yml` only matches `vX.Y.Z` CLI tags.
 
 ---
 
@@ -57,8 +58,10 @@ consume the environment SDK, but it is published in the crates wave below.
    git tag sdks/go/v0.2.2
    git push origin v0.2.2 sdks/go/v0.2.2
 ```
+   `v0.2.2` triggers cargo-dist + `publish-packages`. `sdks/go/v0.2.2` is for
+   the Go module proxy only (not a GitHub Release).
 6. Confirm:
-   - GitHub Release + installer (cargo-dist)
+   - GitHub Release + installer (cargo-dist on `v*`)
    - `publish-packages` workflow green (crates.io, npm, PyPI)
    - `go list -m github.com/snowmead/stackless/sdks/go@v0.2.2` resolves
 
