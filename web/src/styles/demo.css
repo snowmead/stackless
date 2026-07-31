@@ -129,70 +129,183 @@
   flex-wrap: wrap;
   gap: 0.75rem;
   margin-top: 1.75rem;
+  /* Room for the absolute prompt preview under the button. */
+  padding-bottom: 2.75rem;
 }
 
-.hero-cmd {
+.copy-prompt {
+  position: relative;
   display: inline-flex;
-  align-items: center;
-  gap: 0.55rem;
-  background: transparent;
-  border-color: var(--line-strong);
-  color: var(--ink);
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.copy-prompt-btn {
+  gap: 0.65rem;
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--void);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  box-shadow: 0 1px 2px oklch(0.22 0.02 250 / 0.12);
   transition:
     background-color 160ms var(--ease-out-quart),
-    color 160ms var(--ease-out-quart),
     border-color 160ms var(--ease-out-quart),
+    color 160ms var(--ease-out-quart),
     transform 200ms var(--ease-out-quart);
 }
 
-.hero-cmd:hover {
-  border-color: var(--ink);
-  color: var(--ink);
+.copy-prompt-btn:hover {
+  background: color-mix(in oklch, var(--ink) 88%, var(--void));
+  border-color: color-mix(in oklch, var(--ink) 88%, var(--void));
+  color: var(--void);
   transform: translateY(-1px);
 }
 
-.hero-cmd.is-copied {
-  background: var(--signal);
-  border-color: var(--signal);
+.copy-prompt-icons {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 5.6rem;
+  height: 1.25rem;
   color: var(--void);
 }
 
-.hero-cmd.is-copied:hover {
-  background: var(--signal);
-  border-color: var(--signal);
-  color: var(--void);
-}
-
-.hero-cmd-icon {
-  width: 1.05rem;
-  height: 1.05rem;
+.copy-prompt-glyph {
+  width: 1.15rem;
+  height: 1.15rem;
   flex-shrink: 0;
-  transition: transform 200ms var(--ease-out-quart);
+  transition: transform 300ms var(--ease-out-quart);
   transform-origin: center;
 }
 
-.hero-cmd:hover .hero-cmd-icon {
-  transform: rotate(-8deg) scale(1.12);
+.copy-prompt-glyph + .copy-prompt-glyph {
+  margin-left: 0.2rem;
 }
 
-.hero[data-static] .hero-cmd,
-.hero[data-static] .hero-cmd:hover,
-.hero[data-static] .hero-cmd-icon,
-.hero[data-static] .hero-cmd:hover .hero-cmd-icon {
+.copy-prompt-glyph-a {
+  transform: rotate(-6deg);
+}
+
+.copy-prompt-glyph-d {
+  transform: rotate(6deg);
+  margin-left: 0.1rem;
+}
+
+.copy-prompt-btn:hover .copy-prompt-glyph-a {
+  transform: rotate(-12deg) translateX(-0.15rem);
+}
+
+.copy-prompt-btn:hover .copy-prompt-glyph-b {
+  transform: translate(-1px, -1px) rotate(6deg) scale(1.1);
+}
+
+.copy-prompt-btn:hover .copy-prompt-glyph-c {
+  transform: translate(1px, 2px) rotate(-6deg) scale(1.1);
+}
+
+.copy-prompt-btn:hover .copy-prompt-glyph-d {
+  transform: rotate(12deg) translateX(0.15rem);
+}
+
+.copy-prompt-preview {
+  pointer-events: none;
+  position: absolute;
+  left: 0;
+  top: calc(100% + 0.7rem);
+  display: none;
+  max-width: min(42rem, 92vw);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--ink-faint);
+  opacity: 0;
+  transform: translateY(0.25rem);
+  transition:
+    opacity 200ms var(--ease-out-quart),
+    transform 200ms var(--ease-out-quart);
+}
+
+@media (min-width: 40rem) {
+  .copy-prompt-preview {
+    display: block;
+  }
+}
+
+.copy-prompt:hover .copy-prompt-preview,
+.copy-prompt:focus-within .copy-prompt-preview,
+.copy-prompt.is-feedback .copy-prompt-preview {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.copy-prompt-quote,
+.copy-prompt-feedback {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.2rem;
+  transition:
+    opacity 200ms var(--ease-out-quart),
+    transform 200ms var(--ease-out-quart);
+}
+
+.copy-prompt-feedback {
+  position: absolute;
+  left: 0;
+  top: 0;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--signal);
+  opacity: 0;
+  transform: translateY(0.25rem);
+  white-space: normal;
+}
+
+.copy-prompt-mark {
+  color: var(--signal);
+  line-height: 1;
+  position: relative;
+  top: 0.05rem;
+}
+
+.copy-prompt-check {
+  flex-shrink: 0;
+  color: var(--signal);
+}
+
+.copy-prompt.is-feedback .copy-prompt-quote {
+  opacity: 0;
+  transform: translateY(-0.25rem);
+}
+
+.copy-prompt.is-feedback .copy-prompt-feedback {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.hero[data-static] .copy-prompt-btn,
+.hero[data-static] .copy-prompt-btn:hover,
+.hero[data-static] .copy-prompt-glyph,
+.hero[data-static] .copy-prompt-btn:hover .copy-prompt-glyph {
   transform: none;
   transition: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hero-cmd,
-  .hero-cmd:hover,
-  .hero-cmd-icon,
-  .hero-cmd:hover .hero-cmd-icon {
+  .copy-prompt-btn,
+  .copy-prompt-btn:hover,
+  .copy-prompt-glyph,
+  .copy-prompt-btn:hover .copy-prompt-glyph,
+  .copy-prompt-preview,
+  .copy-prompt-quote,
+  .copy-prompt-feedback {
     transform: none;
     transition:
       background-color 160ms var(--ease-out-quart),
+      border-color 160ms var(--ease-out-quart),
       color 160ms var(--ease-out-quart),
-      border-color 160ms var(--ease-out-quart);
+      opacity 160ms var(--ease-out-quart);
   }
 }
 

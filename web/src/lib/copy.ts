@@ -1,8 +1,6 @@
-export const INSTALL_CMD =
-  "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/latest/download/stackless-installer.sh | sh";
-
-export const SKILLS_CMD =
-  "bunx skills add snowmead/stackless --skill stackless -g";
+/** Prompt copied by the hero "Copy Prompt" CTA — paste into a coding agent. */
+export const COPY_PROMPT =
+  "Read https://stackless.sh/start.md then install the stackless CLI and add the stackless skill...";
 
 export async function copyText(text: string): Promise<void> {
   try {

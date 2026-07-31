@@ -1,20 +1,12 @@
-import { SparklesIcon, TerminalIcon } from "lucide-react";
-
+import { CopyPrompt } from "@/components/CopyPrompt";
 import { HeroDemo } from "@/components/HeroDemo";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { Button } from "@/components/ui/button";
-import { useCopy } from "@/hooks/use-copy";
-import { INSTALL_CMD, SKILLS_CMD } from "@/lib/copy";
-import { cn } from "@/lib/utils";
 
 type Props = {
   reduceMotion: boolean;
 };
 
 export function Hero({ reduceMotion }: Props) {
-  const { copied: installCopied, copy: copyInstall } = useCopy();
-  const { copied: skillsCopied, copy: copySkills } = useCopy();
-
   return (
     <>
       <header
@@ -51,38 +43,7 @@ export function Hero({ reduceMotion }: Props) {
             For agents to run your stack end to end.
           </p>
           <div className="cta-row">
-            <Button
-              type="button"
-              size="lg"
-              variant="outline"
-              className={cn(
-                "hero-cmd h-auto rounded-sm px-[1.1rem] py-[0.72rem] text-[0.95rem]",
-                installCopied && "is-copied",
-              )}
-              aria-label={
-                installCopied ? "Copied install command" : "Copy install command"
-              }
-              onClick={() => void copyInstall(INSTALL_CMD)}
-            >
-              <TerminalIcon className="hero-cmd-icon" aria-hidden="true" />
-              <span>{installCopied ? "Copied" : "Install CLI"}</span>
-            </Button>
-            <Button
-              type="button"
-              size="lg"
-              variant="outline"
-              className={cn(
-                "hero-cmd h-auto rounded-sm px-[1.1rem] py-[0.72rem] text-[0.95rem]",
-                skillsCopied && "is-copied",
-              )}
-              aria-label={
-                skillsCopied ? "Copied skill command" : "Copy skill command"
-              }
-              onClick={() => void copySkills(SKILLS_CMD)}
-            >
-              <SparklesIcon className="hero-cmd-icon" aria-hidden="true" />
-              <span>{skillsCopied ? "Copied" : "Add skill"}</span>
-            </Button>
+            <CopyPrompt />
           </div>
         </div>
       </header>
