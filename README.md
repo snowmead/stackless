@@ -4,6 +4,16 @@
 
 # stackless
 
+<p align="center">
+  <a href="https://crates.io/crates/stackless"><img src="https://img.shields.io/crates/v/stackless.svg?label=crates.io" alt="crates.io" /></a>
+  <a href="https://www.npmjs.com/package/stackless-sdk"><img src="https://img.shields.io/npm/v/stackless-sdk.svg?label=npm" alt="npm" /></a>
+  <a href="https://pypi.org/project/stackless-sdk/"><img src="https://img.shields.io/pypi/v/stackless-sdk.svg?label=PyPI" alt="PyPI" /></a>
+  <a href="https://pkg.go.dev/github.com/snowmead/stackless/sdks/go"><img src="https://pkg.go.dev/badge/github.com/snowmead/stackless/sdks/go.svg" alt="Go Reference" /></a>
+  <a href="https://github.com/snowmead/stackless/releases/latest"><img src="https://img.shields.io/github/v/release/snowmead/stackless?label=release" alt="GitHub release" /></a>
+  <a href="https://github.com/snowmead/stackless/actions/workflows/ci.yml"><img src="https://github.com/snowmead/stackless/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0" /></a>
+</p>
+
 **Ephemeral software stacks: named, leased, isolated, proven, destroyed.**
 
 ## What
@@ -227,3 +237,14 @@ Plain `cargo build` / `cargo test` also work. Architecture:
 [PROVIDERS.md](PROVIDERS.md). Contributor map and provider tooling:
 [CLAUDE.md](CLAUDE.md). Releases: [CHANGELOG.md](CHANGELOG.md). Cursor Cloud
 notes: [AGENTS.md](AGENTS.md).
+
+## License
+
+Licensed under either of:
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or
+  https://www.apache.org/licenses/LICENSE-2.0)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or
+  https://opensource.org/licenses/MIT)
+
+at your option.
