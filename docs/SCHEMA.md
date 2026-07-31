@@ -3,8 +3,8 @@
 This document is sufficient on its own to write a valid stack
 definition. It describes what the implementation actually enforces;
 every rule here is checked by `stackless check <file>` (add
-`--on local` / `--on render` / `--on vercel` / `--on fly` / `--on netlify`
-for substrate-specific completeness)
+`--on <substrate>` for substrate-specific completeness; registered
+hosts are listed in [PROVIDERS.md](../PROVIDERS.md))
 before anything provisions. Validation failures carry stable
 machine-readable codes (listed throughout) plus a remediation.
 
@@ -113,7 +113,8 @@ region = "iad"           # Fly region (default iad)
   cloud resources (Render, Vercel, Clerk, …) share this anchor;
   re-link a fresh checkout with `stripe projects pull <id>`.
 - Any other key under `[stack]` must be the name of a registered
-  substrate (`local`, `render`, `vercel`, `fly`, `netlify`) and must be a table
+  substrate (`local`, `render`, `vercel`, `fly`, `netlify`, `railway`,
+  `cloudflare`, `wordpress`, `laravel-cloud`, `gitlab`) and must be a table
   (`def.validate.unknown_key`, `def.validate.substrate_block_invalid`).
 - `[stack.render]` — optional. `region` defaults to `"oregon"` (Render
   substrate only).
@@ -551,28 +552,9 @@ health = { path = "/", contains = 'id="root"' }
 ## Providers
 
 Stripe Projects is internal plumbing — never declared in
-`stackless.toml`. Checked = supported today.
-
-### Stack hosts (`--on`)
-
-- [x] local
-- [x] render
-- [x] vercel
-- [ ] fly.io
-- [ ] railway
-- [ ] netlify
-- [ ] cloudflare workers
-- [ ] gitlab
-- [ ] laravel cloud
-- [ ] wordpress.com
-
-### Integrations (`provider`)
-
-- [x] clerk
-- [ ] auth0
-- [ ] workos
-- [ ] privy
-- [ ] supabase
+`stackless.toml`. Registered hosting substrates (`--on`) and catalog
+integrations (`provider`) are listed in [PROVIDERS.md](../PROVIDERS.md);
+that file is maintained from the registries.
 
 ### Platform
 
