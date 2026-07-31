@@ -58,6 +58,16 @@ impl Paths {
     pub fn persistence_marker(&self) -> PathBuf {
         self.state_dir.join("daemon.persistence")
     }
+
+    /// Throttle / outcome ledger for CLI self-update checks.
+    pub fn self_update_ledger(&self) -> PathBuf {
+        self.state_dir.join("self_update.ledger.json")
+    }
+
+    /// Cross-process lock for a single in-flight self-update attempt.
+    pub fn self_update_lock(&self) -> PathBuf {
+        self.state_dir.join("self_update.lock")
+    }
 }
 
 #[cfg(test)]
@@ -91,6 +101,14 @@ mod tests {
         assert_eq!(
             paths.persistence_marker(),
             PathBuf::from("/tmp/stackless-test/daemon.persistence")
+        );
+        assert_eq!(
+            paths.self_update_ledger(),
+            PathBuf::from("/tmp/stackless-test/self_update.ledger.json")
+        );
+        assert_eq!(
+            paths.self_update_lock(),
+            PathBuf::from("/tmp/stackless-test/self_update.lock")
         );
     }
 

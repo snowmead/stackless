@@ -39,6 +39,7 @@ pub(crate) mod init;
 pub(crate) mod mcp;
 pub(crate) mod output;
 pub(crate) mod secrets;
+pub(crate) mod self_update;
 pub(crate) mod substrates;
 pub(crate) mod verify;
 
