@@ -336,9 +336,11 @@ reaper enforces **all** substrates' leases from the operator machine.
 - **Instance processes are not the daemon's children.** Spawned in their
   own sessions; supervised by recorded PID + start time (PID-reuse-safe);
   stdout/stderr to size-capped, rotated log files.
-- **Upgrade = restart + re-adopt.** Socket handshake carries version;
-  newer CLI drains older daemon. Starting daemon reconciles manifests
-  against observed reality — re-adopting live processes, noting dead ones.
+- **Upgrade = restart + re-adopt.** For dist installs, CLI self-update
+  (axoupdater + re-exec) precedes the existing drain/re-adopt handshake.
+  Socket handshake carries version; newer CLI drains older daemon.
+  Starting daemon reconciles manifests against observed reality —
+  re-adopting live processes, noting dead ones.
 - **v0 supervision: observe, don't restart.** A crashed service marks the
   instance unhealthy; agents re-run `up` to recover.
 
