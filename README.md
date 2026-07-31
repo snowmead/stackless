@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/banner.png" alt="stackless" width="720" />
+  <img src="docs/assets/banner.png" alt="stackless" width="100%" />
 </p>
 
 # stackless
