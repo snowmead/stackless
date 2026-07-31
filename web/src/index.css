@@ -54,6 +54,7 @@
   /* Light: blue-steel paper + restrained signal */
   --void: oklch(0.985 0.005 250);
   --void-lift: oklch(0.97 0.007 250);
+  --body-band: oklch(0.965 0.007 250);
   --ink: oklch(0.22 0.02 250);
   --ink-soft: oklch(0.4 0.016 250);
   --ink-faint: oklch(0.52 0.014 250);
@@ -73,7 +74,6 @@
   --toml-str: oklch(0.45 0.14 55);
   --toml-interp: oklch(0.42 0.14 165);
   --toml-bool: oklch(0.4 0.12 280);
-  --toml-lit: oklch(0.52 0.1 165 / 0.12);
   --max: 76rem;
   --gutter: clamp(1.25rem, 4vw, 3rem);
   --font-sans: "Host Grotesk", "Helvetica Neue", Helvetica, Arial, sans-serif;
@@ -118,6 +118,7 @@
 .dark {
   --void: oklch(0.14 0.012 250);
   --void-lift: oklch(0.18 0.012 250);
+  --body-band: oklch(0.16 0.012 250);
   --ink: oklch(0.93 0.008 250);
   --ink-soft: oklch(0.72 0.012 250);
   --ink-faint: oklch(0.52 0.014 250);
@@ -137,7 +138,6 @@
   --toml-str: oklch(0.8 0.07 65);
   --toml-interp: oklch(0.82 0.09 165);
   --toml-bool: oklch(0.78 0.06 250);
-  --toml-lit: oklch(0.78 0.08 165 / 0.14);
 
   --background: var(--void);
   --foreground: var(--ink);

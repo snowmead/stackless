@@ -8,7 +8,7 @@ export function Layer({ reduceMotion }: Props) {
   return (
     <section className="section layer" id="layer">
       <p className="section-label">The layer</p>
-      <h2>Every agent tests in its own instance. All at once.</h2>
+      <h2>Agents run & test in parallel</h2>
       <p>
         Fan your end-to-end suite out to a fleet of agents. Each one crosses
         the same wall — <code>stackless up</code> with its own name — and

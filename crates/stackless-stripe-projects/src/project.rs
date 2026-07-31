@@ -441,8 +441,14 @@ pub async fn set_spend_cap<R: CommandRunner>(
     Ok(())
 }
 
-pub async fn spend_summary<R: CommandRunner>(stripe: &StripeProjects<R>) -> Option<String> {
-    let result = stripe.json(&["spend"]).await.ok()?;
+pub async fn spend_summary<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+    provider: Option<&str>,
+) -> Option<String> {
+    let result = match provider {
+        None => stripe.json(&["spend"]).await.ok()?,
+        Some(p) => stripe.json(&["spend", p]).await.ok()?,
+    };
     if !result.ok {
         return None;
     }
@@ -971,6 +977,34 @@ mod tests {
         let stripe = StripeProjects::new(&runner, dir.path());
         sync_vault_pull_for_instance(&stripe, "demo").await.unwrap();
         assert!(!stale.exists(), "stale instance env file must be cleared");
+    }
+
+    #[tokio::test]
+    async fn spend_summary_none_invokes_bare_spend() {
+        let runner = ScriptedRunner::new(vec![ok(json!({ "total_usd": 12 }))]);
+        let stripe = StripeProjects::new(&runner, std::env::temp_dir());
+        let summary = spend_summary(&stripe, None).await.unwrap();
+        assert!(summary.contains("total_usd"));
+        assert_eq!(
+            runner.calls(),
+            vec![vec!["spend".to_owned(), "--json".to_owned()]]
+        );
+    }
+
+    #[tokio::test]
+    async fn spend_summary_some_invokes_spend_with_provider() {
+        let runner = ScriptedRunner::new(vec![ok(json!({ "total_usd": 3 }))]);
+        let stripe = StripeProjects::new(&runner, std::env::temp_dir());
+        let summary = spend_summary(&stripe, Some("vercel")).await.unwrap();
+        assert!(summary.contains("total_usd"));
+        assert_eq!(
+            runner.calls(),
+            vec![vec![
+                "spend".to_owned(),
+                "vercel".to_owned(),
+                "--json".to_owned(),
+            ]]
+        );
     }
 
     #[tokio::test]

@@ -24,7 +24,11 @@ type Props = {
   reduceMotion: boolean;
 };
 
-type LogoComponent = ComponentType<{ className?: string; title?: string }>;
+type LogoComponent = ComponentType<{
+  className?: string;
+  title?: string;
+  color?: string;
+}>;
 
 /*
  * Layout: one CSS grid, one row per lane. Agent card, wall port, hub port,
@@ -49,6 +53,8 @@ type Lane = {
   id: string;
   agent: string;
   Logo: LogoComponent;
+  /** Brand fill for the agent mark (pi.dev / Claude / OpenAI). */
+  logoColor: string;
   spec: string;
   cmd: string;
   env: string;
@@ -64,6 +70,8 @@ const LANES: Lane[] = [
     id: "a",
     agent: "pi",
     Logo: LogoPi,
+    // pi.dev accent (site CSS --accent); mark itself is mono black/white.
+    logoColor: "#6A9FCC",
     spec: "checkout.spec.ts",
     cmd: "stackless up --name e2e-checkout",
     env: "e2e-checkout",
@@ -80,6 +88,7 @@ const LANES: Lane[] = [
     id: "b",
     agent: "claude",
     Logo: LogoClaude,
+    logoColor: "#D97757", // Simple Icons Claude
     spec: "auth.spec.ts",
     cmd: "stackless up --name e2e-auth",
     env: "e2e-auth",
@@ -96,6 +105,7 @@ const LANES: Lane[] = [
     id: "c",
     agent: "codex",
     Logo: LogoCodex,
+    logoColor: "#10A37F", // OpenAI / ChatGPT green
     spec: "billing.spec.ts",
     cmd: "stackless up --name e2e-billing",
     env: "e2e-billing",
@@ -325,7 +335,11 @@ export function LayerWall({ reduceMotion }: Props) {
           >
             <div className="layer-agent-top">
               <span className="layer-agent-dot" />
-              <lane.Logo className="layer-agent-logo" title="" />
+              <lane.Logo
+                className="layer-agent-logo"
+                title=""
+                color={lane.logoColor}
+              />
               <span className="layer-agent-who">{lane.agent}</span>
               <span className="layer-agent-spec">{lane.spec}</span>
             </div>

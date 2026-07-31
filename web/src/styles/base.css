@@ -1,4 +1,4 @@
 a { color: inherit; text-decoration-thickness: 1px; text-underline-offset: 0.18em; }
 a:hover { color: var(--ink); }
-a:focus-visible, button:focus-visible, .code-block:focus-visible, .demo-toml-body:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+a:focus-visible, button:focus-visible, .code-block:focus-visible, .hero-code-body:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 code { font-family: var(--font-mono); font-size: 0.9em; }
