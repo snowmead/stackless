@@ -254,12 +254,20 @@ fn run_axoupdater() -> UpdateOutcome {
             let exe = resolve_updated_exe(&prefix);
             UpdateOutcome::Updated { from, to, exe }
         }
-        Ok(None) => UpdateOutcome::Current {
-            version: env!("CARGO_PKG_VERSION").to_owned(),
-        },
-        Err(err) => UpdateOutcome::SoftFailed {
-            detail: err.to_string(),
-        },
+        Ok(None) => {
+            // Installer decided nothing to do after we drained; bring the
+            // operator daemon back so lease reaping does not stay offline.
+            respawn_daemon_best_effort();
+            UpdateOutcome::Current {
+                version: env!("CARGO_PKG_VERSION").to_owned(),
+            }
+        }
+        Err(err) => {
+            respawn_daemon_best_effort();
+            UpdateOutcome::SoftFailed {
+                detail: err.to_string(),
+            }
+        }
     }
 }
 
@@ -283,6 +291,14 @@ pub fn drain_daemon_best_effort() {
         let _ = client.call(Request::Shutdown);
         std::thread::sleep(Duration::from_millis(200));
     }
+}
+
+/// Best-effort respawn after a pre-install drain when the install itself
+/// did not apply (failed or no-op). Never fails the update.
+fn respawn_daemon_best_effort() {
+    use stackless_daemon::DaemonClient;
+
+    let _ = DaemonClient::ensure();
 }
 
 /// Replace this process with the updated binary, forwarding argv[1..].
