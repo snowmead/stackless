@@ -86,10 +86,7 @@ jobs:
         env:
           MISE_JOBS: "1"
         shell: bash
-        run: |
-          mise install && exit 0
-          for i in 1 2; do echo "retry $i (force)"; sleep 10; mise install --force && exit 0; done
-          exit 1
+        run: bash .github/scripts/mise-install-retried.sh
 
       - name: Rust / Cargo cache
         uses: Swatinem/rust-cache@v2
