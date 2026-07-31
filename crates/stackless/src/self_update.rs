@@ -94,7 +94,10 @@ pub fn evaluate_skip(inputs: &SkipInputs) -> Option<UpdateSkip> {
     }
     if !inputs.force
         && let Some(last) = inputs.last_checked_at
-        && inputs.now.duration_since(last).unwrap_or(Duration::ZERO) < TTL
+        && inputs
+            .now
+            .duration_since(last)
+            .is_ok_and(|elapsed| elapsed < TTL)
     {
         return Some(UpdateSkip::Throttled);
     }
@@ -165,7 +168,17 @@ fn maybe_self_update_inner(ctx: UpdateContext) -> UpdateOutcome {
     };
 
     let outcome = run_axoupdater();
-    write_ledger_for_outcome(&ledger_path, &ledger, now, &outcome);
+    // Only stamp the throttle ledger after a real network check attempt.
+    // NoReceipt / ReceiptNotThisExecutable must not start the 24h TTL for
+    // cargo-built or foreign binaries.
+    if matches!(
+        outcome,
+        UpdateOutcome::Current { .. }
+            | UpdateOutcome::Updated { .. }
+            | UpdateOutcome::SoftFailed { .. }
+    ) {
+        write_ledger_for_outcome(&ledger_path, &ledger, now, &outcome);
+    }
     drop(lock);
     outcome
 }
@@ -173,6 +186,19 @@ fn maybe_self_update_inner(ctx: UpdateContext) -> UpdateOutcome {
 fn run_axoupdater() -> UpdateOutcome {
     let mut updater = AxoUpdater::new_for(APP_NAME);
     updater.disable_installer_output();
+    let client = match reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(30))
+        .build()
+    {
+        Ok(client) => client,
+        Err(err) => {
+            return UpdateOutcome::SoftFailed {
+                detail: err.to_string(),
+            };
+        }
+    };
+    updater.set_client(client);
     if let Ok(token) = std::env::var(ENV_GITHUB_TOKEN)
         && !token.is_empty()
     {
@@ -242,6 +268,18 @@ fn resolve_updated_exe(prefix: &Path) -> PathBuf {
     }
 }
 
+/// Best-effort drain of the resident operator daemon before re-exec so it
+/// does not keep a deleted inode open. Never fails the update.
+pub fn drain_daemon_best_effort() {
+    use stackless_daemon::DaemonClient;
+    use stackless_daemon::rpc::Request;
+
+    if let Ok(mut client) = DaemonClient::connect_with(&Paths::from_env()) {
+        let _ = client.call(Request::Shutdown);
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
 /// Replace this process with the updated binary, forwarding argv[1..].
 pub fn reexec(exe: &Path) -> ! {
     #[cfg(unix)]
@@ -308,10 +346,7 @@ fn write_ledger_for_outcome(
             next.last_failed_unix = Some(unix);
             next.last_error = Some(detail.clone());
         }
-        UpdateOutcome::Skipped(_) => {
-            // Skips that reach write_ledger are post-lock network outcomes only
-            // (NoReceipt / ReceiptNotThisExecutable). Still record the check.
-        }
+        UpdateOutcome::Skipped(_) => return,
     }
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -405,6 +440,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (_, mut inputs) = base_inputs(&dir);
         inputs.last_checked_at = Some(inputs.now - TTL - Duration::from_secs(1));
+        assert_eq!(evaluate_skip(&inputs), None);
+    }
+
+    #[test]
+    fn throttle_future_last_checked_allows_check() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_, mut inputs) = base_inputs(&dir);
+        inputs.last_checked_at = Some(inputs.now + Duration::from_secs(60));
         assert_eq!(evaluate_skip(&inputs), None);
     }
 

@@ -157,6 +157,24 @@ impl Output {
         println!("next: {next}");
     }
 
+    pub fn update_ok(&self, message: &str) {
+        if self.json {
+            #[derive(Serialize)]
+            struct UpdateOk<'a> {
+                schema_version: u32,
+                ok: bool,
+                message: &'a str,
+            }
+            self.emit(&UpdateOk {
+                schema_version: SCHEMA_VERSION,
+                ok: true,
+                message,
+            });
+            return;
+        }
+        eprintln!("stackless update: {message}");
+    }
+
     pub fn adopt_ok(&self, path: String, services: &[&str], merged: bool, next: &str) {
         if self.json {
             #[derive(Serialize)]

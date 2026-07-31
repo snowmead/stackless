@@ -93,6 +93,9 @@ pub enum Error {
 
     #[error("runtime error: {0}")]
     Runtime(std::io::Error),
+
+    #[error("{detail}")]
+    SelfUpdate { detail: String },
 }
 
 impl Error {
@@ -134,6 +137,7 @@ impl Fault for Error {
             Self::Substrate { fault, .. } => fault.code(),
             Self::Integration(err) => err.code(),
             Self::Runtime(_) => codes::CLI_RUNTIME,
+            Self::SelfUpdate { .. } => codes::CLI_SELF_UPDATE,
         }
     }
 
@@ -203,6 +207,11 @@ impl Fault for Error {
             Self::Substrate { fault, .. } => fault.remediation(),
             Self::Integration(err) => err.remediation(),
             Self::Runtime(_) => "re-run the command; if it persists this is a stackless bug".into(),
+            Self::SelfUpdate { .. } => {
+                "install via the shell installer from GitHub Releases, unset \
+                 STACKLESS_NO_SELF_UPDATE if set, or wait and retry `stackless update`"
+                    .into()
+            }
         }
     }
 

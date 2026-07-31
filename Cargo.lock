@@ -2860,6 +2860,7 @@ dependencies = [
  "axoupdater",
  "clap",
  "humantime",
+ "reqwest",
  "serde",
  "serde_json",
  "stackless-bindgen",
