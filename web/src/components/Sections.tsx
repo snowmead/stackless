@@ -10,7 +10,7 @@ type Props = {
 export function Sections({ reduceMotion }: Props) {
   return (
     <main>
-      <Primitives />
+      <Primitives reduceMotion={reduceMotion} />
       <Layer reduceMotion={reduceMotion} />
       <Lifecycle />
       <Sdk />

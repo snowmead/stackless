@@ -124,11 +124,6 @@
   font-size: 1.05rem;
 }
 
-.lede code {
-  color: var(--ink);
-  font-size: 0.92em;
-}
-
 .cta-row {
   display: flex;
   flex-wrap: wrap;
@@ -757,8 +752,49 @@ main {
   white-space: pre;
 }
 
-.sdk .code-block + .code-block {
+.sdk .code-panel {
+  margin-top: 1.5rem;
+  height: auto;
+  max-height: none;
+}
+
+.sdk .code-panel + .code-panel {
   margin-top: 0.85rem;
+}
+
+.code-panel .code-block {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 1rem 1.25rem;
+  overflow: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-soft);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ghost) transparent;
+}
+
+.code-panel .code-block::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.code-panel .code-block::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.code-panel .code-block::-webkit-scrollbar-thumb {
+  background: var(--ghost);
+  border-radius: 3px;
+}
+
+.code-panel .code-block-hl code {
+  color: inherit;
 }
 
 /* Primitives */
@@ -796,13 +832,12 @@ main {
   max-width: none;
 }
 
-.primitive-pane .code-block {
+.primitive-pane .code-panel {
   flex: 1;
   min-height: 0;
+  height: auto;
+  max-height: none;
   margin-top: 1.15rem;
-  font-size: 0.78rem;
-  line-height: 1.45;
-  overflow: auto;
 }
 
 /* Flue-style dense squircle logo grid (not a hairline cell matrix). */
@@ -837,15 +872,13 @@ main {
     var(--provider-tint, var(--ink)) 14%,
     var(--void)
   );
-  box-shadow:
-    inset 0 1px 0 color-mix(in oklch, var(--void) 70%, transparent),
-    0 1px 2px color-mix(in oklch, var(--ink) 8%, transparent),
-    0 4px 10px color-mix(in oklch, var(--ink) 6%, transparent);
+  box-shadow: none;
   transition:
     transform 0.2s ease,
-    border-color 0.2s ease,
+    opacity 0.16s var(--ease-out),
+    border-color 0.16s var(--ease-out),
     box-shadow 0.2s ease,
-    background-color 0.2s ease;
+    background-color 0.16s var(--ease-out);
 }
 
 .primitive-provider-logo {
@@ -874,6 +907,34 @@ main {
     inset 0 1px 0 color-mix(in oklch, var(--void) 70%, transparent),
     0 2px 3px color-mix(in oklch, var(--ink) 10%, transparent),
     0 8px 16px color-mix(in oklch, var(--ink) 8%, transparent);
+}
+
+.primitive-provider-grid.is-filtering .primitive-provider-cell:not(.is-selected) {
+  opacity: 0.38;
+}
+
+.primitive-provider-cell.is-selected {
+  opacity: 1;
+  border-color: color-mix(in oklch, var(--signal) 70%, var(--line));
+  background: color-mix(
+    in oklch,
+    var(--provider-tint, var(--ink)) 26%,
+    var(--void-lift)
+  );
+}
+
+.toml-selection {
+  display: block;
+  margin-block: 0.2em 0.1em;
+  margin-inline: -0.35em;
+  padding: 0.4em 0.5em;
+  border: 1px dotted color-mix(in oklch, var(--signal) 65%, var(--ink-soft));
+  border-radius: 2px;
+  background: color-mix(in oklch, var(--signal) 7%, transparent);
+}
+
+.toml-selection .toml-line-empty {
+  min-height: 0.85em;
 }
 
 @media (prefers-reduced-motion: reduce) {

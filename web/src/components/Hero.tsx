@@ -48,9 +48,7 @@ export function Hero({ reduceMotion }: Props) {
             One ephemeral stack.
           </h1>
           <p className="lede">
-            Ephemeral e2e stacks: your services, Stripe Projects integrations,{" "}
-            <code>up</code> / <code>verify</code> / <code>down</code> — or lease
-            expiry.
+            For agents to run your stack end to end.
           </p>
           <div className="cta-row">
             <Button

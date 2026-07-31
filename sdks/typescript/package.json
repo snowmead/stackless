@@ -3,7 +3,7 @@
   "version": "0.2.1",
   "description": "CLI-backed Stackless client for Node and Bun",
   "type": "module",
-  "license": "MIT",
+  "license": "(MIT OR Apache-2.0)",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/snowmead/stackless.git",
