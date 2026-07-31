@@ -1,4 +1,4 @@
-import { CodeBlock } from "@/components/CodeBlock";
+import { CodePanel } from "@/components/CodePanel";
 import {
   LogoAlgolia,
   LogoAuth0,
@@ -173,7 +173,7 @@ export function Primitives() {
   return (
     <section className="section primitives" id="primitives">
       <p className="section-label">Primitives</p>
-      <h2>Services you run. Integrations Stripe Projects runs.</h2>
+      <h2>Services & Integrations</h2>
       <p>
         Containers and IaC create resources. They do not name an instance, wait
         for health, hold a lease, or prove teardown.{" "}
@@ -192,7 +192,11 @@ export function Primitives() {
             <code>run</code> (or cloud deploy) block. Not Stripe Projects; your
             code.
           </p>
-          <CodeBlock code={SERVICES_TOML} lang="toml" />
+          <CodePanel
+            code={SERVICES_TOML}
+            lang="toml"
+            label="stackless.toml"
+          />
         </div>
 
         <div className="primitive-pane">

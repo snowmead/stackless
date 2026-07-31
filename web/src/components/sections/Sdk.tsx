@@ -1,5 +1,6 @@
-import { CodeBlock } from "@/components/CodeBlock";
 import { ArrowUpRightIcon } from "lucide-react";
+
+import { CodePanel } from "@/components/CodePanel";
 
 const BIND_SHELL = `stackless bind --file stackless.toml \\
   --idl .stackless/stack.idl.json \\
@@ -69,8 +70,13 @@ export function Sdk() {
         </li>
       </ul>
 
-      <CodeBlock code={BIND_SHELL} lang="shell" />
-      <CodeBlock code={CLIENT_TS} lang="ts" />
+      <CodePanel
+        code={BIND_SHELL}
+        lang="shell"
+        label="stackless bind"
+        icon="terminal"
+      />
+      <CodePanel code={CLIENT_TS} lang="ts" label="client.ts" />
     </section>
   );
 }
