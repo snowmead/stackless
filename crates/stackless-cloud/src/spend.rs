@@ -17,7 +17,7 @@ pub async fn fetch(
     dashboard: &str,
 ) -> SpendInfo {
     let stripe = StripeProjects::new(TokioRunner, definition_dir.to_path_buf());
-    match project::spend_summary(&stripe).await {
+    match project::spend_summary(&stripe, Some(provider)).await {
         Some(data) => {
             let summary = format!("spend: {data}");
             let parsed = serde_json::from_str::<serde_json::Value>(&data).ok();
