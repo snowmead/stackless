@@ -138,18 +138,16 @@ fn visit_mod(
         let nested_mod = dir.join(&name).join("mod.rs");
         if nested_mod.is_file() {
             visit_mod(&nested_mod, &dir.join(&name), out, seen)?;
-        } else if as_file.is_file() {
-            if seen.insert(as_file.clone()) {
-                out.push(as_file.clone());
-                let nested_text = fs::read_to_string(&as_file)?;
-                for nested_name in mod_names(&nested_text) {
-                    let nested_file = dir.join(format!("{nested_name}.rs"));
-                    let nested_dir_mod = dir.join(&nested_name).join("mod.rs");
-                    if nested_dir_mod.is_file() {
-                        visit_mod(&nested_dir_mod, &dir.join(&nested_name), out, seen)?;
-                    } else if nested_file.is_file() && seen.insert(nested_file.clone()) {
-                        out.push(nested_file);
-                    }
+        } else if as_file.is_file() && seen.insert(as_file.clone()) {
+            out.push(as_file.clone());
+            let nested_text = fs::read_to_string(&as_file)?;
+            for nested_name in mod_names(&nested_text) {
+                let nested_file = dir.join(format!("{nested_name}.rs"));
+                let nested_dir_mod = dir.join(&nested_name).join("mod.rs");
+                if nested_dir_mod.is_file() {
+                    visit_mod(&nested_dir_mod, &dir.join(&nested_name), out, seen)?;
+                } else if nested_file.is_file() && seen.insert(nested_file.clone()) {
+                    out.push(nested_file);
                 }
             }
         }
