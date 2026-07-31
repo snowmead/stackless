@@ -23,21 +23,25 @@ consume the environment SDK, but it is published in the crates wave below.
 
 ## One-time registry setup
 
-1. **crates.io** — Create an API token with publish scope. Store it as the
+1. **GitHub Actions** — Repo Settings → Actions → General → Workflow
+   permissions must allow **Read and write** (not read-only). cargo-dist's
+   `release.yml` needs `contents: write` to create GitHub Releases; with the
+   default set to read-only, `gh release create` fails with HTTP 403.
+2. **crates.io** — Create an API token with publish scope. Store it as the
    GitHub Actions secret `CARGO_REGISTRY_TOKEN`.
-2. **npm** — Own the unscoped package name `stackless-sdk` (the npm
+3. **npm** — Own the unscoped package name `stackless-sdk` (the npm
    user/org `@stackless` is already taken by a third party). Prefer
    [Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) for
    workflow `publish-packages.yml` (no token). Otherwise create a
    **granular** access token with **Bypass 2FA / automation** enabled and
    store it as `NPM_TOKEN`. Classic tokens with account 2FA fail CI with
    `EOTP`.
-3. **PyPI** — Create project `stackless-sdk` (the name `stackless` is taken).
+4. **PyPI** — Create project `stackless-sdk` (the name `stackless` is taken).
    Prefer [Trusted Publishing](https://docs.pypi.org/trusted-publishers/):
    - GitHub environment name: `pypi` (matches `publish-packages.yml`)
    - Workflow: `publish-packages.yml`
    - Repository: `snowmead/stackless`
-4. **Go** — No registry token. Consumers resolve via `proxy.golang.org` after
+5. **Go** — No registry token. Consumers resolve via `proxy.golang.org` after
    the `sdks/go/vX.Y.Z` tag is pushed. That tag must not trigger cargo-dist;
    `release.yml` only matches `vX.Y.Z` CLI tags.
 
