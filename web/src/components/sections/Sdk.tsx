@@ -1,4 +1,5 @@
 import { CodeBlock } from "@/components/CodeBlock";
+import { ArrowUpRightIcon } from "lucide-react";
 
 const BIND_SHELL = `stackless bind --file stackless.toml \\
   --idl .stackless/stack.idl.json \\
@@ -36,6 +37,7 @@ export function Sdk() {
         <li>
           <a href="https://crates.io/crates/stackless">
             <code>stackless</code> (crates.io)
+            <ArrowUpRightIcon className="sdk-list-icon" aria-hidden="true" />
           </a>
           <span>
             Rust · <code>Client::system()</code> or hermetic{" "}
@@ -45,12 +47,14 @@ export function Sdk() {
         <li>
           <a href="https://www.npmjs.com/package/stackless-sdk">
             <code>stackless-sdk</code> (npm)
+            <ArrowUpRightIcon className="sdk-list-icon" aria-hidden="true" />
           </a>
           <span>TypeScript · <code>Client.system()</code></span>
         </li>
         <li>
           <a href="https://pypi.org/project/stackless-sdk/">
             <code>stackless-sdk</code> (PyPI)
+            <ArrowUpRightIcon className="sdk-list-icon" aria-hidden="true" />
           </a>
           <span>
             Python · <code>import stackless</code>
@@ -59,6 +63,7 @@ export function Sdk() {
         <li>
           <a href="https://pkg.go.dev/github.com/snowmead/stackless/sdks/go">
             <code>sdks/go</code>
+            <ArrowUpRightIcon className="sdk-list-icon" aria-hidden="true" />
           </a>
           <span>Go · <code>stackless.System()</code></span>
         </li>
