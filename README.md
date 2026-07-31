@@ -4,15 +4,13 @@
 
 # stackless
 
-<p align="center">
-  <a href="https://crates.io/crates/stackless"><img src="https://img.shields.io/crates/v/stackless.svg?label=crates.io" alt="crates.io" /></a>
-  <a href="https://www.npmjs.com/package/stackless-sdk"><img src="https://img.shields.io/npm/v/stackless-sdk.svg?label=npm" alt="npm" /></a>
-  <a href="https://pypi.org/project/stackless-sdk/"><img src="https://img.shields.io/pypi/v/stackless-sdk.svg?label=PyPI" alt="PyPI" /></a>
-  <a href="https://pkg.go.dev/github.com/snowmead/stackless/sdks/go"><img src="https://pkg.go.dev/badge/github.com/snowmead/stackless/sdks/go.svg" alt="Go Reference" /></a>
-  <a href="https://github.com/snowmead/stackless/releases/latest"><img src="https://img.shields.io/github/v/release/snowmead/stackless?label=release" alt="GitHub release" /></a>
-  <a href="https://github.com/snowmead/stackless/actions/workflows/ci.yml"><img src="https://github.com/snowmead/stackless/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0" /></a>
-</p>
+<a href="https://crates.io/crates/stackless"><img src="https://img.shields.io/crates/v/stackless.svg?label=crates.io" alt="crates.io" /></a>
+<a href="https://www.npmjs.com/package/stackless-sdk"><img src="https://img.shields.io/npm/v/stackless-sdk.svg?label=npm" alt="npm" /></a>
+<a href="https://pypi.org/project/stackless-sdk/"><img src="https://img.shields.io/pypi/v/stackless-sdk.svg?label=PyPI" alt="PyPI" /></a>
+<a href="https://pkg.go.dev/github.com/snowmead/stackless/sdks/go"><img src="https://pkg.go.dev/badge/github.com/snowmead/stackless/sdks/go.svg" alt="Go Reference" /></a>
+<a href="https://github.com/snowmead/stackless/releases/latest"><img src="https://img.shields.io/github/v/release/snowmead/stackless?label=release" alt="GitHub release" /></a>
+<a href="https://github.com/snowmead/stackless/actions/workflows/ci.yml"><img src="https://github.com/snowmead/stackless/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+<a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0" /></a>
 
 **Ephemeral software stacks: named, leased, isolated, proven, destroyed.**
 
