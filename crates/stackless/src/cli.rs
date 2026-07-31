@@ -337,6 +337,19 @@ fn handle_update_outcome(outcome: &UpdateOutcome, is_update: bool) -> Option<Exi
             );
             Some(ExitCode::FAILURE)
         }
+        UpdateOutcome::Skipped(UpdateSkip::EnvDisabled) if is_update => {
+            eprintln!("stackless update: disabled (STACKLESS_NO_SELF_UPDATE=1)");
+            Some(ExitCode::FAILURE)
+        }
+        UpdateOutcome::Skipped(UpdateSkip::Throttled) if is_update => {
+            // force=true for Update should never throttle; defensive message.
+            eprintln!("stackless update: skipped (throttled)");
+            Some(ExitCode::FAILURE)
+        }
+        UpdateOutcome::Skipped(UpdateSkip::LockBusy) if is_update => {
+            eprintln!("stackless update: another update is already in progress");
+            Some(ExitCode::FAILURE)
+        }
         UpdateOutcome::Skipped(skip) if is_update => {
             eprintln!("stackless update: skipped ({skip:?})");
             Some(ExitCode::FAILURE)
