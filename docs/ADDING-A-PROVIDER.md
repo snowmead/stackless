@@ -209,9 +209,12 @@ registered integration and do **not** invent credential envelopes.
 - **`chroma/database`** — Catalog fixture includes Chroma, but live
   `stripe projects catalog chroma` / discover → `Unknown provider or category:
   chroma`. Wait for Stripe catalog parity, then discover-apply.
-- **`daytona/sandbox`** — `stripe projects link daytona` always returns
-  `BROWSER_AUTH_REQUIRED` (Auth0 device/browser flow). No non-interactive link
-  path; a human must complete the redirect, then discover-apply.
+- **`daytona/sandbox`** — First link needs a human Auth0 browser flow
+  (`BROWSER_AUTH_REQUIRED`); after that, non-interactive
+  `stripe projects link daytona` returns `already_linked`. Provision still
+  stalls in `pending` with no credential env vars (discover hangs past 5m even
+  with a top-up plan attached). Leave allowlisted until sandbox becomes
+  `complete` and emits fields; then discover-apply.
 - **`heygen/api`** — Provider can show as linked, but live
   `stripe projects catalog heygen` / discover → `Unknown provider or category:
   heygen` (Stripe catalog filter gap vs link index). Wait for catalog parity,
