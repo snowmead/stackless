@@ -331,6 +331,12 @@ fn handle_update_outcome(outcome: &UpdateOutcome, is_update: bool) -> Option<Exi
             );
             Some(ExitCode::FAILURE)
         }
+        UpdateOutcome::Skipped(UpdateSkip::ReceiptNotThisExecutable) if is_update => {
+            eprintln!(
+                "stackless update: install receipt is for a different binary; re-run the shell installer to upgrade this copy"
+            );
+            Some(ExitCode::FAILURE)
+        }
         UpdateOutcome::Skipped(skip) if is_update => {
             eprintln!("stackless update: skipped ({skip:?})");
             Some(ExitCode::FAILURE)
