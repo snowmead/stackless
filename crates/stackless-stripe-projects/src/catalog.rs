@@ -612,6 +612,8 @@ pub struct ConfigSchema {
     #[serde(default)]
     pub required: Vec<String>,
     #[serde(default)]
+    pub optional: Vec<String>,
+    #[serde(default)]
     pub properties: BTreeMap<String, PropertySchema>,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
@@ -973,6 +975,41 @@ mod tests {
         assert_eq!(
             svc.required_parent_services(&json!({}), true),
             vec!["workers:paid"]
+        );
+    }
+
+    #[test]
+    fn config_schema_deserializes_optional_without_drift() {
+        let schema_json = json!({
+            "type": "object",
+            "required": ["region"],
+            "optional": ["store_name", "plan"],
+            "properties": {
+                "region": {"type": "string"},
+                "store_name": {"type": "string"},
+                "plan": {"type": "string"}
+            }
+        });
+        let schema: ConfigSchema = serde_json::from_value(schema_json.clone()).unwrap();
+        assert_eq!(
+            schema.optional,
+            vec!["store_name".to_owned(), "plan".to_owned()]
+        );
+
+        let svc = service("shopify/store", schema_json, json!({"type": "free"}));
+        let catalog = Catalog {
+            last_updated: "test".to_owned(),
+            provider: None,
+            category_filter: None,
+            provider_filter: None,
+            source: None,
+            services: vec![svc],
+            extra: BTreeMap::new(),
+        };
+        let drift = catalog.drift_report();
+        assert!(
+            !drift.iter().any(|line| line.contains("optional")),
+            "optional must be modeled; drift={drift:?}"
         );
     }
 
