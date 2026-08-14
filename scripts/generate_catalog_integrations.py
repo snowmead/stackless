@@ -109,6 +109,7 @@ SHORT_PROVIDER = {
     "metronome/sandbox": "metronome",
     "supermemory/memory": "supermemory",
     "postalform/mail": "postalform",
+    "shopify/store": "shopify",
     "wix/headless": "wix",
     "base44_projects/app": "base44",
     "wordpress.com/site": "wordpress-com",

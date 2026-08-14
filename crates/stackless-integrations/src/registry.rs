@@ -126,6 +126,7 @@ register_providers! {
     (schematic::schematic_environment, SchematicEnvironment),
     (sentry::project, SentryProject),
     (sentry::seer, SentrySeer),
+    (shopify::store, ShopifyStore),
     (steel::browser, SteelBrowser),
     (supabase::project, SupabaseProject),
     (supermemory::memory, SupermemoryMemory),

@@ -39,6 +39,7 @@ pub mod revenuecat;
 pub mod runloop;
 pub mod schematic;
 pub mod sentry;
+pub mod shopify;
 pub mod steel;
 pub mod supabase;
 pub mod supermemory;
@@ -59,8 +60,8 @@ mod tests {
         clickhouse, cloudflare, composio, customerio, datadog, depot, e2b, elevenlabs, exa,
         firecrawl, flyio, gitlab, huggingface, inngest, kernel, laravel_cloud, metronome, mixpanel,
         neon, openrouter, parallel, planetscale, postalform, posthog, prisma, pydantic, railway,
-        render_db, revenuecat, runloop, schematic, sentry, steel, supabase, supermemory, tabstack,
-        turso, upstash, wix, wordpress_com, workos,
+        render_db, revenuecat, runloop, schematic, sentry, shopify, steel, supabase, supermemory,
+        tabstack, turso, upstash, wix, wordpress_com, workos,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -134,6 +135,7 @@ mod tests {
         assert_outputs_match::<schematic::schematic_environment::SchematicEnvironment>();
         assert_outputs_match::<sentry::project::SentryProject>();
         assert_outputs_match::<sentry::seer::SentrySeer>();
+        assert_outputs_match::<shopify::store::ShopifyStore>();
         assert_outputs_match::<steel::browser::SteelBrowser>();
         assert_outputs_match::<supabase::project::SupabaseProject>();
         assert_outputs_match::<supermemory::memory::SupermemoryMemory>();
