@@ -15,6 +15,31 @@ Generate with:
 
 ## Unreleased
 
+## v0.3.1 — 2026-08-14
+
+Stripe Projects plugin 0.31.0 pin and cargo-vet supply-chain exemptions.
+
+### Changed
+
+- Stripe Projects plugin pin 0.30.0 → 0.31.0; catalog snapshot re-blessed (#100).
+
+### Fixed
+
+- cargo vet: exempt eight unvetted transitive crates so the supply-chain gate
+  passes (#99).
+
+### Commits
+
+- [1dffab4](https://github.com/snowmead/stackless/commit/1dffab44f5f4d73e448a9d83f0281d481ccaf084) fix(supply-chain): exempt 8 unvetted crates for cargo vet (#99)
+- [56065f4](https://github.com/snowmead/stackless/commit/56065f46ba6f0ccf3ee45314ddeded76cd9f9945) feat(stripe-projects): integrate plugin 0.30.0 → 0.31.0 (#100)
+
+### Install
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/download/v0.3.1/stackless-installer.sh | sh
+stackless --version
+```
+
 ## v0.3.0 — 2026-07-31
 
 Phase-1 host substrates with real deploy/health/logs, pinned Stripe catalog

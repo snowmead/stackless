@@ -15,7 +15,7 @@ async-trait = "0.1.89"
 # DateTime that render-client returns (its own chrono dep omits `alloc`).
 # Load-bearing via feature unification even though no chrono path is named here.
 chrono = { version = "0.4.45", default-features = false, features = ["alloc"] }
-render-client = { path = "../render-client", version = "0.3.0" }
+render-client = { path = "../render-client", version = "0.3.1" }
 reqwest = { version = "0.13.4", default-features = false, features = [
     "rustls",
     "charset",
