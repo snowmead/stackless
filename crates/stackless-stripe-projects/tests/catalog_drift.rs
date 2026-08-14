@@ -46,6 +46,21 @@ fn fixture_has_no_unmodeled_drift() {
     );
 }
 
+#[test]
+fn shopify_store_optional_is_modeled() {
+    let catalog =
+        Catalog::from_json_envelope(FIXTURE).expect("fixture is a valid catalog envelope");
+    let schema = catalog
+        .lookup("shopify/store")
+        .and_then(|svc| svc.configuration_schema.as_ref())
+        .expect("shopify/store has a configuration_schema");
+    assert_eq!(
+        schema.optional,
+        ["store_name", "plan"],
+        "shopify/store optional keys must stay modeled, not extra"
+    );
+}
+
 /// Offline coherence of the plugin-pinned snapshots — runs in the every-PR
 /// hermetic gate (no `stripe` needed). The live bless (`STRIPE_PROJECTS_REFRESH=1`)
 /// produces these; this guards against hand-edits, a stale surface after a
