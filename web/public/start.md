@@ -18,7 +18,7 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/rele
 stackless --version
 ```
 
-Expect `0.3.0` or newer. If `stackless` is not on `PATH` after install, refresh the shell environment and retry `--version` before continuing.
+Expect `0.3.1` or newer. If `stackless` is not on `PATH` after install, refresh the shell environment and retry `--version` before continuing.
 
 ## Step 3: Add the agent skill
 
