@@ -13,7 +13,7 @@ use crate::stripe::{CommandRunner, StripeProjects};
 /// never self-reorders — a newly shipped command surfaces as a diff in the
 /// top-level `--help` block and is then added here in the same change. Groups
 /// (`services`/`env`/`billing`) are listed immediately before their children.
-/// Verified against plugin 0.32.0.
+/// Verified against plugin 0.33.0.
 const TRAVERSAL: &[&[&str]] = &[
     &[],
     // GET STARTED
