@@ -53,13 +53,11 @@ pub fn run_with_timeout(cmd: &mut Command, budget: Duration) -> TimedCommand {
     {
         let stop = stop.clone();
         let seen = seen.clone();
-        let cookie = cookie.clone();
         thread::spawn(move || {
             while !stop.load(std::sync::atomic::Ordering::Relaxed) {
-                let mut guard = seen.lock().unwrap_or_else(|e| e.into_inner());
-                guard.extend(descendant_pids(pid));
-                guard.extend(cookie_pids(&cookie));
-                drop(guard);
+                seen.lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .extend(descendant_pids(pid));
                 thread::sleep(Duration::from_millis(1));
             }
         });
@@ -199,9 +197,7 @@ fn cookie_pids(cookie: &str) -> HashSet<u32> {
     system.refresh_processes_specifics(
         ProcessesToUpdate::All,
         true,
-        ProcessRefreshKind::nothing()
-            .with_environ(UpdateKind::Always)
-            .with_cmd(UpdateKind::Always),
+        ProcessRefreshKind::nothing().with_environ(UpdateKind::Always),
     );
     system
         .processes()
