@@ -107,6 +107,7 @@ pub mod codes {
     pub const STRIPE_PROJECTS_AUTH: &str = "stripe.projects.auth";
     pub const STRIPE_PROJECTS_FAILED: &str = "stripe.projects.failed";
     pub const STRIPE_PROJECTS_LOCK_HELD: &str = "stripe.projects.lock_held";
+    pub const STRIPE_PROJECTS_TIMEOUT: &str = "stripe.projects.timeout";
     pub const STRIPE_PROJECT_ANCHOR: &str = "stripe.project.anchor";
     pub const STRIPE_PROJECTS_PROVISION_FAILED: &str = "stripe.projects.provision_failed";
     pub const STRIPE_PROJECTS_CATALOG_MISSING: &str = "stripe.projects.catalog_missing";
@@ -194,6 +195,7 @@ pub mod codes {
         STRIPE_PROJECTS_AUTH,
         STRIPE_PROJECTS_FAILED,
         STRIPE_PROJECTS_LOCK_HELD,
+        STRIPE_PROJECTS_TIMEOUT,
         STRIPE_PROJECT_ANCHOR,
         STRIPE_PROJECTS_PROVISION_FAILED,
         STRIPE_PROJECTS_CATALOG_MISSING,

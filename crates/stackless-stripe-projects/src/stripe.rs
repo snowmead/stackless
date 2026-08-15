@@ -12,7 +12,8 @@ use serde::Deserialize;
 
 use crate::error::ProjectsError;
 
-const STRIPE_LOCK_BUDGET: Duration = Duration::from_secs(30 * 60);
+const STRIPE_LOCK_BUDGET: Duration = Duration::from_secs(15);
+const STRIPE_CMD_BUDGET: Duration = Duration::from_secs(90);
 
 /// Wire-format category filters matching [`crate::catalog::Category`] (excludes
 /// `Unknown`). Used when unfiltered `catalog --json` returns an empty pipe.
@@ -103,19 +104,22 @@ fn run_stripe_locked(args: &[String], cwd: &Path) -> Result<CommandOutput, Proje
                 definition_dir: cwd.display().to_string(),
                 detail: err.to_string(),
             })?;
-    let output = std::process::Command::new("stripe")
-        .arg("projects")
-        .args(args)
-        .current_dir(cwd)
-        .output()
-        .map_err(|err| ProjectsError::Unavailable {
+    let mut cmd = std::process::Command::new("stripe");
+    cmd.arg("projects").args(args).current_dir(cwd);
+    match stackless_core::process::run_with_timeout(&mut cmd, STRIPE_CMD_BUDGET) {
+        stackless_core::process::TimedCommand::Finished(output) => Ok(CommandOutput {
+            status: output.status.code().unwrap_or(-1),
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        }),
+        stackless_core::process::TimedCommand::TimedOut { pid } => Err(ProjectsError::Timeout {
+            budget_secs: STRIPE_CMD_BUDGET.as_secs(),
+            detail: format!("killed process group {pid} after `stripe projects {}`", args.join(" ")),
+        }),
+        stackless_core::process::TimedCommand::Spawn(err) => Err(ProjectsError::Unavailable {
             detail: format!("could not run `stripe`: {err}"),
-        })?;
-    Ok(CommandOutput {
-        status: output.status.code().unwrap_or(-1),
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    })
+        }),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -539,6 +543,23 @@ mod tests {
                 .contains("exited without delivering a JSON envelope"),
             "detail should name the missing envelope, got: {err}"
         );
+    }
+
+    #[test]
+    fn stripe_cli_timeout_kills_sleeper_and_is_timeout_fault() {
+        let mut cmd = std::process::Command::new("sleep");
+        cmd.arg("30");
+        match stackless_core::process::run_with_timeout(&mut cmd, STRIPE_CMD_BUDGET.min(Duration::from_millis(200))) {
+            stackless_core::process::TimedCommand::TimedOut { pid } => {
+                assert!(pid > 0);
+                let err = ProjectsError::Timeout {
+                    budget_secs: STRIPE_CMD_BUDGET.as_secs(),
+                    detail: format!("killed process group {pid}"),
+                };
+                assert_eq!(err.code(), codes::STRIPE_PROJECTS_TIMEOUT);
+            }
+            other => panic!("expected timeout, got {other:?}"),
+        }
     }
 
     #[test]
