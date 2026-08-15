@@ -3,8 +3,11 @@
 //! subprocess waits (Stripe / launchctl / reaper children) live here so
 //! a hung helper cannot pin the control plane forever.
 
+use std::collections::HashSet;
 use std::io::Read;
 use std::process::{Command, Output, Stdio};
+use std::sync::mpsc;
+use std::thread;
 use std::time::{Duration, Instant};
 
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
@@ -19,8 +22,13 @@ pub enum TimedCommand {
     Spawn(std::io::Error),
 }
 
+const DRAIN_JOIN: Duration = Duration::from_secs(2);
+
 /// Spawn `cmd` in its own process group, wait up to `budget`, and
-/// SIGKILL the group if it overruns. Stdout/stderr are piped.
+/// SIGKILL the process tree if it overruns.
+///
+/// Stdout/stderr are drained on background threads so a chatty child
+/// cannot fill the pipe and deadlock (unlike a post-exit `read_to_end`).
 pub fn run_with_timeout(cmd: &mut Command, budget: Duration) -> TimedCommand {
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
@@ -34,39 +42,91 @@ pub fn run_with_timeout(cmd: &mut Command, budget: Duration) -> TimedCommand {
         Err(err) => return TimedCommand::Spawn(err),
     };
     let pid = child.id();
+    let stdout = drain_pipe(child.stdout.take());
+    let stderr = drain_pipe_err(child.stderr.take());
     let deadline = Instant::now() + budget;
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                let mut stdout = Vec::new();
-                let mut stderr = Vec::new();
-                if let Some(mut pipe) = child.stdout.take() {
-                    let _ = pipe.read_to_end(&mut stdout);
-                }
-                if let Some(mut pipe) = child.stderr.take() {
-                    let _ = pipe.read_to_end(&mut stderr);
-                }
                 return TimedCommand::Finished(Output {
                     status,
-                    stdout,
-                    stderr,
+                    stdout: join_timeout(stdout, DRAIN_JOIN).unwrap_or_default(),
+                    stderr: join_timeout(stderr, DRAIN_JOIN).unwrap_or_default(),
                 });
             }
             Ok(None) if Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(50));
+                thread::sleep(Duration::from_millis(50));
             }
             Ok(None) => {
-                kill_process_group(pid);
+                kill_process_tree(pid);
                 let _ = child.kill();
                 let _ = child.wait();
+                drop(join_timeout(stdout, DRAIN_JOIN));
+                drop(join_timeout(stderr, DRAIN_JOIN));
                 return TimedCommand::TimedOut { pid };
             }
             Err(err) => {
-                kill_process_group(pid);
+                kill_process_tree(pid);
                 let _ = child.kill();
+                drop(join_timeout(stdout, DRAIN_JOIN));
+                drop(join_timeout(stderr, DRAIN_JOIN));
                 return TimedCommand::Spawn(err);
             }
         }
+    }
+}
+
+fn drain_pipe(pipe: Option<std::process::ChildStdout>) -> thread::JoinHandle<Vec<u8>> {
+    thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut pipe) = pipe {
+            let _ = pipe.read_to_end(&mut buf);
+        }
+        buf
+    })
+}
+
+fn drain_pipe_err(pipe: Option<std::process::ChildStderr>) -> thread::JoinHandle<Vec<u8>> {
+    thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut pipe) = pipe {
+            let _ = pipe.read_to_end(&mut buf);
+        }
+        buf
+    })
+}
+
+fn join_timeout<T: Send + 'static>(handle: thread::JoinHandle<T>, budget: Duration) -> Option<T> {
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let _ = tx.send(handle.join());
+    });
+    match rx.recv_timeout(budget) {
+        Ok(Ok(value)) => Some(value),
+        _ => None,
+    }
+}
+
+/// SIGKILL `root` and every descendant, including children that created
+/// their own process group (Stripe CLI helpers).
+pub fn kill_process_tree(root: u32) {
+    let mut system = System::new();
+    system.refresh_processes(ProcessesToUpdate::All, true);
+    let mut stack = vec![root];
+    let mut seen = HashSet::new();
+    while let Some(pid) = stack.pop() {
+        if !seen.insert(pid) {
+            continue;
+        }
+        for (child, proc) in system.processes() {
+            if proc.parent() == Some(Pid::from_u32(pid)) {
+                stack.push(child.as_u32());
+            }
+        }
+    }
+    for pid in &seen {
+        kill_process_group(*pid);
+        kill_one(*pid);
     }
 }
 
@@ -77,6 +137,17 @@ pub fn kill_process_group(pid: u32) {
         && let Some(pgid) = rustix::process::Pid::from_raw(raw)
     {
         let _ = rustix::process::kill_process_group(pgid, rustix::process::Signal::KILL);
+    }
+    #[cfg(not(unix))]
+    let _ = pid;
+}
+
+fn kill_one(pid: u32) {
+    #[cfg(unix)]
+    if let Ok(raw) = i32::try_from(pid)
+        && let Some(pid) = rustix::process::Pid::from_raw(raw)
+    {
+        let _ = rustix::process::kill_process(pid, rustix::process::Signal::KILL);
     }
     #[cfg(not(unix))]
     let _ = pid;
@@ -184,6 +255,19 @@ mod tests {
                 );
             }
             other => panic!("expected timeout, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn run_with_timeout_drains_stdout_larger_than_a_pipe() {
+        let mut cmd = Command::new("python3");
+        cmd.args(["-c", "print('x' * 200_000, end='')"]);
+        match run_with_timeout(&mut cmd, Duration::from_secs(5)) {
+            TimedCommand::Finished(out) => {
+                assert!(out.status.success());
+                assert_eq!(out.stdout.len(), 200_000);
+            }
+            other => panic!("expected finish, got {other:?}"),
         }
     }
 }

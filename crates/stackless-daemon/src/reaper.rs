@@ -28,7 +28,7 @@ use stackless_core::types::TcpPort;
 use tokio::time::{self, MissedTickBehavior};
 
 const TICK: Duration = Duration::from_secs(60);
-const DOWN_BUDGET: Duration = Duration::from_secs(180);
+const DOWN_BUDGET: Duration = Duration::from_secs(900);
 
 /// Run the reaper until the process exits. Opens the store fresh each
 /// tick (short-lived; the store is multi-process-safe rusqlite).
@@ -137,6 +137,8 @@ async fn run_down(
         .arg("--proxy-port")
         .arg(&port)
         .env("STACKLESS_NO_SELF_UPDATE", "1")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
     #[cfg(unix)]
     {
@@ -160,7 +162,7 @@ async fn run_down(
         Ok(Err(err)) => Err(format!("cannot wait for `down`: {err}")),
         Err(_) => {
             if let Some(pid) = pid {
-                stackless_core::process::kill_process_group(pid);
+                stackless_core::process::kill_process_tree(pid);
             }
             Err(format!(
                 "reaper.down_timeout: `down {instance}` exceeded {}s",
