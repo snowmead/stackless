@@ -505,7 +505,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
 
 /// Poll until a just-created Render service is visible by name.
 async fn wait_for_service(render: &RenderApi, name: &str) -> Result<String, SubstrateFault> {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(300);
     loop {
         if let Some(service) = render.find_service_by_name(name).await.map_err(fault)? {
             return Ok(service.id);
