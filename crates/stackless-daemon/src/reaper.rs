@@ -138,8 +138,7 @@ async fn run_down(
         .arg(&port)
         .env("STACKLESS_NO_SELF_UPDATE", "1")
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true);
+        .stderr(std::process::Stdio::piped());
     #[cfg(unix)]
     {
         cmd.process_group(0);
