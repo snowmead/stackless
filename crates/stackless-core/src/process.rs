@@ -37,6 +37,7 @@ pub fn run_with_timeout(cmd: &mut Command, budget: Duration) -> TimedCommand {
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
     }
+    cmd.stdin(Stdio::null());
     let mut child = match cmd.spawn() {
         Ok(child) => child,
         Err(err) => return TimedCommand::Spawn(err),
@@ -45,55 +46,89 @@ pub fn run_with_timeout(cmd: &mut Command, budget: Duration) -> TimedCommand {
     let stdout = drain_pipe(child.stdout.take());
     let stderr = drain_pipe_err(child.stderr.take());
     let deadline = Instant::now() + budget;
+    let mut seen = HashSet::new();
     loop {
+        seen.extend(descendant_pids(pid));
         match child.try_wait() {
             Ok(Some(status)) => {
+                seen.extend(descendant_pids(pid));
+                let out = take_drain(stdout, DRAIN_JOIN);
+                let err = take_drain(stderr, DRAIN_JOIN);
+                if !out.eof || !err.eof {
+                    kill_pids(&seen);
+                }
                 return TimedCommand::Finished(Output {
                     status,
-                    stdout: join_timeout(stdout, DRAIN_JOIN).unwrap_or_default(),
-                    stderr: join_timeout(stderr, DRAIN_JOIN).unwrap_or_default(),
+                    stdout: out.bytes,
+                    stderr: err.bytes,
                 });
             }
             Ok(None) if Instant::now() < deadline => {
                 thread::sleep(Duration::from_millis(50));
             }
             Ok(None) => {
-                kill_process_tree(pid);
+                seen.extend(descendant_pids(pid));
+                kill_pids(&seen);
                 let _ = child.kill();
                 let _ = child.wait();
-                drop(join_timeout(stdout, DRAIN_JOIN));
-                drop(join_timeout(stderr, DRAIN_JOIN));
+                drop(take_drain(stdout, DRAIN_JOIN));
+                drop(take_drain(stderr, DRAIN_JOIN));
                 return TimedCommand::TimedOut { pid };
             }
             Err(err) => {
                 kill_process_tree(pid);
                 let _ = child.kill();
-                drop(join_timeout(stdout, DRAIN_JOIN));
-                drop(join_timeout(stderr, DRAIN_JOIN));
+                drop(take_drain(stdout, DRAIN_JOIN));
+                drop(take_drain(stderr, DRAIN_JOIN));
                 return TimedCommand::Spawn(err);
             }
         }
     }
 }
 
-fn drain_pipe(pipe: Option<std::process::ChildStdout>) -> thread::JoinHandle<Vec<u8>> {
-    thread::spawn(move || {
-        let mut buf = Vec::new();
-        if let Some(mut pipe) = pipe {
-            let _ = pipe.read_to_end(&mut buf);
-        }
-        buf
-    })
+struct Drain {
+    buf: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+    handle: thread::JoinHandle<()>,
 }
 
-fn drain_pipe_err(pipe: Option<std::process::ChildStderr>) -> thread::JoinHandle<Vec<u8>> {
-    thread::spawn(move || {
-        let mut buf = Vec::new();
-        if let Some(mut pipe) = pipe {
-            let _ = pipe.read_to_end(&mut buf);
+struct DrainResult {
+    bytes: Vec<u8>,
+    eof: bool,
+}
+
+fn drain_pipe(pipe: Option<std::process::ChildStdout>) -> Drain {
+    drain_read(pipe.map(|p| Box::new(p) as Box<dyn Read + Send>))
+}
+
+fn drain_pipe_err(pipe: Option<std::process::ChildStderr>) -> Drain {
+    drain_read(pipe.map(|p| Box::new(p) as Box<dyn Read + Send>))
+}
+
+fn drain_read(pipe: Option<Box<dyn Read + Send>>) -> Drain {
+    let buf = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let shared = buf.clone();
+    let handle = thread::spawn(move || {
+        let Some(mut pipe) = pipe else {
+            return;
+        };
+        let mut chunk = [0u8; 8192];
+        loop {
+            match pipe.read(&mut chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => shared
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .extend_from_slice(&chunk[..n]),
+            }
         }
-        buf
-    })
+    });
+    Drain { buf, handle }
+}
+
+fn take_drain(drain: Drain, budget: Duration) -> DrainResult {
+    let eof = join_timeout(drain.handle, budget).is_some();
+    let bytes = drain.buf.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    DrainResult { bytes, eof }
 }
 
 fn join_timeout<T: Send + 'static>(handle: thread::JoinHandle<T>, budget: Duration) -> Option<T> {
@@ -110,6 +145,10 @@ fn join_timeout<T: Send + 'static>(handle: thread::JoinHandle<T>, budget: Durati
 /// SIGKILL `root` and every descendant, including children that created
 /// their own process group (Stripe CLI helpers).
 pub fn kill_process_tree(root: u32) {
+    kill_pids(&descendant_pids(root));
+}
+
+fn descendant_pids(root: u32) -> HashSet<u32> {
     let mut system = System::new();
     system.refresh_processes(ProcessesToUpdate::All, true);
     let mut stack = vec![root];
@@ -124,7 +163,11 @@ pub fn kill_process_tree(root: u32) {
             }
         }
     }
-    for pid in &seen {
+    seen
+}
+
+fn kill_pids(pids: &HashSet<u32>) {
+    for pid in pids {
         kill_process_group(*pid);
         kill_one(*pid);
     }
@@ -266,6 +309,35 @@ mod tests {
             TimedCommand::Finished(out) => {
                 assert!(out.status.success());
                 assert_eq!(out.stdout.len(), 200_000);
+            }
+            other => panic!("expected finish, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn run_with_timeout_keeps_stdout_when_helper_holds_the_pipe() {
+        let mut cmd = Command::new("python3");
+        cmd.args([
+            "-c",
+            r#"
+import os, sys
+sys.stdout.write('{"ok":true}')
+sys.stdout.flush()
+if os.fork() == 0:
+    os.setsid()
+    import time
+    time.sleep(30)
+os._exit(0)
+"#,
+        ]);
+        match run_with_timeout(&mut cmd, Duration::from_secs(5)) {
+            TimedCommand::Finished(out) => {
+                assert!(out.status.success());
+                assert!(
+                    String::from_utf8_lossy(&out.stdout).contains(r#"{"ok":true}"#),
+                    "stdout was {:?}",
+                    String::from_utf8_lossy(&out.stdout)
+                );
             }
             other => panic!("expected finish, got {other:?}"),
         }
