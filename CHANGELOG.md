@@ -15,6 +15,27 @@ Generate with:
 
 ## Unreleased
 
+## v0.3.2 — 2026-08-15
+
+Bound control-plane waits so `down` cannot hang on Stripe, launchd
+kickstart, or the lease reaper.
+
+### Fixed
+
+- Stripe, launchctl kickstart, and reaper children wait with a budget;
+  leftovers are reaped for that spawn only (no host-wide helper kill) (#102).
+
+### Commits
+
+- [b5e7d1c](https://github.com/snowmead/stackless/commit/b5e7d1ccf6873f6b388d60efb30a73865c311779) fix: bound Stripe, kickstart, and reaper so down cannot hang (#102)
+
+### Install
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/download/v0.3.2/stackless-installer.sh | sh
+stackless --version
+```
+
 ## v0.3.1 — 2026-08-14
 
 Stripe Projects plugin 0.31.0 pin and cargo-vet supply-chain exemptions.
