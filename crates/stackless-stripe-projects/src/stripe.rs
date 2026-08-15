@@ -114,7 +114,10 @@ fn run_stripe_locked(args: &[String], cwd: &Path) -> Result<CommandOutput, Proje
         }),
         stackless_core::process::TimedCommand::TimedOut { pid } => Err(ProjectsError::Timeout {
             budget_secs: STRIPE_CMD_BUDGET.as_secs(),
-            detail: format!("killed process group {pid} after `stripe projects {}`", args.join(" ")),
+            detail: format!(
+                "killed process group {pid} after `stripe projects {}`",
+                args.join(" ")
+            ),
         }),
         stackless_core::process::TimedCommand::Spawn(err) => Err(ProjectsError::Unavailable {
             detail: format!("could not run `stripe`: {err}"),
@@ -549,7 +552,10 @@ mod tests {
     fn stripe_cli_timeout_kills_sleeper_and_is_timeout_fault() {
         let mut cmd = std::process::Command::new("sleep");
         cmd.arg("30");
-        match stackless_core::process::run_with_timeout(&mut cmd, STRIPE_CMD_BUDGET.min(Duration::from_millis(200))) {
+        match stackless_core::process::run_with_timeout(
+            &mut cmd,
+            STRIPE_CMD_BUDGET.min(Duration::from_millis(200)),
+        ) {
             stackless_core::process::TimedCommand::TimedOut { pid } => {
                 assert!(pid > 0);
                 let err = ProjectsError::Timeout {
