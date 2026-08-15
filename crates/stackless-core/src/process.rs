@@ -38,6 +38,8 @@ pub fn run_with_timeout(cmd: &mut Command, budget: Duration) -> TimedCommand {
         cmd.process_group(0);
     }
     cmd.stdin(Stdio::null());
+    let tag = uuid::Uuid::new_v4().to_string();
+    cmd.env("STACKLESS_BOUND_CHILD", &tag);
     let mut child = match cmd.spawn() {
         Ok(child) => child,
         Err(err) => return TimedCommand::Spawn(err),
@@ -56,6 +58,7 @@ pub fn run_with_timeout(cmd: &mut Command, budget: Duration) -> TimedCommand {
                 let err = take_drain(stderr, DRAIN_JOIN);
                 if !out.eof || !err.eof {
                     kill_pids(&seen);
+                    kill_tagged(&tag);
                 }
                 return TimedCommand::Finished(Output {
                     status,
@@ -170,6 +173,49 @@ fn kill_pids(pids: &HashSet<u32>) {
     for pid in pids {
         kill_process_group(*pid);
         kill_one(*pid);
+    }
+}
+
+/// Descendants that `setsid` + reparent to init between PPID censuses
+/// still inherit `STACKLESS_BOUND_CHILD`.
+fn kill_tagged(tag: &str) {
+    let mut system = System::new();
+    system.refresh_processes(ProcessesToUpdate::All, true);
+    let needle = format!("STACKLESS_BOUND_CHILD={tag}");
+    let mut hits = HashSet::new();
+    for (pid, _) in system.processes() {
+        let pid = pid.as_u32();
+        if process_has_env(pid, &needle) {
+            hits.insert(pid);
+        }
+    }
+    kill_pids(&hits);
+}
+
+fn process_has_env(pid: u32, needle: &str) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        let Ok(bytes) = std::fs::read(format!("/proc/{pid}/environ")) else {
+            return false;
+        };
+        return bytes
+            .split(|b| *b == 0)
+            .any(|entry| entry == needle.as_bytes());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let Ok(out) = Command::new("ps")
+            .args(["eww", "-p", &pid.to_string()])
+            .output()
+        else {
+            return false;
+        };
+        return String::from_utf8_lossy(&out.stdout).contains(needle);
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = (pid, needle);
+        false
     }
 }
 
@@ -316,21 +362,24 @@ mod tests {
 
     #[test]
     fn run_with_timeout_keeps_stdout_when_helper_holds_the_pipe() {
+        let marker = "stackless-bound-helper-marker";
         let mut cmd = Command::new("python3");
         cmd.args([
             "-c",
-            r#"
+            &format!(
+                r#"
 import os, sys
-sys.stdout.write('{"ok":true}')
+sys.stdout.write('{{"ok":true}}')
 sys.stdout.flush()
 if os.fork() == 0:
     os.setsid()
     import time
-    time.sleep(30)
+    time.sleep(30)  # {marker}
 os._exit(0)
-"#,
+"#
+            ),
         ]);
-        match run_with_timeout(&mut cmd, Duration::from_secs(5)) {
+        match run_with_timeout(&mut cmd, Duration::from_secs(8)) {
             TimedCommand::Finished(out) => {
                 assert!(out.status.success());
                 assert!(
@@ -341,5 +390,14 @@ os._exit(0)
             }
             other => panic!("expected finish, got {other:?}"),
         }
+        let leftover = Command::new("pgrep")
+            .args(["-f", marker])
+            .output()
+            .expect("pgrep");
+        assert!(
+            leftover.stdout.is_empty(),
+            "setsid helper still alive: {}",
+            String::from_utf8_lossy(&leftover.stdout)
+        );
     }
 }
