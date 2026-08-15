@@ -114,15 +114,19 @@ fn run_stripe_locked(args: &[String], cwd: &Path) -> Result<CommandOutput, Proje
         }),
         stackless_core::process::TimedCommand::TimedOut { pid } => Err(ProjectsError::Timeout {
             budget_secs: STRIPE_CMD_BUDGET.as_secs(),
-            detail: format!(
-                "killed process group {pid} after `stripe projects {}`",
-                args.join(" ")
-            ),
+            detail: timeout_detail(pid, args),
         }),
         stackless_core::process::TimedCommand::Spawn(err) => Err(ProjectsError::Unavailable {
             detail: format!("could not run `stripe`: {err}"),
         }),
     }
+}
+
+/// Timeout faults name only the Stripe verb. Later argv can be `--config`
+/// JSON with secrets and must not land in error/log surfaces.
+fn timeout_detail(pid: u32, args: &[String]) -> String {
+    let verb = args.first().map(String::as_str).unwrap_or("?");
+    format!("killed process group {pid} after `stripe projects {verb}`")
 }
 
 #[derive(Debug, Deserialize)]
@@ -566,6 +570,23 @@ mod tests {
             }
             other => panic!("expected timeout, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn timeout_detail_omits_config_payload() {
+        let detail = timeout_detail(
+            42,
+            &[
+                "add".into(),
+                "--config".into(),
+                r#"{"apiKey":"sk_test_secret"}"#.into(),
+            ],
+        );
+        assert!(detail.contains("stripe projects add"));
+        assert!(
+            !detail.contains("sk_test_secret") && !detail.contains("--config"),
+            "timeout detail leaked argv: {detail}"
+        );
     }
 
     #[test]
