@@ -38,10 +38,6 @@ pub fn run_with_timeout(cmd: &mut Command, budget: Duration) -> TimedCommand {
         cmd.process_group(0);
     }
     cmd.stdin(Stdio::null());
-    let spawned_at = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs().saturating_sub(1))
-        .unwrap_or(0);
     let mut child = match cmd.spawn() {
         Ok(child) => child,
         Err(err) => return TimedCommand::Spawn(err),
@@ -87,20 +83,18 @@ pub fn run_with_timeout(cmd: &mut Command, budget: Duration) -> TimedCommand {
     stop.store(true, std::sync::atomic::Ordering::Relaxed);
     let mut pids = seen.lock().unwrap_or_else(|e| e.into_inner()).clone();
     pids.extend(descendant_pids(pid));
-    pids.extend(stripe_helper_pids_since(spawned_at));
+    // Always reap this spawn's tree. Name-scan leftovers stay out of
+    // this crate so a timeout cannot SIGKILL another stack's Stripe helper.
+    kill_spawn(pid, &pids);
     match outcome {
         TimedCommand::Finished(mut output) => {
             let out = take_drain(stdout, DRAIN_JOIN);
             let err = take_drain(stderr, DRAIN_JOIN);
-            if !out.eof || !err.eof {
-                kill_pids(&pids);
-            }
             output.stdout = out.bytes;
             output.stderr = err.bytes;
             TimedCommand::Finished(output)
         }
         TimedCommand::TimedOut { pid } => {
-            kill_pids(&pids);
             let _ = child.kill();
             let _ = child.wait();
             drop(take_drain(stdout, DRAIN_JOIN));
@@ -108,7 +102,6 @@ pub fn run_with_timeout(cmd: &mut Command, budget: Duration) -> TimedCommand {
             TimedCommand::TimedOut { pid }
         }
         TimedCommand::Spawn(err) => {
-            kill_pids(&pids);
             let _ = child.kill();
             drop(take_drain(stdout, DRAIN_JOIN));
             drop(take_drain(stderr, DRAIN_JOIN));
@@ -124,7 +117,6 @@ struct Drain {
 
 struct DrainResult {
     bytes: Vec<u8>,
-    eof: bool,
 }
 
 fn drain_pipe(pipe: Option<std::process::ChildStdout>) -> Drain {
@@ -157,9 +149,9 @@ fn drain_read(pipe: Option<Box<dyn Read + Send>>) -> Drain {
 }
 
 fn take_drain(drain: Drain, budget: Duration) -> DrainResult {
-    let eof = join_timeout(drain.handle, budget).is_some();
+    let _ = join_timeout(drain.handle, budget);
     let bytes = drain.buf.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    DrainResult { bytes, eof }
+    DrainResult { bytes }
 }
 
 fn join_timeout<T: Send + 'static>(handle: thread::JoinHandle<T>, budget: Duration) -> Option<T> {
@@ -176,7 +168,7 @@ fn join_timeout<T: Send + 'static>(handle: thread::JoinHandle<T>, budget: Durati
 /// SIGKILL `root` and every descendant, including children that created
 /// their own process group (Stripe CLI helpers).
 pub fn kill_process_tree(root: u32) {
-    kill_pids(&descendant_pids(root));
+    kill_spawn(root, &descendant_pids(root));
 }
 
 fn descendant_pids(root: u32) -> HashSet<u32> {
@@ -197,30 +189,15 @@ fn descendant_pids(root: u32) -> HashSet<u32> {
     seen
 }
 
-fn kill_pids(pids: &HashSet<u32>) {
+/// SIGKILL this spawn's process group (the `process_group(0)` child)
+/// and each observed descendant PID. Descendants are not group-killed:
+/// they may have called `setsid` and become leaders of unrelated groups.
+fn kill_spawn(root: u32, pids: &HashSet<u32>) {
+    kill_process_group(root);
     for pid in pids {
-        kill_process_group(*pid);
         kill_one(*pid);
     }
-}
-
-/// Detached Stripe plugin helpers (`stripe-cli-projects`) started for this
-/// spawn. Name-based so SIP-hardened binaries are still visible.
-fn stripe_helper_pids_since(_since_unix: u64) -> HashSet<u32> {
-    let mut hits = HashSet::new();
-    hits.extend(pgrep_f("stripe-cli-projects"));
-    hits.extend(pgrep_f("python3.*stackless-bound-helper-marker"));
-    hits
-}
-
-fn pgrep_f(pattern: &str) -> HashSet<u32> {
-    let Ok(out) = Command::new("pgrep").args(["-f", pattern]).output() else {
-        return HashSet::new();
-    };
-    String::from_utf8_lossy(&out.stdout)
-        .split_whitespace()
-        .filter_map(|s| s.parse().ok())
-        .collect()
+    kill_one(root);
 }
 
 /// SIGKILL the process group whose leader is `pid` (set by `process_group(0)`).
@@ -402,6 +379,87 @@ os._exit(0)
             leftover.stdout.is_empty(),
             "setsid helper still alive: {}",
             String::from_utf8_lossy(&leftover.stdout)
+        );
+    }
+
+    #[test]
+    fn run_with_timeout_reaps_setsid_helper_that_closes_stdio() {
+        let marker = "stackless-closed-stdio-helper-marker";
+        let mut cmd = Command::new("python3");
+        cmd.args([
+            "-c",
+            &format!(
+                r#"
+import os, sys
+sys.stdout.write('{{"ok":true}}')
+sys.stdout.flush()
+if os.fork() == 0:
+    os.setsid()
+    os.close(1)
+    os.close(2)
+    import time
+    time.sleep(30)  # {marker}
+os._exit(0)
+"#
+            ),
+        ]);
+        match run_with_timeout(&mut cmd, Duration::from_secs(8)) {
+            TimedCommand::Finished(out) => {
+                assert!(out.status.success());
+                assert!(
+                    String::from_utf8_lossy(&out.stdout).contains(r#"{"ok":true}"#),
+                    "stdout was {:?}",
+                    String::from_utf8_lossy(&out.stdout)
+                );
+            }
+            other => panic!("expected finish, got {other:?}"),
+        }
+        let leftover = Command::new("pgrep")
+            .args(["-f", &format!("python3.*{marker}")])
+            .output()
+            .expect("pgrep");
+        assert!(
+            leftover.stdout.is_empty(),
+            "closed-stdio helper still alive: {}",
+            String::from_utf8_lossy(&leftover.stdout)
+        );
+    }
+
+    #[test]
+    fn run_with_timeout_does_not_kill_unrelated_stripe_named_process() {
+        let decoy = std::env::temp_dir().join(format!(
+            "stripe-cli-projects-unrelated-{}",
+            std::process::id()
+        ));
+        std::fs::write(&decoy, b"#!/bin/sh\nexec sleep 60\n").expect("write decoy");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&decoy).expect("meta").permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&decoy, perms).expect("chmod");
+        }
+        let mut decoy_child = Command::new(&decoy)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn decoy");
+        let decoy_pid = decoy_child.id();
+        let mut cmd = Command::new("sleep");
+        cmd.arg("30");
+        let timed = run_with_timeout(&mut cmd, Duration::from_millis(250));
+        let decoy_alive = ProcessStamp::of(decoy_pid).is_some_and(|s| s.is_alive());
+        let _ = decoy_child.kill();
+        let _ = decoy_child.wait();
+        let _ = std::fs::remove_file(&decoy);
+        match timed {
+            TimedCommand::TimedOut { .. } => {}
+            other => panic!("expected timeout, got {other:?}"),
+        }
+        assert!(
+            decoy_alive,
+            "unrelated stripe-cli-projects decoy {decoy_pid} was killed"
         );
     }
 }
