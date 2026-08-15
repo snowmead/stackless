@@ -189,15 +189,37 @@ fn descendant_pids(root: u32) -> HashSet<u32> {
     seen
 }
 
-/// SIGKILL this spawn's process group (the `process_group(0)` child)
-/// and each observed descendant PID. Descendants are not group-killed:
-/// they may have called `setsid` and become leaders of unrelated groups.
+/// SIGKILL this spawn's process group and each observed descendant.
+/// A descendant that is its own process-group leader (`setsid`) is
+/// group-killed so its unseen children die with it. Name-scan hits
+/// never enter this set, so another stack's Stripe helper is safe.
 fn kill_spawn(root: u32, pids: &HashSet<u32>) {
     kill_process_group(root);
     for pid in pids {
+        if *pid != root && is_process_group_leader(*pid) {
+            kill_process_group(*pid);
+        }
         kill_one(*pid);
     }
     kill_one(root);
+}
+
+fn is_process_group_leader(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        let Ok(raw) = i32::try_from(pid) else {
+            return false;
+        };
+        let Some(pid) = rustix::process::Pid::from_raw(raw) else {
+            return false;
+        };
+        rustix::process::getpgid(Some(pid)).ok() == Some(pid)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        false
+    }
 }
 
 /// SIGKILL the process group whose leader is `pid` (set by `process_group(0)`).
@@ -421,6 +443,49 @@ os._exit(0)
         assert!(
             leftover.stdout.is_empty(),
             "closed-stdio helper still alive: {}",
+            String::from_utf8_lossy(&leftover.stdout)
+        );
+    }
+
+    #[test]
+    fn run_with_timeout_reaps_setsid_helper_grandchildren() {
+        let marker = "stackless-setsid-grandchild-marker";
+        let mut cmd = Command::new("python3");
+        cmd.args([
+            "-c",
+            &format!(
+                r#"
+import os, sys, time
+sys.stdout.write('{{"ok":true}}')
+sys.stdout.flush()
+if os.fork() == 0:
+    os.setsid()
+    if os.fork() == 0:
+        time.sleep(30)  # {marker}
+        os._exit(0)
+    time.sleep(30)
+os._exit(0)
+"#
+            ),
+        ]);
+        match run_with_timeout(&mut cmd, Duration::from_secs(8)) {
+            TimedCommand::Finished(out) => {
+                assert!(out.status.success());
+                assert!(
+                    String::from_utf8_lossy(&out.stdout).contains(r#"{"ok":true}"#),
+                    "stdout was {:?}",
+                    String::from_utf8_lossy(&out.stdout)
+                );
+            }
+            other => panic!("expected finish, got {other:?}"),
+        }
+        let leftover = Command::new("pgrep")
+            .args(["-f", &format!("python3.*{marker}")])
+            .output()
+            .expect("pgrep");
+        assert!(
+            leftover.stdout.is_empty(),
+            "setsid grandchild still alive: {}",
             String::from_utf8_lossy(&leftover.stdout)
         );
     }
