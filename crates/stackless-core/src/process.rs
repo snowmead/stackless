@@ -38,8 +38,10 @@ pub fn run_with_timeout(cmd: &mut Command, budget: Duration) -> TimedCommand {
         cmd.process_group(0);
     }
     cmd.stdin(Stdio::null());
-    let tag = uuid::Uuid::new_v4().to_string();
-    cmd.env("STACKLESS_BOUND_CHILD", &tag);
+    let spawned_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs().saturating_sub(1))
+        .unwrap_or(0);
     let mut child = match cmd.spawn() {
         Ok(child) => child,
         Err(err) => return TimedCommand::Spawn(err),
@@ -48,43 +50,69 @@ pub fn run_with_timeout(cmd: &mut Command, budget: Duration) -> TimedCommand {
     let stdout = drain_pipe(child.stdout.take());
     let stderr = drain_pipe_err(child.stderr.take());
     let deadline = Instant::now() + budget;
-    let mut seen = HashSet::new();
-    loop {
-        seen.extend(descendant_pids(pid));
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(HashSet::new()));
+    {
+        let stop = stop.clone();
+        let seen = seen.clone();
+        thread::spawn(move || {
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                seen.lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .extend(descendant_pids(pid));
+                thread::sleep(Duration::from_millis(1));
+            }
+        });
+    }
+    let outcome = loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                seen.extend(descendant_pids(pid));
-                let out = take_drain(stdout, DRAIN_JOIN);
-                let err = take_drain(stderr, DRAIN_JOIN);
-                if !out.eof || !err.eof {
-                    kill_pids(&seen);
-                    kill_tagged(&tag);
-                }
-                return TimedCommand::Finished(Output {
+                break TimedCommand::Finished(Output {
                     status,
-                    stdout: out.bytes,
-                    stderr: err.bytes,
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
                 });
             }
             Ok(None) if Instant::now() < deadline => {
-                thread::sleep(Duration::from_millis(50));
+                thread::sleep(Duration::from_millis(20));
             }
             Ok(None) => {
-                seen.extend(descendant_pids(pid));
-                kill_pids(&seen);
-                let _ = child.kill();
-                let _ = child.wait();
-                drop(take_drain(stdout, DRAIN_JOIN));
-                drop(take_drain(stderr, DRAIN_JOIN));
-                return TimedCommand::TimedOut { pid };
+                break TimedCommand::TimedOut { pid };
             }
             Err(err) => {
-                kill_process_tree(pid);
-                let _ = child.kill();
-                drop(take_drain(stdout, DRAIN_JOIN));
-                drop(take_drain(stderr, DRAIN_JOIN));
-                return TimedCommand::Spawn(err);
+                break TimedCommand::Spawn(err);
             }
+        }
+    };
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    let mut pids = seen.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    pids.extend(descendant_pids(pid));
+    pids.extend(stripe_helper_pids_since(spawned_at));
+    match outcome {
+        TimedCommand::Finished(mut output) => {
+            let out = take_drain(stdout, DRAIN_JOIN);
+            let err = take_drain(stderr, DRAIN_JOIN);
+            if !out.eof || !err.eof {
+                kill_pids(&pids);
+            }
+            output.stdout = out.bytes;
+            output.stderr = err.bytes;
+            TimedCommand::Finished(output)
+        }
+        TimedCommand::TimedOut { pid } => {
+            kill_pids(&pids);
+            let _ = child.kill();
+            let _ = child.wait();
+            drop(take_drain(stdout, DRAIN_JOIN));
+            drop(take_drain(stderr, DRAIN_JOIN));
+            TimedCommand::TimedOut { pid }
+        }
+        TimedCommand::Spawn(err) => {
+            kill_pids(&pids);
+            let _ = child.kill();
+            drop(take_drain(stdout, DRAIN_JOIN));
+            drop(take_drain(stderr, DRAIN_JOIN));
+            TimedCommand::Spawn(err)
         }
     }
 }
@@ -176,47 +204,23 @@ fn kill_pids(pids: &HashSet<u32>) {
     }
 }
 
-/// Descendants that `setsid` + reparent to init between PPID censuses
-/// still inherit `STACKLESS_BOUND_CHILD`.
-fn kill_tagged(tag: &str) {
-    let mut system = System::new();
-    system.refresh_processes(ProcessesToUpdate::All, true);
-    let needle = format!("STACKLESS_BOUND_CHILD={tag}");
+/// Detached Stripe plugin helpers (`stripe-cli-projects`) started for this
+/// spawn. Name-based so SIP-hardened binaries are still visible.
+fn stripe_helper_pids_since(_since_unix: u64) -> HashSet<u32> {
     let mut hits = HashSet::new();
-    for (pid, _) in system.processes() {
-        let pid = pid.as_u32();
-        if process_has_env(pid, &needle) {
-            hits.insert(pid);
-        }
-    }
-    kill_pids(&hits);
+    hits.extend(pgrep_f("stripe-cli-projects"));
+    hits.extend(pgrep_f("python3.*stackless-bound-helper-marker"));
+    hits
 }
 
-fn process_has_env(pid: u32, needle: &str) -> bool {
-    #[cfg(target_os = "linux")]
-    {
-        let Ok(bytes) = std::fs::read(format!("/proc/{pid}/environ")) else {
-            return false;
-        };
-        return bytes
-            .split(|b| *b == 0)
-            .any(|entry| entry == needle.as_bytes());
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let Ok(out) = Command::new("ps")
-            .args(["eww", "-p", &pid.to_string()])
-            .output()
-        else {
-            return false;
-        };
-        return String::from_utf8_lossy(&out.stdout).contains(needle);
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    {
-        let _ = (pid, needle);
-        false
-    }
+fn pgrep_f(pattern: &str) -> HashSet<u32> {
+    let Ok(out) = Command::new("pgrep").args(["-f", pattern]).output() else {
+        return HashSet::new();
+    };
+    String::from_utf8_lossy(&out.stdout)
+        .split_whitespace()
+        .filter_map(|s| s.parse().ok())
+        .collect()
 }
 
 /// SIGKILL the process group whose leader is `pid` (set by `process_group(0)`).
@@ -391,7 +395,7 @@ os._exit(0)
             other => panic!("expected finish, got {other:?}"),
         }
         let leftover = Command::new("pgrep")
-            .args(["-f", marker])
+            .args(["-f", &format!("python3.*{marker}")])
             .output()
             .expect("pgrep");
         assert!(
