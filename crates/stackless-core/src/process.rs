@@ -10,7 +10,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
 use crate::types::{Pid as StacklessPid, ProcessStartTime};
 
@@ -38,6 +38,8 @@ pub fn run_with_timeout(cmd: &mut Command, budget: Duration) -> TimedCommand {
         cmd.process_group(0);
     }
     cmd.stdin(Stdio::null());
+    let cookie = uuid::Uuid::new_v4().to_string();
+    cmd.env("STACKLESS_SPAWN", &cookie);
     let mut child = match cmd.spawn() {
         Ok(child) => child,
         Err(err) => return TimedCommand::Spawn(err),
@@ -51,11 +53,13 @@ pub fn run_with_timeout(cmd: &mut Command, budget: Duration) -> TimedCommand {
     {
         let stop = stop.clone();
         let seen = seen.clone();
+        let cookie = cookie.clone();
         thread::spawn(move || {
             while !stop.load(std::sync::atomic::Ordering::Relaxed) {
-                seen.lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .extend(descendant_pids(pid));
+                let mut guard = seen.lock().unwrap_or_else(|e| e.into_inner());
+                guard.extend(descendant_pids(pid));
+                guard.extend(cookie_pids(&cookie));
+                drop(guard);
                 thread::sleep(Duration::from_millis(1));
             }
         });
@@ -83,8 +87,9 @@ pub fn run_with_timeout(cmd: &mut Command, budget: Duration) -> TimedCommand {
     stop.store(true, std::sync::atomic::Ordering::Relaxed);
     let mut pids = seen.lock().unwrap_or_else(|e| e.into_inner()).clone();
     pids.extend(descendant_pids(pid));
-    // Always reap this spawn's tree. Name-scan leftovers stay out of
-    // this crate so a timeout cannot SIGKILL another stack's Stripe helper.
+    pids.extend(cookie_pids(&cookie));
+    // Always reap this spawn's tree plus processes that inherited the
+    // per-spawn cookie (setsid leftovers the PPID walk can miss).
     kill_spawn(pid, &pids);
     match outcome {
         TimedCommand::Finished(mut output) => {
@@ -187,6 +192,28 @@ fn descendant_pids(root: u32) -> HashSet<u32> {
         }
     }
     seen
+}
+
+fn cookie_pids(cookie: &str) -> HashSet<u32> {
+    let mut system = System::new();
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing()
+            .with_environ(UpdateKind::Always)
+            .with_cmd(UpdateKind::Always),
+    );
+    system
+        .processes()
+        .iter()
+        .filter_map(|(pid, proc)| {
+            let hit = proc
+                .environ()
+                .iter()
+                .any(|var| var.to_string_lossy().contains(cookie));
+            hit.then_some(pid.as_u32())
+        })
+        .collect()
 }
 
 /// SIGKILL this spawn's process group and each observed descendant.
