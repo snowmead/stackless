@@ -21,6 +21,9 @@ pub enum ProjectsError {
         detail: String,
     },
 
+    #[error("`stripe projects` timed out after {budget_secs}s ({detail})")]
+    Timeout { budget_secs: u64, detail: String },
+
     #[error("cannot anchor the stack's Stripe project: {detail}")]
     ProjectAnchor { detail: String },
 
@@ -44,6 +47,7 @@ impl Fault for ProjectsError {
             Self::Auth { .. } => codes::STRIPE_PROJECTS_AUTH,
             Self::Failed { .. } => codes::STRIPE_PROJECTS_FAILED,
             Self::LockHeld { .. } => codes::STRIPE_PROJECTS_LOCK_HELD,
+            Self::Timeout { .. } => codes::STRIPE_PROJECTS_TIMEOUT,
             Self::ProjectAnchor { .. } => codes::STRIPE_PROJECT_ANCHOR,
             Self::ProvisionFailed { .. } => codes::STRIPE_PROJECTS_PROVISION_FAILED,
             Self::CatalogMissing { .. } => codes::STRIPE_PROJECTS_CATALOG_MISSING,
@@ -67,7 +71,12 @@ impl Fault for ProjectsError {
             }
             Self::LockHeld { .. } => {
                 "another `stackless up` is provisioning Stripe Projects in this definition dir; \
-                 wait for it to finish, then re-run `up`"
+                 wait for it to finish or kill the holder, then re-run"
+                    .into()
+            }
+            Self::Timeout { .. } => {
+                "the Stripe Projects CLI did not return in time; kill leftover \
+                 `stripe` / `stripe-cli-projects` processes and re-run"
                     .into()
             }
             Self::ProjectAnchor { .. } => {

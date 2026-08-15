@@ -10,6 +10,7 @@
 
 use std::path::PathBuf;
 use std::process::Command;
+use std::time::Duration;
 
 use stackless_core::paths::Paths;
 
@@ -223,11 +224,13 @@ pub fn kickstart_if_supervised() -> bool {
     if !service_loaded(&domain) {
         return false;
     }
-    Command::new("launchctl")
-        .args(["kickstart", &format!("{domain}/{LABEL}")])
-        .output()
-        .map(|out| out.status.success())
-        .unwrap_or(false)
+    let mut cmd = Command::new("launchctl");
+    cmd.args(["kickstart", &format!("{domain}/{LABEL}")]);
+    match stackless_core::process::run_with_timeout(&mut cmd, Duration::from_secs(5)) {
+        stackless_core::process::TimedCommand::Finished(out) => out.status.success(),
+        // Timed out or could not spawn: caller falls back to a direct daemon spawn.
+        _ => false,
+    }
 }
 
 /// The first `<string>` inside the plist's `ProgramArguments` array — the
@@ -287,6 +290,9 @@ pub fn degradation_warning(paths: &Paths) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::parse_disabled;
+    use stackless_core::process::{TimedCommand, run_with_timeout};
+    use std::process::Command;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn disable_record_current_macos() {
@@ -305,5 +311,18 @@ mod tests {
         assert!(!parse_disabled("\t\"dev.stackless.daemon\" => enabled"));
         assert!(!parse_disabled("\t\"com.example.other\" => disabled"));
         assert!(!parse_disabled(""));
+    }
+
+    #[test]
+    fn kickstart_budget_kills_a_sleeper() {
+        let mut cmd = Command::new("sleep");
+        cmd.arg("30");
+        let started = Instant::now();
+        match run_with_timeout(&mut cmd, Duration::from_millis(200)) {
+            TimedCommand::TimedOut { .. } => {
+                assert!(started.elapsed() < Duration::from_secs(3));
+            }
+            other => panic!("expected timeout, got {other:?}"),
+        }
     }
 }

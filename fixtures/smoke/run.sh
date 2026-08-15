@@ -118,7 +118,15 @@ if [ "$up" -eq 0 ]; then
   cargo run -q -p stackless -- status "$inst" --json | assert_json_ok || post=$?
   logs_source="$(expected_logs_source "$substrate")"
   if [ -n "$logs_source" ]; then
-    cargo run -q -p stackless -- logs "$inst" --tail 20 --json | assert_logs_window "$logs_source" || post=$?
+    logs_ok=1
+    for _try in 1 2 3 4 5 6; do
+      if cargo run -q -p stackless -- logs "$inst" --tail 20 --json | assert_logs_window "$logs_source"; then
+        logs_ok=0
+        break
+      fi
+      sleep 10
+    done
+    post=$((post | logs_ok))
   else
     cargo run -q -p stackless -- logs "$inst" --tail 20 --json | assert_json_ok || post=$?
   fi

@@ -28,6 +28,7 @@ use stackless_core::types::TcpPort;
 use tokio::time::{self, MissedTickBehavior};
 
 const TICK: Duration = Duration::from_secs(60);
+const DOWN_BUDGET: Duration = Duration::from_secs(900);
 
 /// Run the reaper until the process exits. Opens the store fresh each
 /// tick (short-lived; the store is multi-process-safe rusqlite).
@@ -129,30 +130,75 @@ async fn run_down(
     proxy_port: TcpPort,
 ) -> Result<(), String> {
     let port = proxy_port.get().to_string();
-    let output = tokio::process::Command::new(executable)
-        .args(["down", instance, "--json"])
+    let mut cmd = tokio::process::Command::new(executable);
+    cmd.args(["down", instance, "--json"])
         .arg("--state-dir")
         .arg(paths.state_dir())
         .arg("--proxy-port")
         .arg(&port)
         .env("STACKLESS_NO_SELF_UPDATE", "1")
-        .output()
-        .await
-        .map_err(|err| format!("cannot spawn `down`: {err}"))?;
-    if output.status.success() {
-        return Ok(());
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    #[cfg(unix)]
+    {
+        cmd.process_group(0);
     }
-    // The `--json` error envelope is the agent-facing reason; fall back
-    // to the exit code when stdout was empty.
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let reason = stdout
-        .lines()
-        .last()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(str::to_owned)
-        .unwrap_or_else(|| format!("`down` exited with {}", output.status));
-    Err(reason)
+    let child = cmd
+        .spawn()
+        .map_err(|err| format!("cannot spawn `down`: {err}"))?;
+    let pid = child.id();
+    match tokio::time::timeout(DOWN_BUDGET, child.wait_with_output()).await {
+        Ok(Ok(output)) => {
+            if output.status.success() {
+                return Ok(());
+            }
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            Err(reap_failure_reason(
+                &stdout,
+                &format!("`down` exited with {}", output.status),
+            ))
+        }
+        Ok(Err(err)) => Err(format!("cannot wait for `down`: {err}")),
+        Err(_) => {
+            if let Some(pid) = pid {
+                stackless_core::process::kill_process_tree(pid);
+            }
+            Err(format!(
+                "reaper.down_timeout: `down {instance}` exceeded {}s",
+                DOWN_BUDGET.as_secs()
+            ))
+        }
+    }
+}
+
+/// Prefer `error.code` / `error.message` from a `--json` envelope over the
+/// last pretty-print line (which is often just `}`).
+pub(crate) fn reap_failure_reason(stdout: &str, fallback: &str) -> String {
+    let Some(start) = stdout.find('{') else {
+        let last = stdout
+            .lines()
+            .rev()
+            .map(str::trim)
+            .find(|line| !line.is_empty() && *line != "}" && *line != "{");
+        return last.unwrap_or(fallback).to_owned();
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&stdout[start..]) else {
+        return fallback.to_owned();
+    };
+    let code = value
+        .pointer("/error/code")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    let message = value
+        .pointer("/error/message")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    match (code.is_empty(), message.is_empty()) {
+        (true, true) => fallback.to_owned(),
+        (false, true) => code.to_owned(),
+        (true, false) => message.to_owned(),
+        (false, false) => format!("{code}: {message}"),
+    }
 }
 
 fn gc_tombstones(store: &Store, paths: &Paths) {
@@ -242,5 +288,32 @@ mod tests {
         gc_tombstones(&store, &paths);
         assert!(store.instance("old").expect("q").is_none());
         assert!(store.instance("recent").expect("q").is_some());
+    }
+
+    #[test]
+    fn reap_reason_reads_pretty_json_envelope_not_closing_brace() {
+        let stdout = r#"{
+  "ok": false,
+  "error": {
+    "schema_version": 1,
+    "code": "stripe.projects.timeout",
+    "message": "stripe projects timed out after 90s",
+    "remediation": "kill leftover stripe processes"
+  }
+}"#;
+        let reason = reap_failure_reason(stdout, "`down` exited with 1");
+        assert_eq!(
+            reason,
+            "stripe.projects.timeout: stripe projects timed out after 90s"
+        );
+        assert!(!reason.contains('}'));
+    }
+
+    #[test]
+    fn reap_reason_falls_back_when_stdout_is_empty() {
+        assert_eq!(
+            reap_failure_reason("   \n", "`down` exited with 1"),
+            "`down` exited with 1"
+        );
     }
 }
