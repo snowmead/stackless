@@ -19,6 +19,9 @@ fixtures/smoke/*/.projects/
 # Cursor /orchestrate run state (plan.json, state.json, handoffs — local to a planner session)
 .orchestrate/
 
+# Local daily-upgrade audit artifacts (decision trail, catalog snapshots)
+.audit/
+
 # Marketing site (web/)
 node_modules/
 dist/
