@@ -102,6 +102,7 @@ Stripe Projects catalog reference. Offline catalog detail:
 | `schematic` | `schematic/schematic-environment` |
 | `sentry` | `sentry/project` |
 | `sentry-seer` | `sentry/seer` |
+| `shopify` | `shopify/store` |
 | `steel` | `steel/browser` |
 | `supabase` | `supabase/project` |
 | `supermemory` | `supermemory/memory` |
