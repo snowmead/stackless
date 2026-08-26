@@ -15,6 +15,28 @@ Generate with:
 
 ## Unreleased
 
+## v0.3.3 — 2026-08-26
+
+Stripe Projects plugin 0.35.0 pin and provider docs synced with registries.
+
+### Changed
+
+- Stripe Projects plugin pin 0.33.0 → 0.35.0; catalog snapshot re-blessed (#104, #106).
+- PROVIDERS.md lists the registered `shopify` catalog integration (#105).
+
+### Commits
+
+- [ca299e1](https://github.com/snowmead/stackless/commit/ca299e1e5a7580f52338dc4174ae8368b6741d6d) feat(stripe-projects): integrate plugin 0.33.0 → 0.34.1 (#104)
+- [c9eee8e](https://github.com/snowmead/stackless/commit/c9eee8eaec1aa3f431d2cb4cdc82a9e04c43597c) feat(stripe-projects): integrate plugin 0.34.1 → 0.35.0 (#106)
+- [bab2ede](https://github.com/snowmead/stackless/commit/bab2edec926977438b8a06dfd2df58cac979d48b) sync provider docs with registries (#105)
+
+### Install
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/download/v0.3.3/stackless-installer.sh | sh
+stackless --version
+```
+
 ## v0.3.2 — 2026-08-15
 
 Bound control-plane waits so `down` cannot hang on Stripe, launchd

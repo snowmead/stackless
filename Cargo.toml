@@ -28,7 +28,7 @@ members = [
 
 [workspace.package]
 edition    = "2024"
-version    = "0.3.2"
+version    = "0.3.3"
 license    = "MIT OR Apache-2.0"
 repository = "https://github.com/snowmead/stackless"
 
@@ -44,25 +44,25 @@ dbg_macro   = "deny"
 
 [workspace.dependencies]
 # `version` is required for crates.io; `path` keeps the workspace linked locally.
-stackless-core            = { path = "crates/stackless-core", version = "0.3.2" }
-stackless-cloud           = { path = "crates/stackless-cloud", version = "0.3.2" }
-stackless-daemon          = { path = "crates/stackless-daemon", version = "0.3.2" }
-stackless-local           = { path = "crates/stackless-local", version = "0.3.2" }
-stackless-git             = { path = "crates/stackless-git", version = "0.3.2" }
-stackless-render          = { path = "crates/stackless-render", version = "0.3.2" }
-stackless-vercel          = { path = "crates/stackless-vercel", version = "0.3.2" }
-stackless-fly             = { path = "crates/stackless-fly", version = "0.3.2" }
-stackless-netlify         = { path = "crates/stackless-netlify", version = "0.3.2" }
-stackless-railway         = { path = "crates/stackless-railway", version = "0.3.2" }
-stackless-laravel-cloud   = { path = "crates/stackless-laravel-cloud", version = "0.3.2" }
-stackless-gitlab          = { path = "crates/stackless-gitlab", version = "0.3.2" }
-stackless-wordpress       = { path = "crates/stackless-wordpress", version = "0.3.2" }
-stackless-cloudflare      = { path = "crates/stackless-cloudflare", version = "0.3.2" }
-stackless-integrations    = { path = "crates/stackless-integrations", version = "0.3.2" }
-stackless-provider-sdk    = { path = "crates/stackless-provider-sdk", version = "0.3.2" }
-stackless-stripe-projects = { path = "crates/stackless-stripe-projects", version = "0.3.2" }
-stackless-idl             = { path = "crates/stackless-idl", version = "0.3.2" }
-stackless-bindgen         = { path = "crates/stackless-bindgen", version = "0.3.2" }
+stackless-core            = { path = "crates/stackless-core", version = "0.3.3" }
+stackless-cloud           = { path = "crates/stackless-cloud", version = "0.3.3" }
+stackless-daemon          = { path = "crates/stackless-daemon", version = "0.3.3" }
+stackless-local           = { path = "crates/stackless-local", version = "0.3.3" }
+stackless-git             = { path = "crates/stackless-git", version = "0.3.3" }
+stackless-render          = { path = "crates/stackless-render", version = "0.3.3" }
+stackless-vercel          = { path = "crates/stackless-vercel", version = "0.3.3" }
+stackless-fly             = { path = "crates/stackless-fly", version = "0.3.3" }
+stackless-netlify         = { path = "crates/stackless-netlify", version = "0.3.3" }
+stackless-railway         = { path = "crates/stackless-railway", version = "0.3.3" }
+stackless-laravel-cloud   = { path = "crates/stackless-laravel-cloud", version = "0.3.3" }
+stackless-gitlab          = { path = "crates/stackless-gitlab", version = "0.3.3" }
+stackless-wordpress       = { path = "crates/stackless-wordpress", version = "0.3.3" }
+stackless-cloudflare      = { path = "crates/stackless-cloudflare", version = "0.3.3" }
+stackless-integrations    = { path = "crates/stackless-integrations", version = "0.3.3" }
+stackless-provider-sdk    = { path = "crates/stackless-provider-sdk", version = "0.3.3" }
+stackless-stripe-projects = { path = "crates/stackless-stripe-projects", version = "0.3.3" }
+stackless-idl             = { path = "crates/stackless-idl", version = "0.3.3" }
+stackless-bindgen         = { path = "crates/stackless-bindgen", version = "0.3.3" }
 
 # The profile that 'dist' will build with
 [profile.dist]
