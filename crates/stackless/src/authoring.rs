@@ -8,7 +8,7 @@ use stackless_core::types::DnsName;
 use crate::error::Error;
 
 /// The Stripe Projects plugin version stackless is tested against.
-pub const STRIPE_PROJECTS_PINNED: &str = "0.35.0";
+pub const STRIPE_PROJECTS_PINNED: &str = "0.36.0";
 
 pub fn default_output_path() -> PathBuf {
     PathBuf::from("stackless.toml")
