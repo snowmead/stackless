@@ -97,6 +97,7 @@ register_providers! {
     (flyio::mpg, FlyioMpg),
     (flyio::sprite, FlyioSprite),
     (gitlab::project, GitLabProject),
+    (herenow::hosting, HerenowHosting),
     (huggingface::bucket, HuggingFaceBucket),
     (huggingface::platform, HuggingFacePlatform),
     (inngest::app, InngestApp),
