@@ -75,7 +75,7 @@ mod tests {
         );
     }
 
-    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_quo_app","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_quo","provider_name":"quo","service_id":"quo/app","categories":["communications"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"component"},"configuration_schema":{"type":"object","required":[],"additionalProperties":false,"properties":{}}}]}}"##;
+    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-09-02T00:00:00Z","services":[{"id":"prvsvc_quo_app","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_quo","provider_name":"Quo","service_id":"quo/app","categories":["communications"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"component","component":{"options":[{"type":"free","parent_services":["quo/starter"]}]}},"configuration_schema":{"type":"object","required":[],"additionalProperties":false,"properties":{}}},{"id":"prvsvc_quo_starter","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_quo","provider_name":"Quo","service_id":"quo/starter","categories":["communications"],"kind":"plan","scope":"account","availability":"available","development":false,"livemode":true,"pricing":{"type":"paid","paid":{"type":"freeform","freeform":"$19 per seat / month"},"paid_pricing":[{"type":"freeform","freeform":"$19 per seat / month","is_default":true}]},"configuration_schema":{"type":"object","required":[],"additionalProperties":false,"properties":{}}}]}}"##;
 
     fn test_def() -> StackDef {
         StackDef::parse(
@@ -102,7 +102,7 @@ run = "true"
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
             serde_json::json!({"QUO_API_KEY": "val_api_key"}),
-            0,
+            1, // quo/starter parent plan
         );
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
@@ -127,5 +127,14 @@ run = "true"
         assert_eq!(resource.resource_kind, "integration-quo");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
         assert_eq!(payload.outputs["api_key"], "val_api_key");
+        let parent_add = runner
+            .calls()
+            .into_iter()
+            .find(|c| c.windows(2).any(|w| w == ["add", "quo/quo/starter"]))
+            .expect("parent plan add");
+        assert!(
+            parent_add.iter().any(|a| a == "--confirm-paid-service"),
+            "quo/starter is paid; parent add must confirm; got {parent_add:?}"
+        );
     }
 }
