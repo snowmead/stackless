@@ -223,12 +223,12 @@ mod tests {
         });
         let catalog = Catalog::from_json_envelope(&envelope.to_string()).unwrap();
         let runner = ScriptedRunner::new(vec![
-            services(&[]), // parent registered pre-check
-            ok(json!({})), // parent add
-            ok_empty(),    // parent env add
-            services(&[]), // child registered pre-check
+            services(&[]),                  // parent registered pre-check
+            ok(json!({})),                  // parent add
+            ok_empty(),                     // parent env add
+            services(&[]),                  // child registered pre-check
             ok(json!({ "variables": {} })), // child add
-            ok_empty(),    // child env add
+            ok_empty(),                     // child env add
         ]);
         let dir = tempdir().unwrap();
         let stripe = StripeProjects::new(&runner, dir.path());
