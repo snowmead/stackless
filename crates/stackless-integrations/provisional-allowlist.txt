@@ -9,5 +9,4 @@
 # § External pin blockers. Those files are not scanned here.
 herenow/hosting
 perplexity/api
-quo/quo/app
 shopify/store

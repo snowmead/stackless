@@ -35,7 +35,6 @@ pub mod postalform;
 pub mod posthog;
 pub mod prisma;
 pub mod pydantic;
-pub mod quo;
 pub mod railway;
 pub mod render_db;
 pub mod revenuecat;
@@ -63,7 +62,7 @@ mod tests {
         clickhouse, cloudflare, composio, customerio, datadog, depot, e2b, elevenlabs, exa,
         firecrawl, flyio, gitlab, herenow, huggingface, inngest, kernel, laravel_cloud, metronome,
         mixpanel, neon, openrouter, parallel, perplexity, planetscale, postalform, posthog, prisma,
-        pydantic, quo, railway, render_db, revenuecat, runloop, schematic, sentry, shopify, steel,
+        pydantic, railway, render_db, revenuecat, runloop, schematic, sentry, shopify, steel,
         supabase, supermemory, tabstack, turso, upstash, wix, wordpress_com, workos,
     };
 
@@ -129,7 +128,6 @@ mod tests {
         assert_outputs_match::<posthog::analytics::PostHogAnalytics>();
         assert_outputs_match::<prisma::database::PrismaDatabase>();
         assert_outputs_match::<pydantic::logfire::PydanticLogfire>();
-        assert_outputs_match::<quo::app::QuoApp>();
         assert_outputs_match::<railway::bucket::RailwayBucket>();
         assert_outputs_match::<railway::hosting::RailwayHosting>();
         assert_outputs_match::<railway::mongo::RailwayMongo>();
