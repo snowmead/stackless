@@ -110,6 +110,7 @@ register_providers! {
     (neon::postgres, NeonPostgres),
     (openrouter::api, OpenRouterApi),
     (parallel::api, ParallelApi),
+    (perplexity::api, PerplexityApi),
     (planetscale::mysql, PlanetScaleMysql),
     (planetscale::postgresql, PlanetScalePostgresql),
     (postalform::mail, PostalFormMail),

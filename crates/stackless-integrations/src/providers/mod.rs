@@ -29,6 +29,7 @@ pub mod mixpanel;
 pub mod neon;
 pub mod openrouter;
 pub mod parallel;
+pub mod perplexity;
 pub mod planetscale;
 pub mod postalform;
 pub mod posthog;
@@ -61,9 +62,9 @@ mod tests {
         agentmail, agentphone, amplitude, auth0, base44_projects, blaxel, browserbase, chatbase,
         clickhouse, cloudflare, composio, customerio, datadog, depot, e2b, elevenlabs, exa,
         firecrawl, flyio, gitlab, herenow, huggingface, inngest, kernel, laravel_cloud, metronome,
-        mixpanel, neon, openrouter, parallel, planetscale, postalform, posthog, prisma, pydantic,
-        quo, railway, render_db, revenuecat, runloop, schematic, sentry, shopify, steel, supabase,
-        supermemory, tabstack, turso, upstash, wix, wordpress_com, workos,
+        mixpanel, neon, openrouter, parallel, perplexity, planetscale, postalform, posthog, prisma,
+        pydantic, quo, railway, render_db, revenuecat, runloop, schematic, sentry, shopify, steel,
+        supabase, supermemory, tabstack, turso, upstash, wix, wordpress_com, workos,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -121,6 +122,7 @@ mod tests {
         assert_outputs_match::<neon::postgres::NeonPostgres>();
         assert_outputs_match::<openrouter::api::OpenRouterApi>();
         assert_outputs_match::<parallel::api::ParallelApi>();
+        assert_outputs_match::<perplexity::api::PerplexityApi>();
         assert_outputs_match::<planetscale::mysql::PlanetScaleMysql>();
         assert_outputs_match::<planetscale::postgresql::PlanetScalePostgresql>();
         assert_outputs_match::<postalform::mail::PostalFormMail>();

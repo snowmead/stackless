@@ -8,5 +8,6 @@
 # + registry row and live in EXCL — see docs/ADDING-A-PROVIDER.md
 # § External pin blockers. Those files are not scanned here.
 herenow/hosting
+perplexity/api
 quo/quo/app
 shopify/store
