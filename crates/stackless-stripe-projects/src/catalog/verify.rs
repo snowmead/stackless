@@ -86,6 +86,8 @@ async fn ensure_parent_plans<R: CommandRunner>(
                 resource: plan_id.clone(),
                 detail: format!("parent plan {reference} not found in catalog"),
             })?;
+        // Paid parent plans require explicit consent. Without it, let the
+        // plugin reject a missing paid plan before provisioning the child.
         let needs_paid = plan.requires_confirmation_with_paid(&json!({}), prefer_paid);
         let paid = needs_paid && prefer_paid;
         project::add_resource(stripe, &reference, &plan_id, &json!({}), paid).await?;
@@ -133,4 +135,156 @@ where
         )),
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::{ScriptedRunner, ok, ok_empty, raw, services};
+    use serde::Serialize;
+    use serde_json::json;
+    use tempfile::tempdir;
+
+    #[derive(Serialize)]
+    struct AppCfg {}
+
+    impl CatalogService for AppCfg {
+        const REFERENCE: &'static str = "example/app";
+    }
+
+    fn catalog_with_paid_parent(child_pricing: &str) -> Catalog {
+        let envelope = json!({
+            "ok": true,
+            "command": "projects catalog",
+            "data": {
+                "last_updated": "2026-09-02T00:00:00Z",
+                "services": [
+                    {
+                        "id": "prvsvc_app",
+                        "object": "v2.provisioning.provider_service_detail",
+                        "provider_id": "prvdr_example",
+                        "provider_name": "Example",
+                        "service_id": "app",
+                        "categories": ["communications"],
+                        "kind": "deployable",
+                        "scope": "project",
+                        "availability": "available",
+                        "development": false,
+                        "livemode": true,
+                        "pricing": {
+                            "type": "component",
+                            "component": {
+                                "options": [{
+                                    "type": child_pricing,
+                                    "parent_services": ["starter"]
+                                }]
+                            }
+                        },
+                        "configuration_schema": {
+                            "type": "object",
+                            "required": [],
+                            "additionalProperties": false,
+                            "properties": {}
+                        }
+                    },
+                    {
+                        "id": "prvsvc_starter",
+                        "object": "v2.provisioning.provider_service_detail",
+                        "provider_id": "prvdr_example",
+                        "provider_name": "Example",
+                        "service_id": "starter",
+                        "categories": ["communications"],
+                        "kind": "plan",
+                        "scope": "account",
+                        "availability": "available",
+                        "development": false,
+                        "livemode": true,
+                        "pricing": {
+                            "type": "paid",
+                            "paid": { "type": "freeform", "freeform": "$19/seat" },
+                            "paid_pricing": [{
+                                "type": "freeform",
+                                "freeform": "$19/seat",
+                                "is_default": true
+                            }]
+                        },
+                        "configuration_schema": {
+                            "type": "object",
+                            "required": [],
+                            "additionalProperties": false,
+                            "properties": {}
+                        }
+                    }
+                ]
+            }
+        });
+        Catalog::from_json_envelope(&envelope.to_string()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn paid_parent_without_consent_blocks_free_and_paid_children() {
+        for child_pricing in ["free", "paid"] {
+            let catalog = catalog_with_paid_parent(child_pricing);
+            let runner = ScriptedRunner::new(vec![
+                services(&[]),
+                raw(
+                    r#"{"ok":false,"error":{"code":"PRICE_CONFIRMATION_REQUIRED","message":"paid parent requires confirmation"}}"#,
+                ),
+            ]);
+            let dir = tempdir().unwrap();
+            let stripe = StripeProjects::new(&runner, dir.path());
+            let err = add_catalog_resource(&stripe, &catalog, &AppCfg {}, "res")
+                .await
+                .unwrap_err();
+            assert!(matches!(err, ProjectsError::Failed { command, detail }
+                if command == "add example/starter" && detail.contains("paid parent requires confirmation")));
+            let calls = runner.calls();
+            assert_eq!(calls.len(), 2, "must stop after parent rejection");
+            let parent_add = &calls[1];
+            assert!(
+                parent_add
+                    .windows(2)
+                    .any(|w| w == ["add", "example/starter"])
+            );
+            assert!(
+                !parent_add.iter().any(|a| a == "--confirm-paid-service"),
+                "{child_pricing} child must not authorize a paid parent: {parent_add:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn explicit_consent_confirms_paid_parent_of_free_child() {
+        let catalog = catalog_with_paid_parent("free");
+        let runner = ScriptedRunner::new(vec![
+            services(&[]),                  // parent registered pre-check
+            ok(json!({})),                  // parent add
+            ok_empty(),                     // parent env add
+            services(&[]),                  // child registered pre-check
+            ok(json!({ "variables": {} })), // child add
+            ok_empty(),                     // child env add
+        ]);
+        let dir = tempdir().unwrap();
+        let stripe = StripeProjects::new(&runner, dir.path());
+        add_catalog_resource_with_paid(&stripe, &catalog, &AppCfg {}, "res", true)
+            .await
+            .unwrap();
+        let calls = runner.calls();
+        let parent_add = calls
+            .iter()
+            .find(|c| c.windows(2).any(|w| w == ["add", "example/starter"]))
+            .expect("parent plan add");
+        assert!(
+            parent_add.iter().any(|a| a == "--confirm-paid-service"),
+            "explicit consent must confirm the paid parent; got {parent_add:?}"
+        );
+        let child_add = calls
+            .iter()
+            .find(|c| c.windows(2).any(|w| w == ["add", "example/app"]))
+            .expect("child add");
+        assert!(
+            !child_add.iter().any(|a| a == "--confirm-paid-service"),
+            "free child option must not confirm paid; got {child_add:?}"
+        );
+    }
 }
