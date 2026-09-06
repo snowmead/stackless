@@ -44,6 +44,37 @@ Invariants and the trust boundary: [VISION.md](VISION.md).
 
 ## How
 
+A `stackless.toml` describes the complete stack:
+
+```toml
+[stack]
+name = "demo"
+
+[integrations.clerk]
+provider = "clerk"
+app_name = "${stack.name}-${instance.name}"
+
+[integrations.neon]
+provider = "neon"
+
+[services.web]
+source = { repo = "https://github.com/you/app", ref = "main" }
+root_origin = true
+health = { path = "/", contains = "ok" }
+env = { CLERK_SECRET_KEY = "${integrations.clerk.secret_key}", DATABASE_URL = "${integrations.neon.database_url}" }
+
+  [services.web.vercel]
+  framework = "vite"
+  build = "npm run build"
+
+[services.db]
+source = { repo = "https://github.com/you/app", ref = "main" }
+health = { path = "/health", contains = "ready" }
+
+  [services.db.local]
+  run = "docker run --rm -p $PORT:5432 postgres:16"
+```
+
 ### Install
 
 Binary:
