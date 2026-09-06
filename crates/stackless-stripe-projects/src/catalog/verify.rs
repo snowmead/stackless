@@ -86,11 +86,10 @@ async fn ensure_parent_plans<R: CommandRunner>(
                 resource: plan_id.clone(),
                 detail: format!("parent plan {reference} not found in catalog"),
             })?;
-        // Parent plan confirmation follows the plan's own pricing, not the
-        // child's prefer_paid. A free child option that uniquely requires a
-        // paid parent (e.g. Quo quo/app → quo/starter) must still pass
-        // `--confirm-paid-service`; spend caps bound leakage (ADDING-A-PROVIDER).
-        let paid = plan.requires_confirmation_with_paid(&json!({}), true);
+        // Paid parent plans require explicit consent. Without it, let the
+        // plugin reject a missing paid plan before provisioning the child.
+        let needs_paid = plan.requires_confirmation_with_paid(&json!({}), prefer_paid);
+        let paid = needs_paid && prefer_paid;
         project::add_resource(stripe, &reference, &plan_id, &json!({}), paid).await?;
     }
     Ok(())
@@ -141,21 +140,19 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{ScriptedRunner, ok, ok_empty, services};
+    use crate::test_support::{ScriptedRunner, ok, ok_empty, raw, services};
     use serde::Serialize;
     use serde_json::json;
     use tempfile::tempdir;
 
     #[derive(Serialize)]
-    struct QuoAppCfg {}
+    struct AppCfg {}
 
-    impl CatalogService for QuoAppCfg {
-        const REFERENCE: &'static str = "quo/quo/app";
+    impl CatalogService for AppCfg {
+        const REFERENCE: &'static str = "example/app";
     }
 
-    /// Free child option with a sole paid parent must still confirm the parent.
-    #[tokio::test]
-    async fn free_child_confirms_paid_parent_plan() {
+    fn catalog_with_paid_parent(child_pricing: &str) -> Catalog {
         let envelope = json!({
             "ok": true,
             "command": "projects catalog",
@@ -165,9 +162,9 @@ mod tests {
                     {
                         "id": "prvsvc_app",
                         "object": "v2.provisioning.provider_service_detail",
-                        "provider_id": "prvdr_quo",
-                        "provider_name": "Quo",
-                        "service_id": "quo/app",
+                        "provider_id": "prvdr_example",
+                        "provider_name": "Example",
+                        "service_id": "app",
                         "categories": ["communications"],
                         "kind": "deployable",
                         "scope": "project",
@@ -178,8 +175,8 @@ mod tests {
                             "type": "component",
                             "component": {
                                 "options": [{
-                                    "type": "free",
-                                    "parent_services": ["quo/starter"]
+                                    "type": child_pricing,
+                                    "parent_services": ["starter"]
                                 }]
                             }
                         },
@@ -193,9 +190,9 @@ mod tests {
                     {
                         "id": "prvsvc_starter",
                         "object": "v2.provisioning.provider_service_detail",
-                        "provider_id": "prvdr_quo",
-                        "provider_name": "Quo",
-                        "service_id": "quo/starter",
+                        "provider_id": "prvdr_example",
+                        "provider_name": "Example",
+                        "service_id": "starter",
                         "categories": ["communications"],
                         "kind": "plan",
                         "scope": "account",
@@ -221,7 +218,44 @@ mod tests {
                 ]
             }
         });
-        let catalog = Catalog::from_json_envelope(&envelope.to_string()).unwrap();
+        Catalog::from_json_envelope(&envelope.to_string()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn paid_parent_without_consent_blocks_free_and_paid_children() {
+        for child_pricing in ["free", "paid"] {
+            let catalog = catalog_with_paid_parent(child_pricing);
+            let runner = ScriptedRunner::new(vec![
+                services(&[]),
+                raw(
+                    r#"{"ok":false,"error":{"code":"PRICE_CONFIRMATION_REQUIRED","message":"paid parent requires confirmation"}}"#,
+                ),
+            ]);
+            let dir = tempdir().unwrap();
+            let stripe = StripeProjects::new(&runner, dir.path());
+            let err = add_catalog_resource(&stripe, &catalog, &AppCfg {}, "res")
+                .await
+                .unwrap_err();
+            assert!(matches!(err, ProjectsError::Failed { command, detail }
+                if command == "add example/starter" && detail.contains("paid parent requires confirmation")));
+            let calls = runner.calls();
+            assert_eq!(calls.len(), 2, "must stop after parent rejection");
+            let parent_add = &calls[1];
+            assert!(
+                parent_add
+                    .windows(2)
+                    .any(|w| w == ["add", "example/starter"])
+            );
+            assert!(
+                !parent_add.iter().any(|a| a == "--confirm-paid-service"),
+                "{child_pricing} child must not authorize a paid parent: {parent_add:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn explicit_consent_confirms_paid_parent_of_free_child() {
+        let catalog = catalog_with_paid_parent("free");
         let runner = ScriptedRunner::new(vec![
             services(&[]),                  // parent registered pre-check
             ok(json!({})),                  // parent add
@@ -232,21 +266,21 @@ mod tests {
         ]);
         let dir = tempdir().unwrap();
         let stripe = StripeProjects::new(&runner, dir.path());
-        add_catalog_resource(&stripe, &catalog, &QuoAppCfg {}, "res")
+        add_catalog_resource_with_paid(&stripe, &catalog, &AppCfg {}, "res", true)
             .await
             .unwrap();
         let calls = runner.calls();
         let parent_add = calls
             .iter()
-            .find(|c| c.windows(2).any(|w| w == ["add", "quo/quo/starter"]))
+            .find(|c| c.windows(2).any(|w| w == ["add", "example/starter"]))
             .expect("parent plan add");
         assert!(
             parent_add.iter().any(|a| a == "--confirm-paid-service"),
-            "paid parent must be confirmed even when child prefer_paid=false; got {parent_add:?}"
+            "explicit consent must confirm the paid parent; got {parent_add:?}"
         );
         let child_add = calls
             .iter()
-            .find(|c| c.windows(2).any(|w| w == ["add", "quo/quo/app"]))
+            .find(|c| c.windows(2).any(|w| w == ["add", "example/app"]))
             .expect("child add");
         assert!(
             !child_add.iter().any(|a| a == "--confirm-paid-service"),
