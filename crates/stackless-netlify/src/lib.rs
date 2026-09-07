@@ -1,42 +1,28 @@
-//! stackless-netlify (ARCHITECTURE.md §4): the Netlify cloud substrate.
+//! Netlify catalog provisioning and native deployment recovery.
 //!
-//! Mirrors the Render/Vercel/Fly cloud flow: Stripe Projects provisions
-//! `netlify/project` and tracks spend; the Netlify REST API fills its gaps —
-//! resolve the site, run the file-digest deploy (upload the pinned ref's files),
-//! poll it to `ready`, and the health wait. One long-lived Stripe project per
-//! stack holds each instance as a named environment.
+//! Stripe Projects owns the catalog site. Its inventory entry also records
+//! native site creation, deployment receipts, build IDs, and removal submission.
+//! Recovery reads the recorded native deployment; teardown verifies native and
+//! catalog absence separately. Provider credentials are refreshed through the
+//! instance's Stripe environment.
 //!
-//! ## Credential model (pinned by `mise run discover netlify/project`)
-//!
-//! Like Vercel/Fly, provisioning `netlify/project` returns a Stripe-managed
-//! token; the substrate reads it from the provision output and uses it as the
-//! Netlify-API bearer for that one `start` step. Because the token is ephemeral,
-//! `observe`/`destroy` key off the **Stripe resource registration**, not the
-//! Netlify API — the Netlify API is only touched at deploy time.
-//!
-//! ## Deploy paths and cloud invariants
-//!
-//! - **Static upload** (default when `build` is absent): file-digest deploy of
-//!   files under `[services.X.netlify].root` (or the repo root). Explicit fast
-//!   path for pure static roots.
-//! - **Build** (when `build` is set): Vercel-shaped build settings
-//!   (`build` / `install` / `root` / `publish`) plus either zip-upload to
-//!   Netlify's build API (`deploy = "build"`, default) or a git-linked build
-//!   (`deploy = "git"`). `netlify/project` is free.
-//! - **Cloud resource names** are `{stack}-{instance}-{service}` — DNS-safe and a
-//!   legal Netlify site name. Origins are
-//!   `https://{stack}-{instance}-{service}.netlify.app`.
-//! - **Setup is skipped on cloud**; **prepare** runs on the operator's machine.
-//! - **Source override is unsupported** — Netlify deploys committed refs.
+//! Static uploads and ZIP builds use the operation's sealed source archive.
+//! Prepare and verification use a separate working copy of that snapshot.
+//! Git builds still use the configured branch. Endpoints come from provider responses.
+//! Native runtime log retrieval is not implemented.
 
 pub mod codes;
 pub mod config;
 pub mod error;
+mod lifecycle;
 pub mod netlify_api;
 pub mod zip_source;
 
+use stackless_core::substrate::InstanceContext;
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::Path;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -45,7 +31,7 @@ use stackless_core::def::{Namespace, StackDef};
 use stackless_core::engine::StepKind;
 use stackless_core::state::Checkpoint;
 use stackless_core::substrate::{
-    NamespacePurpose, Observation, ServiceLog, StepContext, StepResource, Substrate, SubstrateFault,
+    NamespacePurpose, Observation, StepContext, StepResource, Substrate, SubstrateFault,
 };
 use tokio::sync::Mutex;
 
@@ -54,7 +40,7 @@ use crate::error::NetlifyError;
 use crate::netlify_api::{
     BuildSettings, HEALTH_BUDGET, NETLIFY_DEPLOY_BUDGET, NetlifyApi, UploadFile,
 };
-use crate::zip_source::zip_directory;
+use crate::zip_source::zip_archive;
 use stackless_stripe_projects::ProjectsError;
 use stackless_stripe_projects::provision::{ProvisionContext, provision_outputs};
 use stackless_stripe_projects::stripe::{CommandRunner, StripeProjects, TokioRunner};
@@ -102,15 +88,8 @@ struct NetlifyPayload {
     #[serde(default)]
     deploy_id: String,
     origin: String,
-}
-
-/// What a `materialize:<service>` checkpoint records: the pinned source. Owns
-/// nothing locally, so observe reports Gone and resume cheaply re-records it.
-#[derive(Debug, Serialize, Deserialize)]
-struct SourceRefPayload {
-    repo: String,
-    #[serde(rename = "ref")]
-    reference: String,
+    #[serde(default, rename = "_netlify")]
+    native: Option<lifecycle::NativeState>,
 }
 
 /// The Netlify substrate. Generic over the command runner so tests inject canned
@@ -187,39 +166,42 @@ impl<R: CommandRunner> NetlifySubstrate<R> {
     }
 
     /// `{stack}-{instance}-{service}` (DNS-safe; a legal Netlify site name).
-    fn resource_name(def: &StackDef, instance: &str, node: &str) -> String {
-        format!("{}-{instance}-{node}", def.stack.name.as_str())
+    fn resource_name(def: &StackDef, instance: &InstanceContext<'_>, node: &str) -> String {
+        instance.provider_resource_name(def.stack.name.as_str(), node)
     }
 
-    /// `https://{stack}-{instance}-{service}.netlify.app` — the best-effort origin
-    /// (the real one is recorded from the deploy's ssl_url).
-    fn origin(def: &StackDef, instance: &str, service: &str) -> String {
-        format!(
-            "https://{}.netlify.app",
-            Self::resource_name(def, instance, service)
-        )
-    }
-
-    fn namespace(&self, def: &StackDef, instance: &str, prior: &[Checkpoint]) -> Namespace {
+    fn namespace(
+        &self,
+        def: &StackDef,
+        instance: &InstanceContext<'_>,
+        prior: &[Checkpoint],
+    ) -> Namespace {
         let mut namespace = Namespace {
             stack_name: def.stack.name.clone(),
-            instance_name: stackless_core::types::DnsName::from_stored(instance),
+            instance_name: stackless_core::types::DnsName::from_stored(instance.name),
             ..Namespace::default()
         };
         for service in def.services.keys() {
-            namespace
-                .service_origins
-                .insert(service.clone(), Self::origin(def, instance, service));
+            if let Some(origin) = prior
+                .iter()
+                .find(|cp| cp.step_id == format!("start:{service}"))
+                .and_then(|cp| serde_json::from_str::<NetlifyPayload>(&cp.payload).ok())
+                .map(|p| p.origin)
+                .filter(|url| !url.is_empty())
+            {
+                namespace.service_origins.insert(service.clone(), origin);
+            }
         }
-        namespace.secrets = self.secrets.clone();
+        namespace.secrets = stackless_core::security::application_secrets(&self.secrets);
         namespace.add_integration_checkpoints(prior);
+        instance.bind_namespace(&mut namespace, def);
         namespace
     }
 
     async fn ensure_project_and_env(
         &self,
         def: &StackDef,
-        instance: &str,
+        instance: &InstanceContext<'_>,
     ) -> Result<(), SubstrateFault> {
         let mut done = self.ensured.lock().await;
         if *done {
@@ -230,7 +212,7 @@ impl<R: CommandRunner> NetlifySubstrate<R> {
             &self.stripe(),
             def,
             &self.definition_dir,
-            instance,
+            instance.resource_namespace,
             spend,
         )
         .await
@@ -250,13 +232,20 @@ impl<R: CommandRunner> NetlifySubstrate<R> {
 
     async fn start_service(
         &self,
-        def: &StackDef,
-        instance: &str,
-        service: &str,
+        step_ctx: &StepContext<'_>,
     ) -> Result<StepResource, SubstrateFault> {
+        let def = step_ctx.def;
+        let instance = step_ctx.instance;
+        let service = step_ctx.step.node.as_str();
+        let stripe = self
+            .stripe()
+            .with_journal(step_ctx, SUBSTRATE_NAME, "netlify-site");
+        let journal = stripe
+            .journal()
+            .ok_or_else(|| fault(lifecycle::invalid("Netlify catalog journal missing")))?;
         let netlify_cfg = config::service_netlify(def, service).map_err(fault)?;
         let site_name = Self::resource_name(def, instance, service);
-        let resource = format!("{instance}-{service}");
+        let resource = instance.resource_name(service);
         let spec = def.services.get(service).ok_or_else(|| {
             fault(NetlifyError::ConfigInvalid {
                 location: format!("services.{service}"),
@@ -267,8 +256,7 @@ impl<R: CommandRunner> NetlifySubstrate<R> {
         // Provision the Netlify site via Stripe Projects (free; the paid gate is
         // kept for safety) and capture the Stripe-managed token (+ optional site
         // id) it returns.
-        let catalog = self
-            .stripe()
+        let catalog = stripe
             .catalog_for::<NetlifyProjectConfig>()
             .await
             .map_err(projects_fault)?;
@@ -280,14 +268,14 @@ impl<R: CommandRunner> NetlifySubstrate<R> {
         }
         let ctx = ProvisionContext {
             def,
-            instance,
+            instance: instance.resource_namespace,
             logical_name: service,
             definition_dir: &self.definition_dir,
             substrate: SUBSTRATE_NAME,
             skip_instance_context: true,
         };
         let (_resource_name, outputs) = provision_outputs(
-            &self.stripe(),
+            &stripe,
             &catalog,
             &ctx,
             &cfg,
@@ -308,16 +296,40 @@ impl<R: CommandRunner> NetlifySubstrate<R> {
             })
         })?;
 
-        let netlify = self.netlify_with_token(token);
+        let native = lifecycle::Journal::new(step_ctx, &resource, self.step_revision(step_ctx)?)
+            .map_err(fault)?;
+        let netlify = self.netlify_with_token(token).with_journal(native.clone());
         // The site: Stripe may hand back its id, else create it by name.
         let (site_id, provisioned_url) = match outputs.get("site_id") {
-            Some(id) => (id.clone(), outputs.get("url").cloned()),
+            Some(id) => {
+                native.site(id).map_err(fault)?;
+                let site = netlify
+                    .owned_site(id, &site_name)
+                    .await
+                    .map_err(fault)?
+                    .ok_or_else(|| fault(lifecycle::invalid("provisioned site disappeared")))?;
+                (id.clone(), site.ssl_url)
+            }
             None => {
                 let site = netlify.create_site(&site_name).await.map_err(fault)?;
                 (site.id, site.ssl_url)
             }
         };
 
+        let site = netlify
+            .owned_site(&site_id, &site_name)
+            .await
+            .map_err(fault)?
+            .ok_or_else(|| fault(lifecycle::invalid("site disappeared after creation")))?;
+        let mut payload = NetlifyPayload {
+            stripe_resource: resource.clone(),
+            site_id: site_id.clone(),
+            site_name: site_name.clone(),
+            deploy_id: String::new(),
+            origin: site.ssl_url.unwrap_or_default(),
+            native: Some(native.load().map_err(fault)?),
+        };
+        save_site(journal, &payload, false)?;
         let (deployed_url, deploy_id) = if netlify_cfg.uses_build() {
             let cmd = netlify_cfg.build_cmd().ok_or_else(|| {
                 fault(NetlifyError::ConfigInvalid {
@@ -363,25 +375,14 @@ impl<R: CommandRunner> NetlifySubstrate<R> {
                         .update_build_settings(&site_id, &settings)
                         .await
                         .map_err(fault)?;
-                    let repo = spec.source.repo.clone();
-                    let reference = spec.source.reference.clone();
-                    let base = netlify_cfg.root.clone();
-                    let zip = tokio::task::spawn_blocking(move || {
-                        zip_checkout_for_build(&repo, &reference, base.as_deref())
-                    })
-                    .await
-                    .map_err(|err| {
-                        fault(NetlifyError::ProvisionFailed {
-                            resource: resource.clone(),
-                            detail: format!("zip task panicked: {err}"),
-                        })
-                    })?
-                    .map_err(fault)?;
+                    let source = stackless_cloud::source::recorded(step_ctx.prior, service)?;
+                    let archive = source.archive(netlify_cfg.root.as_deref())?;
+                    let zip = zip_archive(archive).map_err(fault)?;
                     netlify
                         .deploy_build_zip(
                             &site_id,
                             zip,
-                            &format!("stackless {instance}/{service}"),
+                            &format!("stackless {}/{service}", instance.name),
                             service,
                             NETLIFY_DEPLOY_BUDGET,
                         )
@@ -396,71 +397,45 @@ impl<R: CommandRunner> NetlifySubstrate<R> {
                 }
             }
         } else {
-            // Static fast path: clone + file-digest upload.
-            let repo = spec.source.repo.clone();
-            let reference = spec.source.reference.clone();
-            let root = netlify_cfg.root.clone();
-            let files = tokio::task::spawn_blocking(move || {
-                collect_upload_files(&repo, &reference, root.as_deref())
-            })
-            .await
-            .map_err(|err| {
-                fault(NetlifyError::ProvisionFailed {
-                    resource: resource.clone(),
-                    detail: format!("file collection task panicked: {err}"),
-                })
-            })?
-            .map_err(fault)?;
+            let source = stackless_cloud::source::recorded(step_ctx.prior, service)?;
+            let archive = source.archive(netlify_cfg.root.as_deref())?;
+            let files = upload_files(archive).map_err(fault)?;
             netlify
                 .deploy(&site_id, &files, service, NETLIFY_DEPLOY_BUDGET)
                 .await
                 .map_err(fault)?
         };
-        let origin = [deployed_url, provisioned_url.unwrap_or_default()]
+        payload.origin = [deployed_url, provisioned_url.unwrap_or_default()]
             .into_iter()
-            .find(|u| !u.trim().is_empty())
-            .unwrap_or_else(|| Self::origin(def, instance, service));
-
-        let payload = NetlifyPayload {
-            stripe_resource: resource,
-            site_id,
-            site_name: site_name.clone(),
-            deploy_id,
-            origin,
-        };
-        Ok(StepResource {
-            resource_kind: "netlify-site".into(),
-            resource_id: site_name,
-            payload: serde_json::to_string(&payload).unwrap_or_default(),
-        })
+            .find(|url| !url.is_empty())
+            .ok_or_else(|| {
+                fault(lifecycle::invalid(
+                    "Netlify deployment returned no endpoint",
+                ))
+            })?;
+        payload.deploy_id = deploy_id;
+        payload.native = Some(native.load().map_err(fault)?);
+        save_site(journal, &payload, true)
     }
 
-    async fn run_prepare(
-        &self,
-        def: &StackDef,
-        instance: &str,
-        service: &str,
-        prior: &[Checkpoint],
-    ) -> Result<(), SubstrateFault> {
-        let Some(spec) = def.services.get(service) else {
-            return Ok(());
-        };
-        let namespace = self.namespace(def, instance, prior);
-        stackless_cloud::prepare::run_service_prepare(
-            &namespace,
+    async fn run_hook(&self, ctx: &StepContext<'_>) -> Result<StepResource, SubstrateFault> {
+        stackless_cloud::prepare::run_snapshot_hook(
+            ctx,
+            &self.definition_dir,
+            &self.namespace(ctx.def, ctx.instance, ctx.prior),
             &self.secrets,
-            service,
             SUBSTRATE_NAME,
-            spec,
         )
         .await
-        .map_err(prepare_fault)
+        .map_err(|failure| {
+            stackless_cloud::prepare::hook_fault(ctx.step.kind, failure, prepare_fault)
+        })
     }
 
     async fn health_gate(
         &self,
         def: &StackDef,
-        instance: &str,
+        _instance: &InstanceContext<'_>,
         service: &str,
         prior: &[Checkpoint],
     ) -> Result<(), SubstrateFault> {
@@ -470,20 +445,26 @@ impl<R: CommandRunner> NetlifySubstrate<R> {
                 detail: "service not in definition".into(),
             })
         })?;
-        // Prefer the real deploy URL recorded at start; fall back to the derived
-        // origin (they match when the site name was taken verbatim).
         let origin = prior
             .iter()
             .find(|c| c.resource_kind == "netlify-site" && c.step_id == format!("start:{service}"))
             .and_then(|c| serde_json::from_str::<NetlifyPayload>(&c.payload).ok())
             .map(|p| p.origin)
             .filter(|o| !o.trim().is_empty())
-            .unwrap_or_else(|| Self::origin(def, instance, service));
-        let url = format!("{origin}{}", spec.health.path);
+            .ok_or_else(|| {
+                fault(NetlifyError::ConfigInvalid {
+                    location: format!("services.{service}.health"),
+                    detail: "deployment has no recorded provider endpoint".into(),
+                })
+            })?;
+        let Some(health) = &spec.health else {
+            return Ok(());
+        };
+        let url = format!("{origin}{}", health.path);
         stackless_cloud::health::poll(
             &url,
-            spec.health.status.get(),
-            spec.health.contains.as_deref(),
+            health.status.get(),
+            health.contains.as_deref(),
             HEALTH_BUDGET,
         )
         .await
@@ -498,100 +479,87 @@ impl<R: CommandRunner> NetlifySubstrate<R> {
     }
 }
 
+fn has_catalog_receipt(payload: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(payload)
+        .ok()
+        .is_some_and(|v| v.get("_catalog_creation").is_some())
+}
+
+async fn native_site_identity(
+    api: &NetlifyApi,
+    value: &serde_json::Value,
+) -> Result<(Option<String>, String), SubstrateFault> {
+    if value
+        .pointer("/_netlify/site_conflict")
+        .and_then(serde_json::Value::as_bool)
+        == Some(true)
+    {
+        return Err(fault(lifecycle::invalid(
+            "native site existed before this instance submitted creation; ownership requires audit",
+        )));
+    }
+    let name = value
+        .get("site_name")
+        .or_else(|| value.pointer("/_catalog_creation/config/name"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| fault(lifecycle::invalid("native site name is missing")))?
+        .to_owned();
+    let id = value
+        .get("site_id")
+        .or_else(|| value.pointer("/_netlify/site_id"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|s| !s.is_empty());
+    let id = match id {
+        Some(id) => Some(id.to_owned()),
+        None => api.site_by_name(&name).await.map_err(fault)?.map(|s| s.id),
+    };
+    if id.is_none()
+        && value
+            .pointer("/_netlify/site_submitted")
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+    {
+        return Err(fault(lifecycle::invalid(
+            "native site submission is unresolved",
+        )));
+    }
+    Ok((id, name))
+}
+
+fn save_site(
+    journal: &stackless_stripe_projects::journal::ResourceJournal,
+    payload: &NetlifyPayload,
+    ready: bool,
+) -> Result<StepResource, SubstrateFault> {
+    let resource = StepResource {
+        resource_kind: "netlify-site".into(),
+        resource_id: payload.stripe_resource.clone(),
+        payload: serde_json::to_string(payload)
+            .map_err(|e| fault(lifecycle::invalid(e.to_string())))?,
+    };
+    journal.outputs(&resource, ready).map_err(projects_fault)?;
+    Ok(resource)
+}
+
 /// Check out `repo`@`reference` into a temp dir and read every file under `root`
-/// (or the repo root) as [`UploadFile`]s for the file-digest deploy.
-fn collect_upload_files(
-    repo: &str,
-    reference: &str,
-    root: Option<&str>,
+fn upload_files(
+    archive: stackless_core::source_archive::SourceArchive,
 ) -> Result<Vec<UploadFile>, NetlifyError> {
-    let provision_fault = |detail: String| NetlifyError::ProvisionFailed {
-        resource: repo.to_owned(),
-        detail,
-    };
-    let tmp = tempfile::tempdir().map_err(|err| provision_fault(format!("tempdir: {err}")))?;
-    stackless_git::clone_checkout(
-        repo,
-        reference,
-        tmp.path(),
-        &stackless_git::Credentials::default(),
-    )
-    .map_err(|err| provision_fault(format!("clone {repo}@{reference} failed: {err}")))?;
-    let base = match root {
-        Some(root) => tmp.path().join(root),
-        None => tmp.path().to_path_buf(),
-    };
-    if !base.is_dir() {
-        return Err(provision_fault(format!(
-            "upload root {:?} not found in {repo}@{reference}",
-            root.unwrap_or(".")
-        )));
-    }
-    let mut files = Vec::new();
-    collect_dir(&base, &base, &mut files)
-        .map_err(|err| provision_fault(format!("reading upload files: {err}")))?;
-    if files.is_empty() {
-        return Err(provision_fault(format!(
-            "no files to upload under {:?}",
-            root.unwrap_or(".")
-        )));
-    }
-    Ok(files)
-}
-
-/// Clone the pinned ref and zip the base directory for a Netlify build upload.
-fn zip_checkout_for_build(
-    repo: &str,
-    reference: &str,
-    base: Option<&str>,
-) -> Result<Vec<u8>, NetlifyError> {
-    let provision_fault = |detail: String| NetlifyError::ProvisionFailed {
-        resource: repo.to_owned(),
-        detail,
-    };
-    let tmp = tempfile::tempdir().map_err(|err| provision_fault(format!("tempdir: {err}")))?;
-    stackless_git::clone_checkout(
-        repo,
-        reference,
-        tmp.path(),
-        &stackless_git::Credentials::default(),
-    )
-    .map_err(|err| provision_fault(format!("clone {repo}@{reference} failed: {err}")))?;
-    let root = match base {
-        Some(base) => tmp.path().join(base),
-        None => tmp.path().to_path_buf(),
-    };
-    if !root.is_dir() {
-        return Err(provision_fault(format!(
-            "build base {:?} not found in {repo}@{reference}",
-            base.unwrap_or(".")
-        )));
-    }
-    zip_directory(&root)
-}
-
-fn collect_dir(base: &Path, dir: &Path, out: &mut Vec<UploadFile>) -> std::io::Result<()> {
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
-        if entry.file_name() == ".git" {
-            continue;
-        }
-        let path = entry.path();
-        if path.is_dir() {
-            collect_dir(base, &path, out)?;
-        } else if path.is_file() {
-            let rel = path
-                .strip_prefix(base)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .replace('\\', "/");
-            out.push(UploadFile {
-                path: rel,
-                data: std::fs::read(&path)?,
-            });
-        }
-    }
-    Ok(())
+    use base64::Engine as _;
+    archive
+        .files
+        .into_iter()
+        .map(|file| {
+            let data = base64::engine::general_purpose::STANDARD
+                .decode(file.contents)
+                .map_err(|e| lifecycle::invalid(e.to_string()))?;
+            Ok(UploadFile {
+                path: file.path,
+                data,
+            })
+        })
+        .collect()
 }
 
 #[async_trait]
@@ -600,19 +568,20 @@ impl<R: CommandRunner> Substrate for NetlifySubstrate<R> {
         SUBSTRATE_NAME
     }
 
+    fn capabilities(&self) -> stackless_core::capabilities::Capabilities {
+        stackless_core::capabilities::Capabilities::cloud(false, false)
+    }
+
     fn validate_definition(&self, def: &StackDef) -> Result<(), SubstrateFault> {
         for service in def.services.keys() {
-            config::service_netlify(def, service).map_err(fault)?;
-            let site_name = Self::resource_name(def, "i", service);
-            if !config::is_valid_site_name(&site_name) {
-                return Err(fault(NetlifyError::ConfigInvalid {
-                    location: format!("services.{service}"),
-                    detail: format!(
-                        "derived Netlify site name {site_name:?} is not a legal site name; \
-                         shorten the stack/service name"
-                    ),
-                }));
+            if def.services[service]
+                .on
+                .as_deref()
+                .is_some_and(|on| on != SUBSTRATE_NAME)
+            {
+                continue;
             }
+            config::service_netlify(def, service).map_err(fault)?;
         }
         Ok(())
     }
@@ -625,63 +594,72 @@ impl<R: CommandRunner> Substrate for NetlifySubstrate<R> {
         Duration::from_secs(8 * 3600)
     }
 
-    fn service_origin(&self, def: &StackDef, instance: &str, service: &str) -> String {
-        Self::origin(def, instance, service)
-    }
-
     fn build_namespace(
         &self,
         def: &StackDef,
-        instance: &str,
+        instance: &InstanceContext<'_>,
         prior: &[Checkpoint],
         secrets: &BTreeMap<String, String>,
         _purpose: NamespacePurpose,
     ) -> Namespace {
         let mut namespace = self.namespace(def, instance, prior);
-        namespace.secrets = secrets.clone();
+        namespace.secrets = stackless_core::security::application_secrets(secrets);
         namespace
     }
 
+    fn step_revision(&self, ctx: &StepContext<'_>) -> Result<String, SubstrateFault> {
+        let definition = stackless_core::engine::revision::step_revision(ctx, self)?;
+        if matches!(
+            ctx.step.kind,
+            StepKind::Start | StepKind::Setup | StepKind::Prepare
+        ) {
+            stackless_core::engine::revision::digest(&(
+                definition,
+                stackless_core::security::application_secrets(&self.secrets),
+            ))
+        } else {
+            Ok(definition)
+        }
+    }
+
+    fn refresh_each_operation(&self, step: &stackless_core::engine::Step) -> bool {
+        matches!(
+            step.kind,
+            StepKind::Materialize | StepKind::Prepare | StepKind::HealthGate
+        )
+    }
+
     async fn execute(&self, ctx: StepContext<'_>) -> Result<StepResource, SubstrateFault> {
+        stackless_cloud::prepare::durable::require_host_grant(&ctx)?;
         self.ensure_project_and_env(ctx.def, ctx.instance).await?;
 
         let node = ctx.step.node.as_str();
         match ctx.step.kind {
+            StepKind::RunJob => Err(stackless_core::capabilities::unsupported_feature(
+                SUBSTRATE_NAME,
+                &ctx.step.node,
+                "jobs",
+            )),
             StepKind::ProvisionIntegration => stackless_integrations::provision(
                 SUBSTRATE_NAME,
                 &self.stripe(),
-                ctx.def,
+                &ctx,
                 &self.definition_dir,
-                ctx.instance,
-                node,
                 true,
             )
             .await
             .map_err(integration_fault),
             StepKind::Materialize => {
-                let spec = ctx.def.services.get(node).ok_or_else(|| {
-                    fault(NetlifyError::ConfigInvalid {
-                        location: format!("services.{node}"),
-                        detail: "service not in definition".into(),
-                    })
-                })?;
-                let payload = SourceRefPayload {
-                    repo: spec.source.repo.clone(),
-                    reference: spec.source.reference.clone(),
-                };
-                Ok(StepResource {
-                    resource_kind: "source-ref".into(),
-                    resource_id: format!("{}@{}", spec.source.repo, spec.source.reference),
-                    payload: serde_json::to_string(&payload).unwrap_or_default(),
-                })
+                stackless_cloud::source::materialize(
+                    &ctx,
+                    &self.definition_dir,
+                    SUBSTRATE_NAME,
+                    &self.secrets,
+                )
+                .await
             }
-            StepKind::Setup => Ok(stackless_core::substrate::action_resource(&ctx.step.id)),
-            StepKind::Prepare => {
-                self.run_prepare(ctx.def, ctx.instance, node, ctx.prior)
-                    .await?;
-                Ok(stackless_core::substrate::action_resource(&ctx.step.id))
-            }
-            StepKind::Start => self.start_service(ctx.def, ctx.instance, node).await,
+            StepKind::Setup | StepKind::Prepare => self.run_hook(&ctx).await,
+            StepKind::Start => self.start_service(&ctx).await,
             StepKind::HealthGate => {
                 self.health_gate(ctx.def, ctx.instance, node, ctx.prior)
                     .await?;
@@ -692,10 +670,19 @@ impl<R: CommandRunner> Substrate for NetlifySubstrate<R> {
 
     async fn observe(
         &self,
-        _instance: &str,
+        instance: &InstanceContext<'_>,
         checkpoint: &Checkpoint,
     ) -> Result<Observation, SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
+            stackless_cloud::prepare::durable::KIND => stackless_cloud::prepare::durable::observe(
+                &self.definition_dir,
+                instance,
+                SUBSTRATE_NAME,
+                checkpoint,
+            ),
+            stackless_cloud::source::KIND => {
+                stackless_cloud::source::observe(&self.definition_dir, instance, checkpoint)
+            }
             "netlify-site" => {
                 let payload = stackless_cloud::checkpoint::parse_payload::<NetlifyPayload>(
                     &checkpoint.payload,
@@ -706,6 +693,51 @@ impl<R: CommandRunner> Substrate for NetlifySubstrate<R> {
                         detail,
                     })
                 })?;
+                if let Some(payload) = &payload
+                    && let Some(native) = &payload.native
+                {
+                    let token = self
+                        .netlify_token(instance, &payload.stripe_resource)
+                        .await?;
+                    let api = self.netlify_with_token(&token);
+                    if api
+                        .owned_site(&payload.site_id, &payload.site_name)
+                        .await
+                        .map_err(fault)?
+                        .is_none()
+                    {
+                        return Ok(Observation::Gone);
+                    }
+                    let receipt = native
+                        .requests
+                        .iter()
+                        .find(|(_, request)| {
+                            request.deploy_id.as_deref() == Some(payload.deploy_id.as_str())
+                        })
+                        .map(|(receipt, _)| receipt)
+                        .ok_or_else(|| {
+                            fault(lifecycle::invalid("checkpoint has no deployment receipt"))
+                        })?;
+                    let deploy = api
+                        .owned_deploy(&payload.site_id, &payload.deploy_id, receipt)
+                        .await
+                        .map_err(fault)?;
+                    let state = deploy
+                        .as_ref()
+                        .and_then(|v| v["state"].as_str())
+                        .unwrap_or("missing");
+                    return Ok(if state == "ready" {
+                        Observation::Present
+                    } else {
+                        Observation::Drifted {
+                            settings: vec![stackless_core::substrate::SettingDrift {
+                                setting: "deployment.readiness".into(),
+                                expected: "ready".into(),
+                                actual: state.into(),
+                            }],
+                        }
+                    });
+                }
                 let stripe_resource = payload
                     .map(|p| p.stripe_resource)
                     .unwrap_or_else(|| checkpoint.resource_id.clone());
@@ -737,10 +769,13 @@ impl<R: CommandRunner> Substrate for NetlifySubstrate<R> {
 
     async fn destroy(
         &self,
-        _instance: &str,
+        instance: &InstanceContext<'_>,
         checkpoint: &Checkpoint,
     ) -> Result<(), SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
+            stackless_cloud::source::KIND => {
+                stackless_cloud::source::destroy(&self.definition_dir, instance, checkpoint)
+            }
             "netlify-site" => {
                 let payload = stackless_cloud::checkpoint::parse_payload::<NetlifyPayload>(
                     &checkpoint.payload,
@@ -777,8 +812,135 @@ impl<R: CommandRunner> Substrate for NetlifySubstrate<R> {
         }
     }
 
-    async fn finalize_teardown(&self, instance: &str) -> Result<(), SubstrateFault> {
-        stackless_integrations::finalize_stripe_instance(&self.stripe(), instance).await;
+    async fn destroy_record(
+        &self,
+        store: &stackless_core::state::Store,
+        instance: &InstanceContext<'_>,
+        record: &stackless_core::state::ResourceRecord,
+    ) -> Result<(), SubstrateFault> {
+        if record.resource_kind == stackless_cloud::prepare::durable::KIND {
+            return stackless_cloud::prepare::durable::destroy_record(
+                &self.definition_dir,
+                store,
+                instance,
+                SUBSTRATE_NAME,
+                record,
+            )
+            .await;
+        }
+        if !has_catalog_receipt(&record.payload) {
+            return self
+                .destroy(instance, &record.checkpoint(instance.name))
+                .await;
+        }
+        stackless_stripe_projects::journal::recover_for_teardown(&self.stripe(), store, record)
+            .await
+            .map_err(projects_fault)?;
+        let current = store
+            .resource(instance.id, &record.key)
+            .map_err(|e| SubstrateFault::from_fault(&e))?
+            .ok_or_else(|| fault(lifecycle::invalid("catalog record disappeared")))?;
+        if current.phase == stackless_core::state::ResourcePhase::Absent {
+            return Ok(());
+        }
+        if current.resource_kind == "netlify-site" {
+            let token = self.netlify_token(instance, &current.resource_id).await?;
+            let api = self.netlify_with_token(&token);
+            let mut value: serde_json::Value = serde_json::from_str(&current.payload)
+                .map_err(|e| fault(lifecycle::invalid(e.to_string())))?;
+            let (id, name) = native_site_identity(&api, &value).await?;
+            if let Some(id) = id {
+                value["site_id"] = serde_json::json!(id);
+                value["site_name"] = serde_json::json!(name);
+                if !value["_netlify"].is_object() {
+                    value["_netlify"] = serde_json::to_value(lifecycle::NativeState::default())
+                        .map_err(|e| fault(lifecycle::invalid(e.to_string())))?;
+                }
+                value["_netlify"]["site_id"] = serde_json::json!(id);
+                value["_netlify"]["removal_submitted"] = serde_json::json!(true);
+                store
+                    .resource_refresh_payload(
+                        instance.id,
+                        &current.key,
+                        &current.resource_id,
+                        &value.to_string(),
+                    )
+                    .map_err(|e| SubstrateFault::from_fault(&e))?;
+                if api.owned_site(&id, &name).await.map_err(fault)?.is_some() {
+                    api.delete_site(&id).await.map_err(fault)?;
+                }
+                if api.owned_site(&id, &name).await.map_err(fault)?.is_some() {
+                    return Err(fault(lifecycle::invalid(
+                        "native site deletion is still pending",
+                    )));
+                }
+            }
+        }
+        let current = store
+            .resource(instance.id, &record.key)
+            .map_err(|e| SubstrateFault::from_fault(&e))?
+            .ok_or_else(|| fault(lifecycle::invalid("catalog record disappeared")))?;
+        stackless_stripe_projects::journal::destroy_record(&self.stripe(), store, &current)
+            .await
+            .map_err(projects_fault)
+    }
+
+    async fn observe_record(
+        &self,
+        store: &stackless_core::state::Store,
+        instance: &InstanceContext<'_>,
+        record: &stackless_core::state::ResourceRecord,
+    ) -> Result<Observation, SubstrateFault> {
+        if record.resource_kind == stackless_cloud::prepare::durable::KIND {
+            return stackless_cloud::prepare::durable::observe_record(
+                &self.definition_dir,
+                store,
+                instance,
+                SUBSTRATE_NAME,
+                record,
+            );
+        }
+        let current = store
+            .resource(instance.id, &record.key)
+            .map_err(|e| SubstrateFault::from_fault(&e))?
+            .ok_or_else(|| fault(lifecycle::invalid("catalog record disappeared")))?;
+        if current.phase == stackless_core::state::ResourcePhase::Absent {
+            return Ok(Observation::Gone);
+        }
+        if !has_catalog_receipt(&current.payload) {
+            return self
+                .observe(instance, &current.checkpoint(instance.name))
+                .await;
+        }
+        let catalog =
+            stackless_stripe_projects::journal::observe_payload(&self.stripe(), &current.payload)
+                .await
+                .map_err(projects_fault)?;
+        if current.resource_kind != "netlify-site" {
+            return Ok(catalog);
+        }
+        let token = self.netlify_token(instance, &current.resource_id).await?;
+        let api = self.netlify_with_token(&token);
+        let value: serde_json::Value = serde_json::from_str(&current.payload)
+            .map_err(|e| fault(lifecycle::invalid(e.to_string())))?;
+        let (id, name) = native_site_identity(&api, &value).await?;
+        match id {
+            Some(id) if api.owned_site(&id, &name).await.map_err(fault)?.is_some() => {
+                Ok(Observation::Present)
+            }
+            _ => Ok(catalog),
+        }
+    }
+
+    async fn finalize_teardown(
+        &self,
+        instance: &InstanceContext<'_>,
+    ) -> Result<(), SubstrateFault> {
+        stackless_integrations::finalize_stripe_instance(
+            &self.stripe(),
+            instance.resource_namespace,
+        )
+        .await;
         Ok(())
     }
 
@@ -793,81 +955,18 @@ impl<R: CommandRunner> Substrate for NetlifySubstrate<R> {
             .await,
         )
     }
-
-    async fn fetch_logs(
-        &self,
-        _def: &StackDef,
-        instance: &str,
-        services: &[String],
-        tail: usize,
-    ) -> Result<Option<Vec<ServiceLog>>, SubstrateFault> {
-        let mut out = Vec::with_capacity(services.len());
-        for service in services {
-            let lines = self.fetch_service_logs(instance, service, tail).await?;
-            out.push(ServiceLog {
-                service: service.clone(),
-                source: "netlify_api",
-                log_path: None,
-                lines,
-            });
-        }
-        Ok(Some(out))
-    }
-}
-
-fn start_service_payload(instance: &str, service: &str) -> Option<NetlifyPayload> {
-    let store = stackless_core::state::Store::open_configured().ok()?;
-    let checkpoints = store.checkpoints(instance).ok()?;
-    checkpoints.into_iter().find_map(|checkpoint| {
-        if checkpoint.step_id == format!("start:{service}")
-            && checkpoint.resource_kind == "netlify-site"
-        {
-            serde_json::from_str::<NetlifyPayload>(&checkpoint.payload).ok()
-        } else {
-            None
-        }
-    })
 }
 
 impl<R: CommandRunner> NetlifySubstrate<R> {
-    async fn fetch_service_logs(
-        &self,
-        instance: &str,
-        service: &str,
-        tail: usize,
-    ) -> Result<Vec<String>, SubstrateFault> {
-        let Some(payload) = start_service_payload(instance, service) else {
-            return Ok(vec![format!(
-                "(no start checkpoint for service {service}; run `stackless up` first)"
-            )]);
-        };
-        let token = self
-            .netlify_token(instance, &payload.stripe_resource)
-            .await?;
-        let netlify = self.netlify_with_token(&token);
-        let deploy_id = if payload.deploy_id.trim().is_empty() {
-            netlify
-                .latest_deploy_id(&payload.site_id)
-                .await
-                .map_err(fault)?
-        } else {
-            payload.deploy_id.clone()
-        };
-        netlify
-            .recent_deploy_log(&payload.site_id, &deploy_id, tail)
-            .await
-            .map_err(fault)
-    }
-
     async fn netlify_token(
         &self,
-        instance: &str,
+        instance: &InstanceContext<'_>,
         stripe_resource: &str,
     ) -> Result<String, SubstrateFault> {
         let resource_prefix = stripe_resource.to_ascii_uppercase().replace('-', "_");
         let resource_key = format!("{resource_prefix}_NETLIFY_AUTH_TOKEN");
         let keys = [resource_key.as_str(), "NETLIFY_AUTH_TOKEN"];
-        let pulled = project::pull_env_values(&self.stripe(), instance, &keys)
+        let pulled = project::pull_env_values(&self.stripe(), instance.resource_namespace, &keys)
             .await
             .map_err(projects_fault)?;
         if let Some(token) = pulled
@@ -937,18 +1036,53 @@ mod tests {
 
     const PAYLOAD: &str = r#"{"stripe_resource":"demo-web","site_id":"site_1","site_name":"atto-demo-web","deploy_id":"dep_1","origin":"https://atto-demo-web.netlify.app"}"#;
 
-    #[test]
-    fn resource_name_and_origin_are_dns_safe() {
+    #[tokio::test]
+    async fn resource_names_are_dns_safe_and_origins_wait_for_outputs() {
         let def = netlify_def();
         assert_eq!(
-            NetlifySubstrate::<TokioRunner>::resource_name(&def, "demo", "web"),
+            NetlifySubstrate::<TokioRunner>::resource_name(
+                &def,
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                "web"
+            ),
             "atto-demo-web"
         );
         let (_dir, s) = subj();
         assert_eq!(
-            s.service_origin(&def, "demo", "web"),
-            "https://atto-demo-web.netlify.app"
+            s.service_origin(
+                &def,
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                "web"
+            ),
+            ""
         );
+        let context = InstanceContext {
+            name: "demo",
+            id: "legacy-test",
+            resource_namespace: "demo",
+            checkpoints: &[],
+            routed_origins: None,
+        };
+        let error = tokio::time::timeout(
+            Duration::from_millis(100),
+            s.health_gate(&def, &context, "web", &[]),
+        )
+        .await
+        .expect("missing URL must fail before health polling")
+        .unwrap_err();
+        assert!(error.message.contains("recorded"), "{error}");
     }
 
     #[test]
@@ -965,7 +1099,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let s = NetlifySubstrate::for_test(&runner, dir.path(), "http://127.0.0.1:1", false);
         let cp = checkpoint("netlify-site", "start:web", PAYLOAD);
-        assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Present);
+        assert_eq!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .unwrap(),
+            Observation::Present
+        );
     }
 
     #[tokio::test]
@@ -974,7 +1122,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let s = NetlifySubstrate::for_test(&runner, dir.path(), "http://127.0.0.1:1", false);
         let cp = checkpoint("netlify-site", "start:web", PAYLOAD);
-        assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Gone);
+        assert_eq!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .unwrap(),
+            Observation::Gone
+        );
     }
 
     #[tokio::test]
@@ -985,16 +1147,67 @@ mod tests {
             "materialize:web",
             r#"{"repo":"r","ref":"main"}"#,
         );
-        assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Gone);
-        s.destroy("demo", &cp).await.unwrap();
+        assert_eq!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .unwrap(),
+            Observation::Gone
+        );
+        s.destroy(
+            &InstanceContext {
+                routed_origins: None,
+                name: "demo",
+                id: "legacy-test",
+                resource_namespace: "demo",
+                checkpoints: &[],
+            },
+            &cp,
+        )
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
     async fn unknown_resource_kind_fails_closed() {
         let (_dir, s) = subj();
         let cp = checkpoint("not-a-real-kind", "start:web", "{}");
-        assert!(s.observe("demo", &cp).await.is_err());
-        assert!(s.destroy("demo", &cp).await.is_err());
+        assert!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            s.destroy(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .is_err()
+        );
     }
 
     #[tokio::test]
@@ -1006,7 +1219,18 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let s = NetlifySubstrate::for_test(&runner, dir.path(), "http://127.0.0.1:1", false);
         let cp = checkpoint("netlify-site", "start:web", PAYLOAD);
-        s.destroy("demo", &cp).await.unwrap();
+        s.destroy(
+            &InstanceContext {
+                routed_origins: None,
+                name: "demo",
+                id: "legacy-test",
+                resource_namespace: "demo",
+                checkpoints: &[],
+            },
+            &cp,
+        )
+        .await
+        .unwrap();
         let calls = runner.calls();
         assert!(
             calls
@@ -1017,3 +1241,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod lifecycle_tests;

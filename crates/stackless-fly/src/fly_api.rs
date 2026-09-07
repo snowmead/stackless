@@ -1,12 +1,6 @@
-//! The Fly Machines REST client (ARCHITECTURE.md §4): the post-provisioning
-//! steps Stripe Projects can't express — allocate the app's public IPs, create
-//! the machine that runs the service image, and poll it to `started`.
-//!
-//! Hand-written over `reqwest` rather than generated: the Machines API surface
-//! we use is six endpoints with flat JSON bodies, and the served spec is Swagger
-//! 2.0 (`specs/flyio-openapi.json`, kept as reference). A thin client keeps the
-//! request bodies legible and the dependency surface small; responses are parsed
-//! leniently (`id`/`state`) so additive provider drift never breaks a deploy.
+//! Fly native identity, deployment readback, and independently verified deletion.
+//! The vendored Machines API spec lives in `specs/flyio-openapi.json`.
+//! Unknown or malformed identity and inventory responses remain errors.
 
 use std::time::Duration;
 
@@ -15,6 +9,7 @@ use reqwest::{Client, Method, StatusCode};
 use serde_json::{Value, json};
 
 use crate::error::FlyError;
+use crate::lifecycle::{self, AppIdentity, Journal, RECEIPT_ENV};
 
 const DEFAULT_BASE: &str = "https://api.machines.dev/v1";
 
@@ -37,15 +32,18 @@ pub struct MachineSpec<'a> {
     pub image: &'a str,
     /// Overrides the image CMD (container args), e.g. http-echo flags.
     pub cmd: Option<&'a [String]>,
+    /// Shell command replacing both Docker ENTRYPOINT and CMD.
+    pub run: Option<&'a str>,
     pub env: &'a [(String, String)],
-    pub internal_port: u16,
+    pub internal_port: Option<u16>,
+    pub worker: bool,
     pub cpu_kind: &'a str,
     pub cpus: u32,
     pub memory_mb: u32,
 }
 
 impl MachineSpec<'_> {
-    fn to_body(&self) -> Value {
+    pub(crate) fn to_body(&self) -> Value {
         let env: serde_json::Map<String, Value> = self
             .env
             .iter()
@@ -62,8 +60,12 @@ impl MachineSpec<'_> {
             // One always-on service: the Fly edge terminates TLS on 443 and
             // routes to the container's internal port. `autostop: off` +
             // `min_machines_running: 1` keep a health-gated service up.
-            "services": [{
-                "internal_port": self.internal_port,
+            "services": [],
+            "restart": { "policy": if self.worker { "always" } else { "on-failure" } }
+        });
+        if let Some(port) = self.internal_port {
+            config["services"] = json!([{
+                "internal_port": port,
                 "protocol": "tcp",
                 "autostart": true,
                 "autostop": "off",
@@ -74,18 +76,21 @@ impl MachineSpec<'_> {
                     { "port": 443, "handlers": ["http", "tls"] },
                     { "port": 80, "handlers": ["http"], "force_https": true }
                 ]
-            }],
-            "restart": { "policy": "on-failure" }
-        });
+            }]);
+        }
         if let Some(cmd) = self.cmd {
             config["init"] = json!({ "cmd": cmd });
+        }
+        if let Some(run) = self.run {
+            config["init"] = json!({ "exec": ["/bin/sh", "-c", run] });
         }
         json!({ "name": self.name, "region": self.region, "config": config })
     }
 }
 
 pub struct FlyApi {
-    client: Client,
+    client: Result<Client, String>,
+    journal: Option<Journal>,
     base: String,
     /// Overridable so deploy polling is fast in tests.
     poll_interval: Duration,
@@ -99,18 +104,111 @@ impl std::fmt::Debug for FlyApi {
     }
 }
 
-fn authed_client(token: &str) -> Client {
-    let mut headers = HeaderMap::new();
-    if let Ok(mut value) = HeaderValue::from_str(&format!("Bearer {token}")) {
-        value.set_sensitive(true);
-        headers.insert(AUTHORIZATION, value);
+fn authed_client(token: &str) -> Result<Client, String> {
+    if token.trim().is_empty() {
+        return Err("Fly API token is empty".into());
     }
+    let mut headers = HeaderMap::new();
+    let mut value = HeaderValue::from_str(&format!("Bearer {token}")).map_err(|e| e.to_string())?;
+    value.set_sensitive(true);
+    headers.insert(AUTHORIZATION, value);
     Client::builder()
         .default_headers(headers)
+        .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(REQUEST_TIMEOUT)
         .timeout(REQUEST_TIMEOUT)
         .build()
-        .unwrap_or_else(|_| Client::new())
+        .map_err(|e| e.to_string())
+}
+
+pub(crate) fn valid_id(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+}
+
+fn check_id(value: &str) -> Result<(), FlyError> {
+    if valid_id(value) {
+        Ok(())
+    } else {
+        Err(lifecycle::invalid("invalid native resource ID"))
+    }
+}
+
+pub(crate) fn machine_receipt(machine: &Value) -> Option<&str> {
+    machine
+        .get("config")?
+        .get("env")?
+        .get(RECEIPT_ENV)?
+        .as_str()
+}
+
+pub(crate) fn machine_fingerprint(machine: &Value) -> Result<String, FlyError> {
+    let config = machine
+        .get("config")
+        .filter(|v| v.is_object())
+        .ok_or_else(|| lifecycle::invalid("machine config missing"))?;
+    let region = machine
+        .get("region")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| lifecycle::invalid("machine region missing"))?;
+    let digest = machine
+        .pointer("/image_ref/digest")
+        .and_then(Value::as_str)
+        .filter(|s| {
+            s.starts_with("sha256:")
+                && s.len() == 71
+                && s[7..].bytes().all(|b| b.is_ascii_hexdigit())
+        })
+        .ok_or_else(|| lifecycle::invalid("machine image digest missing or malformed"))?;
+    lifecycle::digest(&(region, config, digest))
+}
+
+fn contains_expected(actual: &Value, expected: &Value) -> bool {
+    match expected {
+        Value::Object(fields) => actual.as_object().is_some_and(|object| {
+            fields.iter().all(|(key, value)| {
+                object.get(key).is_some_and(|actual| {
+                    if matches!(key.as_str(), "services" | "ports" | "handlers") {
+                        contains_unordered(actual, value)
+                    } else {
+                        contains_expected(actual, value)
+                    }
+                })
+            })
+        }),
+        Value::Array(items) => actual.as_array().is_some_and(|values| {
+            values.len() == items.len()
+                && values
+                    .iter()
+                    .zip(items)
+                    .all(|(value, item)| contains_expected(value, item))
+        }),
+        _ => actual == expected,
+    }
+}
+
+fn contains_unordered(actual: &Value, expected: &Value) -> bool {
+    let (Some(values), Some(items)) = (actual.as_array(), expected.as_array()) else {
+        return false;
+    };
+    if values.len() != items.len() {
+        return false;
+    }
+    let mut matched = vec![false; values.len()];
+    items.iter().all(|item| {
+        let Some(index) = values
+            .iter()
+            .enumerate()
+            .position(|(index, value)| !matched[index] && contains_expected(value, item))
+        else {
+            return false;
+        };
+        matched[index] = true;
+        true
+    })
 }
 
 fn api_failed(method: &str, path: &str, err: impl std::fmt::Display) -> FlyError {
@@ -127,7 +225,7 @@ fn truncate(text: &str) -> String {
     if text.len() <= MAX {
         text.to_owned()
     } else {
-        format!("{}…", &text[..MAX])
+        format!("{}…", &text[..text.floor_char_boundary(MAX)])
     }
 }
 
@@ -139,9 +237,15 @@ impl FlyApi {
     pub fn with_base(token: impl AsRef<str>, base: impl Into<String>) -> Self {
         Self {
             client: authed_client(token.as_ref()),
+            journal: None,
             base: base.into(),
             poll_interval: POLL_INTERVAL,
         }
+    }
+
+    pub(crate) fn with_journal(mut self, journal: Journal) -> Self {
+        self.journal = Some(journal);
+        self
     }
 
     /// Tests set a tiny interval so the wait/timeout paths run instantly.
@@ -159,7 +263,11 @@ impl FlyApi {
         body: Option<Value>,
     ) -> Result<(StatusCode, String), FlyError> {
         let url = format!("{}{path}", self.base);
-        let mut req = self.client.request(method.clone(), &url);
+        let client = self
+            .client
+            .as_ref()
+            .map_err(|e| api_failed(method.as_str(), path, e))?;
+        let mut req = client.request(method.clone(), &url);
         if let Some(body) = &body {
             req = req.json(body);
         }
@@ -168,7 +276,10 @@ impl FlyApi {
             .await
             .map_err(|err| api_failed(method.as_str(), path, err))?;
         let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
+        let text = resp
+            .text()
+            .await
+            .map_err(|e| api_failed(method.as_str(), path, e))?;
         Ok((status, text))
     }
 
@@ -195,33 +306,279 @@ impl FlyApi {
             .map_err(|err| api_failed(method.as_str(), path, format!("bad json: {err}")))
     }
 
-    /// Allocate the app's public IPs (idempotent): a free shared IPv4 and a
-    /// dedicated IPv6, so `https://<app>.fly.dev` routes to the machine.
-    pub async fn ensure_ips(&self, app: &str) -> Result<(), FlyError> {
+    pub(crate) async fn app(&self, name: &str) -> Result<Option<AppIdentity>, FlyError> {
+        check_id(name)?;
+        let path = format!("/apps/{name}");
+        let (status, text) = self.send(Method::GET, &path, None).await?;
+        if status == StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        if !status.is_success() {
+            return Err(api_failed(
+                "GET",
+                &path,
+                format!("status {}: {}", status.as_u16(), truncate(&text)),
+            ));
+        }
+        let value: Value = serde_json::from_str(&text).map_err(|e| api_failed("GET", &path, e))?;
+        let id = value
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|s| valid_id(s))
+            .ok_or_else(|| api_failed("GET", &path, "app ID missing or invalid"))?;
+        let organization = value
+            .pointer("/organization/slug")
+            .and_then(Value::as_str)
+            .filter(|s| valid_id(s))
+            .ok_or_else(|| api_failed("GET", &path, "app organization missing or invalid"))?;
+        if value.get("name").and_then(Value::as_str) != Some(name) {
+            return Err(api_failed("GET", &path, "returned app name differs"));
+        }
+        Ok(Some(AppIdentity {
+            name: name.into(),
+            id: id.into(),
+            organization: organization.into(),
+        }))
+    }
+
+    pub(crate) async fn delete_app(&self, name: &str) -> Result<(), FlyError> {
+        check_id(name)?;
+        self.send_ok(Method::DELETE, &format!("/apps/{name}?force=true"), None)
+            .await?;
+        Ok(())
+    }
+
+    async fn ips(&self, app: &str) -> Result<Vec<std::net::IpAddr>, FlyError> {
+        check_id(app)?;
         let path = format!("/apps/{app}/ip_assignments");
         let listed = self.send_ok(Method::GET, &path, None).await?;
-        let ips = listed
+        let items = listed
             .get("ips")
             .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        let has = |v6: bool| {
-            ips.iter().any(|entry| {
-                entry
-                    .get("ip")
-                    .and_then(Value::as_str)
-                    .is_some_and(|ip| ip.contains(':') == v6)
-            })
-        };
-        if !has(false) {
-            self.send_ok(Method::POST, &path, Some(json!({ "type": "shared_v4" })))
-                .await?;
+            .ok_or_else(|| api_failed("GET", &path, "IP inventory is not an array"))?;
+        let mut ips = Vec::new();
+        for item in items {
+            let ip = item
+                .get("ip")
+                .and_then(Value::as_str)
+                .and_then(|s| s.parse::<std::net::IpAddr>().ok())
+                .ok_or_else(|| api_failed("GET", &path, "invalid IP assignment"))?;
+            if ips.contains(&ip) {
+                return Err(api_failed("GET", &path, "duplicate IP assignment"));
+            }
+            ips.push(ip);
         }
-        if !has(true) {
-            self.send_ok(Method::POST, &path, Some(json!({ "type": "v6" })))
+        Ok(ips)
+    }
+
+    /// A submitted allocation cannot be repeated without positive readback.
+    pub async fn ensure_ips(&self, app: &str) -> Result<(), FlyError> {
+        let path = format!("/apps/{app}/ip_assignments");
+        for (kind, v6) in [("shared_v4", false), ("v6", true)] {
+            if self.ips(app).await?.iter().any(|ip| ip.is_ipv6() == v6) {
+                continue;
+            }
+            if let Some(journal) = &self.journal {
+                journal.allocate(kind)?;
+            }
+            self.send_ok(Method::POST, &path, Some(json!({"type": kind})))
                 .await?;
+            if !self.ips(app).await?.iter().any(|ip| ip.is_ipv6() == v6) {
+                return Err(api_failed(
+                    "GET",
+                    &path,
+                    "IP allocation has no confirmed assignment",
+                ));
+            }
         }
         Ok(())
+    }
+
+    pub(crate) async fn machine(&self, app: &str, id: &str) -> Result<Option<Value>, FlyError> {
+        check_id(app)?;
+        check_id(id)?;
+        let path = format!("/apps/{app}/machines/{id}");
+        let (status, text) = self.send(Method::GET, &path, None).await?;
+        if status == StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        if !status.is_success() {
+            return Err(api_failed(
+                "GET",
+                &path,
+                format!("status {}: {}", status.as_u16(), truncate(&text)),
+            ));
+        }
+        let value: Value = serde_json::from_str(&text).map_err(|e| api_failed("GET", &path, e))?;
+        if value.get("id").and_then(Value::as_str) != Some(id) {
+            return Err(api_failed("GET", &path, "returned machine ID differs"));
+        }
+        Ok(Some(value))
+    }
+
+    /// Recover only an exact receipt submitted by this journal.
+    pub(crate) async fn recover_machine(&self, app: &str) -> Result<Option<String>, FlyError> {
+        let journal = self
+            .journal
+            .as_ref()
+            .ok_or_else(|| lifecycle::invalid("native journal missing"))?;
+        let request = journal.request()?;
+        if let Some(id) = request.machine_id {
+            return Ok(Some(id));
+        }
+        let machines = self.list_machines(app).await?;
+        let matches: Vec<_> = machines
+            .iter()
+            .filter(|m| machine_receipt(m) == Some(request.receipt.as_str()))
+            .collect();
+        if !request.submitted {
+            if !matches.is_empty() {
+                return Err(lifecycle::invalid(
+                    "deployment receipt exists before submission",
+                ));
+            }
+            let state = journal.load()?;
+            match request.target_machine.as_deref() {
+                Some(id)
+                    if machines.len() == 1
+                        && machines[0]["id"].as_str() == Some(id)
+                        && machine_receipt(&machines[0]) == state.active_receipt.as_deref() => {}
+                None if machines.is_empty() => (),
+                _ => {
+                    return Err(lifecycle::invalid(
+                        "machine inventory differs from the owned deployment",
+                    ));
+                }
+            }
+            return Ok(None);
+        }
+        if matches.len() != 1 {
+            return Err(lifecycle::invalid(
+                "submitted deployment has no unique machine receipt; refusing another submission",
+            ));
+        }
+        let id = matches[0]["id"]
+            .as_str()
+            .ok_or_else(|| lifecycle::invalid("machine ID missing"))?;
+        journal.machine(id)?;
+        Ok(Some(id.into()))
+    }
+
+    pub(crate) async fn deploy_image(
+        &self,
+        app: &str,
+        spec: &MachineSpec<'_>,
+    ) -> Result<String, FlyError> {
+        if let Some(id) = self.recover_machine(app).await? {
+            return Ok(id);
+        }
+        let journal = self
+            .journal
+            .as_ref()
+            .ok_or_else(|| lifecycle::invalid("native journal missing"))?;
+        let request = journal.request()?;
+        let mut body = spec.to_body();
+        body["config"]["metadata"] =
+            json!({"fly_platform_version":"v2", "fly_process_group":"app"});
+        let path = if let Some(id) = request.target_machine {
+            let current = self
+                .machine(app, &id)
+                .await?
+                .ok_or_else(|| lifecycle::invalid("owned machine disappeared before update"))?;
+            if machine_receipt(&current) != journal.load()?.active_receipt.as_deref() {
+                return Err(lifecycle::invalid(
+                    "owned machine receipt changed before update",
+                ));
+            }
+            let version = current
+                .get("instance_id")
+                .and_then(Value::as_str)
+                .filter(|s| valid_id(s))
+                .ok_or_else(|| lifecycle::invalid("machine version missing"))?;
+            body["current_version"] = version.into();
+            format!("/apps/{app}/machines/{id}")
+        } else {
+            format!("/apps/{app}/machines")
+        };
+        journal.submitted()?;
+        let value = self.send_ok(Method::POST, &path, Some(body)).await?;
+        let id = value
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| api_failed("POST", &path, "machine response has no ID"))?;
+        journal.machine(id)?;
+        Ok(id.into())
+    }
+
+    pub(crate) async fn verify_deployment(
+        &self,
+        app: &str,
+        id: &str,
+        spec: &MachineSpec<'_>,
+        check_image: bool,
+    ) -> Result<(), FlyError> {
+        let journal = self
+            .journal
+            .as_ref()
+            .ok_or_else(|| lifecycle::invalid("native journal missing"))?;
+        let mut machine = self
+            .machine(app, id)
+            .await?
+            .ok_or_else(|| lifecycle::invalid("deployed machine disappeared"))?;
+        if machine_receipt(&machine) != Some(journal.request()?.receipt.as_str()) {
+            return Err(lifecycle::invalid("machine deployment receipt differs"));
+        }
+        if machine.get("state").and_then(Value::as_str) != Some("started") {
+            return Err(lifecycle::invalid("machine is no longer started"));
+        }
+        let observed_config = machine_fingerprint(&machine)?;
+        let mut expected = spec.to_body();
+        expected
+            .as_object_mut()
+            .ok_or_else(|| lifecycle::invalid("machine request is not an object"))?
+            .remove("name");
+        let config = expected["config"]
+            .as_object_mut()
+            .ok_or_else(|| lifecycle::invalid("machine config is not an object"))?;
+        if !check_image {
+            config.remove("image");
+        }
+        // Older source-service deployments let flyctl select the restart policy.
+        if !check_image && !spec.worker {
+            config.remove("restart");
+        }
+        if spec.internal_port.is_none() {
+            match machine.pointer("/config/services") {
+                None | Some(Value::Null) => {
+                    machine["config"]["services"] = json!([]);
+                }
+                Some(Value::Array(services)) if services.is_empty() => (),
+                _ => {
+                    return Err(lifecycle::invalid(
+                        "worker without a health listener has public services",
+                    ));
+                }
+            }
+        }
+        if !contains_expected(&machine, &expected)
+            || machine["config"]["env"] != expected["config"]["env"]
+        {
+            return Err(lifecycle::invalid(
+                "machine configuration differs from the deployment request",
+            ));
+        }
+        if !self.only_machine(app, id).await? {
+            return Err(lifecycle::invalid(
+                "app has machines outside the recorded deployment",
+            ));
+        }
+        journal.observed(observed_config)
+    }
+
+    pub(crate) async fn only_machine(&self, app: &str, id: &str) -> Result<bool, FlyError> {
+        check_id(id)?;
+        let machines = self.list_machines(app).await?;
+        Ok(machines.len() == 1 && machines[0]["id"].as_str() == Some(id))
     }
 
     /// An existing machine's id by name, for resume idempotency (a re-run after
@@ -247,13 +604,25 @@ impl FlyApi {
     }
 
     async fn list_machines(&self, app: &str) -> Result<Vec<Value>, FlyError> {
+        check_id(app)?;
         let path = format!("/apps/{app}/machines");
         let listed = self.send_ok(Method::GET, &path, None).await?;
-        Ok(listed
+        let machines = listed
             .as_array()
             .cloned()
-            .or_else(|| listed.get("machines").and_then(Value::as_array).cloned())
-            .unwrap_or_default())
+            .ok_or_else(|| api_failed("GET", &path, "machine inventory is not an array"))?;
+        let mut ids = std::collections::BTreeSet::new();
+        for machine in &machines {
+            let id = machine
+                .get("id")
+                .and_then(Value::as_str)
+                .filter(|s| valid_id(s))
+                .ok_or_else(|| api_failed("GET", &path, "machine ID missing or invalid"))?;
+            if !ids.insert(id.to_owned()) {
+                return Err(api_failed("GET", &path, "duplicate machine ID"));
+            }
+        }
+        Ok(machines)
     }
 
     /// Create the machine that runs the service image; returns its id.
@@ -273,14 +642,79 @@ impl FlyApi {
             .ok_or_else(|| api_failed("POST", &path, "machine create returned no id"))
     }
 
+    /// Restart a stopped owned worker once per accepted operation.
+    pub(crate) async fn resume_worker(&self, app: &str, id: &str) -> Result<(), FlyError> {
+        let journal = self
+            .journal
+            .as_ref()
+            .ok_or_else(|| lifecycle::invalid("native journal missing"))?;
+        let request = journal.request()?;
+        let machine = self
+            .machine(app, id)
+            .await?
+            .ok_or_else(|| lifecycle::invalid("owned worker machine disappeared"))?;
+        if machine_receipt(&machine) != Some(request.receipt.as_str())
+            || request.machine_id.as_deref() != Some(id)
+        {
+            return Err(lifecycle::invalid(
+                "worker machine differs from its deployment receipt",
+            ));
+        }
+        let state = machine
+            .get("state")
+            .and_then(Value::as_str)
+            .ok_or_else(|| lifecycle::invalid("worker machine state missing"))?;
+        if !matches!(
+            MachineState::from_api(state),
+            MachineState::Stopped | MachineState::Suspended
+        ) {
+            return Ok(());
+        }
+        let config = machine_fingerprint(&machine)?;
+        if request
+            .observed_config
+            .as_ref()
+            .is_some_and(|expected| expected != &config)
+            || !self.only_machine(app, id).await?
+        {
+            return Err(lifecycle::invalid(
+                "worker configuration or app inventory changed before start",
+            ));
+        }
+        let version = machine
+            .get("instance_id")
+            .and_then(Value::as_str)
+            .filter(|id| valid_id(id))
+            .ok_or_else(|| lifecycle::invalid("worker machine version missing"))?;
+        journal.start_submitted(id, version)?;
+        self.send_ok(
+            Method::POST,
+            &format!("/apps/{app}/machines/{id}/start"),
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
     async fn machine_state(&self, app: &str, machine_id: &str) -> Result<MachineState, FlyError> {
-        let path = format!("/apps/{app}/machines/{machine_id}");
-        let machine = self.send_ok(Method::GET, &path, None).await?;
+        let machine = self
+            .machine(app, machine_id)
+            .await?
+            .ok_or_else(|| lifecycle::invalid("machine disappeared while awaiting readiness"))?;
+        if let Some(journal) = &self.journal
+            && machine_receipt(&machine) != Some(journal.request()?.receipt.as_str())
+        {
+            return Err(lifecycle::invalid("machine deployment receipt differs"));
+        }
         let raw = machine
             .get("state")
             .and_then(Value::as_str)
-            .unwrap_or("unknown");
-        Ok(MachineState::from_api(raw))
+            .ok_or_else(|| lifecycle::invalid("machine state missing"))?;
+        let state = MachineState::from_api(raw);
+        if matches!(state, MachineState::Unknown(_)) {
+            return Err(lifecycle::invalid(format!("unknown machine state {raw:?}")));
+        }
+        Ok(state)
     }
 
     /// Poll the machine until it reaches `started` within `budget`. A `failed`
@@ -323,10 +757,15 @@ impl FlyApi {
         machine_id: &str,
         tail: usize,
     ) -> Result<Vec<String>, FlyError> {
+        check_id(app)?;
+        check_id(machine_id)?;
         let limit = tail.clamp(1, 50);
         let path = format!("/apps/{app}/machines/{machine_id}/events?limit={limit}");
         let events = self.send_ok(Method::GET, &path, None).await?;
-        let items = events.as_array().cloned().unwrap_or_default();
+        let items = events
+            .as_array()
+            .cloned()
+            .ok_or_else(|| api_failed("GET", &path, "machine events are not an array"))?;
         Ok(items.into_iter().filter_map(format_machine_event).collect())
     }
 }
@@ -440,6 +879,56 @@ mod tests {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
+    #[tokio::test]
+    async fn invalid_credentials_ids_redirects_and_inventories_fail_closed() {
+        let server = MockServer::start().await;
+        for token in ["", "bad\nheader"] {
+            let api = FlyApi::with_base(token, server.uri());
+            assert!(api.app("owned-app").await.is_err());
+            assert!(api.ensure_ips("owned-app").await.is_err());
+        }
+        let api = FlyApi::with_base("test", server.uri());
+        assert!(api.app("../foreign").await.is_err());
+        assert!(api.machine("owned-app", "?bad").await.is_err());
+        assert!(server.received_requests().await.unwrap().is_empty());
+        Mock::given(method("GET"))
+            .and(path("/apps/owned-app"))
+            .respond_with(
+                ResponseTemplate::new(302)
+                    .insert_header("location", format!("{}/redirected", server.uri())),
+            )
+            .mount(&server)
+            .await;
+        assert!(api.app("owned-app").await.is_err());
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+        for value in [
+            json!({}),
+            json!({"ips":[{"ip":"invalid"}]}),
+            json!({"ips":[{"ip":"::1"},{"ip":"::1"}]}),
+        ] {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(value))
+                .mount(&server)
+                .await;
+            assert!(
+                FlyApi::with_base("test", server.uri())
+                    .ensure_ips("owned-app")
+                    .await
+                    .is_err()
+            );
+            assert!(
+                server
+                    .received_requests()
+                    .await
+                    .unwrap()
+                    .iter()
+                    .all(|r| r.method == "GET")
+            );
+        }
+        assert!(truncate(&"é".repeat(401)).ends_with('…'));
+    }
+
     #[test]
     fn canonical_states_are_modeled() {
         for state in MachineState::CANONICAL {
@@ -464,13 +953,32 @@ mod tests {
 
     #[test]
     fn machine_body_carries_image_cmd_env_and_ports() {
+        assert!(!contains_expected(
+            &json!({"init":{"cmd":["server","--flag"]}}),
+            &json!({"init":{"cmd":["--flag","server"]}})
+        ));
+        assert!(!contains_expected(
+            &json!({"init":{"cmd":["a","b"]}}),
+            &json!({"init":{"cmd":["a","a"]}})
+        ));
+        assert!(contains_expected(
+            &json!({"handlers":["tls","http"]}),
+            &json!({"handlers":["http","tls"]})
+        ));
+        assert!(!contains_expected(
+            &json!({"handlers":["http","http"]}),
+            &json!({"handlers":["http","tls"]})
+        ));
+
         let spec = MachineSpec {
+            run: None,
             name: "atto-demo-web",
             region: "iad",
             image: "hashicorp/http-echo",
             cmd: Some(&["-text=ok".to_owned()]),
             env: &[("K".to_owned(), "V".to_owned())],
-            internal_port: 5678,
+            internal_port: Some(5678),
+            worker: false,
             cpu_kind: "shared",
             cpus: 1,
             memory_mb: 256,
@@ -508,18 +1016,22 @@ mod tests {
             .await;
         Mock::given(method("GET"))
             .and(path("/apps/app1/machines/m_1"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "state": "started" })))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({ "id":"m_1", "state": "started" })),
+            )
             .mount(&server)
             .await;
         let api =
             FlyApi::with_base("tok", server.uri()).with_poll_interval(Duration::from_millis(1));
         let spec = MachineSpec {
+            run: None,
             name: "app1",
             region: "iad",
             image: "img",
             cmd: None,
             env: &[],
-            internal_port: 8080,
+            internal_port: Some(8080),
+            worker: false,
             cpu_kind: "shared",
             cpus: 1,
             memory_mb: 256,
@@ -576,7 +1088,9 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/apps/app1/machines/m_1"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "state": "failed" })))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({ "id":"m_1", "state": "failed" })),
+            )
             .mount(&server)
             .await;
         let api =

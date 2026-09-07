@@ -1,237 +1,128 @@
 ---
 name: stackless
 description: >-
-  Install stackless, author stackless.toml, and run the full ephemeral-stack
-  lifecycle (check, up, verify, status, logs, down) with --json. Branch on
-  error.code, never prose. Use for stackless.toml, local/cloud up, and agent
-  automation against the stackless CLI.
+  Author stackless.toml and run the stackless CLI lifecycle with structured
+  JSON results. Use for local or cloud stacks, workload placement, jobs,
+  endpoints, verification, recovery, and teardown.
 ---
 
 # stackless agent skill
 
-Ephemeral software stacks: named, leased, isolated, proven, destroyed.
-The schema reference is [docs/SCHEMA.md](../../docs/SCHEMA.md);
-this skill covers install, authoring, lifecycle, machine output, and error
-branching.
+Use `--json` and branch on `error.code`. The controller owns execution and
+cleanup. CLI, SDK, and MCP callers submit operations and inspect their results.
 
-## Install
+For the current model, read [the schema](../../../docs/SCHEMA.md) and
+[execution support](../../../docs/EXECUTION.md). Use [the SDK protocol](../../../sdks/PROTOCOL.md)
+for envelope fields and [the README](../../../README.md) for installation.
+Inside this checkout, build with `cargo build` and use `target/debug/stackless`.
+A released binary may precede this checkout's schema changes.
 
-**Release:**
+## Definitions
 
-```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/latest/download/stackless-installer.sh | sh
-stackless --version   # expect 0.3.3 or newer
-```
+- `services` and `workloads` name the same table. A service requires HTTP
+  `health = { path = "/" }` or supported TCP health. Workers use
+  `kind = "worker"` and may omit health. Jobs use `[jobs.<name>]` and finish
+  with an exit code; they cannot declare health.
+- Common `run` and `env` fields work without a local provider block.
+  Sources can use `repo` plus `ref`, or a supported local `path`.
+  `source.root` selects a relative directory inside the source.
+- Image and source-free support varies by provider. `check --on` rejects
+  unsupported combinations before creation. Fly and Railway support common
+  images; native Fly jobs remain unsupported.
+- `--on` supplies the default provider. Individual workloads and integrations
+  can set `on`. Mixed stacks run one dependency graph. Placement cannot change
+  while that workload has retained resources or checkpoints.
+- `depends_on = { database = "ready", migrate = "completed" }` expresses
+  readiness and job completion. `started` is also supported. URL references
+  wait for their output when necessary; they do not imply readiness.
+- Endpoints name workload URLs: `[endpoints.api]` with `workload = "web"`.
+  `${endpoints.api.url}` uses that binding. An explicit endpoint `url` is
+  caller-managed and remains unverified. It does not create a route.
+- Local host TCP listeners use `health = { protocol = "tcp" }`, listen on
+  their injected `PORT`, and return `tcp://127.0.0.1:<port>` after start.
+  TCP readiness proves a connection. Use a job or verification for protocol
+  assertions. Cloud and isolated-container TCP routes are unsupported.
+- `--source service=path` selects a caller-owned checkout for a workload on
+  a provider that supports local pins, including local workloads in mixed
+  stacks. Use `--dirty` when a snapshot is required.
 
-**From source (this repo):**
+## Execution authority
 
-```bash
-mise install          # pins Rust 1.96.0 + tooling
-cargo build --release # binary: target/release/stackless
-export PATH="$PWD/target/release:$PATH"
-```
+Host processes and cloud prepare hooks require the caller's
+`--allow-host-execution` grant. A definition cannot grant this authority.
+The grant belongs to the instance birth; reusing a name does not inherit it.
+Use existing session authorization when deciding whether to pass the flag.
 
-Always prefer `--json` for automation.
+Supported local image workloads run in isolated containers. Host execution is
+trusted code execution, not a sandbox. Do not claim host filesystem or network
+isolation from a resource name or lease.
 
-## Authoring on-ramp
+Stripe Projects owns catalog provisioning. Runtime context and vault files are
+controller-managed. Do not switch Stripe environments, rewrite project anchors,
+or scrape vault files to work around a failed stackless operation.
 
-1. **Greenfield:** `stackless init` scaffolds a minimal valid `stackless.toml`
-   (static single-service site, `python3 -m http.server` locally). Use
-   `--name <dns-safe>` and `--file <path>`; `--force` overwrites.
-2. **Existing repo:** `stackless adopt` inspects `package.json`, `Cargo.toml`,
-   `index.html`, etc. and writes or merges a draft definition. Use `--merge`
-   to append detected services; always follow with `stackless check`.
-3. **Iterate:** `stackless check stackless.toml --on local` (add `--on render`,
-   `--on vercel`, etc. for each cloud target). Fix every reported code before
-   `up`.
-4. **Preflight:** `stackless doctor` (optionally `--file stackless.toml --on
-   render`) before first `up` — daemon, persistence, `.stackless.env`,
-   cloud API keys, Stripe CLI + Projects plugin.
+## Lifecycle
 
-Read [docs/SCHEMA.md](../../docs/SCHEMA.md) for the full schema: services need
-`source`, `health`, and `[services.<name>.local]` with a `run` command binding
-`$PORT` on `127.0.0.1`; express dependencies via `env` references, never
-`depends_on`.
+For a new local host stack, after host execution is authorized:
 
-## Full lifecycle (`--json`)
-
-Run in order for a new stack:
-
-```bash
+```sh
 stackless check stackless.toml --on local --json
-stackless doctor --file stackless.toml --json
-stackless up --name demo --on local --json
+stackless doctor --file stackless.toml --on local --json
+stackless up --name demo --on local --allow-host-execution --json
 stackless status demo --json
-stackless verify demo --json          # requires [stack.verify]; optional --tier smoke
+stackless verify demo --json
 stackless logs demo --tail 100 --json
 stackless down demo --json
 ```
 
-**Resume:** `stackless up --name demo --json` on an existing instance ignores
-`--on` (substrate was fixed at creation).
+`verify` requires `[stack.verify]`; named tiers use `--tier`. Omit verification
+when the definition has no verification command. Creation can use `--file`.
+Resume with `up --name demo`; pass `--file` to reconcile changed inputs.
 
-**Cloud:** add `--on render` / `--on vercel` / `--on fly` / `--on netlify` at
-creation; set API keys (see doctor). Paid resources need `--confirm-paid`.
+Cloud placement requires its provider credentials. Pass `--confirm-paid` when
+paid creation is authorized. A sleeping operator cannot enforce cloud expiry;
+use an always-on controller for unattended leases.
 
-**Local source pins:** `stackless up --name demo --on local --source web=. --json`
-(cloud substrates reject `--source`).
+For caller-independent work, submit `up`, `down`, or `verify` with `--no-wait`.
+Use `operation get <id> --after <cursor> --json` to reconnect and
+`operation cancel <id> --json` to request cancellation. Retain the operation ID.
+A lost response does not authorize another creation under a different identity.
+Remote execution uses `--controller ssh://user@host` and that host's controller,
+not a shared database opened by several lifecycle writers.
 
-**Typed bindings:** after the TOML stabilizes, generate a checked-in IDL and
-language projections (`Origins`/`bindOrigins`, `Integrations`/`bindIntegrations`,
-`SECRETS_REQUIRED`, `VerifyTier`). Bind is not a Client. Languages: `rust`,
-`typescript` (`ts`), `go`, `python` (`py`).
+## Results and recovery
 
-```bash
+- Current envelopes use `schema_version: 2`. Successful `up` includes the
+  immutable `instance_id`, executed and skipped steps, `origins`,
+  `endpoints`, resolved `placements`, and integration outputs.
+- Secret integration outputs are scoped `secret_ref` objects. They are not
+  plaintext credentials. Inject them into workload or verification environments
+  with `${integrations.<name>.<output>}`. Public outputs remain plain values.
+- Endpoint strings follow the workload protocol. Do not send HTTP requests to
+  a TCP URL. `source: "declared"` does not establish readiness.
+- Status separates desired/applied revisions, existence, configuration, and
+  readiness. Unknown observations do not establish absence.
+- Status `resources` contains retained inventory metadata without provider
+  payloads. `desired: false` identifies work removed from the definition.
+  `phase` is recorded progress; `has_checkpoint` does not prove the current
+  desired revision completed.
+- After a provider failure, inspect the operation and retained resources, then
+  resume or tear down through the controller. Preserve ambiguous creation and
+  deletion evidence. Do not edit the database to force success.
+- Treat nonzero `down` as incomplete teardown. Confirmed absence and Stripe
+  deregistration are separate facts.
+
+## Typed bindings
+
+Generate bindings after the definition stabilizes:
+
+```sh
 stackless bind --file stackless.toml \
   --idl .stackless/stack.idl.json \
   --emit typescript=e2e/stack.gen.ts \
-  --emit rust=tests/support/stack_bind.rs \
-  --emit go=internal/stack/origins.go \
-  --go-package stacklessbind
-stackless bind --file stackless.toml \
-  --idl .stackless/stack.idl.json \
-  --emit typescript=e2e/stack.gen.ts \
-  --emit rust=tests/support/stack_bind.rs \
-  --check
+  --emit rust=tests/support/stack_bind.rs
 ```
 
-**Language SDKs** (Rust crate + TypeScript/Python/Go packages) share the same
-lifecycle verbs. Transport details: `sdks/PROTOCOL.md`. Integration credentials
-for out-of-process tests: verify-tier env (preferred off-stdout) or
-`up --json` / `UpOutcome.integrations` (do not scrape vault/`state.db`).
-
-## Machine output contract
-
-| Stream | Content |
-|--------|---------|
-| **stdout** | Final JSON envelope: `{ "ok": true, ... }` or `{ "ok": false, "error": { ... } }` |
-| **stderr** | Human prose in non-JSON mode; **NDJSON progress** during `up --json` |
-
-### Success envelopes
-
-Every success verb emits `{ "schema_version": 1, "ok": true, … }` on stdout.
-
-- `check --json`: `{ "ok": true, "stack", "services", "graph" }`
-- `up --json`: `{ "schema_version", "ok", "instance", "substrate", "executed", "skipped", "duration_ms", "steps", "origins", "integrations?", "spend?" }` — `integrations` is a nested `{ dns: { output: value } }` object, omitted when empty; contains credentials
-- `down --json`: `{ "schema_version", "ok", "instance", "outcome", "spend?" }`
-- `verify --json`: `{ "schema_version", "ok", "instance", "tier?", "duration_ms", "exit_status", "log_path", "lease_remaining_secs?" }`
-- `status`/`list --json`: `{ "schema_version", "ok", …report fields…, "persistence_warning?" }`
-- `logs --json`: `{ "schema_version", "ok", "instance", "services": [{ "service", "source", "lines?", "reason?" }] }`
-- `doctor --json`: `{ "ok": true|false, "checks": [{ "check", "ok", "code?", "remediation?" }] }`
-- `init`/`adopt --json`: `{ "ok": true, "path", "next": "stackless check ..." }`
-
-NDJSON progress during `up --json` includes `at_epoch_ms` and optional `duration_ms`
-per step on stderr.
-
-### Error envelope
-
-```json
-{
-  "ok": false,
-  "error": {
-    "schema_version": 1,
-    "code": "def.validate.substrate_config_missing",
-    "message": "...",
-    "step": "optional",
-    "instance": "optional",
-    "remediation": "concrete fix",
-    "context": { "service": "...", "log_tail": "..." }
-  }
-}
-```
-
-**Branch on `error.code` only.** Never parse `message` or `remediation` for control flow.
-
-### `up --json` NDJSON progress (stderr)
-
-One JSON object per plan step:
-
-```json
-{
-  "schema_version": 1,
-  "event": "step_started|step_skipped|step_completed|step_failed",
-  "instance": "demo",
-  "step": "health:web",
-  "kind": "...",
-  "node": "...",
-  "index": 3,
-  "total": 12,
-  "code": "optional on step_failed"
-}
-```
-
-Parse stderr line-by-line as NDJSON during `up`; keep stdout for the final envelope.
-
-## Error-code decision tree
-
-Use this after any failed `--json` command:
-
-```
-error.code?
-├─ def.parse.syntax
-│  └─ Fix TOML syntax; re-run stackless check
-├─ def.parse.schema | def.validate.unknown_key
-│  └─ Unknown/mistyped field; compare against docs/SCHEMA.md
-├─ def.validate.name_invalid
-│  └─ Use DNS-safe names: ^[a-z][a-z0-9-]*$, ≤63 chars
-├─ def.validate.no_services
-│  └─ Add at least one [services.<name>] block
-├─ def.validate.depends_on_rejected
-│  └─ Remove depends_on; wire via env (${services.X.origin})
-├─ def.validate.undeclared_reference | def.validate.reference_syntax
-│  └─ Fix ${...} references to declared stack/instance/service/secret names
-├─ def.validate.secret_not_required | secrets.unresolved
-│  └─ Add keys to [secrets].required and .stackless.env (or export)
-├─ def.validate.substrate_config_missing
-│  └─ Add [services.<name>.<substrate>] for every service before up --on <substrate>
-├─ def.validate.root_origin_conflict
-│  └─ Set root_origin = true on at most one service
-├─ def.validate.integration_invalid | integration.config.invalid
-│  └─ Fix [integrations.*] block; managed providers are global-only (no per-host tables)
-├─ integration.host.unsupported
-│  └─ Change --on host or integration provider
-├─ state.lock.held
-│  └─ Wait for the in-flight operation on that instance; retry
-├─ state.instance.exists
-│  └─ Pick a different --name or stackless down the existing instance
-├─ engine.source_override.unsupported
-│  └─ Drop --source/--dirty for cloud; commit and push, pin ref in stackless.toml
-├─ render.payment.not_confirmed | vercel.payment.not_confirmed | fly.payment.not_confirmed
-│  └─ Re-run with --confirm-paid
-├─ vercel.api_key.missing | render.api_key.missing
-│  └─ Set VERCEL_TOKEN / RENDER_API_KEY in env, .stackless.env, or key file beside stackless.toml
-├─ local.health_failed | local.service_died | local.hook_failed
-│  └─ Read error.context.log_tail; fix service/hook; stackless up resumes
-├─ daemon.unreachable | daemon.spawn_failed
-│  └─ stackless daemon ping; ensure state dir writable
-├─ stripe.projects.unavailable | stripe.projects.auth
-│  └─ Install Stripe CLI + projects plugin; stripe login; stripe projects init
-├─ verify.not_declared
-│  └─ Add [stack.verify] with a run command
-├─ verify.tier_unknown
-│  └─ Add [stack.verify.tiers.<name>] or use the default [stack.verify] tier
-├─ verify.tier_required
-│  └─ Pass `--tier` with one of the declared tier names (no default `[stack.verify].run`)
-├─ verify.failed
-│  └─ Read error.context.log_tail and log_path; fix the verify script; re-run stackless verify
-├─ doctor.checks.failed
-│  └─ Re-run stackless doctor --json; fix each check with ok: false
-├─ cli.init.exists | cli.adopt.exists
-│  └─ Use --force or --merge (adopt) or pick another --file
-└─ (other)
-   └─ Grep crates/stackless-core/src/fault.rs and substrate codes; follow remediation verbatim
-```
-
-## Secrets and env
-
-- Gitignored **`.stackless.env`** next to `stackless.toml` (`KEY=value` lines) overlays
-  the vault; required `[secrets].required` keys must resolve before `up`.
-- Cloud: `RENDER_API_KEY`, `VERCEL_TOKEN` (or `.render-api-key`, `.vercel-token`).
-
-## Checklist before first `up`
-
-1. `stackless check stackless.toml --on local --json` → `ok: true`
-2. `stackless doctor --file stackless.toml --on <target> --json` → all checks `ok: true`
-3. Every service: local `run` binds `$PORT` on `127.0.0.1`
-4. Exactly one `root_origin = true` for the user-facing web service (local)
-5. Cloud targets: every service has a matching `[services.*.<substrate>]` block
+Rust, TypeScript, Python, and Go generators expose origin and endpoint bindings,
+integration references, required secret names, and verification tiers. SDK URL
+map helpers feed the generated endpoint binders. Bindings are not lifecycle clients.

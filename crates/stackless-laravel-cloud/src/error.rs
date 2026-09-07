@@ -55,7 +55,7 @@ pub enum LaravelCloudError {
 }
 
 impl Fault for LaravelCloudError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             Self::ConfigInvalid { .. } => codes::LARAVEL_CLOUD_CONFIG_INVALID,
             Self::ApiKeyMissing { .. } => codes::LARAVEL_CLOUD_API_KEY_MISSING,

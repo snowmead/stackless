@@ -14,5 +14,6 @@ pub mod credential;
 pub mod ensure;
 pub mod health;
 pub mod prepare;
+pub mod source;
 pub mod source_ref;
 pub mod spend;

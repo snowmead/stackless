@@ -1,38 +1,19 @@
-//! stackless-render (ARCHITECTURE.md §4): the Render cloud substrate.
+//! Render services use the Stripe catalog journal and retain native service IDs.
+//! Deployment intent records a pinned commit and the pre-submit inventory.
+//! Readiness checks the recorded deployment and provider endpoint. Native
+//! deletion and catalog removal require separate absence observations.
 //!
-//! Generalizes the proven atto Render dogfood flow: Stripe Projects
-//! provisions resources and tracks spend; the Render REST API fills its
-//! gaps (env vars, the SPA rewrite route, deploy triggers, deploy
-//! polling with per-kind budgets, the health wait, teardown
-//! verification). One long-lived Stripe project per stack holds each
-//! instance as a named environment.
-//!
-//! ## Cloud invariants worth saying out loud
-//!
-//! - **Cloud resource names** are `{stack}-{instance}-{service}`,
-//!   DNS-safe by construction (§2 name rules). Origins are
-//!   `https://{stack}-{instance}-{service}.onrender.com`.
-//! - **No root alias in the cloud.** The local substrate's root-origin
-//!   service additionally claims `{instance}.localhost`; on Render every
-//!   service keeps its own `onrender.com` origin and there is no root
-//!   alias. `${services.X.origin}` always resolves to the service's own
-//!   onrender URL.
-//! - **Setup is skipped on cloud.** `setup` provisions a local toolchain;
-//!   Render builds in its own build step, so the setup hook is recorded
-//!   as a no-op action and never executed here.
-//! - **Prepare runs on the operator's machine** (§1/§4) from a fresh
-//!   shallow clone (`--depth 1`) of the pinned ref, with the instance env
-//!   exported (external DB url). This is the v0 cloud-prepare path; sharing
-//!   the local substrate's cached materializer is a later cleanup.
-//! - **Source override is unsupported** — Render deploys committed refs
-//!   (the engine errors before reaching us).
+//! Prepare still uses the common host runner and its own source checkout.
+//! Shared source snapshots and sandboxed cloud prepare remain unfinished.
 
 pub mod api_key;
 pub mod codes;
 pub mod config;
 pub mod error;
+mod lifecycle;
 pub mod render_api;
 
+use stackless_core::substrate::InstanceContext;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -124,13 +105,18 @@ struct ServicePayload {
     service_id: String,
     origin: String,
     is_static: bool,
+    #[serde(default)]
+    deployments: Vec<lifecycle::Deployment>,
+    #[serde(default)]
+    removal_submitted: bool,
+    #[serde(default)]
+    source_root: Option<String>,
 }
 
 /// The Render substrate. Generic over the command runner so tests inject
 /// canned Stripe envelopes; production uses the real `stripe` binary.
 pub struct RenderSubstrate<R: CommandRunner = TokioRunner> {
-    /// Where the definition lives — Stripe Projects runs here and the
-    /// project anchor is written back here (record.definition_dir).
+    /// Controller-owned Stripe context directory for this immutable instance.
     pub definition_dir: PathBuf,
     /// Resolved secrets (vault/env-file overlay), injected as env vars.
     pub secrets: std::collections::BTreeMap<String, String>,
@@ -206,17 +192,8 @@ impl<R: CommandRunner> RenderSubstrate<R> {
     }
 
     /// `{stack}-{instance}-{service}` (DNS-safe by construction).
-    fn resource_name(def: &StackDef, instance: &str, node: &str) -> String {
-        format!("{}-{instance}-{node}", def.stack.name.as_str())
-    }
-
-    /// `https://{stack}-{instance}-{service}.onrender.com` — derivable
-    /// from the name alone, so mutual references are not cycles (§1).
-    fn origin(def: &StackDef, instance: &str, service: &str) -> String {
-        format!(
-            "https://{}.onrender.com",
-            Self::resource_name(def, instance, service)
-        )
+    fn resource_name(def: &StackDef, instance: &InstanceContext<'_>, node: &str) -> String {
+        instance.provider_resource_name(def.stack.name.as_str(), node)
     }
 
     /// Build the interpolation namespace for cloud env resolution. Service
@@ -226,23 +203,30 @@ impl<R: CommandRunner> RenderSubstrate<R> {
     fn namespace(
         &self,
         def: &StackDef,
-        instance: &str,
+        instance: &InstanceContext<'_>,
         prior: &[Checkpoint],
         external_db: bool,
     ) -> Namespace {
         let mut namespace = Namespace {
             stack_name: def.stack.name.clone(),
-            instance_name: stackless_core::types::DnsName::from_stored(instance),
+            instance_name: stackless_core::types::DnsName::from_stored(instance.name),
             ..Namespace::default()
         };
         for service in def.services.keys() {
-            namespace
-                .service_origins
-                .insert(service.clone(), Self::origin(def, instance, service));
+            if let Some(origin) = prior
+                .iter()
+                .find(|cp| cp.step_id == format!("start:{service}"))
+                .and_then(|cp| serde_json::from_str::<ServicePayload>(&cp.payload).ok())
+                .map(|p| p.origin)
+                .filter(|o| !o.is_empty())
+            {
+                namespace.service_origins.insert(service.clone(), origin);
+            }
         }
-        namespace.secrets = self.secrets.clone();
+        namespace.secrets = stackless_core::security::application_secrets(&self.secrets);
         namespace.add_datastore_checkpoints(prior, external_db);
         namespace.add_integration_checkpoints(prior);
+        instance.bind_namespace(&mut namespace, def);
         namespace
     }
 
@@ -252,7 +236,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
     fn resolved_env(
         &self,
         def: &StackDef,
-        instance: &str,
+        instance: &InstanceContext<'_>,
         service: &str,
         prior: &[Checkpoint],
     ) -> Result<Vec<(String, String)>, SubstrateFault> {
@@ -282,10 +266,20 @@ impl<R: CommandRunner> RenderSubstrate<R> {
             resolved.push((key.clone(), value));
         }
         for key in &spec.secrets {
-            if let Some(value) = self.secrets.get(key) {
+            if let Some(value) = namespace.secrets.get(key) {
                 resolved.push((key.clone(), value.clone()));
             }
         }
+        stackless_core::security::validate_environment(
+            resolved.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+            &self.secrets,
+        )
+        .map_err(|detail| {
+            fault(RenderError::ConfigInvalid {
+                location: format!("services.{service}.env"),
+                detail,
+            })
+        })?;
         Ok(resolved)
     }
 
@@ -297,7 +291,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
     async fn ensure_project_and_env(
         &self,
         def: &StackDef,
-        instance: &str,
+        instance: &InstanceContext<'_>,
     ) -> Result<(), SubstrateFault> {
         let mut done = self.ensured.lock().await;
         if *done {
@@ -308,7 +302,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
             &self.stripe(),
             def,
             &self.definition_dir,
-            instance,
+            instance.resource_namespace,
             spend,
         )
         .await
@@ -329,16 +323,14 @@ impl<R: CommandRunner> RenderSubstrate<R> {
         Ok(())
     }
 
-    async fn start_service(
-        &self,
-        def: &StackDef,
-        instance: &str,
-        service: &str,
-        prior: &[Checkpoint],
-    ) -> Result<StepResource, SubstrateFault> {
+    async fn start_service(&self, ctx: &StepContext<'_>) -> Result<StepResource, SubstrateFault> {
+        let def = ctx.def;
+        let instance = ctx.instance;
+        let service = ctx.step.node.as_str();
+        let prior = ctx.prior;
         let render_cfg = Self::service_render(def, service).map_err(fault)?;
         let render_name = Self::resource_name(def, instance, service);
-        let resource = format!("{instance}-{service}");
+        let resource = instance.resource_name(service);
         let region = Self::stack_region(def);
         let spec = def.services.get(service).ok_or_else(|| {
             fault(RenderError::ConfigInvalid {
@@ -346,6 +338,21 @@ impl<R: CommandRunner> RenderSubstrate<R> {
                 detail: "service not in definition".into(),
             })
         })?;
+
+        let source_root = spec
+            .source_root(service, SUBSTRATE_NAME)
+            .map_err(|error| SubstrateFault::from_fault(&error))?;
+        let native_root = source_root
+            .as_deref()
+            .filter(|root| *root != ".")
+            .unwrap_or("");
+
+        let stripe = self
+            .stripe()
+            .with_journal(ctx, SUBSTRATE_NAME, "render-service");
+        let journal = stripe
+            .journal()
+            .ok_or_else(|| lifecycle::invalid("Render catalog journal missing"))?;
 
         // Create/find the Render service via Stripe Projects. Paid
         // confirmation is derived from the selected pricing tier (a web
@@ -356,8 +363,7 @@ impl<R: CommandRunner> RenderSubstrate<R> {
                 build,
                 start,
             } => {
-                let catalog = self
-                    .stripe()
+                let catalog = stripe
                     .catalog_for::<RenderWebServiceConfig>()
                     .await
                     .map_err(projects_fault)?;
@@ -368,21 +374,25 @@ impl<R: CommandRunner> RenderSubstrate<R> {
                     runtime: runtime.clone(),
                     build_command: build.clone(),
                     start_command: start.clone(),
-                    health_check_path: spec.health.path.clone(),
+                    health_check_path: spec
+                        .health
+                        .as_ref()
+                        .map(|health| health.path.clone())
+                        .unwrap_or_default(),
                     region,
                     auto_deploy: "no".to_owned(),
+                    root_dir: source_root.clone().filter(|root| root != "."),
                 };
                 if requires_confirmation(&catalog, &config).unwrap_or(false) {
                     self.require_confirm_paid(&resource)?;
                 }
-                add_catalog_resource(&self.stripe(), &catalog, &config, &resource)
+                add_catalog_resource(&stripe, &catalog, &config, &resource)
                     .await
                     .map_err(projects_fault)?
                     .name
             }
             ServiceRender::Static { build, publish, .. } => {
-                let catalog = self
-                    .stripe()
+                let catalog = stripe
                     .catalog_for::<RenderStaticSiteConfig>()
                     .await
                     .map_err(projects_fault)?;
@@ -396,16 +406,58 @@ impl<R: CommandRunner> RenderSubstrate<R> {
                 if requires_confirmation(&catalog, &config).unwrap_or(false) {
                     self.require_confirm_paid(&resource)?;
                 }
-                add_catalog_resource(&self.stripe(), &catalog, &config, &resource)
+                add_catalog_resource(&stripe, &catalog, &config, &resource)
                     .await
                     .map_err(projects_fault)?
                     .name
             }
         };
 
-        // Resolve the Render service, push env, ensure rewrite, deploy.
         let render = self.render()?;
         let service_id = wait_for_service(&render, &render_name).await?;
+        let native = render
+            .service(&service_id, &render_name)
+            .await
+            .map_err(fault)?
+            .ok_or_else(|| lifecycle::invalid("Render service disappeared after creation"))?;
+        let origin = native
+            .origin
+            .ok_or_else(|| lifecycle::invalid("Render service returned no endpoint"))?;
+        let existing = ctx
+            .store
+            .resources(instance.id)
+            .map_err(|e| SubstrateFault::from_fault(&e))?
+            .into_iter()
+            .find(|r| r.resource_kind == "render-service" && r.resource_id == resource)
+            .ok_or_else(|| lifecycle::invalid("Render service has no catalog record"))?;
+        let value: serde_json::Value = serde_json::from_str(&existing.payload)
+            .map_err(|e| lifecycle::invalid(e.to_string()))?;
+        let mut payload = if value.get("service_id").is_some() {
+            let payload: ServicePayload =
+                serde_json::from_value(value).map_err(|e| lifecycle::invalid(e.to_string()))?;
+            if payload.service_id != service_id || payload.render_name != render_name {
+                return Err(lifecycle::invalid("Render service identity changed"));
+            }
+            payload
+        } else {
+            ServicePayload {
+                stripe_resource: resource.clone(),
+                render_name: render_name.clone(),
+                service_id: service_id.clone(),
+                origin: origin.clone(),
+                is_static: render_cfg.is_static(),
+                deployments: Vec::new(),
+                removal_submitted: false,
+                source_root: None,
+            }
+        };
+        payload.origin = origin;
+        payload.source_root = Some(native_root.into());
+        save_service(journal, &payload, false)?;
+        render
+            .configure_source(&service_id, &render_name, native_root)
+            .await
+            .map_err(fault)?;
         let env = self.resolved_env(def, instance, service, prior)?;
         render
             .put_env_vars(&service_id, &env)
@@ -420,7 +472,67 @@ impl<R: CommandRunner> RenderSubstrate<R> {
                 .await
                 .map_err(fault)?;
         }
-        let deploy = render.trigger_deploy(&service_id).await.map_err(fault)?;
+        let revision = self.step_revision(ctx)?;
+        if payload
+            .deployments
+            .last()
+            .is_none_or(|deployment| deployment.revision != revision)
+        {
+            if payload
+                .deployments
+                .last()
+                .is_some_and(|d| d.submitted && d.id.is_none())
+            {
+                return Err(lifecycle::invalid(
+                    "previous Render submission is unresolved; cannot replace its desired revision",
+                ));
+            }
+            let commit = stackless_cloud::source::recorded(ctx.prior, service)?
+                .commit()?
+                .to_owned();
+            let before = render.deployments(&service_id).await.map_err(fault)?;
+            payload
+                .deployments
+                .push(lifecycle::Deployment::new(revision, commit, before)?);
+            save_service(journal, &payload, false)?;
+        }
+        let attempt = payload
+            .deployments
+            .last()
+            .ok_or_else(|| lifecycle::invalid("Render deployment intent missing"))?;
+        let deploy = match attempt.recover(&render, &service_id).await? {
+            Some(deploy) => deploy,
+            None => {
+                let commit = attempt.commit.clone();
+                payload
+                    .deployments
+                    .last_mut()
+                    .ok_or_else(|| lifecycle::invalid("deployment intent missing"))?
+                    .submitted = true;
+                save_service(journal, &payload, false)?;
+                match render
+                    .trigger_pinned_deploy(&service_id, &commit)
+                    .await
+                    .map_err(fault)?
+                {
+                    Some(deploy) => deploy,
+                    None => payload
+                        .deployments
+                        .last()
+                        .ok_or_else(|| lifecycle::invalid("deployment intent missing"))?
+                        .recover(&render, &service_id)
+                        .await?
+                        .ok_or_else(|| lifecycle::invalid("queued deployment has no receipt"))?,
+                }
+            }
+        };
+        let attempt = payload
+            .deployments
+            .last_mut()
+            .ok_or_else(|| lifecycle::invalid("deployment intent missing"))?;
+        attempt.check(&deploy)?;
+        attempt.id = Some(deploy.id.clone());
+        save_service(journal, &payload, false)?;
         let budget = if render_cfg.is_static() {
             STATIC_DEPLOY_BUDGET
         } else {
@@ -430,52 +542,42 @@ impl<R: CommandRunner> RenderSubstrate<R> {
             .wait_for_deploy(service, &service_id, &deploy.id, budget)
             .await
             .map_err(fault)?;
-
-        let payload = ServicePayload {
-            stripe_resource: resource,
-            render_name: render_name.clone(),
-            service_id,
-            origin: Self::origin(def, instance, service),
-            is_static: render_cfg.is_static(),
-        };
-        Ok(StepResource {
-            resource_kind: "render-service".into(),
-            resource_id: render_name,
-            payload: serde_json::to_string(&payload).unwrap_or_default(),
-        })
+        let observed = render
+            .get_deploy(&service_id, &deploy.id)
+            .await
+            .map_err(fault)?;
+        payload
+            .deployments
+            .last()
+            .ok_or_else(|| lifecycle::invalid("deployment intent missing"))?
+            .check(&observed)?;
+        if !observed.status.is_live() {
+            return Err(lifecycle::invalid("Render deployment stopped being live"));
+        }
+        save_service(journal, &payload, true)
     }
 
-    /// Run the service's `prepare` hook on the operator's machine from a
-    /// fresh shallow checkout, with the instance env exported (external DB
-    /// url). v0 cloud-prepare path — system `git clone --depth 1`.
-    async fn run_prepare(
-        &self,
-        def: &StackDef,
-        instance: &str,
-        service: &str,
-        prior: &[Checkpoint],
-    ) -> Result<(), SubstrateFault> {
-        let Some(spec) = def.services.get(service) else {
-            return Ok(());
-        };
-        // External-DB env for operator-side execution (§1/§4).
-        let namespace = self.namespace(def, instance, prior, true);
-        stackless_cloud::prepare::run_service_prepare(
-            &namespace,
+    /// Run setup and prepare through the common host runner with application credentials.
+    async fn run_hook(&self, ctx: &StepContext<'_>) -> Result<StepResource, SubstrateFault> {
+        stackless_cloud::prepare::run_snapshot_hook(
+            ctx,
+            &self.definition_dir,
+            &self.namespace(ctx.def, ctx.instance, ctx.prior, true),
             &self.secrets,
-            service,
             SUBSTRATE_NAME,
-            spec,
         )
         .await
-        .map_err(prepare_fault)
+        .map_err(|failure| {
+            stackless_cloud::prepare::hook_fault(ctx.step.kind, failure, prepare_fault)
+        })
     }
 
     async fn health_gate(
         &self,
         def: &StackDef,
-        instance: &str,
+        _instance: &InstanceContext<'_>,
         service: &str,
+        prior: &[Checkpoint],
     ) -> Result<(), SubstrateFault> {
         let spec = def.services.get(service).ok_or_else(|| {
             fault(RenderError::ConfigInvalid {
@@ -483,12 +585,21 @@ impl<R: CommandRunner> RenderSubstrate<R> {
                 detail: "service not in definition".into(),
             })
         })?;
-        let origin = Self::origin(def, instance, service);
-        let url = format!("{origin}{}", spec.health.path);
+        let origin = prior
+            .iter()
+            .find(|cp| cp.step_id == format!("start:{service}"))
+            .and_then(|cp| serde_json::from_str::<ServicePayload>(&cp.payload).ok())
+            .map(|p| p.origin)
+            .filter(|o| !o.is_empty())
+            .ok_or_else(|| lifecycle::invalid("Render readiness has no recorded endpoint"))?;
+        let Some(health) = &spec.health else {
+            return Ok(());
+        };
+        let url = format!("{origin}{}", health.path);
         stackless_cloud::health::poll(
             &url,
-            spec.health.status.get(),
-            spec.health.contains.as_deref(),
+            health.status.get(),
+            health.contains.as_deref(),
             HEALTH_BUDGET,
         )
         .await
@@ -501,6 +612,52 @@ impl<R: CommandRunner> RenderSubstrate<R> {
             })
         })
     }
+}
+
+fn has_catalog_receipt(payload: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(payload)
+        .ok()
+        .is_some_and(|v| v.get("_catalog_creation").is_some())
+}
+
+async fn render_identity(
+    api: &RenderApi,
+    value: &serde_json::Value,
+) -> Result<(Option<String>, String), SubstrateFault> {
+    let name = value
+        .get("render_name")
+        .or_else(|| value.pointer("/_catalog_creation/config/name"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| lifecycle::invalid("Render resource has no recorded provider name"))?
+        .to_owned();
+    let id = match value
+        .get("service_id")
+        .and_then(serde_json::Value::as_str)
+        .filter(|s| !s.is_empty())
+    {
+        Some(id) => Some(id.to_owned()),
+        None => api
+            .find_service_by_name(&name)
+            .await
+            .map_err(fault)?
+            .map(|s| s.id),
+    };
+    Ok((id, name))
+}
+
+fn save_service(
+    journal: &stackless_stripe_projects::journal::ResourceJournal,
+    payload: &ServicePayload,
+    ready: bool,
+) -> Result<StepResource, SubstrateFault> {
+    let resource = StepResource {
+        resource_kind: "render-service".into(),
+        resource_id: payload.stripe_resource.clone(),
+        payload: serde_json::to_string(payload).map_err(|e| lifecycle::invalid(e.to_string()))?,
+    };
+    journal.outputs(&resource, ready).map_err(projects_fault)?;
+    Ok(resource)
 }
 
 /// Poll until a just-created Render service is visible by name.
@@ -526,10 +683,21 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
         SUBSTRATE_NAME
     }
 
+    fn capabilities(&self) -> stackless_core::capabilities::Capabilities {
+        stackless_core::capabilities::Capabilities::cloud(true, true)
+    }
+
     fn validate_definition(&self, def: &StackDef) -> Result<(), SubstrateFault> {
         // Every service needs a well-shaped [services.X.render] block (§4).
         // Strict, to trap agent typos before anything provisions.
         for service in def.services.keys() {
+            if def.services[service]
+                .on
+                .as_deref()
+                .is_some_and(|on| on != SUBSTRATE_NAME)
+            {
+                continue;
+            }
             Self::service_render(def, service).map_err(fault)?;
         }
         Ok(())
@@ -546,14 +714,10 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
         Duration::from_secs(8 * 3600)
     }
 
-    fn service_origin(&self, def: &StackDef, instance: &str, service: &str) -> String {
-        Self::origin(def, instance, service)
-    }
-
     fn build_namespace(
         &self,
         def: &StackDef,
-        instance: &str,
+        instance: &InstanceContext<'_>,
         prior: &[Checkpoint],
         secrets: &BTreeMap<String, String>,
         purpose: stackless_core::substrate::NamespacePurpose,
@@ -563,8 +727,30 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
             stackless_core::substrate::NamespacePurpose::ServiceEnv
         );
         let mut namespace = self.namespace(def, instance, prior, external_db);
-        namespace.secrets = secrets.clone();
+        namespace.secrets = stackless_core::security::application_secrets(secrets);
         namespace
+    }
+
+    fn step_revision(&self, ctx: &StepContext<'_>) -> Result<String, SubstrateFault> {
+        let definition = stackless_core::engine::revision::step_revision(ctx, self)?;
+        if matches!(
+            ctx.step.kind,
+            StepKind::Start | StepKind::Setup | StepKind::Prepare
+        ) {
+            stackless_core::engine::revision::digest(&(
+                definition,
+                stackless_core::security::application_secrets(&self.secrets),
+            ))
+        } else {
+            Ok(definition)
+        }
+    }
+
+    fn refresh_each_operation(&self, step: &stackless_core::engine::Step) -> bool {
+        matches!(
+            step.kind,
+            StepKind::Materialize | StepKind::Prepare | StepKind::HealthGate
+        )
     }
 
     async fn execute(&self, ctx: StepContext<'_>) -> Result<StepResource, SubstrateFault> {
@@ -572,60 +758,39 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
         // work, idempotent and once-per-process — so resume (which may
         // work, idempotent and once-per-process — so resume still activates
         // the environment.
+        stackless_cloud::prepare::durable::require_host_grant(&ctx)?;
         self.ensure_project_and_env(ctx.def, ctx.instance).await?;
 
         let node = ctx.step.node.as_str();
         match ctx.step.kind {
+            StepKind::RunJob => Err(stackless_core::capabilities::unsupported_feature(
+                SUBSTRATE_NAME,
+                &ctx.step.node,
+                "jobs",
+            )),
             StepKind::ProvisionIntegration => stackless_integrations::provision(
                 SUBSTRATE_NAME,
                 &self.stripe(),
-                ctx.def,
+                &ctx,
                 &self.definition_dir,
-                ctx.instance,
-                node,
                 true,
             )
             .await
             .map_err(integration_fault),
             StepKind::Materialize => {
-                // No local checkout on render — record the pinned ref.
-                // It owns nothing destructible: observe reports Gone so
-                // teardown drops it, and resume cheaply re-records it
-                // (the Start step re-checks the real Render service).
-                let spec = ctx.def.services.get(node).ok_or_else(|| {
-                    fault(RenderError::ConfigInvalid {
-                        location: format!("services.{node}"),
-                        detail: "service not in definition".into(),
-                    })
-                })?;
-                let payload = SourceRefPayload {
-                    repo: spec.source.repo.clone(),
-                    reference: spec.source.reference.clone(),
-                    path: None,
-                    commit: None,
-                };
-                Ok(StepResource {
-                    resource_kind: "source-ref".into(),
-                    resource_id: format!("{}@{}", spec.source.repo, spec.source.reference),
-                    payload: serde_json::to_string(&payload).unwrap_or_default(),
-                })
+                stackless_cloud::source::materialize(
+                    &ctx,
+                    &self.definition_dir,
+                    SUBSTRATE_NAME,
+                    &self.secrets,
+                )
+                .await
             }
-            StepKind::Setup => {
-                // Setup is local toolchain provisioning; Render builds in
-                // its own build step. Record and skip (§4).
-                Ok(stackless_core::substrate::action_resource(&ctx.step.id))
-            }
-            StepKind::Prepare => {
-                self.run_prepare(ctx.def, ctx.instance, node, ctx.prior)
-                    .await?;
-                Ok(stackless_core::substrate::action_resource(&ctx.step.id))
-            }
-            StepKind::Start => {
-                self.start_service(ctx.def, ctx.instance, node, ctx.prior)
-                    .await
-            }
+            StepKind::Setup | StepKind::Prepare => self.run_hook(&ctx).await,
+            StepKind::Start => self.start_service(&ctx).await,
             StepKind::HealthGate => {
-                self.health_gate(ctx.def, ctx.instance, node).await?;
+                self.health_gate(ctx.def, ctx.instance, node, ctx.prior)
+                    .await?;
                 Ok(stackless_core::substrate::action_resource(&ctx.step.id))
             }
         }
@@ -633,10 +798,19 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
 
     async fn observe(
         &self,
-        _instance: &str,
+        instance: &InstanceContext<'_>,
         checkpoint: &Checkpoint,
     ) -> Result<Observation, SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
+            stackless_cloud::prepare::durable::KIND => stackless_cloud::prepare::durable::observe(
+                &self.definition_dir,
+                instance,
+                SUBSTRATE_NAME,
+                checkpoint,
+            ),
+            stackless_cloud::source::KIND => {
+                stackless_cloud::source::observe(&self.definition_dir, instance, checkpoint)
+            }
             // Present iff the named resource still resolves on Render and
             // is not deleted (invariant 4: the substrate says what's true).
             // Legacy first-class managed Postgres — still reclaimable on down.
@@ -671,6 +845,46 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
                         detail,
                     })
                 })?;
+                if let Some(payload) = &payload
+                    && let Some(attempt) = payload.deployments.last()
+                {
+                    let api = self.render()?;
+                    let Some(native) = api
+                        .service(&payload.service_id, &payload.render_name)
+                        .await
+                        .map_err(fault)?
+                    else {
+                        return Ok(Observation::Gone);
+                    };
+                    if let Some(expected) = &payload.source_root {
+                        let actual = native.root_dir.ok_or_else(|| {
+                            lifecycle::invalid("Render did not report its source root")
+                        })?;
+                        if &actual != expected {
+                            return Ok(Observation::Drifted {
+                                settings: vec![stackless_core::substrate::SettingDrift {
+                                    setting: "source.root".into(),
+                                    expected: expected.clone(),
+                                    actual,
+                                }],
+                            });
+                        }
+                    }
+                    let deploy = attempt
+                        .recover(&api, &payload.service_id)
+                        .await?
+                        .ok_or_else(|| lifecycle::invalid("deployment was not submitted"))?;
+                    if deploy.status.is_live() {
+                        return Ok(Observation::Present);
+                    }
+                    return Ok(Observation::Drifted {
+                        settings: vec![stackless_core::substrate::SettingDrift {
+                            setting: "deployment.status".into(),
+                            expected: "live".into(),
+                            actual: deploy.status.as_str().into(),
+                        }],
+                    });
+                }
                 let name = payload
                     .map(|p| p.render_name)
                     .unwrap_or_else(|| checkpoint.resource_id.clone());
@@ -722,10 +936,13 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
 
     async fn destroy(
         &self,
-        _instance: &str,
+        instance: &InstanceContext<'_>,
         checkpoint: &Checkpoint,
     ) -> Result<(), SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
+            stackless_cloud::source::KIND => {
+                stackless_cloud::source::destroy(&self.definition_dir, instance, checkpoint)
+            }
             "render-service" => {
                 let payload = stackless_cloud::checkpoint::parse_payload::<ServicePayload>(
                     &checkpoint.payload,
@@ -803,8 +1020,130 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
         }
     }
 
-    async fn finalize_teardown(&self, instance: &str) -> Result<(), SubstrateFault> {
-        stackless_integrations::finalize_stripe_instance(&self.stripe(), instance).await;
+    async fn destroy_record(
+        &self,
+        store: &stackless_core::state::Store,
+        instance: &InstanceContext<'_>,
+        record: &stackless_core::state::ResourceRecord,
+    ) -> Result<(), SubstrateFault> {
+        if record.resource_kind == stackless_cloud::prepare::durable::KIND {
+            return stackless_cloud::prepare::durable::destroy_record(
+                &self.definition_dir,
+                store,
+                instance,
+                SUBSTRATE_NAME,
+                record,
+            )
+            .await;
+        }
+        if !has_catalog_receipt(&record.payload) {
+            return self
+                .destroy(instance, &record.checkpoint(instance.name))
+                .await;
+        }
+        stackless_stripe_projects::journal::recover_for_teardown(&self.stripe(), store, record)
+            .await
+            .map_err(projects_fault)?;
+        let current = store
+            .resource(instance.id, &record.key)
+            .map_err(|e| SubstrateFault::from_fault(&e))?
+            .ok_or_else(|| lifecycle::invalid("Render ownership record disappeared"))?;
+        if current.phase == stackless_core::state::ResourcePhase::Absent {
+            return Ok(());
+        }
+        if current.resource_kind == "render-service" {
+            let api = self.render()?;
+            let mut value: serde_json::Value = serde_json::from_str(&current.payload)
+                .map_err(|e| lifecycle::invalid(e.to_string()))?;
+            let (id, name) = render_identity(&api, &value).await?;
+            if let Some(id) = id {
+                // Persist the exact native ID before DELETE, including early creation recovery.
+                value["service_id"] = serde_json::json!(id);
+                value["render_name"] = serde_json::json!(name);
+                value["removal_submitted"] = serde_json::json!(true);
+                store
+                    .resource_refresh_payload(
+                        instance.id,
+                        &current.key,
+                        &current.resource_id,
+                        &value.to_string(),
+                    )
+                    .map_err(|e| SubstrateFault::from_fault(&e))?;
+                api.delete_service(&id, &name).await.map_err(fault)?;
+                if api.service(&id, &name).await.map_err(fault)?.is_some() {
+                    return Err(lifecycle::invalid(
+                        "Render service deletion is still pending",
+                    ));
+                }
+            }
+        }
+        let current = store
+            .resource(instance.id, &record.key)
+            .map_err(|e| SubstrateFault::from_fault(&e))?
+            .ok_or_else(|| lifecycle::invalid("Render ownership record disappeared"))?;
+        stackless_stripe_projects::journal::destroy_record(&self.stripe(), store, &current)
+            .await
+            .map_err(projects_fault)
+    }
+
+    async fn observe_record(
+        &self,
+        store: &stackless_core::state::Store,
+        instance: &InstanceContext<'_>,
+        record: &stackless_core::state::ResourceRecord,
+    ) -> Result<Observation, SubstrateFault> {
+        if record.resource_kind == stackless_cloud::prepare::durable::KIND {
+            return stackless_cloud::prepare::durable::observe_record(
+                &self.definition_dir,
+                store,
+                instance,
+                SUBSTRATE_NAME,
+                record,
+            );
+        }
+        let current = store
+            .resource(instance.id, &record.key)
+            .map_err(|e| SubstrateFault::from_fault(&e))?
+            .ok_or_else(|| lifecycle::invalid("Render ownership record disappeared"))?;
+        if current.phase == stackless_core::state::ResourcePhase::Absent {
+            return Ok(Observation::Gone);
+        }
+        if !has_catalog_receipt(&current.payload) {
+            return self
+                .observe(instance, &current.checkpoint(instance.name))
+                .await;
+        }
+        let catalog =
+            stackless_stripe_projects::journal::observe_payload(&self.stripe(), &current.payload)
+                .await
+                .map_err(projects_fault)?;
+        if current.resource_kind != "render-service" {
+            return Ok(catalog);
+        }
+        let value: serde_json::Value = serde_json::from_str(&current.payload)
+            .map_err(|e| lifecycle::invalid(e.to_string()))?;
+        let api = self.render()?;
+        let (id, name) = render_identity(&api, &value).await?;
+        let exists = match id {
+            Some(id) => api.service(&id, &name).await.map_err(fault)?.is_some(),
+            None => false,
+        };
+        if exists {
+            Ok(Observation::Present)
+        } else {
+            Ok(catalog)
+        }
+    }
+
+    async fn finalize_teardown(
+        &self,
+        instance: &InstanceContext<'_>,
+    ) -> Result<(), SubstrateFault> {
+        stackless_integrations::finalize_stripe_instance(
+            &self.stripe(),
+            instance.resource_namespace,
+        )
+        .await;
         Ok(())
     }
 
@@ -822,8 +1161,9 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
 
     async fn fetch_logs(
         &self,
+        _store: &stackless_core::state::Store,
         def: &StackDef,
-        instance: &str,
+        instance: &InstanceContext<'_>,
         services: &[String],
         tail: usize,
     ) -> Result<Option<Vec<ServiceLog>>, SubstrateFault> {
@@ -914,14 +1254,14 @@ impl<R: CommandRunner> RenderSubstrate<R> {
 pub async fn fetch_logs(
     definition_dir: &Path,
     def: &StackDef,
-    instance: &str,
+    instance: &InstanceContext<'_>,
     service: &str,
     tail: usize,
     secrets: &BTreeMap<String, String>,
 ) -> Result<Vec<String>, RenderError> {
     let key = api_key::resolve(definition_dir, secrets)?;
     let render = RenderApi::new(key);
-    let name = format!("{}-{instance}-{service}", def.stack.name.as_str());
+    let name = instance.provider_resource_name(def.stack.name.as_str(), service);
     let Some(svc) = render.find_service_by_name(&name).await? else {
         return Ok(vec![format!("(service {name} not found on Render)")]);
     };
@@ -1000,7 +1340,18 @@ mod tests {
             "start:web",
             r#"{"stripe_resource":"s1-web","render_name":"smoke-render-r1-web","service_id":"srv_1","origin":"https://x.onrender.com","is_static":true}"#,
         );
-        s.destroy("demo", &cp).await.unwrap();
+        s.destroy(
+            &InstanceContext {
+                routed_origins: None,
+                name: "demo",
+                id: "legacy-test",
+                resource_namespace: "demo",
+                checkpoints: &[],
+            },
+            &cp,
+        )
+        .await
+        .unwrap();
 
         let calls = runner.calls();
         assert_eq!(calls.len(), 2, "calls: {calls:?}");
@@ -1014,20 +1365,109 @@ mod tests {
     }
 
     #[test]
-    fn resource_name_and_origin_are_dns_safe() {
+    fn endpoint_bindings_wait_for_recorded_provider_urls_and_follow_redeployment() {
+        let definition = r#"
+[stack]
+name = "endpoint-test"
+[services.api]
+source = { repo = "r", ref = "main" }
+health = { path = "/" }
+[services.api.render]
+runtime = "rust"
+build = "b"
+start = "s"
+[endpoints.native]
+workload = "api"
+[endpoints.public]
+workload = "api"
+url = "https://api.example.test/v1"
+"#;
+        let def = StackDef::parse(definition).unwrap();
+        let (_dir, substrate) = subj("http://127.0.0.1:1");
+        let instance = InstanceContext {
+            routed_origins: None,
+            name: "demo",
+            id: "owner-1",
+            resource_namespace: "sl-owner-1",
+            checkpoints: &[],
+        };
+        let namespace = substrate.namespace(&def, &instance, &[], false);
+        assert!(!namespace.endpoint_urls.contains_key("native"));
+        assert_eq!(
+            namespace.endpoint_urls["public"],
+            "https://api.example.test/v1"
+        );
+        for origin in [
+            "https://provider-first.onrender.com",
+            "https://provider-second.onrender.com",
+        ] {
+            let checkpoints = [checkpoint("render-service", "start:api", &serde_json::json!({
+                "stripe_resource": "owned-web", "render_name": "owner-api", "service_id": "srv_1", "origin": origin, "is_static": true
+            }).to_string())];
+            let instance = InstanceContext {
+                checkpoints: &checkpoints,
+                ..instance
+            };
+            let namespace = substrate.namespace(&def, &instance, &checkpoints, false);
+            assert_eq!(namespace.endpoint_urls["native"], origin);
+            assert_eq!(
+                namespace.endpoint_urls["public"],
+                "https://api.example.test/v1"
+            );
+            assert_eq!(namespace.service_origins["api"], origin);
+        }
+    }
+
+    #[tokio::test]
+    async fn resource_names_are_dns_safe_and_origins_wait_for_outputs() {
         let def = StackDef::parse(
             "[stack]\nname=\"atto\"\n[services.api]\nsource={repo=\"r\",ref=\"main\"}\nenv={}\nhealth={path=\"/h\"}\n[services.api.render]\nruntime=\"rust\"\nbuild=\"b\"\nstart=\"s\"\n",
         )
         .unwrap();
         assert_eq!(
-            RenderSubstrate::<TokioRunner>::resource_name(&def, "demo", "api"),
+            RenderSubstrate::<TokioRunner>::resource_name(
+                &def,
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                "api"
+            ),
             "atto-demo-api"
         );
         let (_dir, substrate) = subj("http://127.0.0.1:1");
         assert_eq!(
-            substrate.service_origin(&def, "demo", "api"),
-            "https://atto-demo-api.onrender.com"
+            substrate.service_origin(
+                &def,
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                "api"
+            ),
+            ""
         );
+        let context = InstanceContext {
+            name: "demo",
+            id: "legacy-test",
+            resource_namespace: "demo",
+            checkpoints: &[],
+            routed_origins: None,
+        };
+        let error = tokio::time::timeout(
+            Duration::from_millis(100),
+            substrate.health_gate(&def, &context, "api", &[]),
+        )
+        .await
+        .expect("missing URL must fail before health polling")
+        .unwrap_err();
+        assert!(error.message.contains("recorded"), "{error}");
     }
 
     #[tokio::test]
@@ -1040,7 +1480,21 @@ mod tests {
             "materialize:api",
             r#"{"repo":"r","ref":"main"}"#,
         );
-        assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Gone);
+        assert_eq!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .unwrap(),
+            Observation::Gone
+        );
     }
 
     #[tokio::test]
@@ -1058,9 +1512,48 @@ mod tests {
         .to_string();
         let cp = checkpoint("source-ref", "materialize:api", &payload);
 
-        assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Present);
-        s.destroy("demo", &cp).await.unwrap();
-        assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Gone);
+        assert_eq!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .unwrap(),
+            Observation::Present
+        );
+        s.destroy(
+            &InstanceContext {
+                routed_origins: None,
+                name: "demo",
+                id: "legacy-test",
+                resource_namespace: "demo",
+                checkpoints: &[],
+            },
+            &cp,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .unwrap(),
+            Observation::Gone
+        );
     }
 
     #[tokio::test]
@@ -1079,7 +1572,21 @@ mod tests {
             "start:api",
             r#"{"stripe_resource":"demo-api","render_name":"atto-demo-api","service_id":"srv_1","origin":"https://atto-demo-api.onrender.com","is_static":false}"#,
         );
-        assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Present);
+        assert_eq!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .unwrap(),
+            Observation::Present
+        );
     }
 
     #[tokio::test]
@@ -1096,22 +1603,75 @@ mod tests {
             "start:api",
             r#"{"stripe_resource":"demo-api","render_name":"atto-demo-api","service_id":"srv_1","origin":"x","is_static":false}"#,
         );
-        assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Gone);
+        assert_eq!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .unwrap(),
+            Observation::Gone
+        );
     }
 
     #[tokio::test]
     async fn unknown_resource_kind_fails_closed() {
         let (_dir, s) = subj("http://127.0.0.1:1");
         let cp = checkpoint("not-a-real-kind", "start:api", "{}");
-        assert!(s.observe("demo", &cp).await.is_err());
-        assert!(s.destroy("demo", &cp).await.is_err());
+        assert!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            s.destroy(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .is_err()
+        );
     }
 
     #[tokio::test]
     async fn malformed_nonempty_payload_fails_on_destroy() {
         let (_dir, s) = subj("http://127.0.0.1:1");
         let cp = checkpoint("render-service", "start:api", "{");
-        assert!(s.destroy("demo", &cp).await.is_err());
+        assert!(
+            s.destroy(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .is_err()
+        );
     }
 
     #[test]
@@ -1122,3 +1682,6 @@ mod tests {
         assert_eq!(s.default_lease(), Duration::from_secs(8 * 3600));
     }
 }
+
+#[cfg(test)]
+mod lifecycle_tests;

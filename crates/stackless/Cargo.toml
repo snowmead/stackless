@@ -24,6 +24,7 @@ path = "src/main.rs"
 test-support = ["dep:tempfile"]
 
 [dependencies]
+async-trait                         = "0.1.89"
 clap                                = { version = "4.6.1", features = ["derive"] }
 humantime                           = "2.3.0"
 serde                               = { version = "1.0.228", features = ["derive"] }
@@ -33,6 +34,7 @@ stackless-daemon.workspace          = true
 stackless-idl                       = { workspace = true, features = ["compile", "emit"] }
 stackless-integrations.workspace    = true
 stackless-local.workspace           = true
+stackless-git.workspace             = true
 stackless-render.workspace          = true
 stackless-vercel.workspace          = true
 stackless-fly.workspace             = true
@@ -41,6 +43,7 @@ stackless-railway.workspace         = true
 stackless-laravel-cloud.workspace   = true
 stackless-gitlab.workspace          = true
 stackless-wordpress.workspace       = true
+stackless-cloud.workspace           = true
 stackless-cloudflare.workspace      = true
 stackless-stripe-projects.workspace = true
 tempfile                            = { version = "3.27.0", optional = true }
@@ -57,6 +60,8 @@ features         = ["rustls"]
 stackless-bindgen.workspace = true
 
 [dev-dependencies]
+bollard       = "0.21.0"
+stackless-git = { workspace = true, features = ["test-support"] }
 stackless-idl = { workspace = true, features = ["compile", "emit"] }
 tempfile      = "3.27.0"
 

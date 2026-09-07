@@ -101,7 +101,7 @@ pub enum LocalError {
 }
 
 impl Fault for LocalError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             Self::MaterializeUnavailable { .. } => codes::LOCAL_MATERIALIZE_UNAVAILABLE,
             Self::SourcePathInvalid { .. } => codes::LOCAL_SOURCE_PATH_INVALID,

@@ -10,6 +10,7 @@ description          = "Cloudflare hosting substrate for stackless"
 workspace = true
 
 [dependencies]
+base64 = "0.22.1"
 async-trait = "0.1.89"
 reqwest = { version = "0.13.4", default-features = false, features = [
     "rustls",
@@ -31,6 +32,7 @@ tokio = { version = "1.52.3", features = ["rt", "time", "macros", "sync"] }
 toml = "1.1.2"
 
 [dev-dependencies]
+stackless-git             = { workspace = true, features = ["test-support"] }
 stackless-stripe-projects = { workspace = true, features = ["test-support"] }
 tempfile                  = "3.27.0"
 wiremock                  = "0.6.5"

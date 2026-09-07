@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use stackless_core::def::StackDef;
-use stackless_stripe_projects::{merge_env_lines, recorded_project_id, vault_env_from_dir};
+use stackless_stripe_projects::{merge_env_lines, vault_env_from_dir};
 
 use crate::error::Error;
 
@@ -26,42 +26,29 @@ pub fn load(def_dir: &Path) -> BTreeMap<String, String> {
     resolved
 }
 
-/// Pull the Stripe vault for an instance when a project is recorded and
-/// initialized under `def_dir`. No-op otherwise.
-pub fn pull_vault_for_instance(
-    def: &StackDef,
-    def_dir: &Path,
-    instance: &str,
-    rt: &tokio::runtime::Runtime,
+pub fn remember(
+    store: &stackless_core::state::Store,
+    owner_id: &str,
+    values: &BTreeMap<String, String>,
 ) -> Result<(), Error> {
-    if recorded_project_id(def).is_none()
-        || !stackless_stripe_projects::project_initialized_in_dir(def_dir)
-    {
-        return Ok(());
-    }
-    let stripe = stackless_stripe_projects::StripeProjects::new(
-        stackless_stripe_projects::TokioRunner,
-        def_dir.to_path_buf(),
-    );
-    rt.block_on(stackless_stripe_projects::sync_vault_pull_for_instance(
-        &stripe, instance,
-    ))
-    .map_err(|err| Error::BadArgument {
-        argument: "stripe projects env --pull".into(),
-        detail: err.to_string(),
-    })
+    store.remember_secrets(owner_id, values.values().map(String::as_str))?;
+    let privileged = stackless_core::security::controller_values(values);
+    store.remember_secrets(owner_id, privileged.iter().map(String::as_str))?;
+    Ok(())
 }
 
-pub fn resolve(
+pub fn resolve_scoped(
     def: &StackDef,
     def_dir: &Path,
-    instance: Option<&str>,
+    runtime_dir: &Path,
+    instance: &str,
+    use_vault: bool,
 ) -> Result<BTreeMap<String, String>, Error> {
     let mut sources = Vec::new();
-    let mut resolved = if recorded_project_id(def).is_some() {
-        let vault = vault_env_from_dir(def_dir, instance);
+    let mut resolved = if use_vault {
+        let vault = vault_env_from_dir(runtime_dir, (!instance.is_empty()).then_some(instance));
         if !vault.is_empty() {
-            sources.push("Stripe Projects vault (.env / .env.<instance>)".into());
+            sources.push("Stripe Projects vault in the private instance runtime".into());
         }
         vault
     } else {
@@ -79,6 +66,17 @@ pub fn resolve(
         resolved.insert(key, value);
     }
 
+    let application = stackless_core::security::application_secrets(&resolved);
+    if def.secrets.required.iter().any(|key| {
+        stackless_core::security::controller_credential(key)
+            || (resolved.contains_key(key) && !application.contains_key(key))
+    }) {
+        return Err(Error::BadArgument {
+            argument: "secrets".into(),
+            detail: "infrastructure credentials cannot be requested by application workloads"
+                .into(),
+        });
+    }
     let missing: Vec<String> = def
         .secrets
         .required
@@ -111,7 +109,14 @@ required = ["API_TOKEN"]
 "#,
         )
         .unwrap();
-        let resolved = resolve(&def, dir.path(), None).unwrap();
+        let resolved = resolve_scoped(
+            &def,
+            dir.path(),
+            dir.path(),
+            "",
+            def.stack.projects.stripe.is_some(),
+        )
+        .unwrap();
         assert_eq!(
             resolved.get("API_TOKEN").map(String::as_str),
             Some("overlay-value")
@@ -138,7 +143,14 @@ required = ["API_TOKEN"]
 "#,
         )
         .unwrap();
-        let resolved = resolve(&def, dir.path(), None).unwrap();
+        let resolved = resolve_scoped(
+            &def,
+            dir.path(),
+            dir.path(),
+            "",
+            def.stack.projects.stripe.is_some(),
+        )
+        .unwrap();
         assert_eq!(
             resolved.get("API_TOKEN").map(String::as_str),
             Some("file-only")

@@ -5,11 +5,13 @@
 //! a workspace-wide uniqueness check.
 
 pub const FLY_CONFIG_INVALID: &str = "fly.config.invalid";
+pub const FLY_BUILD_STOPPED: &str = "fly.build.stopped";
 pub const FLY_API_FAILED: &str = "fly.api.failed";
 pub const FLY_PAYMENT_NOT_CONFIRMED: &str = "fly.payment.not_confirmed";
 pub const FLY_PROVISION_FAILED: &str = "fly.provision.failed";
 pub const FLY_DEPLOY_FAILED: &str = "fly.deploy.failed";
 pub const FLY_DEPLOY_TIMEOUT: &str = "fly.deploy.timeout";
+pub const FLY_WORKER_NOT_READY: &str = "fly.worker.not_ready";
 pub const FLY_HEALTH_FAILED: &str = "fly.health.failed";
 pub const FLY_PREPARE_FAILED: &str = "fly.prepare.failed";
 pub const FLY_TEARDOWN_SURVIVOR: &str = "fly.teardown.survivor";
@@ -17,12 +19,14 @@ pub const FLY_TEARDOWN_SURVIVOR: &str = "fly.teardown.survivor";
 /// Every Fly code, for the workspace uniqueness test.
 pub const ALL: &[&str] = &[
     FLY_CONFIG_INVALID,
+    FLY_BUILD_STOPPED,
     FLY_API_FAILED,
     FLY_PAYMENT_NOT_CONFIRMED,
     FLY_PROVISION_FAILED,
     FLY_DEPLOY_FAILED,
     FLY_DEPLOY_TIMEOUT,
     FLY_HEALTH_FAILED,
+    FLY_WORKER_NOT_READY,
     FLY_PREPARE_FAILED,
     FLY_TEARDOWN_SURVIVOR,
 ];

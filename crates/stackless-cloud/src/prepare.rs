@@ -1,12 +1,16 @@
-//! Operator-side cloud prepare (§4): shallow git checkout + run a command on
-//! the operator's machine. Cloud substrates call this and map the neutral
-//! [`PrepareFailure`] to their own `PrepareFailed`-style fault.
+//! Cloud setup and prepare run from an owned source working copy.
+//! Providers map neutral failures to their own prepare fault.
 
+pub mod durable;
+
+use stackless_core::durable_command;
 use std::collections::BTreeMap;
-use std::process::Stdio;
+use std::time::{Duration, Instant};
 
 use stackless_core::def::{Namespace, Service};
+use stackless_core::engine::StepKind;
 use stackless_core::fault::FAILURE_LOG_TAIL_LINES;
+use stackless_core::substrate::SubstrateFault;
 
 /// A prepare step that failed, as neutral data the provider maps to its own
 /// fault (preserving per-provider error codes and remediation).
@@ -18,8 +22,8 @@ pub struct PrepareFailure {
     pub log_tail: Option<String>,
 }
 
-/// Shallow-clone `repo@reference` into a temp dir, run `command` there with
-/// `env`, and clean up. Any failure is returned as a [`PrepareFailure`].
+/// Standalone convenience helper with a 300-second deadline and bounded output.
+/// Provider execution uses `run_snapshot_prepare` for durable ownership.
 pub fn run_prepare_command(
     service: &str,
     repo: &str,
@@ -46,26 +50,47 @@ pub fn run_prepare_command(
             message: format!("clone {repo}@{reference} failed: {err}"),
             log_tail: None,
         })?;
-        let mut cmd = std::process::Command::new("sh");
-        cmd.arg("-c")
-            .arg(command)
-            .current_dir(&tmp)
-            .stdin(Stdio::null());
-        for (key, value) in env {
-            cmd.env(key, value);
-        }
-        let output = cmd.output().map_err(|err| PrepareFailure {
-            service: service.to_owned(),
-            command: Some(command.to_owned()),
-            message: format!("could not run prepare command: {err}"),
+        let fail = |error: String| PrepareFailure {
+            service: service.into(),
+            command: Some(command.into()),
+            message: error,
             log_tail: None,
-        })?;
-        if !output.status.success() {
+        };
+        let receipt_dir = tempfile::tempdir().map_err(|e| fail(e.to_string()))?;
+        let result_path = receipt_dir.path().join("exit");
+        let output_path = receipt_dir.path().join("output");
+        let environment = env.iter().cloned().collect();
+        let pending = durable_command::spawn(durable_command::CommandInput {
+            program: std::path::Path::new("/bin/sh"),
+            args: &["-c".into(), command.into()],
+            directory: &tmp,
+            environment: &environment,
+            result: &result_path,
+            output: &output_path,
+            budget: Duration::from_secs(300),
+        })
+        .map_err(|e| fail(e.to_string()))?;
+        let stamp = pending.stamp.clone();
+        pending.release().map_err(|e| fail(e.to_string()))?;
+        let deadline = Instant::now() + Duration::from_secs(300);
+        let result = (|| {
+            loop {
+                let result = durable_command::result(&result_path)?;
+                if result.is_some() || !stamp.process().is_alive() || Instant::now() >= deadline {
+                    return Ok::<_, std::io::Error>(result);
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        })();
+        stamp.stop().map_err(|e| fail(e.to_string()))?;
+        if result.map_err(|e| fail(e.to_string()))? != Some(0) {
+            let output = durable_command::output(&output_path).map_err(|e| fail(e.to_string()))?;
+            let redactor = stackless_core::security::Redactor::new(environment.into_values());
             return Err(PrepareFailure {
-                service: service.to_owned(),
-                command: Some(command.to_owned()),
-                message: format!("`{command}` exited {}", output.status),
-                log_tail: Some(tail_bytes(&output.stderr)),
+                service: service.into(),
+                command: Some(command.into()),
+                message: "prepare stopped without a successful receipt".into(),
+                log_tail: Some(redactor.text(&tail_bytes(&output))),
             });
         }
         Ok(())
@@ -109,7 +134,33 @@ pub fn resolve_prepare_env(
     substrate: &str,
     spec: &Service,
 ) -> Result<Option<PreparePlan>, PrepareFailure> {
-    let Some(command) = spec.prepare.clone() else {
+    resolve_hook_env(
+        StepKind::Prepare,
+        namespace,
+        secrets,
+        service,
+        substrate,
+        spec,
+    )
+}
+
+pub(crate) fn hook_command(kind: StepKind, spec: &Service) -> Option<&str> {
+    match kind {
+        StepKind::Setup => spec.setup.as_deref(),
+        StepKind::Prepare => spec.prepare.as_deref(),
+        _ => None,
+    }
+}
+
+fn resolve_hook_env(
+    kind: StepKind,
+    namespace: &Namespace,
+    secrets: &BTreeMap<String, String>,
+    service: &str,
+    substrate: &str,
+    spec: &Service,
+) -> Result<Option<PreparePlan>, PrepareFailure> {
+    let Some(command) = hook_command(kind, spec).map(str::to_owned) else {
         return Ok(None);
     };
     let fail = |message: String| PrepareFailure {
@@ -128,11 +179,17 @@ pub fn resolve_prepare_env(
             .map_err(|err| fail(err.to_string()))?;
         env.push((key.clone(), resolved));
     }
+    let app_secrets = stackless_core::security::application_secrets(secrets);
     for key in &spec.secrets {
-        if let Some(value) = secrets.get(key) {
+        if let Some(value) = app_secrets.get(key) {
             env.push((key.clone(), value.clone()));
         }
     }
+    stackless_core::security::validate_environment(
+        env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+        secrets,
+    )
+    .map_err(fail)?;
     Ok(Some(PreparePlan {
         command,
         repo: spec.source.repo.clone(),
@@ -172,6 +229,89 @@ pub async fn run_service_prepare(
         message: format!("prepare task panicked: {err}"),
         log_tail: None,
     })?
+}
+
+/// Run from the operation's saved source. Uploads remain bound to its sealed archive.
+pub async fn run_snapshot_prepare(
+    ctx: &stackless_core::substrate::StepContext<'_>,
+    base: &std::path::Path,
+    namespace: &Namespace,
+    secrets: &BTreeMap<String, String>,
+    substrate: &str,
+) -> Result<stackless_core::substrate::StepResource, PrepareFailure> {
+    if ctx.step.kind != StepKind::Prepare {
+        return Err(PrepareFailure {
+            service: ctx.step.node.clone(),
+            command: None,
+            message: "prepare runner requires a prepare step".into(),
+            log_tail: None,
+        });
+    }
+    run_snapshot_hook(ctx, base, namespace, secrets, substrate).await
+}
+
+/// Run setup or prepare against the operation's saved working copy.
+/// The command receipt is distinct for each step, even when the text is identical.
+pub async fn run_snapshot_hook(
+    ctx: &stackless_core::substrate::StepContext<'_>,
+    base: &std::path::Path,
+    namespace: &Namespace,
+    secrets: &BTreeMap<String, String>,
+    substrate: &str,
+) -> Result<stackless_core::substrate::StepResource, PrepareFailure> {
+    if !matches!(ctx.step.kind, StepKind::Setup | StepKind::Prepare) {
+        return Err(PrepareFailure {
+            service: ctx.step.node.clone(),
+            command: None,
+            message: "hook runner requires a setup or prepare step".into(),
+            log_tail: None,
+        });
+    }
+    let service = ctx.step.node.as_str();
+    let Some(spec) = ctx.def.services.get(service) else {
+        return Err(PrepareFailure {
+            service: service.into(),
+            command: None,
+            message: "hook workload is missing".into(),
+            log_tail: None,
+        });
+    };
+    let Some(plan) = resolve_hook_env(ctx.step.kind, namespace, secrets, service, substrate, spec)?
+    else {
+        return Ok(stackless_core::substrate::action_resource(&ctx.step.id));
+    };
+    durable::run(ctx, base, substrate, &plan)
+        .await
+        .map_err(|error| PrepareFailure {
+            service: service.into(),
+            command: Some(plan.command),
+            message: error.message,
+            log_tail: None,
+        })
+}
+
+/// Setup uses a common fault; prepare preserves the adapter's existing code.
+pub fn hook_fault(
+    kind: StepKind,
+    failure: PrepareFailure,
+    prepare: impl FnOnce(PrepareFailure) -> SubstrateFault,
+) -> SubstrateFault {
+    if kind != StepKind::Setup {
+        return prepare(failure);
+    }
+    SubstrateFault {
+        code: "execution.setup_failed".into(),
+        message: format!("setup for {} failed: {}", failure.service, failure.message),
+        remediation:
+            "inspect the recorded setup command; resume uses its process receipt, down stops it"
+                .into(),
+        context: Box::new(stackless_core::fault::ErrorContext {
+            service: Some(failure.service),
+            command: failure.command,
+            log_tail: failure.log_tail,
+            ..Default::default()
+        }),
+    }
 }
 
 #[cfg(test)]

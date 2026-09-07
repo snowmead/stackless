@@ -17,9 +17,7 @@ taplo  = "taplo fmt --check --diff"
 # fixtures (e.g. stackless-git's `flow` test, which needs `build_repo`).
 test = "cargo nextest run --workspace --all-features"
 # "Cargo crap" / supply chain (the point of the request)
-# cargo-audit doesn't read deny.toml, so mirror its [advisories].ignore here
-# (libsql's pinned old rustls stack — rustls-webpki / rustls-pemfile).
-audit        = "cargo audit --ignore RUSTSEC-2026-0049 --ignore RUSTSEC-2026-0098 --ignore RUSTSEC-2026-0099 --ignore RUSTSEC-2026-0104 --ignore RUSTSEC-2025-0134"
+audit        = "cargo audit"
 deny         = "cargo deny check"
 vet          = "cargo vet"
 supply-chain = { depends = ["audit", "deny", "vet"] }
@@ -95,19 +93,8 @@ fi
 sdk-test-go = "cd sdks/go && go test ./..."
 sdk-test = { depends = ["sdk-test-ts", "sdk-test-py", "sdk-test-go"] }
 
-# Fleet plane live verification (gated; needs STACKLESS_STATE_URL + TOKEN).
-smoke-fleet = '''
-[ -f .stackless.env ] && { set -a; . ./.stackless.env; set +a; }
-if [ -z "${STACKLESS_STATE_URL:-}" ] || [ -z "${STACKLESS_STATE_TOKEN:-}" ]; then
-  if [ "${STACKLESS_LIVE_SMOKE_REQUIRED:-}" = "1" ]; then
-    echo "::error::STACKLESS_STATE_URL and STACKLESS_STATE_TOKEN required for live fleet smoke"
-    exit 1
-  fi
-  echo "skip smoke-fleet: set STACKLESS_STATE_URL and STACKLESS_STATE_TOKEN in .stackless.env"
-  exit 0
-fi
-cargo nextest run -p stackless-core --all-features -E 'binary(turso_fleet_lock)' --run-ignored only --no-capture
-'''
+# Controller transport, restart, ownership, and operation persistence.
+controller-test = "cargo nextest run -p stackless --all-features -E 'binary(controller_operations)'"
 
 # Stripe Projects plugin snapshots. `stripe-refresh` is the bless path (writes
 # the committed fixtures from the locally installed plugin); it needs the real

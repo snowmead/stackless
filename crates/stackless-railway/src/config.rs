@@ -27,12 +27,14 @@ pub enum RailwayDeployMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServiceRailway {
     pub mode: RailwayDeployMode,
+    pub root: Option<String>,
 }
 
 impl Default for ServiceRailway {
     fn default() -> Self {
         Self {
             mode: RailwayDeployMode::GitHub,
+            root: None,
         }
     }
 }
@@ -65,36 +67,87 @@ impl CatalogService for RailwayHostingConfig {
 /// keys inside it are a fault, to trap agent typos).
 pub fn service_railway(def: &StackDef, service: &str) -> Result<ServiceRailway, RailwayError> {
     let location = format!("services.{service}.railway");
-    let Some(block) = def
+    let spec = def
         .services
         .get(service)
-        .and_then(|spec| spec.substrates.get(SUBSTRATE_NAME))
-    else {
-        return Ok(ServiceRailway {
-            mode: RailwayDeployMode::GitHub,
-        });
-    };
-    let table = block
-        .as_table()
         .ok_or_else(|| RailwayError::ConfigInvalid {
             location: location.clone(),
-            detail: "must be a table { image?, cmd?, env? }".into(),
+            detail: "service missing".into(),
         })?;
+    let root =
+        spec.source_root(service, SUBSTRATE_NAME)
+            .map_err(|e| RailwayError::ConfigInvalid {
+                location: location.clone(),
+                detail: e.to_string(),
+            })?;
+
+    let empty = toml::Table::new();
+    let table = match spec.substrates.get(SUBSTRATE_NAME) {
+        None => &empty,
+        Some(block) => block
+            .as_table()
+            .ok_or_else(|| RailwayError::ConfigInvalid {
+                location: location.clone(),
+                detail: "must be a table".into(),
+            })?,
+    };
     for key in table.keys() {
-        if !matches!(key.as_str(), "image" | "cmd" | "env") {
+        if !matches!(key.as_str(), "image" | "cmd" | "env" | "root") {
             return Err(RailwayError::ConfigInvalid {
                 location: location.clone(),
-                detail: format!("unknown key {key:?} (known: image, cmd, env)"),
+                detail: format!("unknown key {key:?} (known: image, cmd, env, root)"),
             });
         }
     }
-    let image = table
-        .get("image")
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned);
-    let cmd = table.get("cmd").and_then(parse_cmd_array);
+    let image = match table.get("image") {
+        None => None,
+        Some(value) => Some(
+            value
+                .as_str()
+                .filter(|s| !s.is_empty() && !s.chars().any(char::is_whitespace))
+                .ok_or_else(|| RailwayError::ConfigInvalid {
+                    location: format!("{location}.image"),
+                    detail: "must be a nonempty string".into(),
+                })?
+                .to_owned(),
+        ),
+    };
+    if spec
+        .image
+        .as_ref()
+        .zip(image.as_ref())
+        .is_some_and(|(a, b)| a != b)
+    {
+        return Err(RailwayError::ConfigInvalid {
+            location: location.clone(),
+            detail: "workload image conflicts with railway.image".into(),
+        });
+    }
+    let image = spec.image.clone().or(image);
+    if spec.source.repo.is_empty() && (image.is_none() || root.as_deref().is_some_and(|r| r != "."))
+    {
+        return Err(RailwayError::ConfigInvalid {
+            location: location.clone(),
+            detail:
+                "source-free workloads require an image and cannot select a source subdirectory"
+                    .into(),
+        });
+    }
+    let cmd = match table.get("cmd") {
+        None => None,
+        Some(value) => Some(
+            parse_cmd_array(value).ok_or_else(|| RailwayError::ConfigInvalid {
+                location: format!("{location}.cmd"),
+                detail: "must be a nonempty array of strings".into(),
+            })?,
+        ),
+    };
+    if spec.run.is_some() && (cmd.is_some() || image.is_none()) {
+        return Err(RailwayError::ConfigInvalid {
+            location: location.clone(),
+            detail: "run requires an image and cannot be combined with railway.cmd".into(),
+        });
+    }
     if cmd.is_some() && image.is_none() {
         return Err(RailwayError::ConfigInvalid {
             location: location.clone(),
@@ -105,7 +158,7 @@ pub fn service_railway(def: &StackDef, service: &str) -> Result<ServiceRailway, 
         Some(image) => RailwayDeployMode::Image { image, cmd },
         None => RailwayDeployMode::GitHub,
     };
-    Ok(ServiceRailway { mode })
+    Ok(ServiceRailway { mode, root })
 }
 
 fn parse_cmd_array(value: &toml::Value) -> Option<Vec<String>> {
@@ -134,7 +187,15 @@ pub fn parse_github_repo(url: &str) -> Result<(String, String), RailwayError> {
     let mut parts = rest.split('/');
     let org = parts.next().unwrap_or_default();
     let repo = parts.next().unwrap_or_default();
-    if org.is_empty() || repo.is_empty() || parts.next().is_some() {
+    if org.is_empty()
+        || repo.is_empty()
+        || parts.next().is_some()
+        || !org
+            .bytes()
+            .chain(repo.bytes())
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+        || [org, repo].iter().any(|s| matches!(*s, "." | ".."))
+    {
         return Err(RailwayError::ConfigInvalid {
             location: "services.*.source.repo".into(),
             detail: format!("expected https://github.com/org/repo (got {url:?})"),
@@ -164,6 +225,31 @@ mod tests {
 
     fn parse(toml: &str) -> StackDef {
         StackDef::parse(toml).expect("valid base toml")
+    }
+
+    #[test]
+    fn common_image_without_source_or_provider_block_and_conflicts() {
+        let text = "[stack]\nname='fixture'\n[services.web]\nimage='nginx:alpine'\nrun='exec server'\nhealth={path='/'}\n";
+        let def = parse(text);
+        assert_eq!(
+            service_railway(&def, "web").unwrap().image(),
+            Some("nginx:alpine")
+        );
+        for suffix in [
+            "[services.web.railway]\nimage='different'\n",
+            "[services.web.railway]\ncmd=['other']\n",
+            "[services.web.source]\nroot='app'\n",
+        ] {
+            assert!(service_railway(&parse(&format!("{text}{suffix}")), "web").is_err());
+        }
+        let no_image = text.replace("image='nginx:alpine'\n", "");
+        assert!(service_railway(&parse(&no_image), "web").is_err());
+        let alias = text.replace("image='nginx:alpine'\n", "")
+            + "[services.web.railway]\nimage='nginx:alpine'\n";
+        assert_eq!(
+            service_railway(&parse(&alias), "web").unwrap().image(),
+            Some("nginx:alpine")
+        );
     }
 
     const BASE: &str = r#"

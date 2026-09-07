@@ -21,7 +21,6 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 stackless-cloud.workspace = true
 stackless-core.workspace = true
-stackless-git.workspace = true
 stackless-integrations.workspace = true
 stackless-stripe-projects.workspace = true
 tempfile = "3.27.0"
@@ -30,5 +29,7 @@ tokio = { version = "1.52.3", features = ["rt", "time", "macros", "sync"] }
 toml = "1.1.2"
 
 [dev-dependencies]
+stackless-local.workspace = true
+stackless-git             = { workspace = true, features = ["test-support"] }
 stackless-stripe-projects = { workspace = true, features = ["test-support"] }
 wiremock                  = "0.6.5"

@@ -5,8 +5,10 @@
 
 use std::collections::HashSet;
 use std::io::Read;
+use std::os::fd::AsFd;
 use std::process::{Command, Output, Stdio};
-use std::sync::mpsc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -18,51 +20,105 @@ use crate::types::{Pid as StacklessPid, ProcessStartTime};
 #[derive(Debug)]
 pub enum TimedCommand {
     Finished(Output),
-    TimedOut { pid: u32 },
+    LockFailed {
+        path: std::path::PathBuf,
+        detail: String,
+    },
+    TimedOut {
+        pid: u32,
+    },
     Spawn(std::io::Error),
+    CaptureFailed(CaptureFailure),
+    CleanupFailed {
+        pid: u32,
+    },
 }
 
+/// Stripe JSON can be larger than a console log. Neither stream may grow without a limit.
+pub const COMMAND_STDOUT_LIMIT: usize = 4 * 1024 * 1024;
+pub const COMMAND_STDERR_LIMIT: usize = 256 * 1024;
 const DRAIN_JOIN: Duration = Duration::from_secs(2);
 
-/// Spawn `cmd` in its own process group, wait up to `budget`, and
-/// SIGKILL the process tree if it overruns.
-///
-/// Stdout/stderr are drained on background threads so a chatty child
-/// cannot fill the pipe and deadlock (unlike a post-exit `read_to_end`).
+#[derive(Debug, thiserror::Error)]
+pub enum CaptureFailure {
+    #[error("{stream} exceeded {limit} bytes")]
+    Limit { stream: &'static str, limit: usize },
+    #[error("{stream} remained open after command cleanup")]
+    Incomplete { stream: &'static str },
+    #[error("could not capture {stream}: {source}")]
+    Read {
+        stream: &'static str,
+        source: std::io::Error,
+    },
+}
+
+pub fn real_user_id() -> u32 {
+    rustix::process::getuid().as_raw()
+}
+
+pub fn effective_user_id() -> u32 {
+    rustix::process::geteuid().as_raw()
+}
+
+/// Capture a child while this process remains alive. The internal helper uses this
+/// primitive; controller callers must use `helper_command::HelperCommand` so the
+/// deadline survives controller death. Incomplete or excess output cannot finish.
 pub fn run_with_timeout(cmd: &mut Command, budget: Duration) -> TimedCommand {
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
+    cmd.stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null());
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
     }
-    cmd.stdin(Stdio::null());
     let cookie = uuid::Uuid::new_v4().to_string();
     cmd.env("STACKLESS_SPAWN", &cookie);
-    let mut child = match cmd.spawn() {
+    let child = match cmd.spawn() {
         Ok(child) => child,
         Err(err) => return TimedCommand::Spawn(err),
     };
+    collect_child(
+        child,
+        &cookie,
+        budget,
+        COMMAND_STDOUT_LIMIT,
+        COMMAND_STDERR_LIMIT,
+    )
+}
+
+pub(crate) fn collect_child(
+    mut child: std::process::Child,
+    cookie: &str,
+    budget: Duration,
+    stdout_limit: usize,
+    stderr_limit: usize,
+) -> TimedCommand {
     let pid = child.id();
-    let stdout = drain_pipe(child.stdout.take());
-    let stderr = drain_pipe_err(child.stderr.take());
+    let root = ProcessStamp::of(pid);
+    let stdout = drain_read(child.stdout.take(), "stdout", stdout_limit);
+    let stderr = drain_read(child.stderr.take(), "stderr", stderr_limit);
     let deadline = Instant::now() + budget;
-    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let seen = std::sync::Arc::new(std::sync::Mutex::new(HashSet::new()));
-    {
+    let stop = Arc::new(AtomicBool::new(false));
+    let seen = Arc::new(std::sync::Mutex::new(HashSet::new()));
+    let watcher = {
         let stop = stop.clone();
         let seen = seen.clone();
         thread::spawn(move || {
-            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
-                seen.lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .extend(descendant_pids(pid));
+            while !stop.load(Ordering::Relaxed) {
+                if let Some(root) = root {
+                    seen.lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .extend(descendants(root));
+                }
                 thread::sleep(Duration::from_millis(1));
             }
-        });
-    }
+        })
+    };
     let outcome = loop {
+        if stdout.failed.load(Ordering::Acquire) || stderr.failed.load(Ordering::Acquire) {
+            break TimedCommand::CaptureFailed(CaptureFailure::Incomplete { stream: "output" });
+        }
         match child.try_wait() {
             Ok(Some(status)) => {
                 break TimedCommand::Finished(Output {
@@ -71,160 +127,290 @@ pub fn run_with_timeout(cmd: &mut Command, budget: Duration) -> TimedCommand {
                     stderr: Vec::new(),
                 });
             }
-            Ok(None) if Instant::now() < deadline => {
-                thread::sleep(Duration::from_millis(20));
-            }
-            Ok(None) => {
-                break TimedCommand::TimedOut { pid };
-            }
-            Err(err) => {
-                break TimedCommand::Spawn(err);
-            }
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(20)),
+            Ok(None) => break TimedCommand::TimedOut { pid },
+            Err(err) => break TimedCommand::Spawn(err),
         }
     };
-    stop.store(true, std::sync::atomic::Ordering::Relaxed);
-    let mut pids = seen.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    pids.extend(descendant_pids(pid));
-    pids.extend(cookie_pids(&cookie));
-    // Always reap this spawn's tree plus processes that inherited the
-    // per-spawn cookie (setsid leftovers the PPID walk can miss).
-    kill_spawn(pid, &pids);
+    stop.store(true, Ordering::Relaxed);
+    let _ = watcher.join();
+    let mut processes = seen.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if let Some(root) = root {
+        processes.extend(descendants(root));
+    }
+    processes.extend(cookie_processes(cookie));
+    let cleanup_deadline = Instant::now() + Duration::from_secs(3);
+    let cleaned = loop {
+        kill_observed(&processes);
+        processes.retain(ProcessStamp::is_alive);
+        processes.extend(cookie_processes(cookie));
+        if processes.is_empty() {
+            break true;
+        }
+        if Instant::now() >= cleanup_deadline {
+            break false;
+        }
+        thread::sleep(Duration::from_millis(10));
+    };
+    if !matches!(outcome, TimedCommand::Finished(_)) {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    let drain_deadline = Instant::now() + DRAIN_JOIN;
+    let out = take_drain(stdout, drain_deadline);
+    let err = take_drain(stderr, drain_deadline);
+    if !cleaned {
+        return TimedCommand::CleanupFailed { pid };
+    }
     match outcome {
-        TimedCommand::Finished(mut output) => {
-            let out = take_drain(stdout, DRAIN_JOIN);
-            let err = take_drain(stderr, DRAIN_JOIN);
-            output.stdout = out.bytes;
-            output.stderr = err.bytes;
-            TimedCommand::Finished(output)
+        TimedCommand::Finished(mut output) => match (out, err) {
+            (Ok(stdout), Ok(stderr)) => {
+                output.stdout = stdout;
+                output.stderr = stderr;
+                TimedCommand::Finished(output)
+            }
+            (Err(error), _) | (_, Err(error)) => TimedCommand::CaptureFailed(error),
+        },
+        TimedCommand::CaptureFailed(fallback) => {
+            TimedCommand::CaptureFailed(out.err().or_else(|| err.err()).unwrap_or(fallback))
         }
-        TimedCommand::TimedOut { pid } => {
-            let _ = child.kill();
-            let _ = child.wait();
-            drop(take_drain(stdout, DRAIN_JOIN));
-            drop(take_drain(stderr, DRAIN_JOIN));
-            TimedCommand::TimedOut { pid }
-        }
-        TimedCommand::Spawn(err) => {
-            let _ = child.kill();
-            drop(take_drain(stdout, DRAIN_JOIN));
-            drop(take_drain(stderr, DRAIN_JOIN));
-            TimedCommand::Spawn(err)
-        }
+        other => other,
     }
 }
 
 struct Drain {
-    buf: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
-    handle: thread::JoinHandle<()>,
+    failed: Arc<AtomicBool>,
+    stop: Arc<AtomicBool>,
+    handle: thread::JoinHandle<Result<Vec<u8>, CaptureFailure>>,
+    stream: &'static str,
 }
 
-struct DrainResult {
-    bytes: Vec<u8>,
-}
-
-fn drain_pipe(pipe: Option<std::process::ChildStdout>) -> Drain {
-    drain_read(pipe.map(|p| Box::new(p) as Box<dyn Read + Send>))
-}
-
-fn drain_pipe_err(pipe: Option<std::process::ChildStderr>) -> Drain {
-    drain_read(pipe.map(|p| Box::new(p) as Box<dyn Read + Send>))
-}
-
-fn drain_read(pipe: Option<Box<dyn Read + Send>>) -> Drain {
-    let buf = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-    let shared = buf.clone();
+fn drain_read<R: Read + AsFd + Send + 'static>(
+    pipe: Option<R>,
+    stream: &'static str,
+    limit: usize,
+) -> Drain {
+    let failed = Arc::new(AtomicBool::new(false));
+    let stop = Arc::new(AtomicBool::new(false));
+    let reader_failed = failed.clone();
+    let reader_stop = stop.clone();
     let handle = thread::spawn(move || {
-        let Some(mut pipe) = pipe else {
-            return;
-        };
-        let mut chunk = [0u8; 8192];
-        loop {
-            match pipe.read(&mut chunk) {
-                Ok(0) | Err(_) => break,
-                Ok(n) => shared
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .extend_from_slice(&chunk[..n]),
-            }
+        let result = capture(pipe, stream, limit, &reader_stop, &reader_failed);
+        if result.is_err() {
+            reader_failed.store(true, Ordering::Release);
         }
+        result
     });
-    Drain { buf, handle }
-}
-
-fn take_drain(drain: Drain, budget: Duration) -> DrainResult {
-    let _ = join_timeout(drain.handle, budget);
-    let bytes = drain.buf.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    DrainResult { bytes }
-}
-
-fn join_timeout<T: Send + 'static>(handle: thread::JoinHandle<T>, budget: Duration) -> Option<T> {
-    let (tx, rx) = mpsc::channel();
-    thread::spawn(move || {
-        let _ = tx.send(handle.join());
-    });
-    match rx.recv_timeout(budget) {
-        Ok(Ok(value)) => Some(value),
-        _ => None,
+    Drain {
+        failed,
+        stop,
+        handle,
+        stream,
     }
+}
+
+fn capture<R: Read + AsFd>(
+    pipe: Option<R>,
+    stream: &'static str,
+    limit: usize,
+    stop: &AtomicBool,
+    failed: &AtomicBool,
+) -> Result<Vec<u8>, CaptureFailure> {
+    let mut pipe = pipe.ok_or_else(|| CaptureFailure::Read {
+        stream,
+        source: std::io::Error::other("command pipe missing"),
+    })?;
+    let flags = rustix::fs::fcntl_getfl(&pipe).map_err(|error| CaptureFailure::Read {
+        stream,
+        source: error.into(),
+    })?;
+    rustix::fs::fcntl_setfl(&pipe, flags | rustix::fs::OFlags::NONBLOCK).map_err(|error| {
+        CaptureFailure::Read {
+            stream,
+            source: error.into(),
+        }
+    })?;
+    let mut bytes = Vec::with_capacity(limit);
+    let mut exceeded = false;
+    let mut complete = false;
+    let mut chunk = [0u8; 8192];
+    while !stop.load(Ordering::Acquire) {
+        match pipe.read(&mut chunk) {
+            Ok(0) => {
+                complete = true;
+                break;
+            }
+            Ok(count) => {
+                let retained = count.min(limit.saturating_sub(bytes.len()));
+                bytes.extend_from_slice(&chunk[..retained]);
+                if retained != count {
+                    exceeded = true;
+                    failed.store(true, Ordering::Release);
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(5))
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => (),
+            Err(source) => return Err(CaptureFailure::Read { stream, source }),
+        }
+    }
+    if exceeded {
+        return Err(CaptureFailure::Limit { stream, limit });
+    }
+    if !complete {
+        return Err(CaptureFailure::Incomplete { stream });
+    }
+    Ok(bytes)
+}
+
+fn take_drain(drain: Drain, deadline: Instant) -> Result<Vec<u8>, CaptureFailure> {
+    while !drain.handle.is_finished() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(5));
+    }
+    drain.stop.store(true, Ordering::Release);
+    drain.handle.join().unwrap_or_else(|_| {
+        Err(CaptureFailure::Read {
+            stream: drain.stream,
+            source: std::io::Error::other("command reader panicked"),
+        })
+    })
 }
 
 /// SIGKILL `root` and every descendant, including children that created
 /// their own process group (Stripe CLI helpers).
 pub fn kill_process_tree(root: u32) {
-    kill_spawn(root, &descendant_pids(root));
+    if let Some(root) = ProcessStamp::of(root) {
+        kill_process_tree_stamped(root);
+    }
 }
 
-fn descendant_pids(root: u32) -> HashSet<u32> {
+/// Stop only the supplied process incarnation and the descendants observed under it.
+pub fn kill_process_tree_stamped(root: ProcessStamp) {
+    kill_owned_processes(root, []);
+}
+
+pub(crate) fn kill_owned_processes(
+    root: ProcessStamp,
+    members: impl IntoIterator<Item = ProcessStamp>,
+) {
+    let mut processes = descendants(root);
+    processes.extend(members);
+    kill_observed(&processes);
+}
+
+fn process_stamp(pid: Pid, process: &sysinfo::Process) -> ProcessStamp {
+    ProcessStamp {
+        pid: StacklessPid::from_os(pid.as_u32()),
+        start_time: ProcessStartTime::from_os(process.start_time()),
+    }
+}
+
+fn descendants(root: ProcessStamp) -> HashSet<ProcessStamp> {
     let mut system = System::new();
     system.refresh_processes(ProcessesToUpdate::All, true);
-    let mut stack = vec![root];
-    let mut seen = HashSet::new();
+    if system
+        .process(Pid::from_u32(root.pid.get()))
+        .is_none_or(|process| process.start_time() != root.start_time.get())
+    {
+        return HashSet::new();
+    }
+    let mut stack = vec![root.pid.get()];
+    let mut visited = HashSet::new();
+    let mut observed = HashSet::new();
     while let Some(pid) = stack.pop() {
-        if !seen.insert(pid) {
+        if !visited.insert(pid) {
             continue;
         }
-        for (child, proc) in system.processes() {
-            if proc.parent() == Some(Pid::from_u32(pid)) {
+        if let Some(process) = system.process(Pid::from_u32(pid))
+            && process.status() != sysinfo::ProcessStatus::Zombie
+        {
+            observed.insert(process_stamp(Pid::from_u32(pid), process));
+        }
+        for (child, process) in system.processes() {
+            if process.parent() == Some(Pid::from_u32(pid)) {
                 stack.push(child.as_u32());
             }
         }
     }
-    seen
+    observed
 }
 
-fn cookie_pids(cookie: &str) -> HashSet<u32> {
+fn cookie_processes(cookie: &str) -> HashSet<ProcessStamp> {
     let mut system = System::new();
     system.refresh_processes_specifics(
         ProcessesToUpdate::All,
         true,
         ProcessRefreshKind::nothing().with_environ(UpdateKind::Always),
     );
+    let expected = format!("STACKLESS_SPAWN={cookie}");
     system
         .processes()
         .iter()
-        .filter_map(|(pid, proc)| {
-            let hit = proc
-                .environ()
-                .iter()
-                .any(|var| var.to_string_lossy().contains(cookie));
-            hit.then_some(pid.as_u32())
+        .filter_map(|(pid, process)| {
+            (process.status() != sysinfo::ProcessStatus::Zombie
+                && process
+                    .environ()
+                    .iter()
+                    .any(|value| value == std::ffi::OsStr::new(&expected)))
+            .then_some(process_stamp(*pid, process))
         })
         .collect()
 }
 
-/// SIGKILL this spawn's process group and each observed descendant.
-/// A descendant that is its own process-group leader (`setsid`) is
-/// group-killed so its unseen children die with it. Name-scan hits
-/// never enter this set, so another stack's Stripe helper is safe.
-fn kill_spawn(root: u32, pids: &HashSet<u32>) {
-    kill_process_group(root);
-    for pid in pids {
-        if *pid != root && is_process_group_leader(*pid) {
-            kill_process_group(*pid);
+fn kill_observed(processes: &HashSet<ProcessStamp>) {
+    let mut system = System::new();
+    system.refresh_processes(ProcessesToUpdate::All, true);
+    let owned: std::collections::HashMap<_, _> = processes
+        .iter()
+        .filter(|stamp| {
+            system
+                .process(Pid::from_u32(stamp.pid.get()))
+                .is_some_and(|process| process.start_time() == stamp.start_time.get())
+        })
+        .map(|stamp| (stamp.pid.get(), *stamp))
+        .collect();
+    let mut ordered: Vec<_> = owned.values().copied().collect();
+    ordered.sort_by_key(|stamp| {
+        let mut depth = 0;
+        let mut cursor = stamp.pid.get();
+        let mut visited = HashSet::new();
+        while visited.insert(cursor) {
+            let Some(parent) = system
+                .process(Pid::from_u32(cursor))
+                .and_then(|process| process.parent())
+            else {
+                break;
+            };
+            if !owned.contains_key(&parent.as_u32()) {
+                break;
+            }
+            depth += 1;
+            cursor = parent.as_u32();
         }
-        kill_one(*pid);
+        (depth, stamp.pid.get())
+    });
+    // Killing a sleeping child first can wake its shell into the next command.
+    // Freeze every owned parent before any child is killed or changes wait status.
+    for process in &ordered {
+        if process.is_alive()
+            && let Ok(raw) = i32::try_from(process.pid.get())
+            && let Some(pid) = rustix::process::Pid::from_raw(raw)
+        {
+            let _ = rustix::process::kill_process(pid, rustix::process::Signal::STOP);
+        }
     }
-    kill_one(root);
+    for process in ordered {
+        if !process.is_alive() {
+            continue;
+        }
+        if is_process_group_leader(process.pid.get()) {
+            kill_process_group(process.pid.get());
+        }
+        if process.is_alive() {
+            kill_one(process.pid.get());
+        }
+    }
 }
 
 fn is_process_group_leader(pid: u32) -> bool {
@@ -269,7 +455,7 @@ fn kill_one(pid: u32) {
 }
 
 /// Identifies one incarnation of one process.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ProcessStamp {
     pub pid: StacklessPid,
     /// Unix seconds the process started, per the OS.
@@ -309,6 +495,7 @@ fn start_time_of(pid: StacklessPid) -> Option<ProcessStartTime> {
     );
     system
         .process(Pid::from_u32(raw))
+        .filter(|process| process.status() != sysinfo::ProcessStatus::Zombie)
         .map(sysinfo::Process::start_time)
         .map(ProcessStartTime::from_os)
 }
@@ -340,6 +527,27 @@ mod tests {
             start_time: ProcessStartTime::from_os(1),
         };
         assert!(!stamp.is_alive());
+    }
+
+    #[test]
+    fn an_unreaped_exit_is_not_a_live_process() {
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "read stackless_gate; exit 0"])
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let stamp = ProcessStamp::of(child.id()).unwrap();
+        drop(child.stdin.take());
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while stamp.is_alive() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        let stopped = !stamp.is_alive();
+        child.wait().unwrap();
+        assert!(
+            stopped,
+            "an exited child was treated as alive until its parent reaped it"
+        );
     }
 
     #[test]
@@ -384,6 +592,167 @@ mod tests {
             }
             other => panic!("expected finish, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn capture_rejects_overflow_even_when_the_child_exits_zero() {
+        for (stream, limit) in [
+            ("stdout", COMMAND_STDOUT_LIMIT),
+            ("stderr", COMMAND_STDERR_LIMIT),
+        ] {
+            for excess in [0, 1] {
+                let mut command = Command::new("python3");
+                command.args([
+                    "-c",
+                    &format!(
+                        "import sys; sys.{stream}.buffer.write(b'x' * {}); sys.{stream}.flush()",
+                        limit + excess
+                    ),
+                ]);
+                match run_with_timeout(&mut command, Duration::from_secs(5)) {
+                    TimedCommand::Finished(output) if excess == 0 => {
+                        assert!(output.status.success());
+                        assert_eq!(
+                            if stream == "stdout" {
+                                output.stdout.len()
+                            } else {
+                                output.stderr.len()
+                            },
+                            limit
+                        );
+                    }
+                    TimedCommand::CaptureFailed(CaptureFailure::Limit {
+                        stream: actual,
+                        limit: actual_limit,
+                    }) if excess == 1 => {
+                        assert_eq!(actual, stream);
+                        assert_eq!(actual_limit, limit);
+                    }
+                    other => panic!("unexpected capture result: {other:?}"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn capture_overflow_stops_the_process_before_its_time_budget() {
+        let root = tempfile::tempdir().unwrap();
+        let mut command = Command::new("python3");
+        command.current_dir(root.path()).args([
+            "-c",
+            &format!(
+                r#"
+import os, pathlib, sys, time
+pathlib.Path('pid').write_text(str(os.getpid()))
+sys.stdout.buffer.write(b'x' * {})
+sys.stdout.flush()
+time.sleep(30)
+pathlib.Path('late').touch()
+"#,
+                COMMAND_STDOUT_LIMIT * 2
+            ),
+        ]);
+        let started = Instant::now();
+        assert!(matches!(
+            run_with_timeout(&mut command, Duration::from_secs(30)),
+            TimedCommand::CaptureFailed(CaptureFailure::Limit {
+                stream: "stdout",
+                ..
+            })
+        ));
+        assert!(started.elapsed() < Duration::from_secs(5));
+        let pid = std::fs::read_to_string(root.path().join("pid"))
+            .unwrap()
+            .parse::<u32>()
+            .unwrap();
+        assert!(ProcessStamp::of(pid).is_none());
+        assert!(!root.path().join("late").exists());
+    }
+
+    #[test]
+    fn capture_stops_and_joins_a_reader_whose_writer_never_closes() {
+        use std::io::Write;
+        let (reader, mut writer) = std::os::unix::net::UnixStream::pair().unwrap();
+        writer.write_all(br#"{"ok":true}"#).unwrap();
+        let drain = drain_read(Some(reader), "stdout", 1024);
+        let started = Instant::now();
+        assert!(matches!(
+            take_drain(drain, Instant::now() + Duration::from_millis(50)),
+            Err(CaptureFailure::Incomplete { stream: "stdout" })
+        ));
+        assert!(started.elapsed() < Duration::from_secs(1));
+        // Joining the reader drops its descriptor, although this writer is still open.
+        assert!(writer.write_all(b"still open").is_err());
+    }
+
+    #[test]
+    fn capture_cleanup_requires_an_exact_cookie_environment_entry() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().to_path_buf();
+        let worker = thread::spawn(move || {
+            let mut command = Command::new("python3");
+            command.current_dir(directory).args([
+                "-c",
+                r#"
+import os, pathlib, time
+pathlib.Path('cookie').write_text(os.environ['STACKLESS_SPAWN'])
+while not pathlib.Path('finish').exists(): time.sleep(0.01)
+"#,
+            ]);
+            run_with_timeout(&mut command, Duration::from_secs(10))
+        });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let cookie = loop {
+            if let Ok(cookie) = std::fs::read_to_string(root.path().join("cookie"))
+                && uuid::Uuid::parse_str(&cookie).is_ok()
+            {
+                break cookie;
+            }
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(10));
+        };
+        let mut unrelated = Command::new("/bin/sleep")
+            .arg("30")
+            .env("UNRELATED", &cookie)
+            .spawn()
+            .unwrap();
+        let mut substring = Command::new("/bin/sleep")
+            .arg("30")
+            .env("STACKLESS_SPAWN", format!("prefix-{cookie}"))
+            .spawn()
+            .unwrap();
+        std::fs::write(root.path().join("finish"), "done").unwrap();
+        let result = worker.join();
+        let unrelated_alive = unrelated.try_wait().unwrap().is_none();
+        let substring_alive = substring.try_wait().unwrap().is_none();
+        let _ = unrelated.kill();
+        let _ = unrelated.wait();
+        let _ = substring.kill();
+        let _ = substring.wait();
+        assert!(matches!(result.unwrap(), TimedCommand::Finished(_)));
+        assert!(unrelated_alive && substring_alive);
+    }
+
+    #[test]
+    fn capture_cleanup_rejects_a_stale_process_incarnation() {
+        use std::os::unix::process::CommandExt;
+        let mut child = Command::new("/bin/sleep")
+            .arg("30")
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let actual = ProcessStamp::of(child.id()).unwrap();
+        let stale = ProcessStamp {
+            start_time: ProcessStartTime::from_os(1),
+            ..actual
+        };
+        kill_observed(&HashSet::from([stale]));
+        kill_process_tree_stamped(stale);
+        let alive = actual.is_alive();
+        kill_process_tree_stamped(actual);
+        child.wait().unwrap();
+        assert!(alive);
+        assert!(!actual.is_alive());
     }
 
     #[test]
@@ -549,5 +918,54 @@ os._exit(0)
             decoy_alive,
             "unrelated stripe-cli-projects decoy {decoy_pid} was killed"
         );
+    }
+    #[test]
+    fn cleanup_cannot_wake_a_waiting_parent_into_its_next_action() {
+        use std::os::unix::process::CommandExt;
+        let root = tempfile::tempdir().unwrap();
+        for iteration in 0..12 {
+            let directory = root.path().join(iteration.to_string());
+            std::fs::create_dir(&directory).unwrap();
+            let mut child = Command::new("python3")
+                .current_dir(&directory)
+                .args([
+                    "-c",
+                    r#"
+import os, pathlib, time
+child = os.fork()
+if child == 0:
+    time.sleep(30)
+    os._exit(0)
+pathlib.Path('child.tmp').write_text(str(child))
+os.replace('child.tmp', 'child')
+os.waitpid(child, 0)
+pathlib.Path('escaped').touch()
+"#,
+                ])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .process_group(0)
+                .spawn()
+                .unwrap();
+            let parent = ProcessStamp::of(child.id()).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let sleeper = loop {
+                if let Ok(pid) = std::fs::read_to_string(directory.join("child")) {
+                    break ProcessStamp::of(pid.parse().unwrap()).unwrap();
+                }
+                assert!(Instant::now() < deadline, "waiting parent did not start");
+                thread::sleep(Duration::from_millis(5));
+            };
+            // Exercise the order that used to kill the sleeper before its waiting parent.
+            let processes = (0..64)
+                .map(|_| HashSet::from([sleeper, parent]))
+                .find(|processes| processes.iter().next() == Some(&sleeper))
+                .unwrap();
+            kill_observed(&processes);
+            child.wait().unwrap();
+            assert!(!parent.is_alive() && !sleeper.is_alive());
+            assert!(!directory.join("escaped").exists());
+        }
     }
 }

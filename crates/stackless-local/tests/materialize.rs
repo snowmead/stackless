@@ -80,7 +80,7 @@ fn materialize_cache_checkout_reuse_and_refresh() {
     );
     assert_ne!(dest, dest_b, "instances own separate checkouts");
 
-    // (d) refresh-to-pinned-commit after the worktree was dirtied.
+    // (d) Reusing the same commit must not rewrite a running workload's tree.
     std::fs::write(dest.join("README.md"), "DIRTY\n").unwrap();
     std::fs::remove_file(dest.join("second.txt")).unwrap();
     let (dest_again, commit_again) = materialize::Materializer::new(root)
@@ -90,12 +90,12 @@ fn materialize_cache_checkout_reuse_and_refresh() {
     assert_eq!(commit_again, head);
     assert_eq!(
         std::fs::read_to_string(dest.join("README.md")).unwrap(),
-        "hello\n",
-        "dirtied file restored to the pinned content"
+        "DIRTY\n",
+        "running workload files are never overwritten"
     );
     assert!(
-        dest.join("second.txt").exists(),
-        "deleted file restored by the rebuild"
+        !dest.join("second.txt").exists(),
+        "running workload files are never rebuilt"
     );
 
     // destroy removes the instance checkout; the shared cache stays.
@@ -148,4 +148,27 @@ fn materialize_public_https() {
         .expect("clone a public repo over HTTPS");
     assert_eq!(commit.len(), 40, "resolved a full commit sha");
     assert!(dest.join("README").exists(), "checked out the repo");
+}
+
+#[test]
+fn a_new_commit_uses_a_new_directory_and_preserves_the_old_tree() {
+    let state = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let repo = work.path().join("repo");
+    let old = stackless_git::build_repo(&repo, &[COMMIT_1]).unwrap();
+    let url = format!("file://{}", repo.display());
+    let materializer = materialize::Materializer::new(state.path());
+    let (first, first_commit) = materializer
+        .materialize("instance", "web", &url, "main")
+        .unwrap();
+    let new = stackless_git::build_repo(&repo, &[COMMIT_1, COMMIT_2]).unwrap();
+    let (second, second_commit) = materializer
+        .materialize("instance", "web", &url, "main")
+        .unwrap();
+    assert_eq!(first_commit, old);
+    assert_eq!(second_commit, new);
+    assert_ne!(first, second);
+    assert!(materialize::observe(&first, &old));
+    assert!(!first.join("second.txt").exists());
+    assert!(second.join("second.txt").exists());
 }

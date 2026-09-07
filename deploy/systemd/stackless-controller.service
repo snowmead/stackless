@@ -1,0 +1,23 @@
+[Unit]
+Description=Stackless lifecycle controller
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+ExecStart=/usr/local/bin/stackless daemon run --systemd-user
+ExecStop=/usr/local/bin/stackless daemon stop
+Restart=always
+RestartSec=3
+TimeoutStopSec=120
+KillMode=process
+UMask=0077
+NoNewPrivileges=true
+WorkingDirectory=%h
+Environment=PATH=%h/.local/bin:%h/.cargo/bin:/usr/local/bin:/usr/bin:/bin
+Environment=STACKLESS_NO_SELF_UPDATE=1
+EnvironmentFile=-%h/.config/stackless/controller.env
+
+[Install]
+WantedBy=default.target

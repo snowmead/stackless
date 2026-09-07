@@ -35,7 +35,7 @@ pub enum DaemonError {
 }
 
 impl Fault for DaemonError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             Self::Unreachable { .. } => codes::DAEMON_UNREACHABLE,
             Self::Request { .. } => codes::DAEMON_REQUEST_FAILED,
@@ -68,6 +68,7 @@ impl Fault for DaemonError {
 #[derive(Debug)]
 pub struct DaemonClient {
     stream: UnixStream,
+    peer_protocol: ProtocolVersion,
 }
 
 impl DaemonClient {
@@ -111,7 +112,11 @@ impl DaemonClient {
         role: DaemonRole,
     ) -> Result<Self, DaemonError> {
         let daemon_version = client.ping()?;
-        if !crate::is_cli_process() || daemon_version == build_version() {
+        if !crate::is_cli_process() {
+            client.require_controller_protocol()?;
+            return Ok(client);
+        }
+        if daemon_version == build_version() && client.peer_protocol == ProtocolVersion::V2 {
             return Ok(client);
         }
         let exe = std::env::current_exe().map_err(|err| DaemonError::Spawn {
@@ -165,6 +170,7 @@ impl DaemonClient {
             // One-shot: accept whatever answers after a single replace.
             client.ping()?;
         }
+        client.require_controller_protocol()?;
         Ok(client)
     }
 
@@ -179,7 +185,10 @@ impl DaemonClient {
             }
         })?;
         stream.set_read_timeout(Some(Duration::from_secs(10))).ok();
-        Ok(Self { stream })
+        Ok(Self {
+            stream,
+            peer_protocol: ProtocolVersion::V1,
+        })
     }
 
     fn wait_for_socket(paths: &Paths, budget: Duration) -> Result<Self, DaemonError> {
@@ -199,13 +208,25 @@ impl DaemonClient {
         Ok(version)
     }
 
+    fn require_controller_protocol(&self) -> Result<(), DaemonError> {
+        if self.peer_protocol != ProtocolVersion::V2 {
+            return Err(DaemonError::Request { error: "running daemon uses the old lifecycle protocol; upgrade the stackless CLI and restart the daemon".into() });
+        }
+        Ok(())
+    }
+
     pub fn call(&mut self, request: Request) -> Result<ResponseBody, DaemonError> {
         self.call_versioned(request).map(|(_, body)| body)
     }
 
     fn call_versioned(&mut self, request: Request) -> Result<(String, ResponseBody), DaemonError> {
+        let protocol = if matches!(request, Request::Ping | Request::Shutdown) {
+            ProtocolVersion::V1
+        } else {
+            ProtocolVersion::V2
+        };
         let envelope = Envelope {
-            protocol: ProtocolVersion::V1,
+            protocol,
             version: build_version().to_owned(),
             body: request,
         };
@@ -229,6 +250,7 @@ impl DaemonClient {
             serde_json::from_str(&response_line).map_err(|err| DaemonError::Request {
                 error: format!("unparseable response: {err}"),
             })?;
+        self.peer_protocol = envelope.protocol;
         match envelope.body {
             Response::Ok(body) => Ok((envelope.version, body)),
             Response::Err { error } => Err(DaemonError::Request { error }),
@@ -301,6 +323,8 @@ fn spawn_daemon(
         .arg(proxy_port.get().to_string());
     if role == DaemonRole::Embedded {
         command.arg("--embedded");
+    } else if role == DaemonRole::SystemdUser {
+        command.arg("--systemd-user");
     }
     command
         .stdin(std::process::Stdio::null())

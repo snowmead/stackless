@@ -6,9 +6,8 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 
 use stackless_core::def::{DependencyGraph, StackDef};
-use stackless_core::engine::{ProgressSink, StepProgress, StepProgressEvent, UpOutcome};
+use stackless_core::engine::{ProgressSink, StepProgress, StepProgressEvent};
 use stackless_core::fault::{ErrorContext, Fault, Report};
-use stackless_core::paths::Paths;
 use stackless_core::substrate::SpendInfo;
 
 use crate::client::args::parse_and_validate;
@@ -18,7 +17,7 @@ use crate::client::{
 };
 use crate::error::Error;
 
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
 
 struct Capture {
     stdout: std::cell::RefCell<String>,
@@ -39,6 +38,8 @@ struct CheckOk<'a> {
     substrate: Option<&'a str>,
     services: Vec<&'a str>,
     graph: &'a DependencyGraph,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    placements: Option<stackless_core::def::placement::Placements>,
 }
 
 #[derive(Serialize)]
@@ -102,6 +103,7 @@ impl Output {
     pub fn check_ok(&self, def: &StackDef, graph: &DependencyGraph, substrate: Option<&str>) {
         if self.json {
             self.emit(&CheckOk {
+                placements: substrate.map(|on| def.resolved_placements(on)),
                 schema_version: SCHEMA_VERSION,
                 ok: true,
                 stack: def.stack.name.as_str(),
@@ -113,7 +115,10 @@ impl Output {
         }
         println!("stack {:?}: valid", def.stack.name.as_str());
         if let Some(substrate) = substrate {
-            println!("  substrate {substrate}: all services configured");
+            println!("  default provider: {substrate}");
+            for (workload, on) in def.resolved_placements(substrate).workloads {
+                println!("  {workload}: {on}");
+            }
         }
         println!(
             "  services: {}",
@@ -222,7 +227,7 @@ impl Output {
         for check in checks {
             let mark = if check.ok { "ok" } else { "FAIL" };
             println!("{mark} {}", check.check);
-            if let Some(code) = check.code {
+            if let Some(code) = &check.code {
                 println!("  code: {code}");
             }
             if let Some(remediation) = &check.remediation {
@@ -255,29 +260,30 @@ impl Output {
         self.fault(err);
     }
 
-    pub fn up_ok(
-        &self,
-        name: &str,
-        substrate: &str,
-        outcome: &UpOutcome,
-        origins: &[(String, String)],
-        integrations: &BTreeMap<String, BTreeMap<String, String>>,
-        spend: Option<&SpendInfo>,
-    ) {
+    pub fn up_ok(&self, outcome: &ClientUpOutcome) {
+        let name = &outcome.name;
+        let substrate = &outcome.substrate;
+        let integrations = &outcome.integrations;
+        let origins = &outcome.origins;
+        let spend = outcome.spend.as_ref();
         if self.json {
             #[derive(Serialize)]
             struct UpOk<'a> {
                 schema_version: u32,
                 ok: bool,
                 instance: &'a str,
+                instance_id: &'a str,
                 substrate: &'a str,
                 executed: &'a [String],
                 skipped: &'a [String],
                 duration_ms: u64,
                 steps: &'a [stackless_core::engine::StepTiming],
                 origins: Vec<Origin<'a>>,
+                endpoints: &'a BTreeMap<String, stackless_core::def::ResolvedEndpoint>,
+                placements: &'a stackless_core::def::placement::Placements,
                 #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-                integrations: &'a BTreeMap<String, BTreeMap<String, String>>,
+                integrations:
+                    &'a BTreeMap<String, BTreeMap<String, stackless_core::security::SecretRef>>,
                 #[serde(skip_serializing_if = "Option::is_none")]
                 spend: Option<&'a SpendInfo>,
             }
@@ -290,11 +296,14 @@ impl Output {
                 schema_version: SCHEMA_VERSION,
                 ok: true,
                 instance: name,
+                instance_id: &outcome.instance_id,
                 substrate,
                 executed: &outcome.executed,
                 skipped: &outcome.skipped,
                 duration_ms: outcome.duration_ms,
                 steps: &outcome.steps,
+                endpoints: &outcome.endpoints,
+                placements: &outcome.placements,
                 origins: origins
                     .iter()
                     .map(|(service, origin)| Origin { service, origin })
@@ -304,9 +313,20 @@ impl Output {
             });
             return;
         }
-        println!("{name}: up on {substrate} (all health contracts passed)");
-        for (service, origin) in origins {
-            println!("  {service}: {origin}");
+        println!("{name}: up (default provider: {substrate}; all health contracts passed)");
+        for (service, on) in &outcome.placements.workloads {
+            let origin = origins
+                .get(service)
+                .map(String::as_str)
+                .unwrap_or("no HTTP endpoint");
+            println!("  {service} [{on}]: {origin}");
+        }
+        for (endpoint, binding) in &outcome.endpoints {
+            let source = match binding.source {
+                stackless_core::def::EndpointSource::Declared => "declared, unverified",
+                stackless_core::def::EndpointSource::Provider => "provider",
+            };
+            println!("  endpoint {endpoint}: {} ({source})", binding.url);
         }
         if !outcome.skipped.is_empty() {
             println!(
@@ -337,7 +357,7 @@ impl Output {
             .map(|secs| format!("{}m remaining", secs / 60))
             .unwrap_or_else(|| "none".into());
         println!(
-            "{} [{}] {} — lease: {}",
+            "{} [{}] {}, lease: {}",
             report.name, report.substrate, report.status, lease
         );
         if let Some(reap_failure) = &report.reap_failure {
@@ -350,8 +370,49 @@ impl Output {
                 None => "",
             };
             println!(
-                "  {}: {}{} {}",
-                service.service, service.stage, alive, service.origin
+                "  {} [{}]: {}{} {}",
+                service.service,
+                service.on,
+                service.stage,
+                alive,
+                service.origin.as_deref().unwrap_or("endpoint unknown")
+            );
+        }
+        for (name, endpoint) in &report.endpoints {
+            let state = match endpoint.source {
+                stackless_core::def::EndpointSource::Declared => "declared, unverified",
+                stackless_core::def::EndpointSource::Provider => match endpoint.readiness {
+                    crate::Readiness::Ready => "ready",
+                    crate::Readiness::Unready => "unready",
+                    crate::Readiness::Unknown | crate::Readiness::NotApplicable => "unknown",
+                },
+            };
+            println!(
+                "  endpoint {name}: {} ({state})",
+                endpoint.url.as_deref().unwrap_or("URL unavailable")
+            );
+        }
+        for resource in &report.resources {
+            use stackless_core::state::ResourcePhase;
+            if resource.desired
+                && (resource.has_checkpoint || resource.phase == ResourcePhase::Ready)
+            {
+                continue;
+            }
+            let phase = match resource.phase {
+                ResourcePhase::Intent => "creation intent",
+                ResourcePhase::Created => "recorded created",
+                ResourcePhase::Ready => "recorded ready",
+                ResourcePhase::Absent => "recorded absent",
+            };
+            let retirement = if resource.desired {
+                ""
+            } else {
+                "; removed from definition"
+            };
+            println!(
+                "  retained resource {} [{}]: {phase}{retirement}",
+                resource.key, resource.on
             );
         }
     }
@@ -504,9 +565,13 @@ impl Output {
             });
             return;
         }
-        self.message(&format!(
-            "logs are not retrievable for substrate {substrate:?}"
-        ));
+        for entry in services {
+            self.message(&format!(
+                "{}: {}",
+                entry.service,
+                entry.reason.unwrap_or("logs unavailable")
+            ));
+        }
     }
 
     pub fn fault(&self, fault: &dyn Fault) {
@@ -547,6 +612,27 @@ impl Output {
         field("log_path", &context.log_path);
         field("log_hint", &context.log_hint);
         field("exit_status", &context.exit_status);
+    }
+
+    pub fn operation(&self, operation: &stackless_core::state::Operation) {
+        if self.is_json() {
+            self.emit(
+                &serde_json::json!({"ok": true, "command": "operation", "operation": operation}),
+            );
+        } else {
+            self.message(&format!(
+                "{} {:?} {} {}",
+                operation.id, operation.status, operation.verb, operation.instance
+            ));
+        }
+    }
+
+    pub fn operation_result<T: Serialize>(&self, result: &T) {
+        if self.is_json() {
+            self.emit(&serde_json::json!({"ok": true, "command": "operation", "result": result}));
+        } else {
+            self.emit(result);
+        }
     }
 
     fn emit<T: Serialize>(&self, value: &T) {
@@ -591,25 +677,7 @@ impl Output {
 }
 
 pub(crate) fn render_up(output: &mut Output, outcome: &ClientUpOutcome) {
-    let origins: Vec<(String, String)> = outcome
-        .origins
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-    let engine_like = UpOutcome {
-        executed: outcome.executed.clone(),
-        skipped: outcome.skipped.clone(),
-        duration_ms: outcome.duration_ms,
-        steps: outcome.steps.clone(),
-    };
-    output.up_ok(
-        &outcome.name,
-        &outcome.substrate,
-        &engine_like,
-        &origins,
-        &outcome.integrations,
-        outcome.spend.as_ref(),
-    );
+    output.up_ok(outcome);
     if !output.is_json()
         && let Some(ref info) = outcome.spend
     {
@@ -625,18 +693,12 @@ pub(crate) fn render_down(output: &Output, outcome: &DownOutcome) {
     );
 }
 
-pub(crate) fn render_status(output: &Output, report: &InstanceReport, paths: &Paths) {
-    output.status(
-        report,
-        stackless_daemon::launchd::degradation_warning(paths).as_deref(),
-    );
+pub(crate) fn render_status(output: &Output, report: &InstanceReport, warning: Option<&str>) {
+    output.status(report, warning);
 }
 
-pub(crate) fn render_list(output: &Output, reports: &[InstanceReport], paths: &Paths) {
-    output.list(
-        reports,
-        stackless_daemon::launchd::degradation_warning(paths).as_deref(),
-    );
+pub(crate) fn render_list(output: &Output, reports: &[InstanceReport], warning: Option<&str>) {
+    output.list(reports, warning);
 }
 
 pub(crate) fn render_logs(output: &Output, outcome: &LogsOutcome) {
@@ -663,11 +725,13 @@ pub(crate) fn render_logs(output: &Output, outcome: &LogsOutcome) {
                 source: log.source.as_str(),
                 log_path: log.log_path.clone(),
                 lines: log.lines.clone(),
-                reason: None,
+                reason: log.reason.as_deref(),
             });
         } else {
             output.message(&format!("── {} ──", log.service));
-            if log.lines.is_empty() {
+            if let Some(reason) = &log.reason {
+                output.message(reason);
+            } else if log.lines.is_empty() {
                 output.message("(no output captured)");
             } else {
                 output.message(&log.lines.join("\n"));
@@ -746,7 +810,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(json["ok"], true);
-        assert_eq!(json["schema_version"], 1);
+        assert_eq!(json["schema_version"], 2);
         assert_eq!(json["instance"], "demo");
         assert_eq!(json["services"][0]["source"], "file");
     }
@@ -798,7 +862,10 @@ mod tests {
     #[test]
     fn up_ok_envelope_integrations_shape() {
         let mut clerk = BTreeMap::new();
-        clerk.insert("secret_key".into(), "sk_test".into());
+        clerk.insert(
+            "secret_key".into(),
+            stackless_core::security::SecretRef::new("owner-1", "clerk", "secret_key"),
+        );
         let mut integrations = BTreeMap::new();
         integrations.insert("clerk".into(), clerk);
         #[derive(Serialize)]
@@ -813,7 +880,8 @@ mod tests {
             steps: &'a [stackless_core::engine::StepTiming],
             origins: Vec<Origin<'a>>,
             #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-            integrations: &'a BTreeMap<String, BTreeMap<String, String>>,
+            integrations:
+                &'a BTreeMap<String, BTreeMap<String, stackless_core::security::SecretRef>>,
         }
         #[derive(Serialize)]
         struct Origin<'a> {
@@ -836,9 +904,14 @@ mod tests {
             integrations: &integrations,
         })
         .unwrap();
-        assert_eq!(json["integrations"]["clerk"]["secret_key"], "sk_test");
+        assert_eq!(
+            json["integrations"]["clerk"]["secret_key"]["kind"],
+            "secret_ref"
+        );
+        assert!(!json.to_string().contains("sk_test"));
 
-        let empty: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
+        let empty: BTreeMap<String, BTreeMap<String, stackless_core::security::SecretRef>> =
+            BTreeMap::new();
         let json = serde_json::to_value(&UpOk {
             schema_version: SCHEMA_VERSION,
             ok: true,
@@ -870,7 +943,7 @@ impl ProgressSink for Output {
                 index: usize,
                 total: usize,
                 #[serde(skip_serializing_if = "Option::is_none")]
-                code: Option<&'static str>,
+                code: Option<String>,
                 at_epoch_ms: i64,
                 #[serde(skip_serializing_if = "Option::is_none")]
                 duration_ms: Option<u64>,

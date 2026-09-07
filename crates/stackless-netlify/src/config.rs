@@ -92,12 +92,25 @@ impl CatalogService for NetlifyProjectConfig {
 /// keys inside it are a fault, to trap agent typos).
 pub fn service_netlify(def: &StackDef, service: &str) -> Result<ServiceNetlify, NetlifyError> {
     let location = format!("services.{service}.netlify");
+    let root = def
+        .services
+        .get(service)
+        .map(|spec| spec.source_root(service, SUBSTRATE_NAME))
+        .transpose()
+        .map_err(|error| NetlifyError::ConfigInvalid {
+            location: location.clone(),
+            detail: error.to_string(),
+        })?
+        .flatten();
     let Some(block) = def
         .services
         .get(service)
         .and_then(|spec| spec.substrates.get(SUBSTRATE_NAME))
     else {
-        return Ok(ServiceNetlify::default());
+        return Ok(ServiceNetlify {
+            root,
+            ..Default::default()
+        });
     };
     let table = block
         .as_table()
@@ -118,7 +131,6 @@ pub fn service_netlify(def: &StackDef, service: &str) -> Result<ServiceNetlify, 
             });
         }
     }
-    let root = optional_str(table, "root", &location)?;
     let build = optional_str(table, "build", &location)?;
     let install = optional_str(table, "install", &location)?;
     let publish = optional_str(table, "publish", &location)?;
@@ -236,6 +248,20 @@ pub fn parse_github_repo(url: &str) -> Result<(String, String), NetlifyError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn common_root_applies_without_a_provider_block() {
+        let mut def = StackDef::parse("[stack]\nname='test'\n[services.web]\nsource={repo='r',root='./app/'}\nhealth={path='/'}\n").unwrap();
+        assert_eq!(
+            service_netlify(&def, "web").unwrap().root.as_deref(),
+            Some("app")
+        );
+        def.services.get_mut("web").unwrap().substrates.insert(
+            "netlify".into(),
+            toml::Value::Table(toml::toml! { root = "other" }),
+        );
+        assert!(service_netlify(&def, "web").is_err());
+    }
 
     fn parse(toml: &str) -> StackDef {
         StackDef::parse(toml).expect("valid base toml")

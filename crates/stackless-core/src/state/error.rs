@@ -4,6 +4,20 @@ use crate::fault::{Fault, codes};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StateError {
+    #[error("state connection mutex poisoned")]
+    Poisoned,
+
+    #[error("resource journal invariant failed: {detail}")]
+    ResourceInvariant { detail: String },
+
+    #[error("{instance}: {node} still has receipts on {existing}; cannot move it to {requested}")]
+    PlacementConflict {
+        instance: String,
+        node: String,
+        existing: String,
+        requested: String,
+    },
+
     #[error("cannot open state store at {path}: {source}")]
     Open {
         path: String,
@@ -12,6 +26,12 @@ pub enum StateError {
 
     #[error("cannot create state directory {path}: {source}")]
     StateDir {
+        path: String,
+        source: std::io::Error,
+    },
+
+    #[error("cannot create or protect state file {path}: {source}")]
+    StateFile {
         path: String,
         source: std::io::Error,
     },
@@ -44,41 +64,14 @@ pub enum StateError {
         acquired_at: i64,
     },
 
-    #[error("cannot open remote state store: {message}")]
-    RemoteOpen { message: String },
-
-    #[error("remote state store query failed: {message}")]
-    RemoteQuery { message: String },
-
-    #[error("cannot start the remote state-store runtime: {message}")]
-    RemoteRuntime { message: String },
-
-    #[error("the remote state-store worker is gone")]
-    RemoteWorker,
+    #[error("direct remote state databases are disabled; select one controller")]
+    RemoteDisabled,
 
     #[error("state row decode failed at column {column}: {detail}")]
     RowDecode { column: usize, detail: String },
 }
 
 impl StateError {
-    pub(super) fn remote_open(e: libsql::Error) -> Self {
-        Self::RemoteOpen {
-            message: e.to_string(),
-        }
-    }
-    pub(super) fn remote_query(e: libsql::Error) -> Self {
-        Self::RemoteQuery {
-            message: e.to_string(),
-        }
-    }
-    pub(super) fn remote_runtime(e: std::io::Error) -> Self {
-        Self::RemoteRuntime {
-            message: e.to_string(),
-        }
-    }
-    pub(super) fn remote_worker_gone() -> Self {
-        Self::RemoteWorker
-    }
     pub(super) fn row_range(column: usize) -> Self {
         Self::RowDecode {
             column,
@@ -94,31 +87,39 @@ impl StateError {
 }
 
 impl Fault for StateError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
-            Self::Open { .. } | Self::StateDir { .. } => codes::STATE_OPEN,
+            Self::Open { .. } | Self::StateDir { .. } | Self::StateFile { .. } => codes::STATE_OPEN,
             Self::Migrate { .. } => codes::STATE_MIGRATE,
-            Self::Query { .. } => codes::STATE_QUERY,
+            Self::Query { .. } | Self::Poisoned | Self::ResourceInvariant { .. } => {
+                codes::STATE_QUERY
+            }
+            Self::PlacementConflict { .. } => codes::STATE_PLACEMENT_CONFLICT,
             Self::InstanceExists { .. } => codes::STATE_INSTANCE_EXISTS,
             Self::InstanceNotFound { .. } => codes::STATE_INSTANCE_NOT_FOUND,
             Self::LockHeld { .. } => codes::STATE_LOCK_HELD,
-            Self::RemoteOpen { .. } => codes::STATE_REMOTE_OPEN,
-            Self::RemoteQuery { .. } => codes::STATE_REMOTE_QUERY,
-            Self::RemoteRuntime { .. } => codes::STATE_REMOTE_RUNTIME,
-            Self::RemoteWorker => codes::STATE_REMOTE_WORKER,
+            Self::RemoteDisabled => codes::STATE_REMOTE_DISABLED,
             Self::RowDecode { .. } => codes::STATE_ROW_DECODE,
         }
     }
 
     fn remediation(&self) -> String {
         match self {
-            Self::Open { path, .. } | Self::StateDir { path, .. } => format!(
+            Self::Open { path, .. }
+            | Self::StateDir { path, .. }
+            | Self::StateFile { path, .. } => format!(
                 "check that {path} is writable; set XDG_STATE_HOME to relocate the state dir"
             ),
             Self::Migrate { .. } => {
-                "the state file may be from a newer stackless; upgrade stackless or move the \
-                 state file aside"
+                "keep the state file intact; check the schema version and export completeness before upgrading or migrating it"
                     .into()
+            }
+            Self::Poisoned => {
+                "restart the controller; inspect the preceding panic before retrying".into()
+            }
+            Self::PlacementConflict { .. } => "retire the workload or resource and verify its teardown before placing a new lifetime on another provider".into(),
+            Self::ResourceInvariant { .. } => {
+                "inspect the resource inventory; do not discard unresolved resource records".into()
             }
             Self::Query { .. } => {
                 "re-run the command; if it persists, the state file may be corrupt — move it \
@@ -139,20 +140,8 @@ impl Fault for StateError {
                 "wait for the running operation on {instance:?} to finish and retry; if the \
                  holder crashed it will be taken over automatically on the next attempt"
             ),
-            Self::RemoteOpen { .. } => {
-                "check STACKLESS_STATE_URL (libsql://… or https://…) and STACKLESS_STATE_TOKEN; \
-                 unset both to use the local state file"
-                    .into()
-            }
-            Self::RemoteQuery { .. } => {
-                "the remote state store (Turso Cloud) rejected the request or was unreachable; \
-                 check connectivity and the token, then re-run"
-                    .into()
-            }
-            Self::RemoteRuntime { .. } | Self::RemoteWorker => {
-                "the remote state-store worker could not start or stopped; re-run the command, \
-                 or unset STACKLESS_STATE_URL to use the local state file"
-                    .into()
+            Self::RemoteDisabled => {
+                "use STACKLESS_CONTROLLER=ssh://host and unset STACKLESS_STATE_URL and STACKLESS_STATE_TOKEN; migrate legacy database exports before starting the controller".into()
             }
             Self::RowDecode { .. } => {
                 "the state store returned an unexpected row shape; the state file may be from a \
@@ -165,7 +154,9 @@ impl Fault for StateError {
     fn instance(&self) -> Option<&str> {
         match self {
             Self::InstanceExists { name, .. } | Self::InstanceNotFound { name } => Some(name),
-            Self::LockHeld { instance, .. } => Some(instance),
+            Self::LockHeld { instance, .. } | Self::PlacementConflict { instance, .. } => {
+                Some(instance)
+            }
             _ => None,
         }
     }

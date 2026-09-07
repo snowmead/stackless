@@ -207,7 +207,12 @@ pub fn validate_all(
     known_substrates: &[&str],
 ) -> Result<(), IntegrationError> {
     for (name, integration) in &def.integrations {
-        validate_integration(name, integration, active_host, known_substrates)?;
+        validate_integration(
+            name,
+            integration,
+            integration.on.as_deref().or(active_host),
+            known_substrates,
+        )?;
     }
     validate_integration_outputs(def, known_substrates)?;
     Ok(())
@@ -410,6 +415,7 @@ run = "true"
     #[test]
     fn global_only_managed_provider_rejects_local_host_block() {
         let integration = Integration {
+            on: None,
             provider: "clerk".to_owned(),
             fields: BTreeMap::from([
                 (

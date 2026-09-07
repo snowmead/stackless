@@ -12,6 +12,7 @@ use stackless_stripe_projects::CatalogService;
 pub struct ServiceLaravelCloud {
     pub region: String,
     pub repository: String,
+    pub root: Option<String>,
     pub create_cache: Option<String>,
     pub create_database: Option<String>,
 }
@@ -71,26 +72,83 @@ pub fn service_laravel_cloud(
     for key in table.keys() {
         if !matches!(
             key.as_str(),
-            "region" | "repository" | "create_cache" | "create_database" | "env"
+            "region" | "repository" | "root" | "create_cache" | "create_database" | "env"
         ) {
             return Err(LaravelCloudError::ConfigInvalid {
                 location: location.clone(),
                 detail: format!(
-                    "unknown key {key:?} (known: region, repository, create_cache, create_database, env)"
+                    "unknown key {key:?} (known: region, repository, root, create_cache, create_database, env)"
                 ),
             });
         }
     }
     let region = required_string(table, &location, "region")?;
     let repository = required_string(table, &location, "repository")?;
+    let spec = &def.services[service];
+    let root = spec.source_root(service, SUBSTRATE_NAME).map_err(|err| {
+        LaravelCloudError::ConfigInvalid {
+            location: location.clone(),
+            detail: err.to_string(),
+        }
+    })?;
+    let source_repository =
+        repository_name(&spec.source.repo).ok_or_else(|| LaravelCloudError::ConfigInvalid {
+            location: format!("services.{service}.source.repo"),
+            detail: "must identify a GitHub, GitLab, or Bitbucket repository over HTTPS or SSH"
+                .into(),
+        })?;
+    if source_repository != repository {
+        return Err(LaravelCloudError::ConfigInvalid {
+            location: format!("{location}.repository"),
+            detail: "must match services source.repo".into(),
+        });
+    }
     let create_cache = optional_string(table, &location, "create_cache")?;
     let create_database = optional_string(table, &location, "create_database")?;
     Ok(ServiceLaravelCloud {
         region,
         repository,
+        root,
         create_cache,
         create_database,
     })
+}
+
+/// Compare the provider's repository name with the common Git source.
+fn repository_name(raw: &str) -> Option<String> {
+    let normalized = raw
+        .strip_prefix("git@")
+        .and_then(|value| value.split_once(':'))
+        .map(|(host, path)| format!("ssh://git@{host}/{path}"));
+    let url = reqwest::Url::parse(normalized.as_deref().unwrap_or(raw)).ok()?;
+    if !matches!(url.scheme(), "https" | "ssh")
+        || !matches!(
+            url.host_str(),
+            Some("github.com" | "gitlab.com" | "bitbucket.org")
+        )
+        || url.password().is_some()
+        || url.port().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || (url.scheme() == "https" && !url.username().is_empty())
+    {
+        return None;
+    }
+    let path = url.path().trim_start_matches('/').trim_end_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path);
+    let parts: Vec<_> = path.split('/').collect();
+    if parts.len() < 2
+        || parts.iter().any(|p| {
+            p.is_empty()
+                || matches!(*p, "." | "..")
+                || !p
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+        })
+    {
+        return None;
+    }
+    Some(path.into())
 }
 
 fn required_string(
@@ -210,5 +268,61 @@ repository = "laravel/cloud"
             "laravel_cloud/application catalog gaps:\n{}",
             failures.join("\n")
         );
+    }
+    #[test]
+    fn source_and_catalog_repository_must_agree() {
+        for repo in [
+            "https://github.com/laravel/cloud.git",
+            "ssh://git@github.com/laravel/cloud",
+            "git@github.com:laravel/cloud",
+        ] {
+            let def = parse(&BASE.replace("https://github.com/laravel/cloud", repo));
+            assert_eq!(
+                service_laravel_cloud(&def, "web").unwrap().repository,
+                "laravel/cloud"
+            );
+        }
+        for repo in [
+            "https://github.com/other/repo",
+            "https://user:secret@github.com/laravel/cloud",
+            "https://evil.example/laravel/cloud",
+            "https://github.com/laravel/cloud?ref=other",
+            "/tmp/repo",
+        ] {
+            let def = parse(&BASE.replace("https://github.com/laravel/cloud", repo));
+            assert!(service_laravel_cloud(&def, "web").is_err());
+        }
+    }
+
+    #[test]
+    fn common_and_provider_roots_share_validation() {
+        let def = parse(
+            &BASE
+                .replace("ref = \"main\"", "ref = \"main\", root = \"./app\"")
+                .replace(
+                    "region = \"us-east-1\"",
+                    "root = \"app\"\nregion = \"us-east-1\"",
+                ),
+        );
+        assert_eq!(
+            service_laravel_cloud(&def, "web").unwrap().root.as_deref(),
+            Some("app")
+        );
+        for root in ["../app", "/app", ".env"] {
+            let def = parse(&BASE.replace(
+                "ref = \"main\"",
+                &format!("ref = \"main\", root = {root:?}"),
+            ));
+            assert!(service_laravel_cloud(&def, "web").is_err());
+        }
+        let def = parse(
+            &BASE
+                .replace("ref = \"main\"", "ref = \"main\", root = \"app\"")
+                .replace(
+                    "region = \"us-east-1\"",
+                    "root = \"other\"\nregion = \"us-east-1\"",
+                ),
+        );
+        assert!(service_laravel_cloud(&def, "web").is_err());
     }
 }

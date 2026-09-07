@@ -9,7 +9,6 @@
 //! (§3) still take the daemon down for good.
 
 use std::path::PathBuf;
-use std::process::Command;
 use std::time::Duration;
 
 use stackless_core::paths::Paths;
@@ -122,9 +121,7 @@ fn register() -> Result<(), String> {
     // `disable`) makes bootstrap fail with an opaque "5: Input/output
     // error". Enable and retry once before giving up.
     if service_disabled(&domain) {
-        let _ = Command::new("launchctl")
-            .args(["enable", &format!("{domain}/{LABEL}")])
-            .output();
+        let _ = launchctl(["enable", &format!("{domain}/{LABEL}")]);
         let retry = bootstrap(&domain, &plist)?;
         if retry.status.success() || service_loaded(&domain) {
             return Ok(());
@@ -142,24 +139,40 @@ fn register() -> Result<(), String> {
     ))
 }
 
-fn bootstrap(domain: &str, plist: &PathBuf) -> Result<std::process::Output, String> {
-    Command::new("launchctl")
-        .args(["bootstrap", domain])
-        .arg(plist)
-        .output()
-        .map_err(|err| format!("cannot run launchctl: {err}"))
+fn launchctl<I, S>(args: I) -> Result<std::process::Output, String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    use stackless_core::process::TimedCommand;
+    let mut command = stackless_core::helper_command::HelperCommand::new("launchctl");
+    command.args(args);
+    match command.run(Duration::from_secs(5)) {
+        TimedCommand::Finished(output) => Ok(output),
+        TimedCommand::TimedOut { .. } => Err("launchctl exceeded its five-second deadline".into()),
+        TimedCommand::Spawn(error) => Err(format!("cannot run launchctl: {error}")),
+        TimedCommand::CaptureFailed(error) => Err(format!("cannot read launchctl output: {error}")),
+        TimedCommand::CleanupFailed { .. } => Err("launchctl helpers survived cleanup".into()),
+        TimedCommand::LockFailed { detail, .. } => Err(detail),
+    }
+}
+
+fn bootstrap(domain: &str, plist: &std::path::Path) -> Result<std::process::Output, String> {
+    launchctl([
+        std::ffi::OsStr::new("bootstrap"),
+        std::ffi::OsStr::new(domain),
+        plist.as_os_str(),
+    ])
 }
 
 /// Whether launchd holds a disable record for our label in `domain`.
 /// `print-disabled` lists one entry per line; the value reads `disabled`
 /// on current macOS and `true` on older releases.
 fn service_disabled(domain: &str) -> bool {
-    Command::new("launchctl")
-        .args(["print-disabled", domain])
-        .output()
+    launchctl(["print-disabled", domain])
         .ok()
-        .map(|out| parse_disabled(&String::from_utf8_lossy(&out.stdout)))
-        .unwrap_or(false)
+        .filter(|output| output.status.success())
+        .is_some_and(|output| parse_disabled(&String::from_utf8_lossy(&output.stdout)))
 }
 
 fn parse_disabled(print_disabled: &str) -> bool {
@@ -177,12 +190,7 @@ fn parse_disabled(print_disabled: &str) -> bool {
 /// Whether launchd already knows our service in `domain`. `print`
 /// exiting zero means the service is registered — the one fact we need.
 fn service_loaded(domain: &str) -> bool {
-    Command::new("launchctl")
-        .arg("print")
-        .arg(format!("{domain}/{LABEL}"))
-        .output()
-        .map(|out| out.status.success())
-        .unwrap_or(false)
+    launchctl(["print", &format!("{domain}/{LABEL}")]).is_ok_and(|output| output.status.success())
 }
 
 /// Start the daemon under launchd supervision, returning `true` only when
@@ -224,13 +232,8 @@ pub fn kickstart_if_supervised() -> bool {
     if !service_loaded(&domain) {
         return false;
     }
-    let mut cmd = Command::new("launchctl");
-    cmd.args(["kickstart", &format!("{domain}/{LABEL}")]);
-    match stackless_core::process::run_with_timeout(&mut cmd, Duration::from_secs(5)) {
-        stackless_core::process::TimedCommand::Finished(out) => out.status.success(),
-        // Timed out or could not spawn: caller falls back to a direct daemon spawn.
-        _ => false,
-    }
+    launchctl(["kickstart", &format!("{domain}/{LABEL}")])
+        .is_ok_and(|output| output.status.success())
 }
 
 /// The first `<string>` inside the plist's `ProgramArguments` array — the
@@ -256,15 +259,7 @@ fn xml_unescape(s: &str) -> String {
 /// The caller's real uid. `launchctl`'s `gui/<uid>` domain wants the
 /// numeric uid; libc's `getuid` is the portable source without a crate.
 fn nix_getuid() -> u32 {
-    // SAFETY is enforced by the workspace `unsafe_code = "forbid"`; we
-    // shell out instead to stay within it.
-    Command::new("id")
-        .arg("-u")
-        .output()
-        .ok()
-        .and_then(|out| String::from_utf8(out.stdout).ok())
-        .and_then(|s| s.trim().parse().ok())
-        .unwrap_or(0)
+    stackless_core::process::real_user_id()
 }
 
 /// Whether launchd currently knows our service in the caller's gui
@@ -291,6 +286,7 @@ pub fn degradation_warning(paths: &Paths) -> Option<String> {
 mod tests {
     use super::parse_disabled;
     use stackless_core::process::{TimedCommand, run_with_timeout};
+    #[cfg(test)]
     use std::process::Command;
     use std::time::{Duration, Instant};
 

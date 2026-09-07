@@ -24,7 +24,7 @@ pub enum ContainerError {
 }
 
 impl Fault for ContainerError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             Self::Engine { .. } => codes::LOCAL_DOCKER_ENGINE,
             Self::Operation { .. } => codes::LOCAL_DATASTORE_FAILED,
@@ -44,7 +44,7 @@ impl Fault for ContainerError {
 /// A connected Docker engine handle used for legacy container teardown.
 #[derive(Debug, Clone)]
 pub struct ContainerRunner {
-    docker: Docker,
+    pub(crate) docker: Docker,
 }
 
 impl ContainerRunner {

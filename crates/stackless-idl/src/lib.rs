@@ -26,8 +26,8 @@ pub use canonical::{
 };
 pub use error::IdlError;
 pub use model::{
-    BodyV1, IntegrationEntry, InterfaceV1, KIND_V1, ServiceEntry, SourceMeta, TierEntry,
-    VerifySection,
+    BodyV1, EndpointEntry, IntegrationEntry, InterfaceV1, KIND_V1, ServiceEntry, SourceMeta,
+    TierEntry, VerifySection,
 };
 pub use naming::IdentNamespace;
 

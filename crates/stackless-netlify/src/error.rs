@@ -55,7 +55,7 @@ pub enum NetlifyError {
 }
 
 impl Fault for NetlifyError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             Self::ConfigInvalid { .. } => codes::NETLIFY_CONFIG_INVALID,
             Self::ApiFailed { .. } => codes::NETLIFY_API_FAILED,

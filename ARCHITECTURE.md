@@ -25,30 +25,30 @@ flowchart TB
   Daemon["stackless-daemon"]
   Git["stackless-git"]
 
-  CLI --> Engine
+  CLI -->|durable operation RPC| Daemon
+  Daemon --> Engine
   Engine --> Store
   Engine --> Sub
   Sub --> Int
   Int --> Stripe
   Sub -->|local| Daemon
   Sub --> Git
-  Daemon -->|reaper spawns down| CLI
+  Daemon -->|reaper submits operation| Store
 ```
 
-**Layers.** The CLI/`Client` opens the store, resolves secrets, builds a
-substrate from the binary registry, and drives the engine. The engine is
-substrate-agnostic: it plans steps, checkpoints, and reconciles via
-`observe`. Substrates own materialization, hooks, start, and health.
-Integrations are not substrates — substrates call
-`stackless-integrations` for provision/observe/destroy, which drives the
-Stripe Projects catalog. Only the local substrate needs the daemon
-(proxy, supervision, reaper host).
+**Layers.** CLI and SDK clients submit lifecycle requests to the controller.
+The controller persists each operation, resolves secrets, builds its substrate,
+and runs the engine. The engine plans steps, checkpoints, and reconciles through
+`observe`. Substrates own materialization, hooks, start, and health. Integrations
+call Stripe Projects. The controller hosts all substrates, the local proxy,
+process bookkeeping, and lease enforcement. See [the operation contract](docs/CONTROLLER.md).
 
 ### End-to-end `up` pipeline
 
 ```mermaid
 flowchart TD
-  A["Client::up"] --> B["secrets + validate_all"]
+  A["Client::up"] --> Op["controller: persist operation"]
+  Op --> B["secrets + validate_all"]
   B --> C["substrates::build"]
   C --> D["Engine::up"]
   D --> E["claim_lock + renew_lease"]
@@ -137,19 +137,41 @@ Decided:
   commit in instance-owned space. Bare `--source` uses the checkout in
   place (single active instance per path). On Vercel, `source.repo` must
   be a public GitHub HTTPS remote.
-- **Wiring is interpolation; the dependency graph is derived from it.**
-  Env values reference a namespace evaluated per instance per substrate.
-  If service A's env references an integration, that *is* an ordering
-  edge. `${services.X.origin}` is recorded as wiring but is **not** a
-  topo edge — origins are derivable from the instance name alone on
-  local/Render (Vercel uses the deployment URL after `start`), so mutual
-  CORS references (api ↔ web) are not cycles. No separate `depends_on`.
+- **Output dependencies differ from readiness dependencies.** Integration
+  references require provisioning. Native origins and dynamic endpoint URLs
+  require start output when the provider cannot supply them early. Declared
+  endpoint URLs are available before startup. `depends_on` separately gates
+  consumers on started, ready, or completed. Named aliases preserve native
+  origins and never imply provisioned custom-domain routing.
 - **Two optional per-service lifecycle hooks.** `setup` runs after
   materialization (toolchain, deps). `prepare` runs on every `up`, after
   dependencies are ready and before the service starts (migrations, seed).
-  On cloud substrates, `prepare` executes on the operator's machine from
-  materialized source with the instance env exported. Both hooks are
-  contractually safe to re-run.
+  On cloud substrates, both hooks execute on the operator's machine from
+  a saved source working copy with application env exported. Hook revisions
+  include the snapshot identity, so setup initializes each new working copy
+  even when its Git commit is unchanged. A host-execution
+  grant is required. Each hook in an accepted operation records its own command resource.
+  The process waits behind a gate until its identity is committed. Recovery
+  waits for that process; changed inputs cannot launch a replacement. Output
+  retention is capped at 64 KiB. The workload deadline also runs outside the
+  controller. Teardown stops the command before deleting its source or parents.
+  New operations can run the hook again, so hooks must tolerate repeated use.
+- **Local finite commands own their execution receipts.** Shell jobs, setup,
+  and prepare store a `local-job` resource before releasing the process gate.
+  The watchdog enforces the deadline while the daemon is dead. Recovery reads
+  the same receipt and rejects changed inputs within the operation. Failed
+  output remains available through `logs`, capped at 64 KiB per execution and
+  redacted on read. Teardown validates the owner and workspace marker before
+  stopping the command and removing its files. Legacy receipts keep their
+  original process identity and lack the independent watchdog.
+- **Host services retain bounded logs outside the controller.** A gated internal
+  CLI runner owns each new service generation. Its PID, start time, and cookie
+  are committed before launch. It writes combined output into three 1 MiB log
+  generations and keeps collecting through controller death. Read tails span
+  rotations and redact recorded env values. Teardown allows shutdown output,
+  then removes surviving processes by recorded identity and exact cookie. A dead
+  runner with surviving helpers is drift. Legacy direct-log services retain
+  their old behavior until replaced.
 - **Health gates `up`; `verify` proves.** Every service declares a
   `health` check; `up` refuses success until all pass. The stack declares
   one `verify` command (named tiers can be added later) run by the
@@ -168,7 +190,8 @@ Decided:
 |---|---|---|
 | `${stack.name}` | the stack's declared name | useful for hosted integration names |
 | `${instance.name}` | the instance's name | the one identity everything derives from |
-| `${services.X.origin}` | substrate-appropriate origin | local: `http://x.{instance}.localhost:<port>`; Render: `https://{stack}-{instance}-x.onrender.com`; Vercel: deployment URL after `start`. Mutual service refs are not topo edges |
+| `${services.X.origin}` | substrate-appropriate origin | local: `http://x.{instance}.localhost:<port>`; Render: `https://{stack}-{instance}-x.onrender.com`; Vercel: deployment URL after `start`. Late-bound origins require start output |
+| `${endpoints.X.url}` | declared URL or provider origin for its workload | declared URLs have unknown readiness; dynamic bindings follow workload readiness |
 | `${secrets.KEY}` | resolved secret value | `secrets.required` injects same-named vars |
 | `${integrations.X.<output>}` | provider output | from integration checkpoint payloads |
 | `$PORT` | OS-allocated port | injected into local `run` only — not interpolation |
@@ -176,15 +199,18 @@ Decided:
 Resolution rules: substrate `env` overlays the common `env`; references
 to anything undeclared fail validation at parse time, not at `up` time.
 
-Deliberately absent from the schema: lease duration (`--lease` flag with
-substrate defaults), dirty-worktree override (per-invocation, local-only,
-recorded in the manifest), `image:` runners and third-party egress
-(reserved seams), and any `depends_on` key.
+Lease duration and dirty source overrides are invocation options. Workloads,
+container images, jobs, endpoints, and explicit readiness dependencies belong to
+the definition. `on` selects each workload or resource's hosting adapter. A
+`RoutedSubstrate` composes the registered adapters under one engine and uses
+persisted placement for old receipts. Live or unfinished resources cannot change
+adapters. Provider capabilities reject unsupported execution before admission. See [execution contracts](docs/EXECUTION.md).
 
 **Secrets resolution.** When `[stack.projects.stripe].project` is
 recorded, stackless pulls the Stripe Projects vault as the base; a
 gitignored `.stackless.env` next to `stackless.toml` overlays it (file
-wins). Local-only stacks without a Stripe anchor stay env-file-only. A
+wins). Stacks whose workloads are all local, without catalog resources or a Stripe
+anchor, stay env-file-only. A
 `required` key that resolves from neither fails before anything
 provisions. `stackless doctor` runs `stripe projects --preflight` to
 surface auth/ToS/provider-link blockers before `up`.
@@ -223,8 +249,8 @@ Decided:
 
 - **Verbs.** `up [--name]`, `down`, `verify`, `status`, `list`, `logs`
   (local: daemon-captured file output; cloud: recent API window via
-  `render_api` / `vercel_api` / `fly_events` / `netlify_api` /
-  `railway_api` / `cloudflare_api` / `wordpress_api` /
+  `render_api` / `vercel_api` / `fly_events` /
+  `railway_api` / `wordpress_api` /
   `laravel_cloud_api` / `gitlab_api`). `up` on an existing instance
   resumes. **`--name` is optional at creation** (`{stack.name}-{uuid}`
   when omitted). **The substrate is chosen at creation only**
@@ -236,28 +262,38 @@ Decided:
   agent-branchable exit codes. Anything that spends money requires
   `--confirm-paid`.
 - **One operation at a time per instance.** Mutating verbs take a
-  per-instance operation lock (PID + process start time); a second
-  invocation fails fast. The reaper respects the lock (§6).
+  controller queue. Database claims carry a unique token and PID/start time;
+  overlapping engine calls cannot share a claim. The reaper submits to this queue.
 - **Parallel `up` across different names** is supported. Cross-process
   file locks serialize shared writers: Stripe Projects CLI invocations
   keyed by `definition_dir`, and bare git cache clone/fetch keyed by
   source URL. Parallel agents should use one git worktree each; bare
   `--source` on multiple active instances is refused — use `--dirty` or
   distinct checkouts.
+- **Provider CLI deadlines survive controller death.** The internal CLI helper
+  acquires the Stripe command lock and acknowledges it before the caller releases
+  the command. It holds that lock through the command's deadline, bounded output
+  capture, and cleanup. Runtime snapshot replacement waits for the lock, and GC
+  defers while it is held. Process cleanup suspends owned parents before killing
+  children, preventing a shell from continuing after its sleep is killed.
+
 - **Errors are an agent-facing contract.** Every error carries *what*
   failed, *why*, and *how to proceed*. In `--json` mode:
   `schema_version`, stable `code`, optional `step`/`instance`, `context`,
   `remediation`. Agents branch on codes, never prose. **stdout** carries
   final envelopes; **stderr** carries NDJSON `up` progress in `--json`
   mode.
-- **Identity.** DNS-safe instance name, persisted in the manifest. Nothing
-  is re-derived from the working directory at runtime.
+- **Identity.** Every birth has an immutable instance ID and resource namespace.
+  The DNS-safe display name can be reused after verified teardown. Resource
+  ownership and recovery use the recorded birth identity.
 - **State: a SQL state store.** Instance records, leases, operation
-  locks, and the per-step checkpoint journal live in SQLite under the
-  per-user XDG state dir. Local engine: `rusqlite` (bundled SQLite, WAL)
-  — the `turso` crate's exclusive per-process file lock cannot serve
-  concurrent CLI + daemon. Opt-in **fleet plane**: `libsql` remote mode
-  for shared CAS leases/locks across operator machines.
+  claims, resource inventory, durable operations, events, and checkpoints live
+  in SQLite under the per-user XDG state dir. The controller owns lifecycle
+  writes. The direct remote database driver is removed; remote clients use the
+  controller transport. Exported legacy schemas convert transactionally on open
+  without dropping checkpoint or resource evidence. Terminal request bodies expire
+  after seven days once their birth has been collected and its resources are
+  absent. Request digests preserve idempotent submission after input collection.
 - **Teardown leaves a tombstone.** After verified `down`/reap, rows flip
   to tombstone and logs survive a GC window; billable resources are gone.
 - **Resume reconciles against observation.** On resume, each recorded
@@ -320,12 +356,12 @@ Rationale for host processes over containers-only: the container-build
 penalty on macOS is paid on every agent cycle, while the fidelity
 containers would buy is exactly what cloud substrates exist to prove.
 
-### The daemon (local substrate only)
+### The controller daemon
 
 One resident component per user hosts everything that must outlive a CLI
-invocation: reverse proxy, process bookkeeping, and the lease reaper.
-Cloud substrates need none of this for process keep-alive — but the same
-reaper enforces **all** substrates' leases from the operator machine.
+invocation: lifecycle operations, reverse proxy, process bookkeeping, and lease
+enforcement for local and cloud substrates. The operator must remain awake
+for cloud lease enforcement; always-on remote hosting remains unfinished.
 
 - **Same binary.** `stackless` running internal `daemon run`. The Rust
   SDK's `Client::system()` resolves that CLI via `STACKLESS_BIN` / `PATH`.
@@ -336,9 +372,9 @@ reaper enforces **all** substrates' leases from the operator machine.
   user agent (macOS) / systemd user unit (Linux). If registration is
   refused, stackless degrades loudly: leases are enforced only while the
   daemon happens to be running, and `status` says so.
-- **Instance processes are not the daemon's children.** Spawned in their
-  own sessions; supervised by recorded PID + start time (PID-reuse-safe);
-  stdout/stderr to size-capped, rotated log files.
+- **Instance processes survive controller restarts.** Each gets its own process
+  group. The controller records PID and start time before releasing user code,
+  and can adopt the process after restart. Output goes to service log files.
 - **Upgrade = restart + re-adopt.** For dist installs, CLI self-update
   (axoupdater + re-exec) precedes the existing drain/re-adopt handshake.
   Socket handshake carries version; newer CLI drains older daemon.
@@ -391,20 +427,22 @@ Shared rules:
   DNS-safe by construction (§2).
 - **Sequencing:** provision integrations → `prepare` on the operator
   machine → push env → deploy → health gate.
-- **Every step checkpoints before proceeding**; interrupted runs resume
-  rather than duplicate.
+- **Intent precedes side effects.** Returned native handles are recorded before
+  configuration and readiness. Checkpoints record completed steps; unfinished
+  inventory remains available to recovery and teardown.
 - **Teardown is verified, dependents-first**; exit non-zero if anything
   that bills or holds state remains. Spend is printed after cloud `up` /
   `down`.
-- **Stripe Projects is the authoritative inventory for recovery** when
-  the state store and reality drift (`stripe projects pull`,
-  `services list --json`).
+- **Recovery combines separate evidence.** The controller inventory records
+  ownership and intent. Stripe reports catalog registration. Native provider
+  APIs establish deployment state and absence. Failed observations retain
+  ownership until cleanup can be verified.
 - **Paid tiers are never auto-confirmed** — `--confirm-paid` per
   invocation, backed by hard per-provider spend caps on the stack
   project.
 - **No root-origin alias on cloud**; each service keeps its own public
-  URL. Setup is typically skipped (cloud builds own the toolchain);
-  prepare still runs on the operator machine from a shallow clone.
+  URL. Setup and prepare run on the operator machine from the saved source
+  working copy. Provider build commands remain separate deployment settings.
 - **Plugin surface** pinned via committed snapshots in
   `crates/stackless-stripe-projects/tests/fixtures/` (nightly watcher
   opens upgrade PRs).
@@ -433,14 +471,30 @@ Shared rules:
 
 - Catalog: `flyio/app` (usage-billed → always `--confirm-paid`). App name
   = resource name (Fly naming rules).
-- Two deploy paths: `[services.X.fly].image` (Machines API fast path) or
+- Two deploy paths: common `image` or `[services.X.fly].image` (Machines API) or
   source-build via `flyctl deploy --remote-only` when `image` is omitted
   (optional `dockerfile`; requires `fly`/`flyctl` on PATH). Smokes:
-  `smoke-fly` (image) and `smoke-fly-build` (source-build).
-- Stripe provisions; allocates IPs, creates/updates the machine, health-
-  gates on `https://{app}.fly.dev`. Deploy token is Stripe-managed and
-  ephemeral — `observe`/`down` key off Stripe registration. Hand-written
-  reqwest Machines client + flyctl for remote builds.
+  `smoke-fly` (image) and `smoke-fly-build` (source-build). Source builds extract
+  a durable archive at `source.root`; Dockerfile paths are relative to that root.
+  Prepare uses a separate working copy. Generated Fly config and CLI home remain
+  outside the uploaded context. Builder process identity and deadline commit
+  before release. Recovery waits for that process; output is capped at 64 KiB.
+- Fly workers support both image and source-build deployment. Workers without
+  HTTP health omit services, public-IP allocation, and origins. Their restart
+  policy is `always`; readiness observes the owned machine again after start.
+  Workers with explicit HTTP health retain a listener. Finite jobs remain unsupported.
+- Images need no Git source or provider block. Common `run` maps to `init.exec`
+  through `/bin/sh -c`; `PORT` defaults to the configured internal port.
+  Source-free setup, prepare, and verification use recorded empty snapshots.
+- Stripe provisions the app. Catalog and native journals persist app identity,
+  IP-allocation intent, and machine submission receipts. Recovery requires the
+  recorded machine ID or one exact receipt. Image revisions update that machine;
+  source revisions restrict flyctl to it. Readiness checks configuration, image
+  digest, started state, and the app's complete machine inventory.
+- Native app deletion verifies absence before catalog removal. App ID and
+  organization mismatches retain ownership. Recorded local builders stop before
+  app deletion. Fly's remote builder ownership, failed-build retry generations,
+  and live provider conformance remain required.
 - `stackless logs` fetches machine events via the Fly Machines API
   (`source: "fly_events"`; recent window, no streaming).
 
@@ -452,22 +506,35 @@ Shared rules:
   zip-upload to the build API (`deploy = "build"`) or git-linked
   `createSiteBuild` (`deploy = "git"`). Smokes: `smoke-netlify` (static)
   and `smoke-netlify-build` (build API).
-- Stripe provisions; Netlify REST deploys and polls to `ready`, health-
-  gates on `ssl_url`. Token ephemeral — `observe`/`down` key off Stripe.
-  Hand-written client.
-- `stackless logs` fetches recent deploy log lines via the Netlify API
-  (`source: "netlify_api"`; recent window, no streaming).
+- Stripe provisioning and native requests share an owned inventory record.
+  Deployments carry persisted receipts in `title`. Recovery scans all pages or
+  reads a saved build ID, then verifies the exact deployment and site.
+- Readiness requires the recorded deployment to reach `ready` with a provider
+  endpoint. Teardown verifies native site absence before catalog removal.
+  Failed responses retain both native and catalog cleanup information.
+- Runtime logs are unsupported. Deployment metadata is not log output.
+- Git builds still follow a branch. Prepare uses the shared durable snapshot and
+  command runner. Immutable Git deployment transport and verification remain required.
 
 ### 4e. Railway
 
 - Catalog: `railway/hosting` from `[services.X.railway]`.
-- Two deploy paths: `[services.X.railway].image` (GraphQL image deploy;
-  optional `cmd`) or GitHub HTTPS `source.repo` + pinned `ref` when
-  `image` is omitted.
+- Two deploy paths: common `image` or `[services.X.railway].image` (GraphQL image deploy;
+  optional `cmd`) or GitHub HTTPS `source.repo` when `image` is omitted.
+  Git refs resolve to durable snapshots. Deployment sends the saved commit SHA;
+  prepare uses a separate working copy at `source.root`.
+- Images need no Git source or provider block. Common `run` maps to a quoted
+  `/bin/sh -c` start command. Command arrays preserve each argument boundary.
+  Source-free setup, prepare, and verification use recorded empty snapshots.
 - Stripe provisions; Railway GraphQL creates project/service, deploys,
   attaches a public domain, health-gates on the live origin. Deploy token
   from Stripe instance env (`RAILWAY_TOKEN` / `RAILWAY_API_TOKEN`) or
-  `.railway-token`; `observe`/`down` key off Stripe registration.
+  `.railway-token`. Native project/service receipts and mutation intents persist
+  with catalog ownership. Returned IDs survive restart; an unknown deployment
+  submission blocks another POST. Observation verifies ownership, configuration,
+  domain, commit, and active deployment. Teardown requires a matching native
+  deletion record before catalog removal. Tombstone visibility, source-connection
+  auto-deploy behavior, and live conformance remain unverified.
 - `stackless logs` fetches a recent deployment/build window via Railway
   GraphQL (`source: "railway_api"`; no streaming).
 
@@ -491,11 +558,13 @@ Shared rules:
 
 - Catalog: `wordpress.com/site` from `[services.X.wordpress]` (optional
   `plan`, `root`).
-- Stripe provisions; WordPress.com REST publishes static HTML from the
-  pinned ref under `root`, sets the front page when allowed, health-
-  gates on `SITE_URL`. Token: `WORDPRESS_COM_ACCESS_TOKEN` /
-  `WORDPRESS_ACCESS_TOKEN` or `.wordpress-com-token`.
-  `observe`/`down` key off Stripe. Domain purchase
+- Stripe provisions the site. Native publication consumes sealed HTML under
+  `source.root` or `wordpress.root`. Revision receipts recover lost page-create
+  responses. Readiness verifies page content, homepage settings, and a marker
+  in the public homepage. Recorded pages can be repaired after content drift.
+- Token: `WORDPRESS_COM_ACCESS_TOKEN`, `WORDPRESS_ACCESS_TOKEN`, or
+  `.wordpress-com-token`. Teardown retains the native ID through catalog
+  subscription removal and verifies site absence. Domain purchase
   (`wordpress.com/domain`) is excluded.
 - `stackless logs` fetches a recent site activity window
   (`source: "wordpress_api"`; no streaming).
@@ -504,11 +573,18 @@ Shared rules:
 
 - Catalog: `laravel_cloud/application` from
   `[services.X.laravel-cloud]` (`repository`, region, …).
-- Stripe provisions `app_id`; Laravel Cloud JSON:API resolves the
+- Stripe provisions `app_id`. Native readback checks application identity,
+  repository, root, and the explicit default environment before deploying.
+  Deployment readiness checks the returned commit and current-deployment pointer.
+  Catalog and native journals retain application and deployment IDs across
+  retries. Unknown POST outcomes block resubmission. Commit-pinned submission
+  and recovery of an unreturned deployment ID remain unfinished.
+- Laravel Cloud JSON:API resolves the
   environment, POST `/environments/{id}/deployments`, polls to
   `deployment.succeeded`, health-gates on the app origin. Token:
   `LARAVEL_CLOUD_API_TOKEN` or `.laravel-cloud-token`.
-  `observe`/`down` key off Stripe registration.
+  Native observation checks the current deployment. `down` verifies application
+  absence before removing the Stripe registration.
 - `stackless logs` fetches recent deployment log lines
   (`source: "laravel_cloud_api"`; no streaming).
 
@@ -520,8 +596,12 @@ Shared rules:
   from `[services.X.gitlab].root`, installs a Pages CI job
   (`.gitlab-ci.yml`), polls the `pages` job (~15m budget), health-gates
   on the public Pages URL. Token: `GITLAB_TOKEN` /
-  `GITLAB_ACCESS_TOKEN` or `.gitlab-token`. `observe`/`down` key off
-  Stripe registration.
+  `GITLAB_ACCESS_TOKEN` or `.gitlab-token`. Native commit receipts, pipeline/job
+  IDs, and repair generations persist with catalog ownership. Deployment replaces
+  managed Pages files, removes stale assets, and checks the branch tip and public
+  serving receipt. A completed deployment can create a new repair generation;
+  an unfinished submission resumes its existing receipt. Teardown verifies native
+  Pages/project absence before removing Stripe registration.
 - `stackless logs` fetches recent Pages/CI job log lines
   (`source: "gitlab_api"`; no streaming).
 
@@ -579,20 +659,32 @@ Lease semantics:
 
 ## 7. Health & proof
 
-- **Per-service health checks run through the instance's public
+- **HTTP health checks run through the instance's public
   origin** — locally the proxy; on cloud the provider URL — never the
   raw port, so routing is part of what "healthy" proves. Shape:
   `health = { path, status = 200, contains = "..." }` with a retry
   budget defaulting per substrate (seconds locally; minutes against a
   cold cloud deploy).
+- **TCP health checks** connect to the recorded local listener port. The shape
+  is `health = { protocol = "tcp" }`. Connection success proves a listener;
+  dependent jobs or verification establish application protocol behavior.
+  TCP does not register HTTP routes. Cloud and container TCP admission is
+  rejected until those routing paths are implemented and tested.
 - **`up` reports staged truth:** provisioned → configured → prepared →
   started → healthy, each stage gated on the previous. `status` shows the
-  stage an instance actually reached, per service.
+  stage an instance actually reached, per service. Current observations separate
+  existence, configuration, and readiness. Failed observations remain unknown.
+  Status also exposes retained inventory metadata for unfinished operations and
+  removed workloads, without provider payloads or credentials.
 - **`verify` runs the stack's verify command** with env built by the same
   interpolation mechanism services use (`[stack.verify]` has `run` and
-  `env` with `${...}` references). It renews the lease on the way in and
-  again on success — keepalive plus proof. App-level fixtures are the
-  stack's own business.
+  `env` with `${...}` references). Each operation and tier owns a gated command
+  receipt. `timeout_secs` defaults to 300 and runs outside the controller.
+  Recovery reconnects to the same process; cancellation stops it. Output is
+  capped at 64 KiB and retained through failure until teardown. The command
+  depends on the existing resource inventory, so teardown stops verification
+  before removing its source and prerequisites. It renews the lease on entry
+  and success. Older unjournaled verification operations remain interrupted.
 
 ```mermaid
 flowchart LR
@@ -660,7 +752,7 @@ Workspace conventions:
 |---|---|
 | `stackless-core` | Definition model (serde, validation, interpolation, derived graph), SQL state store, lifecycle engine (`plan` / execute / checkpoint / observe). Defines the `Substrate` trait. |
 | `stackless-local` | Local `Substrate`: process spawn/adoption, port allocation; materialization via `stackless-git`. |
-| `stackless-git` | Pure-Rust git (`grit-lib`): bare cache + alternates checkout for local; shallow `clone_checkout` for cloud prepare; `snapshot_worktree` for `--dirty`. |
+| `stackless-git` | Pure-Rust git (`grit-lib`): bare cache + alternates checkout for local; sealed Git snapshots for cloud hooks and deployment; `snapshot_worktree` for `--dirty`. |
 | `stackless-daemon` | Unix-socket RPC, process bookkeeping, reaper tick, Host-header reverse proxy. |
 | `stackless-cloud` | Shared cloud scaffolding: prepare hooks, health poll, credentials, checkpoint helpers. |
 | `stackless-stripe-projects` | Neutral Stripe Projects CLI driver: project anchor, environments, catalog add/remove, env materialization, spend caps. |

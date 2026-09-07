@@ -4,6 +4,11 @@ use stackless_core::fault::{ErrorContext, Fault, codes};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProjectsError {
+    #[error("Stripe resource journal rejected the operation: {detail}")]
+    Journal { detail: String },
+
+    #[error("the create result for {resource:?} is unknown; refusing another create")]
+    CreationUnknown { resource: String },
     #[error("the Stripe CLI or its `projects` plugin is unavailable: {detail}")]
     Unavailable { detail: String },
 
@@ -24,6 +29,15 @@ pub enum ProjectsError {
     #[error("`stripe projects` timed out after {budget_secs}s ({detail})")]
     Timeout { budget_secs: u64, detail: String },
 
+    #[error("Stripe CLI {stream} exceeded its {limit}-byte capture limit")]
+    OutputLimit { stream: &'static str, limit: usize },
+
+    #[error("Stripe CLI output is incomplete: {detail}")]
+    OutputUnavailable { detail: String },
+
+    #[error("Stripe CLI processes remain after cleanup of process {pid}")]
+    CleanupFailed { pid: u32 },
+
     #[error("cannot anchor the stack's Stripe project: {detail}")]
     ProjectAnchor { detail: String },
 
@@ -41,13 +55,18 @@ pub enum ProjectsError {
 }
 
 impl Fault for ProjectsError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
+            Self::Journal { .. } => "stripe.projects.journal",
+            Self::CreationUnknown { .. } => "stripe.projects.creation_unknown",
             Self::Unavailable { .. } => codes::STRIPE_PROJECTS_UNAVAILABLE,
             Self::Auth { .. } => codes::STRIPE_PROJECTS_AUTH,
             Self::Failed { .. } => codes::STRIPE_PROJECTS_FAILED,
             Self::LockHeld { .. } => codes::STRIPE_PROJECTS_LOCK_HELD,
             Self::Timeout { .. } => codes::STRIPE_PROJECTS_TIMEOUT,
+            Self::OutputLimit { .. } => codes::STRIPE_PROJECTS_OUTPUT_LIMIT,
+            Self::OutputUnavailable { .. } => codes::STRIPE_PROJECTS_OUTPUT_UNAVAILABLE,
+            Self::CleanupFailed { .. } => codes::STRIPE_PROJECTS_CLEANUP_FAILED,
             Self::ProjectAnchor { .. } => codes::STRIPE_PROJECT_ANCHOR,
             Self::ProvisionFailed { .. } => codes::STRIPE_PROJECTS_PROVISION_FAILED,
             Self::CatalogMissing { .. } => codes::STRIPE_PROJECTS_CATALOG_MISSING,
@@ -57,6 +76,8 @@ impl Fault for ProjectsError {
 
     fn remediation(&self) -> String {
         match self {
+            Self::Journal { .. } => "inspect the recorded resource identity and configuration before retrying".into(),
+            Self::CreationUnknown { .. } => "retry discovery after the provider settles; do not remove the intent or repeat creation".into(),
             Self::Unavailable { .. } => {
                 "install the Stripe CLI (https://docs.stripe.com/stripe-cli), then run \
                  `stripe plugin install projects`"
@@ -78,6 +99,12 @@ impl Fault for ProjectsError {
                 "the Stripe Projects CLI did not return in time; kill leftover \
                  `stripe` / `stripe-cli-projects` processes and re-run"
                     .into()
+            }
+            Self::OutputLimit { .. } | Self::OutputUnavailable { .. } => {
+                "inspect the recorded resource before retrying; incomplete CLI output cannot establish creation or absence".into()
+            }
+            Self::CleanupFailed { .. } => {
+                "inspect the recorded CLI process and resource state before retrying; cleanup was not confirmed".into()
             }
             Self::ProjectAnchor { .. } => {
                 "ensure the definition dir is writable and `stripe projects status` reports a \

@@ -1,14 +1,9 @@
 //! The derived dependency graph (ARCHITECTURE.md §1).
 //!
-//! Wiring is interpolation, and the graph is derived from it — never
-//! declared separately. Two edge classes fall out of the namespace:
-//!
-//! - `${integrations.X.output}` is an **ordering** edge: outputs exist
-//!   only after the integration is provisioned.
-//! - `${services.X.origin}` is **wiring only**: origins are derivable
-//!   from the instance name alone on every substrate, so mutual
-//!   references (api ↔ web CORS) are recorded but never order startup —
-//!   which is exactly why they are not cycles.
+//! This graph records workload wiring and explicit readiness dependencies.
+//! Integration references order provisioning. Service origins and endpoint URLs
+//! are wiring edges here; the execution planner adds output dependencies using
+//! the selected provider's ability to supply URLs before startup.
 //!
 //! Representation, ordering, and cycle detection all live in oxgraph: the
 //! nodes and ordering edges feed a `GraphBuilder`, `topological_sort` yields
@@ -75,6 +70,12 @@ impl DependencyGraph {
             let Some(service_idx) = index_of(&service_node) else {
                 continue;
             };
+            for dependency in service.depends_on.keys() {
+                if let Some(target_idx) = index_of(&Node::Service(dependency.clone())) {
+                    ordering_edges.insert((target_idx, service_idx));
+                    wiring.insert((service_idx, target_idx));
+                }
+            }
             let mut values: Vec<(String, String)> = service
                 .env
                 .iter()
@@ -89,6 +90,12 @@ impl DependencyGraph {
                 for reference in interp::references(value, location)? {
                     let target = match reference {
                         Reference::ServiceOrigin(name) => Node::Service(name),
+                        Reference::EndpointUrl(name) => {
+                            let Some(endpoint) = def.endpoints.get(&name) else {
+                                continue;
+                            };
+                            Node::Service(endpoint.workload.clone())
+                        }
                         Reference::IntegrationOutput { integration, .. } => {
                             Node::Integration(integration)
                         }
