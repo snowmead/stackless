@@ -22,6 +22,7 @@ struct Remote {
     commit: Option<String>,
     creates: usize,
     deploys: usize,
+    delayed_receipt_reads: usize,
     deletes: usize,
 }
 struct Runner {
@@ -193,6 +194,15 @@ impl<T: Substrate> Substrate for FixtureSubstrate<T> {
 
 #[tokio::test]
 async fn engine_recovers_lost_deploy_and_delete_responses_without_duplicate_mutations() {
+    run_deployment_recovery(false).await;
+}
+
+#[tokio::test]
+async fn engine_waits_for_a_queued_deployment_without_another_post() {
+    run_deployment_recovery(true).await;
+}
+
+async fn run_deployment_recovery(queued: bool) {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     let commit = stackless_git::build_repo(&repo, &[&[("app/app.txt", "revision one")]]).unwrap();
@@ -267,7 +277,8 @@ async fn engine_recovers_lost_deploy_and_delete_responses_without_duplicate_muta
             let mut state = state.lock().unwrap();
             state.deploys += 1;
             state.commit = Some(expected_commit.clone());
-            ResponseTemplate::new(500)
+            state.delayed_receipt_reads = if queued { 2 } else { 0 };
+            ResponseTemplate::new(if queued { 202 } else { 500 })
         })
         .expect(1)
         .mount(&server)
@@ -275,9 +286,11 @@ async fn engine_recovers_lost_deploy_and_delete_responses_without_duplicate_muta
     let state = remote.clone();
     Mock::given(method("GET")).and(path("/services/srv_one/deploys"))
         .respond_with(move |_: &wiremock::Request| {
-            let state = state.lock().unwrap();
+            let mut state = state.lock().unwrap();
             let mut rows = vec![json!({"cursor":"old","deploy":{"id":"dep_initial","status":"build_failed","commit":{"id":state.commit},"trigger":"service_created"}})];
-            if state.deploys > 0 { rows.push(json!({"cursor":"new","deploy":{"id":"dep_one","status":"live","commit":{"id":state.commit},"trigger":"api"}})); }
+            if state.delayed_receipt_reads > 0 {
+                state.delayed_receipt_reads -= 1;
+            } else if state.deploys > 0 { rows.push(json!({"cursor":"new","deploy":{"id":"dep_one","status":"live","commit":{"id":state.commit},"trigger":"api"}})); }
             ResponseTemplate::new(200).set_body_json(rows)
         }).mount(&server).await;
     let state = remote.clone();
@@ -351,9 +364,15 @@ async fn engine_recovers_lost_deploy_and_delete_responses_without_duplicate_muta
     store
         .bind_stripe_project(&owner.instance_id, "project:test", Some("stripe_project"))
         .unwrap();
-    let failure = engine.run_up(request(), admission).await.unwrap_err();
-    assert!(failure.to_string().contains("500"), "{failure}");
-    assert!(store.checkpoint("demo", "start:web").unwrap().is_none());
+    let result = engine.run_up(request(), admission).await;
+    if queued {
+        result.unwrap();
+        assert_eq!(remote.lock().unwrap().delayed_receipt_reads, 0);
+    } else {
+        let failure = result.unwrap_err();
+        assert!(failure.to_string().contains("500"), "{failure}");
+        assert!(store.checkpoint("demo", "start:web").unwrap().is_none());
+    }
     drop(substrate);
     drop(store);
     let store = Store::open(&db).unwrap();

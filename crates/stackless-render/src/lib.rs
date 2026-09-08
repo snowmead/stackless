@@ -496,11 +496,20 @@ impl<R: CommandRunner> RenderSubstrate<R> {
                 .push(lifecycle::Deployment::new(revision, commit, before)?);
             save_service(journal, &payload, false)?;
         }
+        let budget = if render_cfg.is_static() {
+            STATIC_DEPLOY_BUDGET
+        } else {
+            WEB_DEPLOY_BUDGET
+        };
+        let deadline = tokio::time::Instant::now() + budget;
         let attempt = payload
             .deployments
             .last()
             .ok_or_else(|| lifecycle::invalid("Render deployment intent missing"))?;
-        let deploy = match attempt.recover(&render, &service_id).await? {
+        let deploy = match attempt
+            .wait_for_receipt(&render, &service_id, budget)
+            .await?
+        {
             Some(deploy) => deploy,
             None => {
                 let commit = attempt.commit.clone();
@@ -520,7 +529,11 @@ impl<R: CommandRunner> RenderSubstrate<R> {
                         .deployments
                         .last()
                         .ok_or_else(|| lifecycle::invalid("deployment intent missing"))?
-                        .recover(&render, &service_id)
+                        .wait_for_receipt(
+                            &render,
+                            &service_id,
+                            deadline.saturating_duration_since(tokio::time::Instant::now()),
+                        )
                         .await?
                         .ok_or_else(|| lifecycle::invalid("queued deployment has no receipt"))?,
                 }
@@ -533,13 +546,13 @@ impl<R: CommandRunner> RenderSubstrate<R> {
         attempt.check(&deploy)?;
         attempt.id = Some(deploy.id.clone());
         save_service(journal, &payload, false)?;
-        let budget = if render_cfg.is_static() {
-            STATIC_DEPLOY_BUDGET
-        } else {
-            WEB_DEPLOY_BUDGET
-        };
         render
-            .wait_for_deploy(service, &service_id, &deploy.id, budget)
+            .wait_for_deploy(
+                service,
+                &service_id,
+                &deploy.id,
+                deadline.saturating_duration_since(tokio::time::Instant::now()),
+            )
             .await
             .map_err(fault)?;
         let observed = render

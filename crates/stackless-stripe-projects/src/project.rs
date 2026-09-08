@@ -204,9 +204,11 @@ pub async fn pull_project<R: CommandRunner>(
     stripe: &StripeProjects<R>,
     id: &str,
 ) -> Result<(), ProjectsError> {
-    stripe
-        .run_ok("pull", &["pull", id, "--skip-skills", "--yes"], &[])
-        .await?;
+    let pulled = stripe.json(&["pull", id, "--skip-skills", "--yes"]).await?;
+    if !pulled.ok && pulled.error_code.as_deref() != Some("PROJECT_ALREADY_CONNECTED") {
+        return Err(stripe.classify_failure("pull", &pulled));
+    }
+    // A reused runtime directory is already linked. Verify its identity before reuse.
     let result = stripe.json(&["status"]).await?;
     if !result.ok {
         return Err(stripe.classify_failure("status", &result));
@@ -788,6 +790,35 @@ mod tests {
     };
     use async_trait::async_trait;
     use serde_json::json;
+
+    #[tokio::test]
+    async fn pull_reuses_only_the_recorded_project_and_preserves_other_failures() {
+        for (code, linked, succeeds) in [
+            ("PROJECT_ALREADY_CONNECTED", Some("project_expected"), true),
+            ("PROJECT_ALREADY_CONNECTED", Some("project_other"), false),
+            ("PROJECT_ALREADY_CONNECTED", None, false),
+            ("AUTH_REQUIRED", Some("project_expected"), false),
+        ] {
+            let runner = ScriptedRunner::new(vec![
+                CommandOutput {
+                    status: 1,
+                    stdout: json!({"ok":false,"error":{"code":code,"message":"pull failed"}})
+                        .to_string(),
+                    stderr: String::new(),
+                },
+                crate::test_support::status(linked),
+            ]);
+            let stripe = StripeProjects::new(&runner, "/unused");
+            assert_eq!(
+                pull_project(&stripe, "project_expected").await.is_ok(),
+                succeeds
+            );
+            assert_eq!(
+                runner.calls().len(),
+                if code == "AUTH_REQUIRED" { 1 } else { 2 }
+            );
+        }
+    }
 
     #[tokio::test]
     async fn adapter_context_never_creates_or_relinks_a_project() {

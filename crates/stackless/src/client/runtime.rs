@@ -392,6 +392,13 @@ mod tests {
                     serde_json::json!({})
                 }
                 "pull" => {
+                    if state.linked.contains_key(cwd) {
+                        return Ok(CommandOutput {
+                            status: 1,
+                            stdout: serde_json::json!({"ok":false,"error":{"code":"PROJECT_ALREADY_CONNECTED","message":"already linked"}}).to_string(),
+                            stderr: String::new(),
+                        });
+                    }
                     state.linked.insert(cwd.into(), args[1].clone());
                     serde_json::json!({})
                 }
@@ -476,6 +483,13 @@ mod tests {
             .await
             .unwrap();
         assert!(runtime.project_id.is_some());
+        assert_eq!(runner.0.lock().unwrap().creates, 1);
+        assert_eq!(runner.0.lock().unwrap().environment_creates, 1);
+        drop(runtime);
+        let teardown = prepare(&paths, &store, &owner, &def, text, false, &runner)
+            .await
+            .unwrap();
+        assert!(teardown.project_id.is_some());
         assert_eq!(runner.0.lock().unwrap().creates, 1);
         assert_eq!(runner.0.lock().unwrap().environment_creates, 1);
     }

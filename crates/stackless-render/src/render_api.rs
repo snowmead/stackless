@@ -114,6 +114,10 @@ impl RenderApi {
         self
     }
 
+    pub(crate) fn poll_interval(&self) -> Duration {
+        self.poll_interval
+    }
+
     pub async fn find_service_by_name(
         &self,
         name: &str,
