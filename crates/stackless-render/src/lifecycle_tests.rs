@@ -19,6 +19,7 @@ struct Remote {
     native_name: Option<String>,
     service_alive: bool,
     catalog_removed: bool,
+    catalog_deletes_native: bool,
     commit: Option<String>,
     creates: usize,
     deploys: usize,
@@ -82,10 +83,13 @@ impl CommandRunner for Runner {
         if method == "POST" {
             assert!(path.ends_with("/remote_service/remove"));
             assert!(
-                !remote.service_alive,
-                "native deletion precedes catalog removal"
+                remote.service_alive,
+                "catalog removal needs the native service"
             );
             remote.catalog_removed = true;
+            if remote.catalog_deletes_native {
+                remote.service_alive = false;
+            }
         }
         let row = remote.resource.as_ref().map(|name| json!({"id":"remote_service","name":name,"provider":PROVIDER,"service_ref":"web-service","status":if remote.catalog_removed {"removed"} else {"complete"}}));
         let value = if method == "POST" {
@@ -195,21 +199,29 @@ impl<T: Substrate> Substrate for FixtureSubstrate<T> {
 
 #[tokio::test]
 async fn engine_recovers_lost_deploy_and_delete_responses_without_duplicate_mutations() {
-    run_deployment_recovery(false).await;
+    run_deployment_recovery(false, false).await;
 }
 
 #[tokio::test]
 async fn engine_waits_for_queued_deployment_and_asynchronous_deletion() {
-    run_deployment_recovery(true).await;
+    run_deployment_recovery(true, false).await;
 }
 
-async fn run_deployment_recovery(queued: bool) {
+#[tokio::test]
+async fn engine_accepts_native_deletion_by_catalog_connector() {
+    run_deployment_recovery(true, true).await;
+}
+
+async fn run_deployment_recovery(queued: bool, catalog_deletes_native: bool) {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     let commit = stackless_git::build_repo(&repo, &[&[("app/app.txt", "revision one")]]).unwrap();
     let db = dir.path().join("state.db");
     let store = Store::open(&db).unwrap();
-    let remote = Arc::new(StdMutex::new(Remote::default()));
+    let remote = Arc::new(StdMutex::new(Remote {
+        catalog_deletes_native,
+        ..Default::default()
+    }));
     let server = MockServer::start().await;
     let state = remote.clone();
     Mock::given(method("GET"))
@@ -323,12 +335,16 @@ async fn run_deployment_recovery(queued: bool) {
             assert_eq!(payload["removal_submitted"], true);
             let mut state = state.lock().unwrap();
             assert!(state.service_alive);
+            assert!(
+                state.catalog_removed,
+                "catalog removal precedes native DELETE"
+            );
             state.service_alive = queued;
             state.delayed_deletion_reads = if queued { 2 } else { 0 };
             state.deletes += 1;
             ResponseTemplate::new(if queued { 204 } else { 500 })
         })
-        .expect(1)
+        .expect(if catalog_deletes_native { 0 } else { 1 })
         .mount(&server)
         .await;
     Mock::given(method("GET"))
@@ -426,8 +442,10 @@ async fn run_deployment_recovery(queued: bool) {
     );
     {
         let state = remote.lock().unwrap();
-        assert_eq!((state.creates, state.deploys, state.deletes), (1, 1, 1));
+        assert_eq!((state.creates, state.deploys), (1, 1));
+        assert_eq!(state.deletes, usize::from(!catalog_deletes_native));
         assert!(state.catalog_removed);
+        assert!(!state.service_alive);
     }
     server.verify().await;
 }

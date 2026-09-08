@@ -1064,13 +1064,13 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
         if current.phase == stackless_core::state::ResourcePhase::Absent {
             return Ok(());
         }
-        if current.resource_kind == "render-service" {
+        let native = if current.resource_kind == "render-service" {
             let api = self.render()?;
             let mut value: serde_json::Value = serde_json::from_str(&current.payload)
                 .map_err(|e| lifecycle::invalid(e.to_string()))?;
             let (id, name) = render_identity(&api, &value).await?;
-            if let Some(id) = id {
-                // Persist the exact native ID before DELETE, including early creation recovery.
+            if let Some(id) = &id {
+                // Persist the native identity before catalog removal can delete the service.
                 value["service_id"] = serde_json::json!(id);
                 value["render_name"] = serde_json::json!(name);
                 value["removal_submitted"] = serde_json::json!(true);
@@ -1082,25 +1082,33 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
                         &value.to_string(),
                     )
                     .map_err(|e| SubstrateFault::from_fault(&e))?;
-                api.delete_service(&id, &name).await.map_err(fault)?;
-                let deadline = tokio::time::Instant::now() + DESTROY_POLL_BUDGET;
-                while api.service(&id, &name).await.map_err(fault)?.is_some() {
-                    if tokio::time::Instant::now() >= deadline {
-                        return Err(lifecycle::invalid(
-                            "Render service deletion is still pending",
-                        ));
-                    }
-                    tokio::time::sleep(DESTROY_POLL_INTERVAL).await;
-                }
             }
-        }
+            id.map(|id| (api, id, name))
+        } else {
+            None
+        };
         let current = store
             .resource(instance.id, &record.key)
             .map_err(|e| SubstrateFault::from_fault(&e))?
             .ok_or_else(|| lifecycle::invalid("Render ownership record disappeared"))?;
         stackless_stripe_projects::journal::destroy_record(&self.stripe(), store, &current)
             .await
-            .map_err(projects_fault)
+            .map_err(projects_fault)?;
+        // The connector removes the native service. Delete any surviving service only
+        // after catalog removal, then verify both systems have finished teardown.
+        if let Some((api, id, name)) = native {
+            api.delete_service(&id, &name).await.map_err(fault)?;
+            let deadline = tokio::time::Instant::now() + DESTROY_POLL_BUDGET;
+            while api.service(&id, &name).await.map_err(fault)?.is_some() {
+                if tokio::time::Instant::now() >= deadline {
+                    return Err(lifecycle::invalid(
+                        "Render service deletion is still pending",
+                    ));
+                }
+                tokio::time::sleep(DESTROY_POLL_INTERVAL).await;
+            }
+        }
+        Ok(())
     }
 
     async fn observe_record(

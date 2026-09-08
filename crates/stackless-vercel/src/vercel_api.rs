@@ -540,7 +540,7 @@ impl VercelApi {
         tail: usize,
     ) -> Result<Vec<String>, VercelError> {
         let mut url = format!(
-            "{}/v3/deployments/{deployment_id}/events?direction=backward&limit={}",
+            "{}/v3/deployments/{deployment_id}/events?builds=1&follow=0&direction=backward&limit={}",
             self.base,
             tail.max(1)
         );
@@ -788,6 +788,10 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path_regex(r"/v3/deployments/dpl_1/events.*"))
+            .and(query_param("builds", "1"))
+            .and(query_param("follow", "0"))
+            .and(query_param("direction", "backward"))
+            .and(query_param("limit", "10"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
                 {
                     "type": "stdout",
