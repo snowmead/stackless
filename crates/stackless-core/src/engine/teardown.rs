@@ -18,6 +18,12 @@ pub(super) struct Teardown {
     pub parents: BTreeMap<Node, BTreeSet<Node>>,
 }
 
+#[derive(Default)]
+pub(super) struct Outcome {
+    pub survivors: Vec<String>,
+    pub failures: Vec<String>,
+}
+
 impl Teardown {
     pub fn build(
         resources: &[ResourceRecord],

@@ -116,15 +116,22 @@ pub async fn list<R: CommandRunner>(
     Ok(resources)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Removal {
+    Removed,
+    Pending,
+}
+
 pub async fn remove<R: CommandRunner>(
     stripe: &StripeProjects<R>,
     id: &str,
-) -> Result<(), ProjectsError> {
+) -> Result<Removal, ProjectsError> {
     let value = stripe
         .request("POST", &format!("{PREFIX}/{}/remove", identifier(id)?))
         .await?;
     match value.get("status").and_then(serde_json::Value::as_str) {
-        Some("removed" | "pending") => Ok(()),
+        Some("removed") => Ok(Removal::Removed),
+        Some("pending") => Ok(Removal::Pending),
         _ => Err(invalid(
             "remote removal returned no accepted deletion status",
         )),

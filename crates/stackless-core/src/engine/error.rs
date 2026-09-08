@@ -50,10 +50,11 @@ pub enum EngineError {
         fault: SubstrateFault,
     },
 
-    #[error("teardown of {instance:?} left survivors: {survivors:?}")]
+    #[error("teardown of {instance:?} left survivors: {survivors:?}; failures: {failures:?}")]
     TeardownSurvivors {
         instance: String,
         survivors: Vec<String>,
+        failures: Vec<String>,
     },
 }
 

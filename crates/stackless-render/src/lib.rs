@@ -1083,10 +1083,14 @@ impl<R: CommandRunner> Substrate for RenderSubstrate<R> {
                     )
                     .map_err(|e| SubstrateFault::from_fault(&e))?;
                 api.delete_service(&id, &name).await.map_err(fault)?;
-                if api.service(&id, &name).await.map_err(fault)?.is_some() {
-                    return Err(lifecycle::invalid(
-                        "Render service deletion is still pending",
-                    ));
+                let deadline = tokio::time::Instant::now() + DESTROY_POLL_BUDGET;
+                while api.service(&id, &name).await.map_err(fault)?.is_some() {
+                    if tokio::time::Instant::now() >= deadline {
+                        return Err(lifecycle::invalid(
+                            "Render service deletion is still pending",
+                        ));
+                    }
+                    tokio::time::sleep(DESTROY_POLL_INTERVAL).await;
                 }
             }
         }

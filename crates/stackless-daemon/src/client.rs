@@ -219,7 +219,30 @@ impl DaemonClient {
         self.call_versioned(request).map(|(_, body)| body)
     }
 
+    /// Override the response budget for a query that waits on external providers.
+    pub fn call_with_timeout(
+        &mut self,
+        request: Request,
+        timeout: Duration,
+    ) -> Result<ResponseBody, DaemonError> {
+        self.call_versioned_with_timeout(request, timeout)
+            .map(|(_, body)| body)
+    }
+
     fn call_versioned(&mut self, request: Request) -> Result<(String, ResponseBody), DaemonError> {
+        self.call_versioned_with_timeout(request, Duration::from_secs(10))
+    }
+
+    fn call_versioned_with_timeout(
+        &mut self,
+        request: Request,
+        timeout: Duration,
+    ) -> Result<(String, ResponseBody), DaemonError> {
+        self.stream
+            .set_read_timeout(Some(timeout))
+            .map_err(|err| DaemonError::Request {
+                error: format!("cannot set response timeout: {err}"),
+            })?;
         let protocol = if matches!(request, Request::Ping | Request::Shutdown) {
             ProtocolVersion::V1
         } else {

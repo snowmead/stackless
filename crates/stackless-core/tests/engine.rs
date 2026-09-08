@@ -458,6 +458,10 @@ async fn down_with_survivor_fails_and_keeps_instance_active() {
     let err = engine.down("demo").await.unwrap_err();
     assert_eq!(err.code(), codes::ENGINE_TEARDOWN_SURVIVORS);
     assert!(err.to_string().contains("res-materialize:api"));
+    assert!(
+        err.to_string()
+            .contains("mock.destroy.scripted_failure: scripted destroy failure")
+    );
     let record = store.instance("demo").unwrap().unwrap();
     assert_eq!(record.status, InstanceStatus::Active);
 
@@ -945,7 +949,12 @@ async fn instance_resources_outlive_untracked_checkpoints_and_failed_children() 
         store: &store,
         substrate: &mock,
     };
-    assert!(engine.down("demo").await.is_err());
+    let error = engine.down("demo").await.unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("mock.destroy.scripted_failure: scripted destroy failure")
+    );
     assert!(mock.destroyed.lock().unwrap().is_empty());
     assert_eq!(
         store

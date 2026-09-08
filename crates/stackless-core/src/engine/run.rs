@@ -338,11 +338,12 @@ impl Engine<'_> {
             .map(|step| step.id)
             .chain(std::iter::once(crate::state::INSTANCE_RESOURCE_STEP.into()))
             .collect();
-        let survivors = self.destroy_steps(request.instance, Some(&retain)).await?;
-        if !survivors.is_empty() {
+        let teardown = self.destroy_steps(request.instance, Some(&retain)).await?;
+        if !teardown.survivors.is_empty() {
             return Err(EngineError::TeardownSurvivors {
                 instance: request.instance.into(),
-                survivors,
+                survivors: teardown.survivors,
+                failures: teardown.failures,
             });
         }
         self.store
@@ -620,11 +621,12 @@ impl Engine<'_> {
         {
             return Ok(DownOutcome::AlreadyDown);
         }
-        let survivors = self.destroy_steps(instance, None).await?;
-        if !survivors.is_empty() {
+        let teardown = self.destroy_steps(instance, None).await?;
+        if !teardown.survivors.is_empty() {
             return Err(EngineError::TeardownSurvivors {
                 instance: instance.to_owned(),
-                survivors,
+                survivors: teardown.survivors,
+                failures: teardown.failures,
             });
         }
         if let Err(fault) = self
@@ -651,7 +653,7 @@ impl Engine<'_> {
         &self,
         instance: &str,
         retain: Option<&std::collections::BTreeSet<String>>,
-    ) -> Result<Vec<String>, EngineError> {
+    ) -> Result<super::teardown::Outcome, EngineError> {
         use super::teardown::{Node, Teardown};
         use std::collections::BTreeSet;
         let owner = self.store.instance(instance)?.ok_or_else(|| {
@@ -671,6 +673,7 @@ impl Engine<'_> {
         let plan = self.substrate.execution_plan(&definition)?;
         let graph = Teardown::build(&resources, &checkpoints, &plan)?;
         let mut survivors = Vec::new();
+        let mut failures = Vec::new();
         let mut blocked = BTreeSet::new();
         for node in graph.order {
             let step = match &node {
@@ -694,25 +697,38 @@ impl Engine<'_> {
                             .resource_absent(&owner.instance_id, &resource.key)?;
                         false
                     } else {
-                        if self.substrate.can_manage_resource(resource)
-                            && self
+                        let failure = if !self.substrate.can_manage_resource(resource) {
+                            Some("provider cannot manage this recorded resource".into())
+                        } else {
+                            match self
                                 .substrate
                                 .destroy_record(self.store, &context, resource)
                                 .await
-                                .is_ok()
-                            && matches!(
-                                self.substrate
+                            {
+                                Err(fault) => Some(format!("{}: {}", fault.code, fault.message)),
+                                Ok(()) => match self
+                                    .substrate
                                     .observe_record(self.store, &context, resource)
-                                    .await,
-                                Ok(Observation::Gone)
-                            )
-                        {
+                                    .await
+                                {
+                                    Ok(Observation::Gone) => None,
+                                    Ok(observed) => {
+                                        Some(format!("absence not confirmed: {observed:?}"))
+                                    }
+                                    Err(fault) => {
+                                        Some(format!("{}: {}", fault.code, fault.message))
+                                    }
+                                },
+                            }
+                        };
+                        if let Some(failure) = failure {
+                            failures.push(format!("{}: {failure}", resource.resource_id));
+                            survivors.push(resource.resource_id.clone());
+                            true
+                        } else {
                             self.store
                                 .resource_absent(&owner.instance_id, &resource.key)?;
                             false
-                        } else {
-                            survivors.push(resource.resource_id.clone());
-                            true
                         }
                     }
                 }
@@ -721,18 +737,35 @@ impl Engine<'_> {
                     if blocked.contains(&node) {
                         survivors.push(checkpoint.resource_id.clone());
                         true
-                    } else if checkpoint.resource_kind == crate::substrate::ACTION_RESOURCE_KIND
-                        || self.substrate.destroy(&context, checkpoint).await.is_ok()
-                            && matches!(
-                                self.substrate.observe(&context, checkpoint).await,
-                                Ok(Observation::Gone)
-                            )
-                    {
-                        self.store.remove_checkpoint(instance, step)?;
-                        false
                     } else {
-                        survivors.push(checkpoint.resource_id.clone());
-                        true
+                        let failure = if checkpoint.resource_kind
+                            == crate::substrate::ACTION_RESOURCE_KIND
+                        {
+                            None
+                        } else {
+                            match self.substrate.destroy(&context, checkpoint).await {
+                                Err(fault) => Some(format!("{}: {}", fault.code, fault.message)),
+                                Ok(()) => {
+                                    match self.substrate.observe(&context, checkpoint).await {
+                                        Ok(Observation::Gone) => None,
+                                        Ok(observed) => {
+                                            Some(format!("absence not confirmed: {observed:?}"))
+                                        }
+                                        Err(fault) => {
+                                            Some(format!("{}: {}", fault.code, fault.message))
+                                        }
+                                    }
+                                }
+                            }
+                        };
+                        if let Some(failure) = failure {
+                            failures.push(format!("{}: {failure}", checkpoint.resource_id));
+                            survivors.push(checkpoint.resource_id.clone());
+                            true
+                        } else {
+                            self.store.remove_checkpoint(instance, step)?;
+                            false
+                        }
                     }
                 }
             };
@@ -767,7 +800,10 @@ impl Engine<'_> {
                     .remove_checkpoint(instance, &checkpoint.step_id)?;
             }
         }
-        Ok(survivors)
+        Ok(super::teardown::Outcome {
+            survivors,
+            failures,
+        })
     }
 
     fn check_source_override_collisions(

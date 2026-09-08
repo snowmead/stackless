@@ -92,6 +92,16 @@ pub(crate) enum Request {
     },
 }
 
+impl Request {
+    pub(crate) fn response_timeout(&self) -> Duration {
+        match self {
+            // Preparing the scoped Stripe session and fetching provider logs can exceed 10s.
+            Self::Logs { .. } => Duration::from_secs(5 * 60),
+            _ => Duration::from_secs(30),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub(crate) enum Reply {

@@ -14,6 +14,39 @@ use stackless_core::state::Store;
 use stackless_core::types::TcpPort;
 use stackless_daemon::{DaemonClient, rpc::Request};
 
+#[test]
+fn logs_wait_for_a_provider_response_beyond_the_daemon_ping_timeout() {
+    use std::io::{BufRead, BufReader};
+    use std::os::unix::net::UnixListener;
+
+    let root = tempfile::tempdir().unwrap();
+    let paths = Paths::new(root.path().join("state"));
+    std::fs::create_dir_all(paths.state_dir()).unwrap();
+    let listener = UnixListener::bind(paths.socket_path()).unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        for expected in ["ping", "control"] {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["cmd"], expected);
+            let mut reply = serde_json::json!({"protocol":2,"version":env!("CARGO_PKG_VERSION"),"result":"pong"});
+            if expected == "control" {
+                assert_eq!(request["request"]["method"], "logs");
+                std::thread::sleep(Duration::from_secs(11));
+                reply["result"] = serde_json::json!("control");
+                reply["response"] = serde_json::json!({"value":{"name":"demo","substrate":"render","available":true,"services":[]}});
+            }
+            writeln!(stream, "{reply}").unwrap();
+        }
+    });
+    let client = Client::builder().paths(paths).build().unwrap();
+    let result = client.logs("demo", None, 20);
+    server.join().unwrap();
+    assert!(result.unwrap().available);
+}
+
 struct Fixture {
     root: tempfile::TempDir,
     client: Client,

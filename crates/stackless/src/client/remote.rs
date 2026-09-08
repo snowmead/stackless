@@ -136,6 +136,7 @@ impl SshController {
             }
             other => other,
         };
+        let timeout = request.response_timeout();
         let bytes = serde_json::to_vec(&WireRequest {
             protocol: WIRE_VERSION,
             request,
@@ -153,7 +154,7 @@ impl SshController {
                         .enable_all()
                         .build()
                         .map_err(Error::Runtime)?;
-                    runtime.block_on(self.exchange(bytes))
+                    runtime.block_on(self.exchange(bytes, timeout))
                 })
                 .join()
                 .map_err(|_| unavailable("SSH transport thread failed"))?
@@ -173,8 +174,8 @@ impl SshController {
         }
     }
 
-    async fn exchange(&self, bytes: Vec<u8>) -> Result<Vec<u8>, Error> {
-        self.exchange_using(std::ffi::OsStr::new("ssh"), bytes)
+    async fn exchange(&self, bytes: Vec<u8>, timeout: Duration) -> Result<Vec<u8>, Error> {
+        self.exchange_using(std::ffi::OsStr::new("ssh"), bytes, timeout)
             .await
     }
 
@@ -182,6 +183,7 @@ impl SshController {
         &self,
         program: &std::ffi::OsStr,
         bytes: Vec<u8>,
+        timeout: Duration,
     ) -> Result<Vec<u8>, Error> {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let mut command = tokio::process::Command::new(program);
@@ -239,12 +241,13 @@ impl SshController {
             };
             tokio::try_join!(writer, reader, errors, child.wait())
         };
-        let (_, reply, (), status) = tokio::time::timeout(Duration::from_secs(30), transaction)
+        let (_, reply, (), status) = tokio::time::timeout(timeout, transaction)
             .await
             .map_err(|_| {
-                unavailable(
-                    "SSH controller request exceeded 30 seconds; reconnect using the operation ID",
-                )
+                unavailable(format!(
+                    "SSH controller request exceeded {} seconds; reconnect using the operation ID",
+                    timeout.as_secs()
+                ))
             })?
             .map_err(|_| unavailable("SSH controller connection failed"))?;
         if !status.success() {
@@ -286,10 +289,14 @@ pub(crate) fn serve_stdio() -> Result<(), Error> {
         ));
     }
     let mut connection = DaemonClient::connect()?;
-    let body = connection.call(DaemonRequest::Control {
-        request: serde_json::to_value(wire.request)
-            .map_err(|_| invalid("cannot encode request"))?,
-    })?;
+    let timeout = wire.request.response_timeout();
+    let body = connection.call_with_timeout(
+        DaemonRequest::Control {
+            request: serde_json::to_value(wire.request)
+                .map_err(|_| invalid("cannot encode request"))?,
+        },
+        timeout,
+    )?;
     let ResponseBody::Control { response } = body else {
         return Err(unavailable("remote daemon has no lifecycle controller"));
     };
@@ -772,10 +779,31 @@ mod tests {
         })
         .unwrap();
         let reply = controller
-            .exchange_using(program.as_os_str(), request)
+            .exchange_using(program.as_os_str(), request, Duration::from_secs(30))
             .await
             .unwrap();
         let reply: WireReply = serde_json::from_slice(&reply).unwrap();
         assert!(matches!(reply.reply, Reply::Ok { value } if value == true));
+    }
+
+    #[tokio::test]
+    async fn ssh_transport_honors_the_response_budget() {
+        let root = tempfile::tempdir().unwrap();
+        let program = root.path().join("ssh-delay");
+        std::fs::write(&program, "#!/usr/bin/env python3\nimport sys,time\nsys.stdin.read()\ntime.sleep(0.2)\nprint('{}')\n").unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let controller = SshController::new("controller-host".into()).unwrap();
+        assert!(
+            controller
+                .exchange_using(program.as_os_str(), vec![], Duration::from_millis(50))
+                .await
+                .is_err()
+        );
+        assert!(
+            controller
+                .exchange_using(program.as_os_str(), vec![], Duration::from_secs(5))
+                .await
+                .is_ok()
+        );
     }
 }

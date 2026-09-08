@@ -23,6 +23,7 @@ struct Remote {
     creates: usize,
     deploys: usize,
     delayed_receipt_reads: usize,
+    delayed_deletion_reads: usize,
     deletes: usize,
 }
 struct Runner {
@@ -198,7 +199,7 @@ async fn engine_recovers_lost_deploy_and_delete_responses_without_duplicate_muta
 }
 
 #[tokio::test]
-async fn engine_waits_for_a_queued_deployment_without_another_post() {
+async fn engine_waits_for_queued_deployment_and_asynchronous_deletion() {
     run_deployment_recovery(true).await;
 }
 
@@ -228,7 +229,14 @@ async fn run_deployment_recovery(queued: bool) {
     let origin = server.uri();
     Mock::given(method("GET")).and(path("/services/srv_one"))
         .respond_with(move |_: &wiremock::Request| {
-            let state = state.lock().unwrap();
+            let mut state = state.lock().unwrap();
+            if state.deletes > 0 {
+                if state.delayed_deletion_reads > 0 {
+                    state.delayed_deletion_reads -= 1;
+                } else {
+                    state.service_alive = false;
+                }
+            }
             if state.service_alive { ResponseTemplate::new(200).set_body_json(json!({"id":"srv_one","name":state.native_name,"serviceDetails":{"url":origin},"autoDeploy":"no","rootDir":state.source_root})) }
             else { ResponseTemplate::new(404) }
         }).mount(&server).await;
@@ -315,9 +323,10 @@ async fn run_deployment_recovery(queued: bool) {
             assert_eq!(payload["removal_submitted"], true);
             let mut state = state.lock().unwrap();
             assert!(state.service_alive);
-            state.service_alive = false;
+            state.service_alive = queued;
+            state.delayed_deletion_reads = if queued { 2 } else { 0 };
             state.deletes += 1;
-            ResponseTemplate::new(500)
+            ResponseTemplate::new(if queued { 204 } else { 500 })
         })
         .expect(1)
         .mount(&server)
@@ -390,7 +399,13 @@ async fn run_deployment_recovery(queued: bool) {
     );
     assert_eq!(payload.deployments.last().unwrap().commit, commit);
     assert_eq!(payload.origin, server.uri());
-    assert!(engine.down("demo").await.is_err());
+    let down = engine.down("demo").await;
+    if queued {
+        down.unwrap();
+        assert_eq!(remote.lock().unwrap().delayed_deletion_reads, 0);
+    } else {
+        assert!(down.is_err());
+    }
     drop(substrate);
     drop(store);
     let store = Store::open(&db).unwrap();

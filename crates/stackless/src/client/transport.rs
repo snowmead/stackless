@@ -28,9 +28,10 @@ impl Client {
         if let Some(remote) = &self.inner.remote {
             return remote.call(request);
         }
+        let timeout = request.response_timeout();
         let request = serde_json::to_value(request).map_err(|err| invalid(err.to_string()))?;
         let mut connection = self.ensure_daemon()?;
-        let body = connection.call(DaemonRequest::Control { request })?;
+        let body = connection.call_with_timeout(DaemonRequest::Control { request }, timeout)?;
         let ResponseBody::Control { response } = body else {
             return Err(invalid("daemon did not return a controller response"));
         };

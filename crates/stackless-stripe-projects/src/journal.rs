@@ -6,6 +6,10 @@ use stackless_core::state::{Ownership, ResourceIntent, ResourcePhase, ResourceRe
 use stackless_core::substrate::{StepContext, StepResource};
 
 use crate::ProjectsError;
+use std::time::Duration;
+
+const REMOVAL_BUDGET: Duration = Duration::from_secs(120);
+const REMOVAL_POLL: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone)]
 pub struct ResourceJournal {
@@ -526,8 +530,11 @@ pub async fn destroy_record<R: crate::CommandRunner>(
     let mut creation = creation_from_payload(&current.payload)?;
     // A fresh read verifies the exact remote identity before sending deletion.
     let remote = verified_remote(stripe, &creation).await?;
-    if remote.status == "removed" || (creation.removal_submitted && remote.status == "pending") {
+    if remote.status == "removed" {
         return Ok(());
+    }
+    if creation.removal_submitted && remote.status == "pending" {
+        return wait_for_removal(stripe, &creation, REMOVAL_BUDGET).await;
     }
     creation.removal_submitted = true;
     let mut payload: Value = serde_json::from_str(&current.payload)
@@ -542,14 +549,49 @@ pub async fn destroy_record<R: crate::CommandRunner>(
             &encode(&payload)?,
         )
         .map_err(state)?;
-    crate::remote::remove(
+    let removal = crate::remote::remove(
         stripe,
         creation
             .remote_id
             .as_deref()
             .ok_or_else(|| crate::remote::invalid("remote resource ID is unresolved"))?,
     )
-    .await
+    .await?;
+    match removal {
+        crate::remote::Removal::Removed => Ok(()),
+        crate::remote::Removal::Pending => {
+            wait_for_removal(stripe, &creation, REMOVAL_BUDGET).await
+        }
+    }
+}
+
+async fn wait_for_removal<R: crate::CommandRunner>(
+    stripe: &crate::StripeProjects<R>,
+    creation: &Creation,
+    budget: Duration,
+) -> Result<(), ProjectsError> {
+    let deadline = tokio::time::Instant::now() + budget;
+    loop {
+        let remote = verified_remote(stripe, creation).await?;
+        match remote.status.as_str() {
+            "removed" => return Ok(()),
+            // A replica can still report the pre-removal state after acceptance.
+            "pending" | "complete" => {}
+            _ => {
+                return Err(crate::remote::invalid(format!(
+                    "remote removal has unresolved status {:?}",
+                    remote.status
+                )));
+            }
+        }
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return Err(crate::remote::invalid(
+                "remote resource removal is still pending after the deadline",
+            ));
+        }
+        tokio::time::sleep(REMOVAL_POLL.min(remaining)).await;
+    }
 }
 
 #[cfg(test)]
@@ -574,6 +616,7 @@ mod tests {
         deletes: usize,
         remote_status: Option<&'static str>,
         local_hidden: bool,
+        delayed_removal_reads: usize,
     }
     struct Runner {
         db: PathBuf,
@@ -656,13 +699,24 @@ mod tests {
                 assert_eq!(payload["_catalog_creation"]["removal_submitted"], true);
                 external.deletes += 1;
                 external.local_hidden = true;
-                external.remote_status = Some("removed");
+                external.remote_status = Some(if external.delayed_removal_reads > 0 {
+                    "pending"
+                } else {
+                    "removed"
+                });
                 if external.failure == Some("delete_response") {
                     external.failure = None;
                     return Err(crate::remote::invalid("lost remote removal response"));
                 }
-                json!({"status": "removed"})
+                json!({"status": external.remote_status})
             } else {
+                if external.deletes > 0 && external.remote_status == Some("pending") {
+                    if external.delayed_removal_reads > 0 {
+                        external.delayed_removal_reads -= 1;
+                    } else {
+                        external.remote_status = Some("removed");
+                    }
+                }
                 let rows: Vec<Value> = external.names.iter().map(|name| json!({"id": "remote-id-1", "name": name, "provider": "provider_1", "service_ref": "database", "status": external.remote_status.unwrap_or("complete")})).collect();
                 if path.contains('?') {
                     json!({"data": if external.hidden { vec![] } else { rows }, "next_page_url": null})
@@ -952,6 +1006,55 @@ mod tests {
         let external = external.lock().unwrap();
         assert!(external.local_hidden);
         assert_eq!(external.deletes, 1);
+    }
+
+    #[tokio::test]
+    async fn pending_remote_deletion_waits_and_recovers_without_another_removal() {
+        for lost_response in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let db = root.path().join("state.db");
+            let store = Store::open(&db).unwrap();
+            let owner = record(&store);
+            let external = Arc::new(Mutex::new(External::default()));
+            let runner = Runner {
+                db,
+                owner: owner.instance_id.clone(),
+                external: external.clone(),
+            };
+            let name = InstanceContext::from_record(&owner, &[]).resource_name("db");
+            let stripe = bound(&runner, &store, &owner);
+            crate::project::add_resource(&stripe, "example/database", &name, &json!({}), false)
+                .await
+                .unwrap();
+            let resource = store.resources(&owner.instance_id).unwrap().remove(0);
+            {
+                let mut state = external.lock().unwrap();
+                state.delayed_removal_reads = 2;
+                state.failure = lost_response.then_some("delete_response");
+            }
+            if lost_response {
+                assert!(destroy_record(&stripe, &store, &resource).await.is_err());
+            }
+            destroy_record(&stripe, &store, &resource).await.unwrap();
+            assert_eq!(
+                observe_payload(&stripe, &resource.payload).await.unwrap(),
+                stackless_core::substrate::Observation::Gone
+            );
+            assert_eq!(external.lock().unwrap().deletes, 1);
+
+            // A deadline is not evidence of deletion, even after a submitted removal.
+            external.lock().unwrap().remote_status = Some("complete");
+            let creation =
+                creation_from_payload(&store.resources(&owner.instance_id).unwrap()[0].payload)
+                    .unwrap();
+            assert!(creation.removal_submitted);
+            assert!(
+                wait_for_removal(&stripe, &creation, Duration::ZERO)
+                    .await
+                    .is_err()
+            );
+            assert_eq!(external.lock().unwrap().deletes, 1);
+        }
     }
 
     #[tokio::test]
