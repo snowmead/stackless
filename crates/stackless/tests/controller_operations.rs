@@ -1829,6 +1829,28 @@ env = {{ DB = "${{endpoints.database.url}}", NATIVE = "${{services.web.origin}}"
 #[test]
 fn cancelled_local_start_does_not_release_journaled_user_code() {
     use stackless_core::substrate::{InstanceContext, StepContext, Substrate};
+    // Direct substrate calls need the CLI runner, including on clean CI hosts.
+    // Set its path in a child so parallel tests never share environment changes.
+    const CHILD: &str = "STACKLESS_TEST_CANCELLED_START_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "cancelled_local_start_does_not_release_journaled_user_code",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .env("STACKLESS_BIN", env!("CARGO_BIN_EXE_stackless"))
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "cancelled start failed: {}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
     let fixture = Fixture::new();
     let app = fixture.app(None, false);
     fixture
@@ -1874,7 +1896,7 @@ fn cancelled_local_start_does_not_release_journaled_user_code() {
             ))),
         }))
         .unwrap_err();
-    assert_eq!(&*error.code, "operation.cancelled");
+    assert_eq!(&*error.code, "operation.cancelled", "{error:?}");
     assert!(!app.join("should-not-run").exists());
     let inventory = store.resources(&record.instance_id).unwrap();
     let processes: Vec<_> = inventory
