@@ -257,6 +257,12 @@ jobs:
             crates/stackless-stripe-projects/tests/fixtures/plugin-version.txt \
             || { echo "::error::command surface is stale for plugin $pinned — run 'mise run stripe-refresh' and commit"; exit 1; }
 
+      - name: Install Fly CLI for source builds
+        if: matrix.provider == 'fly-build'
+        uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1
+        with:
+          version: '0.4.100'
+
       - name: Live ${{ matrix.provider }} up/status/logs/down
         env:
           STACKLESS_LIVE_SMOKE_REQUIRED: "1"
