@@ -19,6 +19,7 @@ pub const OUTPUT_LIMIT: usize = 64 * 1024;
 // Arguments are passed as positional parameters. Source text never enters this script.
 // The first hard link wins, so timeout and normal completion cannot overwrite receipts.
 // Byte writes retain short output when the watchdog kills the reader before EOF.
+// Dash's kill builtin rejects `--` before a negative group ID; use /bin/kill.
 const RUNNER: &str = r#"
 umask 077
 stackless_result=$1
@@ -36,7 +37,7 @@ exec </dev/null
 (
     /bin/sleep "$stackless_budget"
     stackless_publish 124 timeout
-    kill -KILL -- "-$$"
+    /bin/kill -KILL -- "-$$"
 ) &
 (
     "$@"
@@ -49,7 +50,7 @@ if [ -f "$stackless_result.status" ]; then
     stackless_status=$(/bin/cat "$stackless_result.status")
     stackless_publish "$stackless_status" completed
 fi
-kill -KILL -- "-$$"
+/bin/kill -KILL -- "-$$"
 "#;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -178,6 +179,10 @@ impl std::fmt::Debug for CommandInput<'_> {
 }
 
 pub fn spawn(input: CommandInput<'_>) -> std::io::Result<PendingCommand> {
+    spawn_with_shell(input, Path::new("/bin/sh"))
+}
+
+fn spawn_with_shell(input: CommandInput<'_>, shell: &Path) -> std::io::Result<PendingCommand> {
     if input.budget.as_secs() == 0 || input.budget.as_secs() > 86400 {
         return Err(std::io::Error::other(
             "command budget must be between one second and one day",
@@ -195,7 +200,7 @@ pub fn spawn(input: CommandInput<'_>) -> std::io::Result<PendingCommand> {
         }
     }
     let cookie = uuid::Uuid::new_v4().to_string();
-    let mut child = Command::new("/bin/sh")
+    let mut child = Command::new(shell)
         .args(["-c", RUNNER, "stackless-command"])
         .arg(input.result)
         .arg(input.output)
@@ -333,6 +338,50 @@ mod tests {
         }
     }
 
+    fn assert_stopped_without_cleanup(stamp: &CommandStamp) {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !stamp.is_stopped() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let stopped = stamp.is_stopped();
+        // Clean up failed cases without making cleanup satisfy the assertion.
+        stamp.stop().unwrap();
+        assert!(stopped, "command group required caller cleanup: {stamp:?}");
+    }
+
+    #[test]
+    fn runner_stops_its_group_after_completion_and_timeout_under_posix_shells() {
+        for shell in ["/bin/sh", "/bin/dash"] {
+            if !Path::new(shell).exists() {
+                continue;
+            }
+            for (script, seconds, expected) in [
+                ("printf done; exit 7", 30, 7),
+                ("printf started; sleep 30; touch after-sleep", 1, 124),
+            ] {
+                let root = tempfile::tempdir().unwrap();
+                let pending = spawn_with_shell(
+                    CommandInput {
+                        program: Path::new("/bin/sh"),
+                        args: &["-c".into(), script.into()],
+                        directory: root.path(),
+                        environment: &BTreeMap::new(),
+                        result: &root.path().join("exit"),
+                        output: &root.path().join("output"),
+                        budget: Duration::from_secs(seconds),
+                    },
+                    Path::new(shell),
+                )
+                .unwrap();
+                let stamp = pending.stamp.clone();
+                pending.release().unwrap();
+                assert_eq!(wait_result(root.path()), expected, "shell: {shell}");
+                assert_stopped_without_cleanup(&stamp);
+                assert!(!root.path().join("after-sleep").exists());
+            }
+        }
+    }
+
     #[test]
     fn unreleased_command_cannot_execute_and_output_is_bounded_after_release() {
         let root = tempfile::tempdir().unwrap();
@@ -385,7 +434,7 @@ mod tests {
             outcome(&root.path().join("exit")).unwrap().unwrap().cause,
             ExitCause::Timeout
         );
-        stamp.stop().unwrap();
+        assert_stopped_without_cleanup(&stamp);
         assert!(!root.path().join("after-sleep").exists());
         assert!(!stamp.process().is_alive());
     }
