@@ -964,7 +964,15 @@ pathlib.Path('escaped').touch()
                 .unwrap();
             kill_observed(&processes);
             child.wait().unwrap();
-            assert!(!parent.is_alive() && !sleeper.is_alive());
+            // Reaping the parent does not wait for SIGKILL to finish in its child.
+            let deadline = Instant::now() + Duration::from_secs(3);
+            while (parent.is_alive() || sleeper.is_alive()) && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(5));
+            }
+            assert!(
+                !parent.is_alive() && !sleeper.is_alive(),
+                "cleanup left a live process: parent={parent:?}, child={sleeper:?}"
+            );
             assert!(!directory.join("escaped").exists());
         }
     }
