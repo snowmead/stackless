@@ -6,22 +6,21 @@
 //! health-check the public Pages URL. One long-lived Stripe project per stack
 //! holds each instance as a named environment.
 //!
-//! ## Credential model (pinned by `mise run discover gitlab/project`)
+//! ## Credentials
 //!
 //! Provisioning `gitlab/project` returns Stripe-managed outputs (`PROJECT_ID`,
 //! optional `WEB_URL`). The substrate reads them at `start`, resolves a
 //! `PRIVATE-TOKEN` for the GitLab API (`GITLAB_TOKEN` / `GITLAB_ACCESS_TOKEN` from
 //! Stripe instance env, else env/secrets/`.gitlab-token`), and deploys via Pages.
-//! Because credentials are ephemeral, `observe`/`destroy` key off the **Stripe
-//! resource registration**, not the GitLab API.
+//! Native receipts track commits, pipelines, and the revision served by Pages.
+//! Teardown requires native absence and Stripe removal evidence.
 //!
 //! ## Cloud invariants
 //!
-//! - **Pages path:** clone the pinned ref, upload files under
-//!   `[services.X.gitlab].root` (default `.`) into `public/`, commit `.gitlab-ci.yml`,
-//!   poll the `pages` job (~15m budget).
+//! - Pages uploads the sealed archive at `source.root` or `gitlab.root` into
+//!   `public/`, commits `.gitlab-ci.yml`, and polls the Pages job for 15 minutes.
 //! - **Cloud resource names** are `{stack}-{instance}-{service}` — DNS-safe.
-//! - **Setup is skipped on cloud**; **prepare** runs on the operator's machine.
+//! - Setup is skipped; prepare runs in the controller's snapshot working copy.
 //! - **Source override is unsupported** — GitLab deploys committed refs.
 
 pub mod api_key;
@@ -29,9 +28,11 @@ pub mod codes;
 pub mod config;
 pub mod error;
 pub mod gitlab_api;
+mod lifecycle;
 
+use stackless_core::substrate::InstanceContext;
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -96,17 +97,12 @@ struct GitLabPayload {
     #[serde(default)]
     pipeline_id: u64,
     #[serde(default)]
+    commit_sha: String,
+    #[serde(default)]
     job_id: u64,
     origin: String,
-}
-
-/// What a `materialize:<service>` checkpoint records: the pinned source. Owns
-/// nothing locally, so observe reports Gone and resume cheaply re-records it.
-#[derive(Debug, Serialize, Deserialize)]
-struct SourceRefPayload {
-    repo: String,
-    #[serde(rename = "ref")]
-    reference: String,
+    #[serde(default, rename = "_gitlab")]
+    native: Option<lifecycle::NativeState>,
 }
 
 /// The GitLab substrate. Generic over the command runner so tests inject canned
@@ -183,36 +179,42 @@ impl<R: CommandRunner> GitLabSubstrate<R> {
     }
 
     /// `{stack}-{instance}-{service}` (DNS-safe; a legal GitLab project name).
-    fn resource_name(def: &StackDef, instance: &str, node: &str) -> String {
-        format!("{}-{instance}-{node}", def.stack.name.as_str())
+    fn resource_name(def: &StackDef, instance: &InstanceContext<'_>, node: &str) -> String {
+        instance.provider_resource_name(def.stack.name.as_str(), node)
     }
 
-    /// Best-effort origin before Pages URL is known — documented placeholder.
-    fn origin_placeholder(project_name: &str) -> String {
-        format!("https://gitlab.com/{project_name}")
-    }
-
-    fn namespace(&self, def: &StackDef, instance: &str, prior: &[Checkpoint]) -> Namespace {
+    fn namespace(
+        &self,
+        def: &StackDef,
+        instance: &InstanceContext<'_>,
+        prior: &[Checkpoint],
+    ) -> Namespace {
         let mut namespace = Namespace {
             stack_name: def.stack.name.clone(),
-            instance_name: stackless_core::types::DnsName::from_stored(instance),
+            instance_name: stackless_core::types::DnsName::from_stored(instance.name),
             ..Namespace::default()
         };
         for service in def.services.keys() {
-            let name = Self::resource_name(def, instance, service);
-            namespace
-                .service_origins
-                .insert(service.clone(), Self::origin_placeholder(&name));
+            if let Some(origin) = prior
+                .iter()
+                .find(|cp| cp.step_id == format!("start:{service}"))
+                .and_then(|cp| serde_json::from_str::<GitLabPayload>(&cp.payload).ok())
+                .map(|payload| payload.origin)
+                .filter(|origin| !origin.is_empty())
+            {
+                namespace.service_origins.insert(service.clone(), origin);
+            }
         }
-        namespace.secrets = self.secrets.clone();
+        namespace.secrets = stackless_core::security::application_secrets(&self.secrets);
         namespace.add_integration_checkpoints(prior);
+        instance.bind_namespace(&mut namespace, def);
         namespace
     }
 
     async fn ensure_project_and_env(
         &self,
         def: &StackDef,
-        instance: &str,
+        instance: &InstanceContext<'_>,
     ) -> Result<(), SubstrateFault> {
         let mut done = self.ensured.lock().await;
         if *done {
@@ -223,7 +225,7 @@ impl<R: CommandRunner> GitLabSubstrate<R> {
             &self.stripe(),
             def,
             &self.definition_dir,
-            instance,
+            instance.resource_namespace,
             spend,
         )
         .await
@@ -241,9 +243,9 @@ impl<R: CommandRunner> GitLabSubstrate<R> {
         Ok(())
     }
 
-    async fn gitlab_token(&self, instance: &str) -> Result<String, SubstrateFault> {
+    async fn gitlab_token(&self, instance: &InstanceContext<'_>) -> Result<String, SubstrateFault> {
         let keys = [api_key::KEY_ENV, api_key::ALT_KEY_ENV];
-        let pulled = project::pull_env_values(&self.stripe(), instance, &keys)
+        let pulled = project::pull_env_values(&self.stripe(), instance.resource_namespace, &keys)
             .await
             .map_err(projects_fault)?;
         if let Some(token) = pulled
@@ -268,26 +270,29 @@ impl<R: CommandRunner> GitLabSubstrate<R> {
 
     async fn start_service(
         &self,
-        def: &StackDef,
-        instance: &str,
-        service: &str,
+        step_ctx: &StepContext<'_>,
     ) -> Result<StepResource, SubstrateFault> {
+        let def = step_ctx.def;
+        let instance = step_ctx.instance;
+        let service = step_ctx.step.node.as_str();
+        let stripe = self
+            .stripe()
+            .with_journal(step_ctx, SUBSTRATE_NAME, "gitlab-project");
+        let catalog_journal = stripe
+            .journal()
+            .ok_or_else(|| fault(lifecycle::invalid("GitLab catalog journal missing")))?;
         let gitlab_cfg = config::service_gitlab(def, service).map_err(fault)?;
         let project_name = Self::resource_name(def, instance, service);
-        let resource = format!("{instance}-{service}");
-        let spec = def.services.get(service).ok_or_else(|| {
-            fault(GitLabError::ConfigInvalid {
-                location: format!("services.{service}"),
-                detail: "service not in definition".into(),
-            })
-        })?;
+        let resource = instance.resource_name(service);
+        let source = stackless_cloud::source::recorded(step_ctx.prior, service)?;
+        let files =
+            collect_public_files(source.archive(gitlab_cfg.root.as_deref())?).map_err(fault)?;
         let visibility = gitlab_cfg
             .visibility
             .clone()
             .unwrap_or_else(|| "private".to_owned());
 
-        let catalog = self
-            .stripe()
+        let catalog = stripe
             .catalog_for::<GitLabProjectConfig>()
             .await
             .map_err(projects_fault)?;
@@ -300,14 +305,14 @@ impl<R: CommandRunner> GitLabSubstrate<R> {
         }
         let ctx = ProvisionContext {
             def,
-            instance,
+            instance: instance.resource_namespace,
             logical_name: service,
             definition_dir: &self.definition_dir,
             substrate: SUBSTRATE_NAME,
             skip_instance_context: true,
         };
         let (_resource_name, outputs) = provision_outputs(
-            &self.stripe(),
+            &stripe,
             &catalog,
             &ctx,
             &cfg,
@@ -323,82 +328,61 @@ impl<R: CommandRunner> GitLabSubstrate<R> {
             })
         })?;
 
+        let native = lifecycle::Journal::new(step_ctx, &resource, self.step_revision(step_ctx)?)
+            .map_err(fault)?;
+        let id = project_id.parse::<u64>().map_err(|_| {
+            fault(lifecycle::invalid(
+                "catalog returned no numeric GitLab project ID",
+            ))
+        })?;
+        native.bind(id).map_err(fault)?;
+        let mut payload = GitLabPayload {
+            stripe_resource: resource,
+            project_id: project_id.clone(),
+            project_name,
+            pages_url: String::new(),
+            pipeline_id: 0,
+            commit_sha: String::new(),
+            job_id: 0,
+            origin: String::new(),
+            native: Some(native.load().map_err(fault)?),
+        };
+        save_project(catalog_journal, &payload, false)?;
         let token = self.gitlab_token(instance).await?;
-        let gitlab = self.gitlab_with_token(&token);
-
-        let repo = spec.source.repo.clone();
-        let reference = spec.source.reference.clone();
-        let root = gitlab_cfg.root.clone();
-        let branch = reference.clone();
-        let files = tokio::task::spawn_blocking(move || {
-            collect_public_files(&repo, &reference, root.as_deref())
-        })
-        .await
-        .map_err(|err| {
-            fault(GitLabError::ProvisionFailed {
-                resource: resource.clone(),
-                detail: format!("file collection task panicked: {err}"),
-            })
-        })?
-        .map_err(fault)?;
+        let gitlab = self.gitlab_with_token(&token).with_journal(native.clone());
 
         let deploy = gitlab
-            .deploy_pages(project_id, &branch, &files, service, GITLAB_DEPLOY_BUDGET)
+            .deploy_pages(project_id, "", &files, service, GITLAB_DEPLOY_BUDGET)
             .await
             .map_err(fault)?;
 
-        let origin = if !deploy.pages_url.trim().is_empty() {
-            deploy.pages_url.trim_end_matches('/').to_owned()
-        } else {
-            outputs
-                .get("web_url")
-                .filter(|url| !url.trim().is_empty())
-                .cloned()
-                .unwrap_or_else(|| Self::origin_placeholder(&project_name))
-        };
-
-        let payload = GitLabPayload {
-            stripe_resource: resource,
-            project_id: project_id.clone(),
-            project_name: project_name.clone(),
-            pages_url: deploy.pages_url,
-            pipeline_id: deploy.pipeline_id,
-            job_id: deploy.job_id,
-            origin,
-        };
-        Ok(StepResource {
-            resource_kind: "gitlab-project".into(),
-            resource_id: project_name,
-            payload: serde_json::to_string(&payload).unwrap_or_default(),
-        })
+        payload.origin = deploy.pages_url.trim_end_matches('/').to_owned();
+        payload.pages_url = deploy.pages_url;
+        payload.pipeline_id = deploy.pipeline_id;
+        payload.commit_sha = deploy.commit_sha;
+        payload.job_id = deploy.job_id;
+        payload.native = Some(native.load().map_err(fault)?);
+        save_project(catalog_journal, &payload, true)
     }
 
-    async fn run_prepare(
-        &self,
-        def: &StackDef,
-        instance: &str,
-        service: &str,
-        prior: &[Checkpoint],
-    ) -> Result<(), SubstrateFault> {
-        let Some(spec) = def.services.get(service) else {
-            return Ok(());
-        };
-        let namespace = self.namespace(def, instance, prior);
-        stackless_cloud::prepare::run_service_prepare(
-            &namespace,
+    async fn run_hook(&self, ctx: &StepContext<'_>) -> Result<StepResource, SubstrateFault> {
+        stackless_cloud::prepare::run_snapshot_hook(
+            ctx,
+            &self.definition_dir,
+            &self.namespace(ctx.def, ctx.instance, ctx.prior),
             &self.secrets,
-            service,
             SUBSTRATE_NAME,
-            spec,
         )
         .await
-        .map_err(prepare_fault)
+        .map_err(|failure| {
+            stackless_cloud::prepare::hook_fault(ctx.step.kind, failure, prepare_fault)
+        })
     }
 
     async fn health_gate(
         &self,
         def: &StackDef,
-        instance: &str,
+        _instance: &InstanceContext<'_>,
         service: &str,
         prior: &[Checkpoint],
     ) -> Result<(), SubstrateFault> {
@@ -415,16 +399,21 @@ impl<R: CommandRunner> GitLabSubstrate<R> {
             })
             .and_then(|c| serde_json::from_str::<GitLabPayload>(&c.payload).ok())
             .map(|p| p.origin)
-            .filter(|o| !o.trim().is_empty())
-            .unwrap_or_else(|| {
-                let name = Self::resource_name(def, instance, service);
-                Self::origin_placeholder(&name)
-            });
-        let url = format!("{origin}{}", spec.health.path);
+            .filter(|origin| !origin.trim().is_empty())
+            .ok_or_else(|| {
+                fault(GitLabError::ConfigInvalid {
+                    location: format!("services.{service}.health"),
+                    detail: "deployment has no recorded provider endpoint".into(),
+                })
+            })?;
+        let Some(health) = &spec.health else {
+            return Ok(());
+        };
+        let url = format!("{origin}{}", health.path);
         stackless_cloud::health::poll(
             &url,
-            spec.health.status.get(),
-            spec.health.contains.as_deref(),
+            health.status.get(),
+            health.contains.as_deref(),
             HEALTH_BUDGET,
         )
         .await
@@ -439,65 +428,76 @@ impl<R: CommandRunner> GitLabSubstrate<R> {
     }
 }
 
-fn collect_public_files(
-    repo: &str,
-    reference: &str,
-    root: Option<&str>,
-) -> Result<Vec<RepoFile>, GitLabError> {
-    let provision_fault = |detail: String| GitLabError::ProvisionFailed {
-        resource: repo.to_owned(),
-        detail,
-    };
-    let tmp = tempfile::tempdir().map_err(|err| provision_fault(format!("tempdir: {err}")))?;
-    stackless_git::clone_checkout(
-        repo,
-        reference,
-        tmp.path(),
-        &stackless_git::Credentials::default(),
-    )
-    .map_err(|err| provision_fault(format!("clone {repo}@{reference} failed: {err}")))?;
-    let base = match root {
-        Some(root) => tmp.path().join(root),
-        None => tmp.path().to_path_buf(),
-    };
-    if !base.is_dir() {
-        return Err(provision_fault(format!(
-            "upload root {:?} not found in {repo}@{reference}",
-            root.unwrap_or(".")
-        )));
-    }
-    let mut files = Vec::new();
-    collect_dir(&base, &base, &mut files)
-        .map_err(|err| provision_fault(format!("reading upload files: {err}")))?;
-    if files.is_empty() {
-        return Err(provision_fault(format!(
-            "no files to upload under {:?}",
-            root.unwrap_or(".")
-        )));
-    }
-    Ok(files)
+fn has_catalog_receipt(payload: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(payload)
+        .ok()
+        .is_some_and(|value| value.get("_catalog_creation").is_some())
 }
 
-fn collect_dir(base: &Path, dir: &Path, out: &mut Vec<RepoFile>) -> std::io::Result<()> {
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
-        if entry.file_name() == ".git" {
-            continue;
-        }
-        let path = entry.path();
-        if path.is_dir() {
-            collect_dir(base, &path, out)?;
-        } else if path.is_file() {
-            let rel = path
-                .strip_prefix(base)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .replace('\\', "/");
-            let content = std::fs::read_to_string(&path)?;
-            out.push(RepoFile { path: rel, content });
-        }
+fn save_native(
+    store: &stackless_core::state::Store,
+    owner: &str,
+    record: &stackless_core::state::ResourceRecord,
+    value: &mut serde_json::Value,
+    native: &lifecycle::NativeState,
+) -> Result<(), SubstrateFault> {
+    value["_gitlab"] =
+        serde_json::to_value(native).map_err(|e| fault(lifecycle::invalid(e.to_string())))?;
+    store
+        .resource_refresh_payload(owner, &record.key, &record.resource_id, &value.to_string())
+        .map_err(|e| SubstrateFault::from_fault(&e))
+}
+
+fn save_project(
+    journal: &stackless_stripe_projects::journal::ResourceJournal,
+    payload: &GitLabPayload,
+    ready: bool,
+) -> Result<StepResource, SubstrateFault> {
+    let mut resource = StepResource {
+        resource_kind: "gitlab-project".into(),
+        resource_id: payload.stripe_resource.clone(),
+        payload: serde_json::to_string(payload)
+            .map_err(|e| fault(lifecycle::invalid(e.to_string())))?,
+    };
+    resource.payload = journal.outputs(&resource, ready).map_err(projects_fault)?;
+    Ok(resource)
+}
+
+fn collect_public_files(
+    archive: stackless_core::source_archive::SourceArchive,
+) -> Result<Vec<RepoFile>, GitLabError> {
+    use base64::Engine as _;
+    let fail = |detail: String| GitLabError::ProvisionFailed {
+        resource: "gitlab source".into(),
+        detail,
+    };
+    if archive
+        .files
+        .iter()
+        .any(|file| file.path == ".well-known/stackless-deployment.json")
+    {
+        return Err(fail(
+            "source uses the reserved deployment receipt path".into(),
+        ));
     }
-    Ok(())
+    if archive.files.is_empty() {
+        return Err(fail(
+            "no files to upload under the selected source root".into(),
+        ));
+    }
+    archive
+        .files
+        .into_iter()
+        .map(|file| {
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(file.contents)
+                .map_err(|error| fail(error.to_string()))?;
+            Ok(RepoFile {
+                path: file.path,
+                content: bytes,
+            })
+        })
+        .collect()
 }
 
 #[async_trait]
@@ -506,19 +506,20 @@ impl<R: CommandRunner> Substrate for GitLabSubstrate<R> {
         SUBSTRATE_NAME
     }
 
+    fn capabilities(&self) -> stackless_core::capabilities::Capabilities {
+        stackless_core::capabilities::Capabilities::cloud(false, true)
+    }
+
     fn validate_definition(&self, def: &StackDef) -> Result<(), SubstrateFault> {
         for service in def.services.keys() {
-            config::service_gitlab(def, service).map_err(fault)?;
-            let project_name = Self::resource_name(def, "i", service);
-            if !config::is_valid_project_name(&project_name) {
-                return Err(fault(GitLabError::ConfigInvalid {
-                    location: format!("services.{service}"),
-                    detail: format!(
-                        "derived GitLab project name {project_name:?} is not a legal name; \
-                         shorten the stack/service name"
-                    ),
-                }));
+            if def.services[service]
+                .on
+                .as_deref()
+                .is_some_and(|on| on != SUBSTRATE_NAME)
+            {
+                continue;
             }
+            config::service_gitlab(def, service).map_err(fault)?;
         }
         Ok(())
     }
@@ -531,64 +532,72 @@ impl<R: CommandRunner> Substrate for GitLabSubstrate<R> {
         Duration::from_secs(8 * 3600)
     }
 
-    fn service_origin(&self, def: &StackDef, instance: &str, service: &str) -> String {
-        let name = Self::resource_name(def, instance, service);
-        Self::origin_placeholder(&name)
-    }
-
     fn build_namespace(
         &self,
         def: &StackDef,
-        instance: &str,
+        instance: &InstanceContext<'_>,
         prior: &[Checkpoint],
         secrets: &BTreeMap<String, String>,
         _purpose: NamespacePurpose,
     ) -> Namespace {
         let mut namespace = self.namespace(def, instance, prior);
-        namespace.secrets = secrets.clone();
+        namespace.secrets = stackless_core::security::application_secrets(secrets);
         namespace
     }
 
+    fn step_revision(&self, ctx: &StepContext<'_>) -> Result<String, SubstrateFault> {
+        let definition = stackless_core::engine::revision::step_revision(ctx, self)?;
+        if matches!(
+            ctx.step.kind,
+            StepKind::Start | StepKind::Setup | StepKind::Prepare
+        ) {
+            stackless_core::engine::revision::digest(&(
+                definition,
+                stackless_core::security::application_secrets(&self.secrets),
+            ))
+        } else {
+            Ok(definition)
+        }
+    }
+
+    fn refresh_each_operation(&self, step: &stackless_core::engine::Step) -> bool {
+        matches!(
+            step.kind,
+            StepKind::Materialize | StepKind::Prepare | StepKind::HealthGate
+        )
+    }
+
     async fn execute(&self, ctx: StepContext<'_>) -> Result<StepResource, SubstrateFault> {
+        stackless_cloud::prepare::durable::require_host_grant(&ctx)?;
         self.ensure_project_and_env(ctx.def, ctx.instance).await?;
 
         let node = ctx.step.node.as_str();
         match ctx.step.kind {
+            StepKind::RunJob => Err(stackless_core::capabilities::unsupported_feature(
+                SUBSTRATE_NAME,
+                &ctx.step.node,
+                "jobs",
+            )),
             StepKind::ProvisionIntegration => stackless_integrations::provision(
                 SUBSTRATE_NAME,
                 &self.stripe(),
-                ctx.def,
+                &ctx,
                 &self.definition_dir,
-                ctx.instance,
-                node,
                 true,
             )
             .await
             .map_err(integration_fault),
             StepKind::Materialize => {
-                let spec = ctx.def.services.get(node).ok_or_else(|| {
-                    fault(GitLabError::ConfigInvalid {
-                        location: format!("services.{node}"),
-                        detail: "service not in definition".into(),
-                    })
-                })?;
-                let payload = SourceRefPayload {
-                    repo: spec.source.repo.clone(),
-                    reference: spec.source.reference.clone(),
-                };
-                Ok(StepResource {
-                    resource_kind: "source-ref".into(),
-                    resource_id: format!("{}@{}", spec.source.repo, spec.source.reference),
-                    payload: serde_json::to_string(&payload).unwrap_or_default(),
-                })
+                stackless_cloud::source::materialize(
+                    &ctx,
+                    &self.definition_dir,
+                    SUBSTRATE_NAME,
+                    &self.secrets,
+                )
+                .await
             }
-            StepKind::Setup => Ok(stackless_core::substrate::action_resource(&ctx.step.id)),
-            StepKind::Prepare => {
-                self.run_prepare(ctx.def, ctx.instance, node, ctx.prior)
-                    .await?;
-                Ok(stackless_core::substrate::action_resource(&ctx.step.id))
-            }
-            StepKind::Start => self.start_service(ctx.def, ctx.instance, node).await,
+            StepKind::Setup | StepKind::Prepare => self.run_hook(&ctx).await,
+            StepKind::Start => self.start_service(&ctx).await,
             StepKind::HealthGate => {
                 self.health_gate(ctx.def, ctx.instance, node, ctx.prior)
                     .await?;
@@ -599,10 +608,19 @@ impl<R: CommandRunner> Substrate for GitLabSubstrate<R> {
 
     async fn observe(
         &self,
-        _instance: &str,
+        instance: &InstanceContext<'_>,
         checkpoint: &Checkpoint,
     ) -> Result<Observation, SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
+            stackless_cloud::prepare::durable::KIND => stackless_cloud::prepare::durable::observe(
+                &self.definition_dir,
+                instance,
+                SUBSTRATE_NAME,
+                checkpoint,
+            ),
+            stackless_cloud::source::KIND => {
+                stackless_cloud::source::observe(&self.definition_dir, instance, checkpoint)
+            }
             "gitlab-project" => {
                 let payload = stackless_cloud::checkpoint::parse_payload::<GitLabPayload>(
                     &checkpoint.payload,
@@ -613,6 +631,52 @@ impl<R: CommandRunner> Substrate for GitLabSubstrate<R> {
                         detail,
                     })
                 })?;
+                if let Some(payload) = &payload
+                    && let Some(native) = &payload.native
+                {
+                    let id = native
+                        .project_id
+                        .ok_or_else(|| fault(lifecycle::invalid("native project ID is missing")))?;
+                    let api = self.gitlab_with_token(&self.gitlab_token(instance).await?);
+                    if api
+                        .owned_project(id, &payload.project_name, native.namespace_path.as_deref())
+                        .await
+                        .map_err(fault)?
+                        .is_none()
+                    {
+                        return Ok(Observation::Gone);
+                    }
+                    let matches: Vec<_> = native
+                        .requests
+                        .iter()
+                        .filter(|(_, request)| {
+                            request.commit_sha.as_deref() == Some(payload.commit_sha.as_str())
+                        })
+                        .collect();
+                    if matches.len() != 1 {
+                        return Err(fault(lifecycle::invalid(
+                            "checkpoint has no unique deployment receipt",
+                        )));
+                    }
+                    let (receipt, request) = matches[0];
+                    return Ok(
+                        if api
+                            .deployment_ready(id, receipt, request)
+                            .await
+                            .map_err(fault)?
+                        {
+                            Observation::Present
+                        } else {
+                            Observation::Drifted {
+                                settings: vec![stackless_core::substrate::SettingDrift {
+                                    setting: "deployment.revision".into(),
+                                    expected: payload.commit_sha.clone(),
+                                    actual: "not serving the recorded deployment".into(),
+                                }],
+                            }
+                        },
+                    );
+                }
                 let stripe_resource = payload
                     .map(|p| p.stripe_resource)
                     .unwrap_or_else(|| checkpoint.resource_id.clone());
@@ -644,10 +708,13 @@ impl<R: CommandRunner> Substrate for GitLabSubstrate<R> {
 
     async fn destroy(
         &self,
-        _instance: &str,
+        instance: &InstanceContext<'_>,
         checkpoint: &Checkpoint,
     ) -> Result<(), SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
+            stackless_cloud::source::KIND => {
+                stackless_cloud::source::destroy(&self.definition_dir, instance, checkpoint)
+            }
             "gitlab-project" => {
                 let payload = stackless_cloud::checkpoint::parse_payload::<GitLabPayload>(
                     &checkpoint.payload,
@@ -658,6 +725,14 @@ impl<R: CommandRunner> Substrate for GitLabSubstrate<R> {
                         detail,
                     })
                 })?;
+                if payload
+                    .as_ref()
+                    .is_some_and(|payload| payload.native.is_some())
+                {
+                    return Err(fault(lifecycle::invalid(
+                        "native teardown requires the resource inventory",
+                    )));
+                }
                 let stripe_resource = payload
                     .map(|p| p.stripe_resource)
                     .unwrap_or_else(|| checkpoint.resource_id.clone());
@@ -684,8 +759,173 @@ impl<R: CommandRunner> Substrate for GitLabSubstrate<R> {
         }
     }
 
-    async fn finalize_teardown(&self, instance: &str) -> Result<(), SubstrateFault> {
-        stackless_integrations::finalize_stripe_instance(&self.stripe(), instance).await;
+    async fn destroy_record(
+        &self,
+        store: &stackless_core::state::Store,
+        instance: &InstanceContext<'_>,
+        record: &stackless_core::state::ResourceRecord,
+    ) -> Result<(), SubstrateFault> {
+        if record.resource_kind == stackless_cloud::prepare::durable::KIND {
+            return stackless_cloud::prepare::durable::destroy_record(
+                &self.definition_dir,
+                store,
+                instance,
+                SUBSTRATE_NAME,
+                record,
+            )
+            .await;
+        }
+        if record.owner_id != instance.id
+            || record.ownership != stackless_core::state::Ownership::Owned
+        {
+            return Err(fault(lifecycle::invalid(
+                "teardown requires this instance's ownership record",
+            )));
+        }
+        if !has_catalog_receipt(&record.payload) {
+            return self
+                .destroy(instance, &record.checkpoint(instance.name))
+                .await;
+        }
+        stackless_stripe_projects::journal::recover_for_teardown(&self.stripe(), store, record)
+            .await
+            .map_err(projects_fault)?;
+        let current = store
+            .resource(instance.id, &record.key)
+            .map_err(|e| SubstrateFault::from_fault(&e))?
+            .ok_or_else(|| fault(lifecycle::invalid("catalog record disappeared")))?;
+        if current.phase == stackless_core::state::ResourcePhase::Absent {
+            return Ok(());
+        }
+        if current.resource_kind == "gitlab-project" {
+            let mut value: serde_json::Value = serde_json::from_str(&current.payload)
+                .map_err(|e| fault(lifecycle::invalid(e.to_string())))?;
+            let (mut native, name) = self
+                .native_identity(instance, &current.resource_id, &value)
+                .await?;
+            save_native(store, instance.id, &current, &mut value, &native)?;
+            let id = native
+                .project_id
+                .ok_or_else(|| fault(lifecycle::invalid("native project ID unresolved")))?;
+            let api = self.gitlab_with_token(&self.gitlab_token(instance).await?);
+            if let Some(project) = api
+                .owned_project(id, &name, native.namespace_path.as_deref())
+                .await
+                .map_err(fault)?
+            {
+                native.namespace_path = Some(project.path_with_namespace);
+                save_native(store, instance.id, &current, &mut value, &native)?;
+                if api.pages_present(id).await.map_err(fault)? {
+                    if !native.pages_removal_submitted {
+                        native.pages_removal_submitted = true;
+                        save_native(store, instance.id, &current, &mut value, &native)?;
+                        api.delete_pages(id).await.map_err(fault)?;
+                    }
+                    if api.pages_present(id).await.map_err(fault)? {
+                        return Err(fault(lifecycle::invalid(
+                            "native Pages removal is still pending",
+                        )));
+                    }
+                }
+                if !native.project_removal_submitted {
+                    native.project_removal_submitted = true;
+                    save_native(store, instance.id, &current, &mut value, &native)?;
+                    api.delete_project(id).await.map_err(fault)?;
+                }
+                if api
+                    .owned_project(id, &name, native.namespace_path.as_deref())
+                    .await
+                    .map_err(fault)?
+                    .is_some()
+                {
+                    return Err(fault(lifecycle::invalid(
+                        "native project deletion is pending; GitLab.com retains deleted projects for 30 days",
+                    )));
+                }
+            }
+        }
+        let current = store
+            .resource(instance.id, &record.key)
+            .map_err(|e| SubstrateFault::from_fault(&e))?
+            .ok_or_else(|| fault(lifecycle::invalid("catalog record disappeared")))?;
+        stackless_stripe_projects::journal::destroy_record(&self.stripe(), store, &current)
+            .await
+            .map_err(projects_fault)
+    }
+
+    async fn observe_record(
+        &self,
+        store: &stackless_core::state::Store,
+        instance: &InstanceContext<'_>,
+        record: &stackless_core::state::ResourceRecord,
+    ) -> Result<Observation, SubstrateFault> {
+        if record.resource_kind == stackless_cloud::prepare::durable::KIND {
+            return stackless_cloud::prepare::durable::observe_record(
+                &self.definition_dir,
+                store,
+                instance,
+                SUBSTRATE_NAME,
+                record,
+            );
+        }
+        if record.owner_id != instance.id {
+            return Err(fault(lifecycle::invalid(
+                "resource belongs to another instance",
+            )));
+        }
+        let current = store
+            .resource(instance.id, &record.key)
+            .map_err(|e| SubstrateFault::from_fault(&e))?
+            .ok_or_else(|| fault(lifecycle::invalid("catalog record disappeared")))?;
+        if current.owner_id != instance.id {
+            return Err(fault(lifecycle::invalid(
+                "resource belongs to another instance",
+            )));
+        }
+        if current.phase == stackless_core::state::ResourcePhase::Absent {
+            return Ok(Observation::Gone);
+        }
+        if !has_catalog_receipt(&current.payload) {
+            return self
+                .observe(instance, &current.checkpoint(instance.name))
+                .await;
+        }
+        let catalog =
+            stackless_stripe_projects::journal::observe_payload(&self.stripe(), &current.payload)
+                .await
+                .map_err(projects_fault)?;
+        if current.resource_kind != "gitlab-project" {
+            return Ok(catalog);
+        }
+        let value: serde_json::Value = serde_json::from_str(&current.payload)
+            .map_err(|e| fault(lifecycle::invalid(e.to_string())))?;
+        let (native, name) = self
+            .native_identity(instance, &current.resource_id, &value)
+            .await?;
+        let api = self.gitlab_with_token(&self.gitlab_token(instance).await?);
+        let id = native
+            .project_id
+            .ok_or_else(|| fault(lifecycle::invalid("native project ID unresolved")))?;
+        if api
+            .owned_project(id, &name, native.namespace_path.as_deref())
+            .await
+            .map_err(fault)?
+            .is_some()
+        {
+            return Ok(Observation::Present);
+        }
+        Ok(catalog)
+    }
+
+    async fn finalize_teardown(
+        &self,
+        instance: &InstanceContext<'_>,
+    ) -> Result<(), SubstrateFault> {
+        stackless_integrations::finalize_stripe_instance(
+            &self.stripe(),
+            instance.resource_namespace,
+        )
+        .await;
         Ok(())
     }
 
@@ -703,8 +943,9 @@ impl<R: CommandRunner> Substrate for GitLabSubstrate<R> {
 
     async fn fetch_logs(
         &self,
+        _store: &stackless_core::state::Store,
         def: &StackDef,
-        instance: &str,
+        instance: &InstanceContext<'_>,
         services: &[String],
         tail: usize,
     ) -> Result<Option<Vec<ServiceLog>>, SubstrateFault> {
@@ -724,10 +965,8 @@ impl<R: CommandRunner> Substrate for GitLabSubstrate<R> {
     }
 }
 
-fn start_service_payload(instance: &str, service: &str) -> Option<GitLabPayload> {
-    let store = stackless_core::state::Store::open_configured().ok()?;
-    let checkpoints = store.checkpoints(instance).ok()?;
-    checkpoints.into_iter().find_map(|checkpoint| {
+fn start_service_payload(instance: &InstanceContext<'_>, service: &str) -> Option<GitLabPayload> {
+    instance.checkpoints.iter().find_map(|checkpoint| {
         if checkpoint.step_id == format!("start:{service}")
             && checkpoint.resource_kind == "gitlab-project"
         {
@@ -739,10 +978,87 @@ fn start_service_payload(instance: &str, service: &str) -> Option<GitLabPayload>
 }
 
 impl<R: CommandRunner> GitLabSubstrate<R> {
+    async fn native_identity(
+        &self,
+        instance: &InstanceContext<'_>,
+        resource: &str,
+        value: &serde_json::Value,
+    ) -> Result<(lifecycle::NativeState, String), SubstrateFault> {
+        let mut native: lifecycle::NativeState = match value.get("_gitlab") {
+            None | Some(serde_json::Value::Null) => Default::default(),
+            Some(value) => serde_json::from_value(value.clone())
+                .map_err(|e| fault(lifecycle::invalid(e.to_string())))?,
+        };
+        let name = value
+            .get("project_name")
+            .or_else(|| value.pointer("/_catalog_creation/config/name"))
+            .and_then(serde_json::Value::as_str)
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| fault(lifecycle::invalid("native project name missing")))?
+            .to_owned();
+        let resource_key = format!(
+            "{}_PROJECT_ID",
+            resource.to_ascii_uppercase().replace('-', "_")
+        );
+        let keys = [resource_key.as_str(), "GITLAB_PROJECT_ID"];
+        let candidate = value
+            .get("project_id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| {
+                keys.iter().find_map(|key| {
+                    value
+                        .pointer("/_catalog_creation/response")
+                        .and_then(|response| project::find_env_value(response, key))
+                })
+            });
+        if let Some(id) = native.project_id
+            && (id == 0
+                || candidate
+                    .as_deref()
+                    .is_some_and(|candidate| candidate.parse::<u64>().ok() != Some(id)))
+        {
+            return Err(fault(lifecycle::invalid(
+                "native project identity fields disagree",
+            )));
+        }
+        if value
+            .pointer("/_catalog_creation/config/name")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|catalog_name| catalog_name != name)
+        {
+            return Err(fault(lifecycle::invalid(
+                "native project name differs from the catalog request",
+            )));
+        }
+        if native.project_id.is_none() {
+            let candidate = match candidate {
+                Some(value) => Some(value),
+                None => {
+                    project::pull_env_values(&self.stripe(), instance.resource_namespace, &keys)
+                        .await
+                        .map_err(projects_fault)?
+                        .into_iter()
+                        .flatten()
+                        .next()
+                }
+            };
+            native.project_id = candidate
+                .and_then(|id| id.parse::<u64>().ok())
+                .filter(|id| *id > 0);
+        }
+        if native.project_id.is_none() {
+            return Err(fault(lifecycle::invalid(
+                "catalog creation has no recoverable native project ID",
+            )));
+        }
+        Ok((native, name))
+    }
+
     async fn fetch_service_logs(
         &self,
         def: &StackDef,
-        instance: &str,
+        instance: &InstanceContext<'_>,
         service: &str,
         tail: usize,
     ) -> Result<Vec<String>, SubstrateFault> {
@@ -826,18 +1142,53 @@ mod tests {
 
     const PAYLOAD: &str = r#"{"stripe_resource":"demo-web","project_id":"123","project_name":"atto-demo-web","pages_url":"https://acme.gitlab.io/atto-demo-web/","pipeline_id":1,"job_id":2,"origin":"https://acme.gitlab.io/atto-demo-web"}"#;
 
-    #[test]
-    fn resource_name_and_origin_are_dns_safe() {
+    #[tokio::test]
+    async fn resource_names_are_dns_safe_and_origins_wait_for_outputs() {
         let def = gitlab_def();
         assert_eq!(
-            GitLabSubstrate::<TokioRunner>::resource_name(&def, "demo", "web"),
+            GitLabSubstrate::<TokioRunner>::resource_name(
+                &def,
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                "web"
+            ),
             "atto-demo-web"
         );
         let (_dir, s) = subj();
         assert_eq!(
-            s.service_origin(&def, "demo", "web"),
-            "https://gitlab.com/atto-demo-web"
+            s.service_origin(
+                &def,
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                "web"
+            ),
+            ""
         );
+        let context = InstanceContext {
+            name: "demo",
+            id: "legacy-test",
+            resource_namespace: "demo",
+            checkpoints: &[],
+            routed_origins: None,
+        };
+        let error = tokio::time::timeout(
+            Duration::from_millis(100),
+            s.health_gate(&def, &context, "web", &[]),
+        )
+        .await
+        .expect("missing URL must fail before health polling")
+        .unwrap_err();
+        assert!(error.message.contains("recorded"), "{error}");
     }
 
     #[test]
@@ -854,7 +1205,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let s = GitLabSubstrate::for_test(&runner, dir.path(), "http://127.0.0.1:1", false);
         let cp = checkpoint("gitlab-project", "start:web", PAYLOAD);
-        assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Present);
+        assert_eq!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .unwrap(),
+            Observation::Present
+        );
     }
 
     #[tokio::test]
@@ -863,7 +1228,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let s = GitLabSubstrate::for_test(&runner, dir.path(), "http://127.0.0.1:1", false);
         let cp = checkpoint("gitlab-project", "start:web", PAYLOAD);
-        assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Gone);
+        assert_eq!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .unwrap(),
+            Observation::Gone
+        );
     }
 
     #[tokio::test]
@@ -874,16 +1253,67 @@ mod tests {
             "materialize:web",
             r#"{"repo":"r","ref":"main"}"#,
         );
-        assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Gone);
-        s.destroy("demo", &cp).await.unwrap();
+        assert_eq!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .unwrap(),
+            Observation::Gone
+        );
+        s.destroy(
+            &InstanceContext {
+                routed_origins: None,
+                name: "demo",
+                id: "legacy-test",
+                resource_namespace: "demo",
+                checkpoints: &[],
+            },
+            &cp,
+        )
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
     async fn unknown_resource_kind_fails_closed() {
         let (_dir, s) = subj();
         let cp = checkpoint("not-a-real-kind", "start:web", "{}");
-        assert!(s.observe("demo", &cp).await.is_err());
-        assert!(s.destroy("demo", &cp).await.is_err());
+        assert!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            s.destroy(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .is_err()
+        );
     }
 
     #[tokio::test]
@@ -895,7 +1325,18 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let s = GitLabSubstrate::for_test(&runner, dir.path(), "http://127.0.0.1:1", false);
         let cp = checkpoint("gitlab-project", "start:web", PAYLOAD);
-        s.destroy("demo", &cp).await.unwrap();
+        s.destroy(
+            &InstanceContext {
+                routed_origins: None,
+                name: "demo",
+                id: "legacy-test",
+                resource_namespace: "demo",
+                checkpoints: &[],
+            },
+            &cp,
+        )
+        .await
+        .unwrap();
         let calls = runner.calls();
         assert!(
             calls
@@ -906,3 +1347,9 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod source_tests;
+
+#[cfg(test)]
+mod lifecycle_tests;

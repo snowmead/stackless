@@ -175,7 +175,7 @@ stackless bind --file stackless.toml \
 ```
 
 Rust `build.rs` consumers that already check in the IDL can regenerate only
-`$OUT_DIR` via `stackless-bindgen` (no `stackless-core` / libsql link):
+`$OUT_DIR` via `stackless-bindgen` (no `stackless-core` link):
 
 ```rust
 fn main() -> Result<(), Box<dyn std::error::Error>> {

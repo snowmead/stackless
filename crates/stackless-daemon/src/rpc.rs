@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use stackless_core::types::{DnsName, Pid, ProcessStartTime, ProtocolVersion, ProxyHost, TcpPort};
 
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// The daemon's (and CLI's) build version — same binary, same number.
 pub fn build_version() -> &'static str {
@@ -16,6 +16,9 @@ pub fn build_version() -> &'static str {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 pub enum Request {
+    Control {
+        request: serde_json::Value,
+    },
     Ping,
     /// Route `host` (no port) to a local TCP port.
     RouteSet {
@@ -63,6 +66,7 @@ pub enum Response {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "result", rename_all = "kebab-case")]
 pub enum ResponseBody {
+    Control { response: serde_json::Value },
     Pong,
     Done,
     Routes { routes: Vec<Route> },

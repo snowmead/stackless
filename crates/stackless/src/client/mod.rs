@@ -1,23 +1,33 @@
 //! Sync public lifecycle API. CLI and MCP adapt over the same path.
 
 pub(crate) mod args;
+mod managed;
+pub(crate) mod remote;
 mod report;
+pub(crate) mod runtime;
+mod transport;
+pub use crate::controller::ControllerInfo;
+pub use crate::controller::OperationPage;
+pub use stackless_core::state::{Operation, OperationEvent, OperationStatus};
 
 pub(crate) use args::*;
-pub use report::{InstanceReport, ServiceStatus};
+pub use report::{
+    Configuration, EndpointStatus, Existence, InstanceReport, IntegrationStatus, ObservedState,
+    Readiness, ResourceStatus, ServiceStatus,
+};
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use stackless_core::def::{DependencyGraph, Namespace, StackDef};
 use stackless_core::engine::{
     DownOutcome as EngineDownOutcome, Engine, ProgressSink, UpRequest as EngineUpRequest,
 };
 use stackless_core::paths::Paths;
 use stackless_core::state::{InstanceStatus, Store};
-use stackless_core::substrate::SpendInfo;
+use stackless_core::substrate::{SpendInfo, Substrate};
 use stackless_core::types::TcpPort;
 use stackless_daemon::DaemonRole;
 
@@ -37,6 +47,8 @@ struct ClientInner {
     /// Operator for the default env layout; Embedded when paths were injected.
     daemon_role: DaemonRole,
     runtime: OnceLock<tokio::runtime::Runtime>,
+    store: OnceLock<Arc<Store>>,
+    remote: Option<remote::SshController>,
 }
 
 impl std::fmt::Debug for ClientInner {
@@ -45,6 +57,7 @@ impl std::fmt::Debug for ClientInner {
             .field("paths", &self.paths)
             .field("proxy_port", &self.proxy_port)
             .field("daemon_role", &self.daemon_role)
+            .field("remote", &self.remote)
             .finish_non_exhaustive()
     }
 }
@@ -54,9 +67,16 @@ impl std::fmt::Debug for ClientInner {
 pub struct ClientBuilder {
     paths: Option<Paths>,
     proxy_port: Option<TcpPort>,
+    remote: Option<String>,
 }
 
 impl ClientBuilder {
+    /// Connect through an existing OpenSSH host alias or `user@host`.
+    pub fn remote(mut self, target: impl Into<String>) -> Self {
+        self.remote = Some(target.into());
+        self
+    }
+
     pub fn paths(mut self, paths: Paths) -> Self {
         self.paths = Some(paths);
         self
@@ -68,6 +88,25 @@ impl ClientBuilder {
     }
 
     pub fn build(self) -> Result<Client, Error> {
+        let remote = self
+            .remote
+            .or_else(|| {
+                if self.paths.is_none() {
+                    std::env::var("STACKLESS_CONTROLLER")
+                        .ok()
+                        .filter(|value| !value.is_empty())
+                } else {
+                    None
+                }
+            })
+            .map(remote::SshController::new)
+            .transpose()?;
+        if remote.is_some() && (self.paths.is_some() || self.proxy_port.is_some()) {
+            return Err(Error::BadArgument {
+                argument: "controller".into(),
+                detail: "remote controllers cannot use local state paths or proxy ports".into(),
+            });
+        }
         // Explicit paths ⇒ hermetic/SDK embed (no launchd/reaper). Default
         // env layout ⇒ operator daemon with §6 lease enforcement.
         let (paths, daemon_role) = match self.paths {
@@ -87,6 +126,8 @@ impl ClientBuilder {
                 proxy_port,
                 daemon_role,
                 runtime: OnceLock::new(),
+                store: OnceLock::new(),
+                remote,
             }),
         })
     }
@@ -133,6 +174,7 @@ pub struct Create {
     pub on: String,
     pub sources: Vec<String>,
     pub dirty: bool,
+    pub allow_host_execution: bool,
     pub lease: Option<String>,
     pub paid: PaidConsent,
 }
@@ -145,6 +187,7 @@ impl Create {
             on: on.into(),
             sources: Vec::new(),
             dirty: false,
+            allow_host_execution: false,
             lease: None,
             paid: PaidConsent::NotRequired,
         }
@@ -170,6 +213,12 @@ impl Create {
         self
     }
 
+    /// Permit this instance's commands to run directly on the controller host.
+    pub fn allow_host_execution(mut self) -> Self {
+        self.allow_host_execution = true;
+        self
+    }
+
     pub fn dirty(mut self, dirty: bool) -> Self {
         self.dirty = dirty;
         self
@@ -183,6 +232,7 @@ pub struct Resume {
     pub file: Option<PathBuf>,
     pub sources: Vec<String>,
     pub dirty: bool,
+    pub allow_host_execution: bool,
     pub lease: Option<String>,
 }
 
@@ -193,6 +243,7 @@ impl Resume {
             file: None,
             sources: Vec::new(),
             dirty: false,
+            allow_host_execution: false,
             lease: None,
         }
     }
@@ -204,6 +255,12 @@ impl Resume {
 
     pub fn source(mut self, pin: impl Into<String>) -> Self {
         self.sources.push(pin.into());
+        self
+    }
+
+    /// Permit this instance's commands to run directly on the controller host.
+    pub fn allow_host_execution(mut self) -> Self {
+        self.allow_host_execution = true;
         self
     }
 
@@ -219,12 +276,17 @@ impl Resume {
 }
 
 /// Result of a successful `up`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpOutcome {
     pub name: String,
+    pub instance_id: String,
     pub substrate: String,
     pub origins: BTreeMap<String, String>,
-    pub integrations: BTreeMap<String, BTreeMap<String, String>>,
+    #[serde(default)]
+    pub placements: stackless_core::def::placement::Placements,
+    #[serde(default)]
+    pub endpoints: BTreeMap<String, stackless_core::def::ResolvedEndpoint>,
+    pub integrations: BTreeMap<String, BTreeMap<String, stackless_core::security::SecretRef>>,
     pub executed: Vec<String>,
     pub skipped: Vec<String>,
     pub duration_ms: u64,
@@ -243,15 +305,37 @@ impl UpOutcome {
             })
     }
 
+    pub fn endpoint_urls(&self) -> BTreeMap<String, String> {
+        self.endpoints
+            .iter()
+            .map(|(name, endpoint)| (name.clone(), endpoint.url.clone()))
+            .collect()
+    }
+
+    pub fn endpoint(&self, name: &str) -> Result<&str, Error> {
+        self.endpoints
+            .get(name)
+            .map(|endpoint| endpoint.url.as_str())
+            .ok_or_else(|| Error::BadArgument {
+                argument: "endpoint".into(),
+                detail: format!("no URL recorded for endpoint {name:?}"),
+            })
+    }
+
     pub fn origins(&self) -> &BTreeMap<String, String> {
         &self.origins
     }
 
-    pub fn integrations(&self) -> &BTreeMap<String, BTreeMap<String, String>> {
+    pub fn integrations(
+        &self,
+    ) -> &BTreeMap<String, BTreeMap<String, stackless_core::security::SecretRef>> {
         &self.integrations
     }
 
-    pub fn integration(&self, dns: &str) -> Result<&BTreeMap<String, String>, Error> {
+    pub fn integration(
+        &self,
+        dns: &str,
+    ) -> Result<&BTreeMap<String, stackless_core::security::SecretRef>, Error> {
         self.integrations
             .get(dns)
             .ok_or_else(|| Error::BadArgument {
@@ -260,11 +344,14 @@ impl UpOutcome {
             })
     }
 
-    pub fn integration_output(&self, dns: &str, key: &str) -> Result<&str, Error> {
+    pub fn integration_output(
+        &self,
+        dns: &str,
+        key: &str,
+    ) -> Result<&stackless_core::security::SecretRef, Error> {
         self.integrations
             .get(dns)
             .and_then(|outputs| outputs.get(key))
-            .map(String::as_str)
             .ok_or_else(|| Error::BadArgument {
                 argument: "integration output".into(),
                 detail: format!("no output {key:?} for integration {dns:?}"),
@@ -273,14 +360,14 @@ impl UpOutcome {
 }
 
 /// Result of a successful `down`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DownOutcome {
     pub name: String,
     pub status: DownStatus,
     pub spend: Option<SpendInfo>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DownStatus {
     Destroyed,
     AlreadyDown,
@@ -296,7 +383,7 @@ impl DownStatus {
 }
 
 /// Result of a successful `verify`.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VerifyOutcome {
     pub name: String,
     pub tier: Option<String>,
@@ -307,7 +394,7 @@ pub struct VerifyOutcome {
 }
 
 /// One service's log tail.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogEntry {
     pub service: String,
     pub source: String,
@@ -317,7 +404,7 @@ pub struct LogEntry {
 }
 
 /// Result of `logs`.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogsOutcome {
     pub name: String,
     pub substrate: String,
@@ -332,9 +419,31 @@ pub struct CheckOutcome {
     pub substrate: Option<String>,
     pub services: Vec<String>,
     pub graph: DependencyGraph,
+    pub placements: Option<stackless_core::def::placement::Placements>,
 }
 
 impl Client {
+    pub(crate) fn execute_controller_info(&self) -> ControllerInfo {
+        let persistence = match self.inner.daemon_role {
+            DaemonRole::SystemdUser => stackless_daemon::systemd::verify_current_process(),
+            DaemonRole::Operator if stackless_daemon::launchd::service_registered() => Ok(()),
+            DaemonRole::Operator => {
+                Err(stackless_daemon::launchd::degradation_warning(self.paths())
+                    .unwrap_or_else(|| "boot persistence has not been verified".into()))
+            }
+            DaemonRole::Embedded => {
+                Err("embedded controller has no boot persistence or lease reaper".into())
+            }
+        };
+        ControllerInfo {
+            version: env!("CARGO_PKG_VERSION").into(),
+            protocol: stackless_daemon::rpc::PROTOCOL_VERSION,
+            lease_reaper: self.inner.daemon_role != DaemonRole::Embedded,
+            persistent: persistence.is_ok(),
+            persistence_warning: persistence.err(),
+        }
+    }
+
     /// Operator default: [`Paths::from_env`] and a private Tokio runtime.
     ///
     /// Spawns/connects the **shared** user daemon via the installed stackless
@@ -384,8 +493,30 @@ impl Client {
         })
     }
 
-    pub(crate) fn open_store(&self) -> Result<Store, Error> {
-        Ok(Store::open_with_paths(&self.inner.paths)?)
+    pub(crate) fn open_store(&self) -> Result<Arc<Store>, Error> {
+        if let Some(store) = self.inner.store.get() {
+            return Ok(store.clone());
+        }
+        let store = Arc::new(Store::open(&self.inner.paths.db_path())?);
+        let _ = self.inner.store.set(store.clone());
+        Ok(self.inner.store.get().cloned().unwrap_or(store))
+    }
+
+    pub(crate) fn controller_context(
+        paths: Paths,
+        proxy_port: TcpPort,
+        daemon_role: DaemonRole,
+    ) -> Self {
+        Self {
+            inner: Arc::new(ClientInner {
+                paths,
+                proxy_port,
+                daemon_role,
+                runtime: OnceLock::new(),
+                store: OnceLock::new(),
+                remote: None,
+            }),
+        }
     }
 
     pub(crate) fn substrate_ctx(
@@ -404,6 +535,38 @@ impl Client {
         }
     }
 
+    pub(crate) fn restore_routes(&self) -> Result<(), Error> {
+        let store = self.open_store()?;
+        let runtime = self.runtime()?;
+        for record in store.instances()? {
+            if record.status != InstanceStatus::Active {
+                continue;
+            }
+            let def = StackDef::parse_snapshot(&record.definition)?;
+            let checkpoints = store.checkpoints(record.name.as_str())?;
+            let context =
+                stackless_core::substrate::InstanceContext::from_record(&record, &checkpoints);
+            let provider = build_substrate(
+                record.substrate.as_str(),
+                &def,
+                Some(&store),
+                Some(&record.instance_id),
+                self.substrate_ctx(
+                    BTreeMap::new(),
+                    self.paths()
+                        .state_dir()
+                        .join("runtime")
+                        .join(&record.instance_id),
+                    false,
+                ),
+            )?;
+            if let Err(error) = runtime.block_on(provider.restore_routes(&store, &context)) {
+                eprintln!("route recovery failed for {}: {}", record.name, error.code);
+            }
+        }
+        Ok(())
+    }
+
     pub fn up(&self, request: UpRequest) -> Result<UpOutcome, Error> {
         self.up_with_progress(request, None)
     }
@@ -420,6 +583,7 @@ impl Client {
                 on: Some(create.on),
                 sources: create.sources,
                 dirty: create.dirty,
+                allow_host_execution: create.allow_host_execution,
                 lease: create.lease,
                 confirm_paid: create.paid.as_confirm_paid(),
             },
@@ -429,6 +593,7 @@ impl Client {
                 on: None,
                 sources: resume.sources,
                 dirty: resume.dirty,
+                allow_host_execution: resume.allow_host_execution,
                 lease: resume.lease,
                 confirm_paid: false,
             },
@@ -436,13 +601,16 @@ impl Client {
         self.up_from_args_with_progress(args, progress)
     }
 
-    pub(crate) fn up_from_args_with_progress(
+    pub(crate) fn execute_up(
         &self,
         args: UpArgs,
-        progress: Option<&mut dyn ProgressSink>,
+        mut progress: Option<&mut dyn ProgressSink>,
+        definition: Option<&str>,
+        cwd: &Path,
     ) -> Result<UpOutcome, Error> {
         let store = self.open_store()?;
-        let (name, text, def, existing) = resolve_up_context(&store, &args)?;
+        let (name, text, def, existing) =
+            resolve_up_context_with_definition(&store, &args, definition)?;
         let substrate_name = match existing.as_ref() {
             Some(record) if record.status == InstanceStatus::Active => {
                 record.substrate.as_str().to_owned()
@@ -452,63 +620,204 @@ impl Client {
                 .clone()
                 .ok_or_else(|| Error::SubstrateRequired { name: name.clone() })?,
         };
-        let def_dir = definition_dir_for_up(args.file.as_ref(), existing.as_ref());
+        let fallback = cwd.join("stackless.toml");
+        let def_dir = definition_dir_for_up(
+            args.file
+                .as_ref()
+                .or_else(|| existing.is_none().then_some(&fallback)),
+            existing.as_ref(),
+        );
         let rt = self.runtime()?;
-        crate::secrets::pull_vault_for_instance(&def, &def_dir, &name, rt)?;
-        let secrets = crate::secrets::resolve(&def, &def_dir, Some(&name))?;
         let known = crate::substrates::known_names();
         stackless_integrations::validate_all(&def, Some(substrate_name.as_str()), &known)?;
-        let provider = build_substrate(
-            &substrate_name,
-            self.substrate_ctx(secrets, def_dir.clone(), args.confirm_paid),
-        )?;
         let overrides = parse_sources(&args.sources)?;
-        validate_dirty_flag(args.dirty, &overrides, existing.as_ref())?;
+        if !def
+            .services
+            .values()
+            .any(|workload| workload.source.path.is_some())
+        {
+            validate_dirty_flag(args.dirty, &overrides, existing.as_ref())?;
+        }
+        let inherited_host_grant = match existing
+            .as_ref()
+            .filter(|record| record.status == InstanceStatus::Active)
+        {
+            Some(record) => store.host_execution_allowed(&record.instance_id)?,
+            None => false,
+        };
+        let allow_host = args.allow_host_execution || inherited_host_grant;
+        if !allow_host
+            && def.services.values().any(|workload| {
+                let on = workload.on.as_deref().unwrap_or(&substrate_name);
+                (on == "local" && workload.image.is_none())
+                    || (on != "local" && (workload.setup.is_some() || workload.prepare.is_some()))
+            })
+        {
+            return Err(Error::substrate(
+                stackless_core::security::host_grant_required(),
+                Some(name.clone()),
+            ));
+        }
         let lease = parse_lease(args.lease.as_deref())?;
-
+        let validator = build_substrate(
+            &substrate_name,
+            &def,
+            Some(&store),
+            existing.as_ref().map(|record| record.instance_id.as_str()),
+            self.substrate_ctx(BTreeMap::new(), def_dir.clone(), args.confirm_paid),
+        )?;
+        let admission_engine = Engine {
+            store: &store,
+            substrate: validator.as_ref(),
+        };
+        let admission = admission_engine.begin_up(&EngineUpRequest {
+            instance: &name,
+            definition_text: &text,
+            def: &def,
+            source_overrides: overrides.clone(),
+            dirty: args.dirty,
+            definition_dir: def_dir.display().to_string(),
+            lease,
+            progress: None,
+        })?;
+        let record = store.instance(&name)?.ok_or_else(|| {
+            stackless_core::state::StateError::InstanceNotFound { name: name.clone() }
+        })?;
+        remote::record_submission(self.paths(), &store, &record.instance_id, cwd)?;
+        if args.allow_host_execution {
+            store.grant_host_execution(&record.instance_id)?;
+        }
+        if let Some(sink) = progress.as_deref_mut() {
+            sink.on_admitted(&record);
+            if sink.is_cancelled() {
+                return Err(
+                    stackless_core::engine::EngineError::Cancelled { instance: name }.into(),
+                );
+            }
+        }
+        crate::secrets::remember(&store, &record.instance_id, &crate::secrets::load(&def_dir))?;
+        let runtime = rt.block_on(runtime::prepare(
+            self.paths(),
+            &store,
+            &record,
+            &def,
+            &text,
+            true,
+            &stackless_stripe_projects::TokioRunner,
+        ))?;
+        if runtime.project_id.is_some() {
+            let stripe = stackless_stripe_projects::StripeProjects::new(
+                stackless_stripe_projects::TokioRunner,
+                &runtime.dir,
+            );
+            rt.block_on(stackless_stripe_projects::sync_vault_pull_for_instance(
+                &stripe,
+                &record.resource_namespace,
+            ))
+            .map_err(|err| {
+                Error::substrate(
+                    stackless_core::substrate::SubstrateFault::from_fault(&err),
+                    Some(name.clone()),
+                )
+            })?;
+        }
+        let secrets = crate::secrets::resolve_scoped(
+            &def,
+            &def_dir,
+            &runtime.dir,
+            &record.resource_namespace,
+            runtime.project_id.is_some(),
+        )?;
+        crate::secrets::remember(&store, &record.instance_id, &secrets)?;
+        let provider = managed::ManagedSubstrate::new(
+            build_substrate(
+                &substrate_name,
+                &def,
+                Some(&store),
+                Some(&record.instance_id),
+                self.substrate_ctx(secrets, runtime.dir.clone(), args.confirm_paid),
+            )?,
+            &runtime,
+        );
         let engine = Engine {
             store: &store,
-            substrate: provider.as_ref(),
+            substrate: &provider,
         };
         // Two arms: a shared struct literal ties locals to the caller's
         // `&mut dyn ProgressSink` lifetime (invariant), which outlives the
         // `block_on` and blocks moving `name` afterward.
         let engine_outcome = match progress {
-            Some(progress) => rt.block_on(engine.up(EngineUpRequest {
-                instance: &name,
-                definition_text: &text,
-                def: &def,
-                source_overrides: overrides,
-                dirty: args.dirty,
-                definition_dir: def_dir.display().to_string(),
-                lease,
-                progress: Some(progress),
-            }))?,
-            None => rt.block_on(engine.up(EngineUpRequest {
-                instance: &name,
-                definition_text: &text,
-                def: &def,
-                source_overrides: overrides,
-                dirty: args.dirty,
-                definition_dir: def_dir.display().to_string(),
-                lease,
-                progress: None,
-            }))?,
+            Some(progress) => rt.block_on(engine.run_up(
+                EngineUpRequest {
+                    instance: &name,
+                    definition_text: &text,
+                    def: &def,
+                    source_overrides: overrides,
+                    dirty: args.dirty,
+                    definition_dir: def_dir.display().to_string(),
+                    lease,
+                    progress: Some(progress),
+                },
+                admission,
+            ))?,
+            None => rt.block_on(engine.run_up(
+                EngineUpRequest {
+                    instance: &name,
+                    definition_text: &text,
+                    def: &def,
+                    source_overrides: overrides,
+                    dirty: args.dirty,
+                    definition_dir: def_dir.display().to_string(),
+                    lease,
+                    progress: None,
+                },
+                admission,
+            ))?,
         };
 
+        let record = store.instance(&name)?.ok_or_else(|| {
+            stackless_core::state::StateError::InstanceNotFound { name: name.clone() }
+        })?;
+        let checkpoints = store.checkpoints(&name)?;
+        let context =
+            stackless_core::substrate::InstanceContext::from_record(&record, &checkpoints);
         let mut origins = BTreeMap::new();
-        for service in def.services.keys() {
+        for (service, spec) in &def.services {
+            if spec.health.is_none() {
+                continue;
+            }
             origins.insert(
                 service.clone(),
-                provider.service_origin(&def, &name, service),
+                provider.service_origin(&def, &context, service),
             );
         }
         let spend = rt.block_on(provider.spend());
         let checkpoints = store.checkpoints(&name)?;
-        let integrations = Namespace::integration_outputs_from_checkpoints(&checkpoints);
+        let integrations = Namespace::integration_outputs_from_checkpoints(&checkpoints)
+            .into_iter()
+            .map(|(integration, outputs)| {
+                let refs = outputs
+                    .keys()
+                    .map(|key| {
+                        (
+                            key.clone(),
+                            stackless_core::security::SecretRef::new(
+                                &record.instance_id,
+                                &integration,
+                                key,
+                            ),
+                        )
+                    })
+                    .collect();
+                (integration, refs)
+            })
+            .collect();
         Ok(UpOutcome {
+            placements: def.resolved_placements(&substrate_name),
+            instance_id: record.instance_id,
             name,
             substrate: substrate_name,
+            endpoints: def.resolve_endpoints(&origins),
             origins,
             integrations,
             executed: engine_outcome.executed,
@@ -519,21 +828,51 @@ impl Client {
         })
     }
 
-    pub fn down(&self, name: &str) -> Result<DownOutcome, Error> {
+    pub(crate) fn execute_down(&self, name: &str) -> Result<DownOutcome, Error> {
         let store = self.open_store()?;
         let record = store.instance(name)?.ok_or_else(|| {
             stackless_core::state::StateError::InstanceNotFound { name: name.into() }
         })?;
+        if record.status == InstanceStatus::Tombstoned {
+            return Ok(DownOutcome {
+                name: name.into(),
+                status: DownStatus::AlreadyDown,
+                spend: None,
+            });
+        }
+        let def = StackDef::parse_snapshot(&record.definition)?;
         let def_dir = PathBuf::from(&record.definition_dir);
-        let provider = build_substrate(
-            record.substrate.as_str(),
-            self.substrate_ctx(crate::secrets::load(&def_dir), def_dir, false),
-        )?;
+        let rt = self.runtime()?;
+        let runtime = rt.block_on(runtime::prepare(
+            self.paths(),
+            &store,
+            &record,
+            &def,
+            &record.definition,
+            false,
+            &stackless_stripe_projects::TokioRunner,
+        ))?;
+        let mut secrets = stackless_stripe_projects::vault_env_from_dir(
+            &runtime.dir,
+            Some(&record.resource_namespace),
+        );
+        secrets.extend(crate::secrets::load(&def_dir));
+        crate::secrets::remember(&store, &record.instance_id, &secrets)?;
+        crate::secrets::remember(&store, &record.instance_id, &secrets)?;
+        let provider = managed::ManagedSubstrate::new(
+            build_substrate(
+                record.substrate.as_str(),
+                &def,
+                Some(&store),
+                Some(&record.instance_id),
+                self.substrate_ctx(secrets, runtime.dir.clone(), false),
+            )?,
+            &runtime,
+        );
         let engine = Engine {
             store: &store,
-            substrate: provider.as_ref(),
+            substrate: &provider,
         };
-        let rt = self.runtime()?;
         let outcome = rt.block_on(engine.down(name))?;
         let spend = rt.block_on(provider.spend());
         let status = match outcome {
@@ -547,7 +886,7 @@ impl Client {
         })
     }
 
-    pub fn status(&self, name: &str) -> Result<InstanceReport, Error> {
+    pub(crate) fn execute_status(&self, name: &str) -> Result<InstanceReport, Error> {
         let store = self.open_store()?;
         let record = store.instance(name)?.ok_or_else(|| {
             stackless_core::state::StateError::InstanceNotFound { name: name.into() }
@@ -561,7 +900,7 @@ impl Client {
         )
     }
 
-    pub fn list(&self) -> Result<Vec<InstanceReport>, Error> {
+    pub(crate) fn execute_list(&self) -> Result<Vec<InstanceReport>, Error> {
         let store = self.open_store()?;
         let mut reports = Vec::new();
         for record in store.instances()? {
@@ -576,11 +915,16 @@ impl Client {
         Ok(reports)
     }
 
-    pub fn verify(&self, name: &str, tier: Option<&str>) -> Result<VerifyOutcome, Error> {
-        crate::verify::verify_with_client(self, name, tier)
+    pub(crate) fn execute_verify(
+        &self,
+        name: &str,
+        tier: Option<&str>,
+        operation: &str,
+    ) -> Result<VerifyOutcome, Error> {
+        crate::verify::verify_with_client(self, name, tier, operation)
     }
 
-    pub fn logs(
+    pub(crate) fn execute_logs(
         &self,
         name: &str,
         service: Option<&str>,
@@ -596,25 +940,72 @@ impl Client {
             None => def.services.keys().cloned().collect(),
         };
         let def_dir = PathBuf::from(&record.definition_dir);
+        let rt = self.runtime()?;
+        let runtime = rt.block_on(runtime::prepare(
+            self.paths(),
+            &store,
+            &record,
+            &def,
+            &record.definition,
+            false,
+            &stackless_stripe_projects::TokioRunner,
+        ))?;
+        let mut secrets = stackless_stripe_projects::vault_env_from_dir(
+            &runtime.dir,
+            Some(&record.resource_namespace),
+        );
+        secrets.extend(crate::secrets::load(&def_dir));
+        crate::secrets::remember(&store, &record.instance_id, &secrets)?;
         let provider = build_substrate(
             record.substrate.as_str(),
-            self.substrate_ctx(crate::secrets::load(&def_dir), def_dir, false),
+            &def,
+            Some(&store),
+            Some(&record.instance_id),
+            self.substrate_ctx(secrets, runtime.dir.clone(), false),
         )?;
-        let rt = self.runtime()?;
-        let logs = rt
-            .block_on(provider.fetch_logs(&def, name, &services, tail))
+        let mut logs = rt
+            .block_on(provider.fetch_logs(
+                &store,
+                &def,
+                &stackless_core::substrate::InstanceContext::from_record(
+                    &record,
+                    &store.checkpoints(name)?,
+                ),
+                &services,
+                tail,
+            ))
             .map_err(|err| Error::substrate(err, Some(name.to_owned())))?;
+        let verification_logs = crate::verify::command::logs(
+            self.paths().state_dir(),
+            &store,
+            &record.instance_id,
+            &services,
+            tail,
+        )
+        .map_err(|fault| Error::substrate(fault, Some(name.into())))?;
+        if !verification_logs.is_empty() {
+            logs.get_or_insert_with(Vec::new).extend(verification_logs);
+        }
         let substrate = record.substrate.as_str().to_owned();
+        let placements = store.placements(&record.instance_id)?;
+        let hosting_provider = |service: &str| {
+            placements
+                .get(&format!("service:{service}"))
+                .map(String::as_str)
+                .unwrap_or(substrate.as_str())
+        };
         let Some(logs) = logs else {
-            let reason = format!("logs are not retrievable for substrate {substrate}");
             let entries = services
                 .into_iter()
                 .map(|service| LogEntry {
+                    reason: Some(format!(
+                        "logs are not retrievable for substrate {}",
+                        hosting_provider(&service)
+                    )),
                     service,
                     source: "unavailable".into(),
                     log_path: None,
                     lines: vec![],
-                    reason: Some(reason.clone()),
                 })
                 .collect();
             return Ok(LogsOutcome {
@@ -627,11 +1018,16 @@ impl Client {
         let entries = logs
             .into_iter()
             .map(|log| LogEntry {
+                reason: (log.source == "unavailable").then(|| {
+                    format!(
+                        "logs are not retrievable for substrate {}",
+                        hosting_provider(&log.service)
+                    )
+                }),
                 service: log.service,
                 source: log.source.to_owned(),
                 log_path: log.log_path,
                 lines: log.lines,
-                reason: None,
             })
             .collect();
         Ok(LogsOutcome {
@@ -656,9 +1052,24 @@ impl Client {
         stackless_integrations::validate_all(&def, on, &known)?;
         if let Some(substrate) = on {
             def.validate_for_substrate(substrate)?;
+            let def_dir = file
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .to_path_buf();
+            let provider = build_substrate(
+                substrate,
+                &def,
+                None,
+                None,
+                self.substrate_ctx(BTreeMap::new(), def_dir, false),
+            )?;
+            provider
+                .validate(&def)
+                .map_err(|fault| Error::substrate(fault, None))?;
         }
         let graph = stackless_core::def::DependencyGraph::derive(&def)?;
         Ok(CheckOutcome {
+            placements: on.map(|on| def.resolved_placements(on)),
             stack: def.stack.name.as_str().to_owned(),
             substrate: on.map(str::to_owned),
             services: def.services.keys().cloned().collect(),
@@ -697,9 +1108,12 @@ mod tests {
         let mut origins = BTreeMap::new();
         origins.insert("web".into(), "http://web.demo.localhost:4444".into());
         let outcome = UpOutcome {
+            placements: Default::default(),
+            instance_id: "owner-1".into(),
             name: "demo".into(),
             substrate: "local".into(),
             origins,
+            endpoints: BTreeMap::new(),
             integrations: BTreeMap::new(),
             executed: vec![],
             skipped: vec![],
@@ -718,12 +1132,18 @@ mod tests {
     #[test]
     fn up_outcome_integration_helpers() {
         let mut clerk = BTreeMap::new();
-        clerk.insert("secret_key".into(), "sk_test".into());
+        clerk.insert(
+            "secret_key".into(),
+            stackless_core::security::SecretRef::new("owner-1", "clerk", "secret_key"),
+        );
         let mut integrations = BTreeMap::new();
         integrations.insert("clerk".into(), clerk);
         let outcome = UpOutcome {
+            placements: Default::default(),
+            instance_id: "owner-1".into(),
             name: "demo".into(),
             substrate: "local".into(),
+            endpoints: BTreeMap::new(),
             origins: BTreeMap::new(),
             integrations,
             executed: vec![],
@@ -734,7 +1154,7 @@ mod tests {
         };
         assert_eq!(
             outcome.integration_output("clerk", "secret_key").unwrap(),
-            "sk_test"
+            &stackless_core::security::SecretRef::new("owner-1", "clerk", "secret_key")
         );
         assert!(outcome.integration_output("clerk", "missing").is_err());
         assert!(outcome.integration("unknown").is_err());
@@ -751,5 +1171,35 @@ mod tests {
         assert_eq!(client.paths().state_dir(), dir.path());
         // Opening an empty store under the temp paths must succeed.
         client.open_store().unwrap();
+    }
+    #[test]
+    fn check_rejects_empty_local_command_before_execution() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("stackless.toml");
+        std::fs::write(
+            &file,
+            r#"
+[stack]
+name = "validation"
+[services.web]
+source = { repo = "https://example.invalid/web", ref = "main" }
+health = { path = "/" }
+[services.web.local]
+run = ""
+"#,
+        )
+        .unwrap();
+        let client = Client::builder()
+            .paths(Paths::new(dir.path().join("state")))
+            .proxy_port(TcpPort::try_new(4444).unwrap())
+            .build()
+            .unwrap();
+        let err = client.check(&file, Some("local")).unwrap_err();
+        use stackless_core::fault::Fault;
+        assert_eq!(
+            err.code(),
+            stackless_core::fault::codes::LOCAL_CONFIG_INVALID
+        );
+        assert!(!client.paths().db_path().exists());
     }
 }

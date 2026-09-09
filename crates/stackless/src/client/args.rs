@@ -13,6 +13,7 @@ use crate::error::Error;
 
 /// What a substrate needs to be constructed — the same context whether
 /// it is built for `up`, `down`, or `logs`.
+#[derive(Clone)]
 pub(crate) struct SubstrateCtx {
     pub secrets: BTreeMap<String, String>,
     /// Where the definition lives (render anchors its project here and
@@ -30,17 +31,48 @@ pub(crate) struct SubstrateCtx {
 
 /// Construct a substrate by name via the registry (ground rule: providers
 /// register in `crate::substrates` and only there; core never names one).
-pub(crate) fn build_substrate(name: &str, ctx: SubstrateCtx) -> Result<Box<dyn Substrate>, Error> {
-    crate::substrates::build(name, ctx)
+pub(crate) fn build_substrate(
+    name: &str,
+    def: &StackDef,
+    store: Option<&Store>,
+    owner: Option<&str>,
+    ctx: SubstrateCtx,
+) -> Result<Box<dyn Substrate>, Error> {
+    let recorded = match (store, owner) {
+        (Some(store), Some(owner)) => store.placements(owner)?,
+        _ => BTreeMap::new(),
+    };
+    let names: std::collections::BTreeSet<_> = def
+        .placements(name)
+        .into_values()
+        .chain(recorded.values().cloned())
+        .chain(std::iter::once(name.to_owned()))
+        .collect();
+    let mut providers = BTreeMap::new();
+    for name in names {
+        providers.insert(name.clone(), crate::substrates::build(&name, ctx.clone())?);
+    }
+    let router = stackless_core::routing::RoutedSubstrate::new(
+        store.cloned(),
+        name.into(),
+        def.clone(),
+        recorded,
+        providers,
+    )
+    .map_err(|fault| Error::substrate(fault, None))?;
+    Ok(Box::new(router))
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct UpArgs {
     pub name: Option<String>,
     pub file: Option<PathBuf>,
     pub on: Option<String>,
     pub sources: Vec<String>,
     pub dirty: bool,
+    #[serde(default)]
+    pub allow_host_execution: bool,
     pub lease: Option<String>,
     pub confirm_paid: bool,
 }
@@ -173,9 +205,10 @@ pub(crate) fn allocate_instance_name(store: &Store, stack: &str) -> Result<Strin
     })
 }
 
-pub(crate) fn resolve_up_context(
+pub(crate) fn resolve_up_context_with_definition(
     store: &Store,
     args: &UpArgs,
+    supplied: Option<&str>,
 ) -> Result<(String, String, StackDef, Option<InstanceRecord>), Error> {
     match &args.name {
         Some(name) => {
@@ -184,7 +217,13 @@ pub(crate) fn resolve_up_context(
                 && existing
                     .as_ref()
                     .is_some_and(|record| record.status == InstanceStatus::Active);
-            let text = definition_text(args.file.as_ref(), existing.as_ref())?;
+            let text = if from_snapshot {
+                definition_text(None, existing.as_ref())?
+            } else if let Some(text) = supplied {
+                text.to_owned()
+            } else {
+                definition_text(args.file.as_ref(), existing.as_ref())?
+            };
             let def = if from_snapshot {
                 // Resume from the instance snapshot: tolerate legacy
                 // `[datastores.*]` that fresh files still reject.
@@ -197,7 +236,11 @@ pub(crate) fn resolve_up_context(
             Ok((name.clone(), text, def, existing))
         }
         None => {
-            let text = definition_text(args.file.as_ref(), None)?;
+            let text = if let Some(text) = supplied {
+                text.to_owned()
+            } else {
+                definition_text(args.file.as_ref(), None)?
+            };
             let def = parse_and_validate(&text)?;
             let name = allocate_instance_name(store, def.stack.name.as_str())?;
             Ok((name, text, def, None))
@@ -321,6 +364,8 @@ mod tests {
         let mut overrides = BTreeMap::new();
         overrides.insert("web".into(), "/tmp/web".into());
         let existing = InstanceRecord {
+            instance_id: "test-owner".into(),
+            resource_namespace: "test-owner".into(),
             name: DnsName::try_new("demo").unwrap(),
             substrate: DnsName::try_new("local").unwrap(),
             status: InstanceStatus::Active,
@@ -332,5 +377,153 @@ mod tests {
             tombstoned_at: None,
         };
         validate_dirty_flag(true, &BTreeMap::new(), Some(&existing)).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod placement_tests {
+    use super::*;
+    use stackless_core::substrate::{InstanceContext, NamespacePurpose};
+
+    #[test]
+    fn native_cloud_namespaces_use_recorded_urls_in_a_mixed_stack() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("state.db")).unwrap();
+        let owner = store
+            .create_instance("demo", "local", "", &BTreeMap::new(), "", false)
+            .unwrap();
+        for name in [
+            "render",
+            "vercel",
+            "railway",
+            "netlify",
+            "cloudflare",
+            "wordpress",
+            "gitlab",
+            "laravel-cloud",
+        ] {
+            let def = StackDef::parse(&format!("[stack]\nname='mixed'\n[workloads.api]\non={name:?}\nhealth={{path='/'}}\n[workloads.web]\nrun='server'\nhealth={{path='/'}}\n[endpoints.api]\nworkload='api'\n")).unwrap();
+            let substrate_ctx = SubstrateCtx {
+                secrets: BTreeMap::new(),
+                definition_dir: dir.path().into(),
+                confirm_paid: false,
+                state_root: dir.path().into(),
+                proxy_port: TcpPort::try_new(4444).unwrap(),
+                daemon_role: DaemonRole::Embedded,
+            };
+            let native = crate::substrates::build(name, substrate_ctx.clone()).unwrap();
+            let provider =
+                build_substrate("local", &def, Some(&store), None, substrate_ctx).unwrap();
+            let context = InstanceContext::from_record(&owner, &[]);
+            assert!(native.service_origin(&def, &context, "api").is_empty());
+            let namespace = provider.build_namespace(
+                &def,
+                &context,
+                &[],
+                &BTreeMap::new(),
+                NamespacePurpose::ServiceEnv,
+            );
+            assert!(
+                !namespace.service_origins.contains_key("api"),
+                "{name} guessed a URL before creation"
+            );
+            assert!(!namespace.endpoint_urls.contains_key("api"));
+            assert_eq!(
+                namespace.service_origins["web"],
+                "http://web.demo.localhost:4444"
+            );
+            // Each native receipt decoder requires its own fields. Extra fields
+            // let this fixture exercise the same output contract for every adapter.
+            for origin in [
+                "https://first.provider.test",
+                "https://second.provider.test",
+            ] {
+                let payload = serde_json::json!({
+                    "origin":origin, "stripe_resource":"catalog", "render_name":"api", "service_id":"id", "is_static":false,
+                    "vercel_name":"api", "project_id":"id", "deployment_id":"id", "url":origin, "service_name":"api",
+                    "site_id":"id", "site_name":"api", "account_id":"id", "worker_name":"api",
+                    "project_name":"api", "app_id":"id", "app_name":"api", "environment_id":"id",
+                });
+                let checkpoints = vec![stackless_core::state::Checkpoint {
+                    instance: "demo".into(),
+                    step_id: "start:api".into(),
+                    resource_kind: name.into(),
+                    resource_id: "id".into(),
+                    payload: payload.to_string(),
+                    recorded_at: 1,
+                }];
+                let context = InstanceContext::from_record(&owner, &checkpoints);
+                let namespace = provider.build_namespace(
+                    &def,
+                    &context,
+                    &checkpoints,
+                    &BTreeMap::new(),
+                    NamespacePurpose::ServiceEnv,
+                );
+                assert_eq!(namespace.service_origins["api"], origin, "{name}");
+                assert_eq!(
+                    native.service_origin(&def, &context, "api"),
+                    origin,
+                    "{name}"
+                );
+                assert_eq!(namespace.endpoint_urls["api"], origin, "{name}");
+                assert_eq!(
+                    provider.service_origin(&def, &context, "api"),
+                    origin,
+                    "{name}"
+                );
+                assert_eq!(
+                    namespace.service_origins["web"],
+                    "http://web.demo.localhost:4444"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn check_validates_each_workload_on_its_selected_adapter_without_creating_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = stackless_core::paths::Paths::new(dir.path().join("state"));
+        let client = crate::Client::builder()
+            .paths(paths.clone())
+            .build()
+            .unwrap();
+        let file = dir.path().join("stackless.toml");
+        let text = "[stack]\nname='mixed'\n[workloads.api]\non='fly'\nimage='nginx:alpine'\nhealth={path='/'}\n[jobs.check]\nrun='true'\ndepends_on={api='ready'}\n";
+        std::fs::write(&file, text).unwrap();
+        let result = client.check(&file, Some("local")).unwrap();
+        assert_eq!(result.placements.as_ref().unwrap().workloads["api"], "fly");
+        assert_eq!(
+            result.placements.as_ref().unwrap().workloads["check"],
+            "local"
+        );
+        assert!(!paths.db_path().exists());
+        let cloud_pair = format!(
+            "{text}\n[workloads.site]\non='render'\nsource={{repo='https://example.test/repo'}}\nhealth={{path='/'}}\n[workloads.site.render]\nstatic={{build='true', publish='public'}}\n"
+        );
+        std::fs::write(&file, &cloud_pair).unwrap();
+        let result = client.check(&file, Some("local")).unwrap();
+        assert_eq!(result.placements.as_ref().unwrap().workloads["api"], "fly");
+        assert_eq!(
+            result.placements.as_ref().unwrap().workloads["site"],
+            "render"
+        );
+        std::fs::write(
+            &file,
+            cloud_pair.replace("[jobs.check]", "[jobs.check]\non='local'"),
+        )
+        .unwrap();
+        let result = client.check(&file, Some("fly")).unwrap();
+        assert_eq!(
+            result.placements.as_ref().unwrap().workloads["check"],
+            "local"
+        );
+        std::fs::write(
+            &file,
+            text.replace("[jobs.check]", "[jobs.check]\non='fly'"),
+        )
+        .unwrap();
+        assert!(client.check(&file, Some("local")).is_err());
+        assert!(!paths.db_path().exists());
     }
 }

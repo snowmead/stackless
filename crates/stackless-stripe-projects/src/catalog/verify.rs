@@ -66,7 +66,15 @@ where
         })?;
     let paid = service.requires_confirmation_with_paid(&value, confirm_paid);
     ensure_parent_plans(stripe, catalog, service, &value, confirm_paid).await?;
-    project::add_resource(stripe, C::REFERENCE, resource_name, &value, paid).await
+    project::add_resource_scoped(
+        stripe,
+        C::REFERENCE,
+        resource_name,
+        &value,
+        paid,
+        service.kind == crate::catalog::Kind::Plan,
+    )
+    .await
 }
 
 /// Provision catalog-named parent plans before a dependent service. Stripe
@@ -90,7 +98,7 @@ async fn ensure_parent_plans<R: CommandRunner>(
         // plugin reject a missing paid plan before provisioning the child.
         let needs_paid = plan.requires_confirmation_with_paid(&json!({}), prefer_paid);
         let paid = needs_paid && prefer_paid;
-        project::add_resource(stripe, &reference, &plan_id, &json!({}), paid).await?;
+        project::add_resource_scoped(stripe, &reference, &plan_id, &json!({}), paid, true).await?;
     }
     Ok(())
 }

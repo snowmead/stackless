@@ -257,6 +257,12 @@ jobs:
             crates/stackless-stripe-projects/tests/fixtures/plugin-version.txt \
             || { echo "::error::command surface is stale for plugin $pinned — run 'mise run stripe-refresh' and commit"; exit 1; }
 
+      - name: Install Fly CLI for source builds
+        if: matrix.provider == 'fly-build'
+        uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1
+        with:
+          version: '0.4.100'
+
       - name: Live ${{ matrix.provider }} up/status/logs/down
         env:
           STACKLESS_LIVE_SMOKE_REQUIRED: "1"
@@ -266,9 +272,8 @@ jobs:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: mise run smoke-${{ matrix.provider }}
 
-  live-fleet:
-    name: live-fleet (Turso)
-    if: ${{ github.repository_owner == 'snowmead' }}
+  controller-regression:
+    name: controller regression
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -284,9 +289,5 @@ jobs:
         run: bash .github/scripts/mise-install-retried.sh
       - name: Rust / Cargo cache
         uses: Swatinem/rust-cache@v2
-      - name: Live Turso fleet-lock tests
-        env:
-          STACKLESS_LIVE_SMOKE_REQUIRED: "1"
-          STACKLESS_STATE_URL: ${{ secrets.STACKLESS_STATE_URL }}
-          STACKLESS_STATE_TOKEN: ${{ secrets.STACKLESS_STATE_TOKEN }}
-        run: mise run smoke-fleet
+      - name: Controller transport and recovery tests
+        run: mise run controller-test

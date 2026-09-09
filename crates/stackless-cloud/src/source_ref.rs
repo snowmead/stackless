@@ -21,7 +21,7 @@ pub fn destroy(path: &str) -> Result<(), SubstrateFault> {
         Ok(()) => Ok(()),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(err) => Err(SubstrateFault {
-            code: stackless_core::fault::codes::LOCAL_GIT_CHECKOUT_FAILED,
+            code: stackless_core::fault::codes::LOCAL_GIT_CHECKOUT_FAILED.into(),
             message: format!("cannot remove verify checkout {path}: {err}"),
             remediation: format!("remove {path} by hand, then re-run `stackless down`"),
             context: Box::default(),

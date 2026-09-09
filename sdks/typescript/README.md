@@ -29,10 +29,21 @@ console.log(outcome.origins.web);
 console.log(outcome.integrations);
 ```
 
-Calls block on the CLI via `spawnSync` (synchronous subprocess I/O). Methods return Promises for a stable async API, but each call completes before the Promise resolves.
+Calls use asynchronous subprocess I/O. The Node event loop remains available while the CLI waits. `submitUp` and `submitDown` return durable operation IDs; `operation`, `waitOperation`, `cancelOperation`, and `operations` reconnect to the controller.
 
 ## Protocol
 
 See [../PROTOCOL.md](../PROTOCOL.md) for envelope shapes and verb mapping.
 
-**Warning:** `up --json` success output may include integration credentials. Do not log raw envelopes in CI without redaction.
+`up` returns secret references scoped to the immutable instance ID. Inject
+credentials into service or verify environments with `${integrations.<name>.<output>}`.
+The controller redacts known secrets from returned logs and errors.
+
+Named endpoint bindings are in `outcome.endpoints`. Each entry has `workload`,
+`url`, and `source` (`provider` or `declared`). Import `endpointUrls` to build the
+URL map accepted by generated `bindEndpoints`. Declared URLs are unverified.
+TCP workloads return `tcp://host:port`; endpoint URLs do not imply HTTP support.
+
+Resolved hosting providers are in `outcome.placements.workloads` and the corresponding
+`resources` map. The top-level substrate is the default; individual workloads
+and resources can select other providers with `on`.

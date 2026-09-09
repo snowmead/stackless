@@ -171,10 +171,11 @@ fixture dir (see "One-time setup" above) — the smoke fails at the first
   ~22-min window. So a smoke can't bring up many resources at once, and envelope
   discovery is spaced. Verification is gap + hermetic tests (offline, always) +
   spaced live pinning — not "everything live in one run".
-- **Teardown removes the Stripe *record*, not always the provider resource.**
-  `down` reports "verified gone" via the Stripe registration; the underlying
-  provider resource may linger (e.g. a Cloudflare namespace), which is why smokes
-  use unique names. Don't assume re-provisioning the same name is collision-free.
+- **Local deregistration is not deletion evidence.** Stripe Projects 0.35
+  deprovisions a resource and polls its remote status before returning `removed`.
+  `--only-credentials` only unlinks it. Stackless must record and verify remote
+  deletion evidence; absence from the local Stripe list is insufficient.
+  See [Stripe's removal contract](https://docs.stripe.com/projects#remove-a-service).
 - **Not everything belongs in the leased lifecycle.** `registrar:domain` is a
   one-time non-refundable domain purchase — never smoke it.
 - **Catalog ownership is gated.** Every deployable in the committed
@@ -248,3 +249,35 @@ cargo run -q -p xtask -- discover sentry/seer --json --dir fixtures/smoke/cloudf
 stripe projects downgrade sentry-plan developer --yes --accept-tos
 stripe projects billing update --limit 25 --yes   # optional: restore cap
 ```
+
+### Endpoint bindings
+
+After filling service origins, call `instance.bind_namespace(&mut namespace, def)`
+in every namespace construction path, including hook and verification paths.
+The routing adapter supplies cross-provider origins through `InstanceContext`;
+this call replaces locally derived origins when that map is present and binds
+named endpoints. Preserve the
+provider-assigned origin when a caller declares an endpoint URL. Rebind after
+rewriting origins for a private container network. Report late-bound URLs only
+from recorded deployment output. `step_revision` receives the substrate so it
+can hash the named URLs consumed by each command, without process IDs or other
+unrelated checkpoint fields.
+
+
+### Placement dispatch
+
+The registry constructs adapters named by the definition and retained placement
+records. `RoutedSubstrate` delegates execution by desired placement and reads
+journaled placement for observation, logs, and teardown. The instance's default
+provider and immutable identity remain unchanged.
+
+`validate_definition` receives the full definition with explicit `on` values.
+Validate workloads assigned to `self.name()` and retain the full definition for
+cross-workload reference checks. The router validates capabilities and the global
+execution graph. Advertise `early_origins` only when the provider's final URL is
+known before resource creation. Use recorded native URLs otherwise.
+
+The default `service_origin` reads `build_namespace` with the recorded checkpoints.
+Do not override it with a URL derived from a requested resource name. Health gates
+must fail when their deployment receipt has no URL. A missing provider output
+does not authorize probing a guessed hostname.

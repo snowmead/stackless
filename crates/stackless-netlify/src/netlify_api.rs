@@ -59,6 +59,7 @@ pub struct NetlifyApi {
     client: Client,
     base: String,
     poll_interval: Duration,
+    journal: Option<crate::lifecycle::Journal>,
 }
 
 impl std::fmt::Debug for NetlifyApi {
@@ -96,7 +97,7 @@ fn truncate(text: &str) -> String {
     if text.len() <= MAX {
         text.to_owned()
     } else {
-        format!("{}…", &text[..MAX])
+        format!("{}…", &text[..text.floor_char_boundary(MAX)])
     }
 }
 
@@ -120,7 +121,249 @@ impl NetlifyApi {
             client: authed_client(token.as_ref()),
             base: base.into(),
             poll_interval: POLL_INTERVAL,
+            journal: None,
         }
+    }
+
+    fn endpoint(&self, path: &str, params: &[(&str, &str)]) -> Result<reqwest::Url, NetlifyError> {
+        let mut url = reqwest::Url::parse(&format!("{}{path}", self.base))
+            .map_err(|e| api_failed("GET", path, e))?;
+        url.query_pairs_mut().extend_pairs(params.iter().copied());
+        Ok(url)
+    }
+
+    pub(crate) fn with_journal(mut self, journal: crate::lifecycle::Journal) -> Self {
+        self.journal = Some(journal);
+        self
+    }
+
+    pub async fn owned_site(&self, id: &str, name: &str) -> Result<Option<SiteInfo>, NetlifyError> {
+        valid_id(id)?;
+        let path = format!("/sites/{id}");
+        let response = self
+            .client
+            .get(format!("{}{path}", self.base))
+            .send()
+            .await
+            .map_err(|e| api_failed("GET", &path, e))?;
+        if response.status().as_u16() == 404 {
+            return Ok(None);
+        }
+        if !response.status().is_success() {
+            return Err(api_failed("GET", &path, response.status()));
+        }
+        let value: Value = response
+            .json()
+            .await
+            .map_err(|e| api_failed("GET", &path, e))?;
+        if value["id"].as_str() != Some(id) || value["name"].as_str() != Some(name) {
+            return Err(api_failed(
+                "GET",
+                &path,
+                "site identity differs from its ownership record",
+            ));
+        }
+        site_info(&value)
+            .map(Some)
+            .ok_or_else(|| api_failed("GET", &path, "missing site ID"))
+    }
+
+    pub(crate) async fn site_by_name(&self, name: &str) -> Result<Option<SiteInfo>, NetlifyError> {
+        let mut found = None;
+        let mut ids = HashSet::new();
+        for page in 1..=1000 {
+            let response = self
+                .client
+                .get(self.endpoint(
+                    "/sites",
+                    &[
+                        ("name", name),
+                        ("page", &page.to_string()),
+                        ("per_page", "100"),
+                    ],
+                )?)
+                .send()
+                .await
+                .map_err(|e| api_failed("GET", "/sites", e))?;
+            if !response.status().is_success() {
+                return Err(api_failed("GET", "/sites", response.status()));
+            }
+            let rows: Vec<Value> = response
+                .json()
+                .await
+                .map_err(|e| api_failed("GET", "/sites", e))?;
+            let full = rows.len() == 100;
+            for row in rows {
+                let site = site_info(&row)
+                    .ok_or_else(|| api_failed("GET", "/sites", "missing site ID"))?;
+                if !ids.insert(site.id.clone()) {
+                    return Err(api_failed("GET", "/sites", "repeated site ID"));
+                }
+                let row_name = row["name"]
+                    .as_str()
+                    .ok_or_else(|| api_failed("GET", "/sites", "missing site name"))?;
+                if row_name == name {
+                    if found.is_some() {
+                        return Err(api_failed("GET", "/sites", "ambiguous site name"));
+                    }
+                    found = Some(site);
+                }
+            }
+            if !full {
+                return Ok(found);
+            }
+        }
+        Err(api_failed("GET", "/sites", "pagination limit exceeded"))
+    }
+
+    pub(crate) async fn owned_deploy(
+        &self,
+        site: &str,
+        id: &str,
+        receipt: &str,
+    ) -> Result<Option<Value>, NetlifyError> {
+        valid_id(site)?;
+        valid_id(id)?;
+        let path = format!("/sites/{site}/deploys/{id}");
+        let response = self
+            .client
+            .get(format!("{}{path}", self.base))
+            .send()
+            .await
+            .map_err(|e| api_failed("GET", &path, e))?;
+        if response.status().as_u16() == 404 {
+            return Ok(None);
+        }
+        if !response.status().is_success() {
+            return Err(api_failed("GET", &path, response.status()));
+        }
+        let value: Value = response
+            .json()
+            .await
+            .map_err(|e| api_failed("GET", &path, e))?;
+        if value["id"].as_str() != Some(id)
+            || value["site_id"].as_str() != Some(site)
+            || value["title"].as_str() != Some(receipt)
+            || value["state"].as_str().is_none()
+        {
+            return Err(api_failed(
+                "GET",
+                &path,
+                "deployment identity or receipt does not match",
+            ));
+        }
+        Ok(Some(value))
+    }
+
+    async fn find_receipt(&self, site: &str, receipt: &str) -> Result<Option<Value>, NetlifyError> {
+        valid_id(site)?;
+        let mut found = None;
+        let mut ids = HashSet::new();
+        for page in 1..=1000 {
+            let path = format!("/sites/{site}/deploys?page={page}&per_page=100");
+            let rows = self.send_json(Method::GET, &path, None).await?;
+            let rows = rows
+                .as_array()
+                .ok_or_else(|| api_failed("GET", &path, "invalid deployment inventory"))?;
+            for row in rows {
+                let id = row["id"]
+                    .as_str()
+                    .filter(|id| !id.is_empty())
+                    .ok_or_else(|| api_failed("GET", &path, "missing deployment ID"))?;
+                if row["site_id"].as_str() != Some(site) || !ids.insert(id.to_owned()) {
+                    return Err(api_failed("GET", &path, "foreign or repeated deployment"));
+                }
+                if row["title"].as_str() == Some(receipt) {
+                    if found.is_some() {
+                        return Err(api_failed("GET", &path, "ambiguous deployment receipt"));
+                    }
+                    found = Some(id.to_owned());
+                }
+            }
+            if rows.len() < 100 {
+                return match found {
+                    Some(id) => self.owned_deploy(site, &id, receipt).await,
+                    None => Ok(None),
+                };
+            }
+        }
+        Err(api_failed("GET", "/deploys", "pagination limit exceeded"))
+    }
+
+    async fn prepare_request(
+        &self,
+        site: &str,
+        kind: &str,
+        fingerprint: String,
+    ) -> Result<(Option<String>, Option<Value>), NetlifyError> {
+        let Some(journal) = &self.journal else {
+            return Ok((None, None));
+        };
+        let (receipt, request) = journal.begin(kind, fingerprint)?;
+        let recovered = if let Some(id) = request.deploy_id {
+            Some(
+                self.owned_deploy(site, &id, &receipt)
+                    .await?
+                    .ok_or_else(|| crate::lifecycle::invalid("recorded deployment disappeared"))?,
+            )
+        } else if request.submitted {
+            let mut known_deploy = None;
+            if let Some(id) = request.build_id {
+                valid_id(&id)?;
+                let build = self
+                    .send_json(Method::GET, &format!("/builds/{id}"), None)
+                    .await?;
+                if build["id"].as_str() != Some(&id) {
+                    return Err(crate::lifecycle::invalid("build ID changed"));
+                }
+                if let Some(deploy) = deploy_id_from_build(&build) {
+                    journal.response(&receipt, Some(&deploy), Some(&id))?;
+                    known_deploy = Some(deploy);
+                }
+            }
+            let recovered = match known_deploy {
+                Some(id) => self.owned_deploy(site, &id, &receipt).await?,
+                None => self.find_receipt(site, &receipt).await?,
+            };
+            Some(recovered.ok_or_else(|| {
+                crate::lifecycle::invalid(
+                    "deployment submission is unresolved; refusing another POST",
+                )
+            })?)
+        } else {
+            None
+        };
+        if let Some(value) = &recovered {
+            journal.response(&receipt, value["id"].as_str(), value["build_id"].as_str())?;
+        }
+        Ok((Some(receipt), recovered))
+    }
+
+    fn submit(&self, receipt: Option<&str>) -> Result<(), NetlifyError> {
+        if let (Some(journal), Some(receipt)) = (&self.journal, receipt) {
+            journal.submit(receipt)?;
+        }
+        Ok(())
+    }
+    fn record_response(
+        &self,
+        receipt: Option<&str>,
+        value: &Value,
+        build: bool,
+    ) -> Result<(), NetlifyError> {
+        if let (Some(journal), Some(receipt)) = (&self.journal, receipt) {
+            let deploy = if build {
+                deploy_id_from_build(value)
+            } else {
+                value["id"].as_str().map(str::to_owned)
+            };
+            journal.response(
+                receipt,
+                deploy.as_deref(),
+                if build { value["id"].as_str() } else { None },
+            )?;
+        }
+        Ok(())
     }
 
     /// Tests set a tiny interval so the poll/timeout paths run instantly.
@@ -165,11 +408,53 @@ impl NetlifyApi {
     /// Create a Netlify site with the given name (used when provisioning did not
     /// already hand back a site id).
     pub async fn create_site(&self, name: &str) -> Result<SiteInfo, NetlifyError> {
-        let created = self
-            .send_json(Method::POST, "/sites", Some(json!({ "name": name })))
+        if let Some(journal) = &self.journal {
+            let mut state = journal.load()?;
+            if state.site_conflict {
+                return Err(crate::lifecycle::invalid(
+                    "native site ownership conflict requires an audit",
+                ));
+            }
+            if let Some(id) = &state.site_id {
+                return self
+                    .owned_site(id, name)
+                    .await?
+                    .ok_or_else(|| crate::lifecycle::invalid("recorded native site disappeared"));
+            }
+            let existing = self.site_by_name(name).await?;
+            if state.site_submitted {
+                let site = existing.ok_or_else(|| {
+                    crate::lifecycle::invalid("site creation is unresolved; refusing another POST")
+                })?;
+                journal.site(&site.id)?;
+                return Ok(site);
+            }
+            if existing.is_some() {
+                state.site_conflict = true;
+                journal.save(&state)?;
+                return Err(crate::lifecycle::invalid(
+                    "native site name existed before submission",
+                ));
+            }
+            state.site_submitted = true;
+            journal.save(&state)?;
+        }
+        let value = self
+            .send_json(Method::POST, "/sites", Some(json!({"name":name})))
             .await?;
-        site_info(&created)
-            .ok_or_else(|| api_failed("POST", "/sites", "create returned no site id"))
+        let site = site_info(&value)
+            .ok_or_else(|| api_failed("POST", "/sites", "create returned no site ID"))?;
+        if let Some(journal) = &self.journal {
+            journal.site(&site.id)?;
+        }
+        if value["name"].as_str().is_some_and(|actual| actual != name) {
+            return Err(api_failed(
+                "POST",
+                "/sites",
+                "created site has another name",
+            ));
+        }
+        Ok(site)
     }
 
     /// Whether a site still exists (best-effort teardown verification).
@@ -211,7 +496,7 @@ impl NetlifyApi {
             build_settings["base"] = json!(base);
         }
         self.send_json(
-            Method::PUT,
+            Method::PATCH,
             &path,
             Some(json!({ "build_settings": build_settings })),
         )
@@ -245,7 +530,7 @@ impl NetlifyApi {
         if let Some(base) = &settings.base {
             repo_body["base"] = json!(base);
         }
-        self.send_json(Method::PUT, &path, Some(json!({ "repo": repo_body })))
+        self.send_json(Method::PATCH, &path, Some(json!({ "repo": repo_body })))
             .await?;
         Ok(())
     }
@@ -259,18 +544,36 @@ impl NetlifyApi {
         service: &str,
         budget: Duration,
     ) -> Result<(String, String), NetlifyError> {
+        let fingerprint = stackless_core::engine::revision::digest(&(site_id, &zip_bytes))
+            .map_err(|e| crate::lifecycle::invalid(e.message))?;
+        let (receipt, recovered) = self
+            .prepare_request(site_id, "build-zip", fingerprint)
+            .await?;
+        if let Some(deploy) = recovered {
+            let id = deploy["id"]
+                .as_str()
+                .ok_or_else(|| crate::lifecycle::invalid("recovered deploy has no ID"))?
+                .to_owned();
+            let origin = self
+                .wait_for_ready(
+                    &id,
+                    service,
+                    budget,
+                    receipt.as_deref().map(|r| (site_id, r)),
+                )
+                .await?;
+            return Ok((origin, id));
+        }
         let path = format!("/sites/{site_id}/builds");
-        let url = format!("{}{path}", self.base);
         let part = Part::bytes(zip_bytes)
             .file_name("site.zip")
             .mime_str("application/zip")
             .map_err(|err| api_failed("POST", &path, err))?;
-        let form = Form::new()
-            .text("title", title.to_owned())
-            .part("zip", part);
+        let form = Form::new().part("zip", part);
+        self.submit(receipt.as_deref())?;
         let resp = self
             .client
-            .post(&url)
+            .post(self.endpoint(&path, &[("title", receipt.as_deref().unwrap_or(title))])?)
             .multipart(form)
             .send()
             .await
@@ -286,9 +589,17 @@ impl NetlifyApi {
         }
         let created: Value = serde_json::from_str(&text)
             .map_err(|err| api_failed("POST", &path, format!("bad json: {err}")))?;
+        self.record_response(receipt.as_deref(), &created, true)?;
         let deploy_id = deploy_id_from_build(&created)
             .ok_or_else(|| api_failed("POST", &path, "build create returned no deploy id"))?;
-        let origin = self.wait_for_ready(&deploy_id, service, budget).await?;
+        let origin = self
+            .wait_for_ready(
+                &deploy_id,
+                service,
+                budget,
+                receipt.as_deref().map(|r| (site_id, r)),
+            )
+            .await?;
         Ok((origin, deploy_id))
     }
 
@@ -300,17 +611,51 @@ impl NetlifyApi {
         service: &str,
         budget: Duration,
     ) -> Result<(String, String), NetlifyError> {
-        let path = format!("/sites/{site_id}/builds");
-        let created = self
-            .send_json(
-                Method::POST,
-                &format!("{path}?branch={branch}"),
-                Some(json!({ "clear_cache": true })),
+        let fingerprint = stackless_core::engine::revision::digest(&(site_id, branch))
+            .map_err(|e| crate::lifecycle::invalid(e.message))?;
+        let (receipt, recovered) = self
+            .prepare_request(site_id, "build-git", fingerprint)
+            .await?;
+        let deploy_id = if let Some(deploy) = recovered {
+            deploy["id"]
+                .as_str()
+                .ok_or_else(|| crate::lifecycle::invalid("recovered deploy has no ID"))?
+                .to_owned()
+        } else {
+            let path = format!("/sites/{site_id}/builds");
+            self.submit(receipt.as_deref())?;
+            let response = self
+                .client
+                .post(self.endpoint(
+                    &path,
+                    &[
+                        ("branch", branch),
+                        ("clear_cache", "true"),
+                        ("title", receipt.as_deref().unwrap_or("stackless")),
+                    ],
+                )?)
+                .send()
+                .await
+                .map_err(|e| api_failed("POST", &path, e))?;
+            if !response.status().is_success() {
+                return Err(api_failed("POST", &path, response.status()));
+            }
+            let created: Value = response
+                .json()
+                .await
+                .map_err(|e| api_failed("POST", &path, e))?;
+            self.record_response(receipt.as_deref(), &created, true)?;
+            deploy_id_from_build(&created)
+                .ok_or_else(|| api_failed("POST", &path, "build create returned no deploy ID"))?
+        };
+        let origin = self
+            .wait_for_ready(
+                &deploy_id,
+                service,
+                budget,
+                receipt.as_deref().map(|r| (site_id, r)),
             )
             .await?;
-        let deploy_id = deploy_id_from_build(&created)
-            .ok_or_else(|| api_failed("POST", &path, "build create returned no deploy id"))?;
-        let origin = self.wait_for_ready(&deploy_id, service, budget).await?;
         Ok((origin, deploy_id))
     }
 
@@ -332,28 +677,69 @@ impl NetlifyApi {
                 Value::String(sha1_hex(&file.data)),
             );
         }
-        let deploys_path = format!("/sites/{site_id}/deploys");
-        let created = self
-            .send_json(
-                Method::POST,
-                &deploys_path,
-                Some(json!({ "files": Value::Object(digests) })),
-            )
+        let fingerprint = stackless_core::engine::revision::digest(&(
+            site_id,
+            files.iter().map(|f| (&f.path, &f.data)).collect::<Vec<_>>(),
+        ))
+        .map_err(|e| crate::lifecycle::invalid(e.message))?;
+        let (receipt, recovered) = self
+            .prepare_request(site_id, "deploy-files", fingerprint)
             .await?;
-        let deploy_id = created
-            .get("id")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .ok_or_else(|| api_failed("POST", &deploys_path, "deploy create returned no id"))?;
-        let required: HashSet<String> = created
-            .get("required")
-            .and_then(Value::as_array)
-            .map(|shas| {
-                shas.iter()
-                    .filter_map(|s| s.as_str().map(str::to_owned))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let deploys_path = format!("/sites/{site_id}/deploys");
+        let created = match recovered {
+            Some(value) => value,
+            None => {
+                self.submit(receipt.as_deref())?;
+                let path = receipt
+                    .as_ref()
+                    .map(|r| format!("{deploys_path}?title={r}"))
+                    .unwrap_or_else(|| deploys_path.clone());
+                let value = self
+                    .send_json(
+                        Method::POST,
+                        &path,
+                        Some(json!({"files": Value::Object(digests)})),
+                    )
+                    .await?;
+                self.record_response(receipt.as_deref(), &value, false)?;
+                value
+            }
+        };
+        let deploy_id = created["id"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| api_failed("POST", &deploys_path, "deploy create returned no ID"))?
+            .to_owned();
+        if let Some(receipt) = &receipt {
+            self.owned_deploy(site_id, &deploy_id, receipt)
+                .await?
+                .ok_or_else(|| crate::lifecycle::invalid("deployment disappeared before upload"))?;
+        }
+        let required: HashSet<String> = match created.get("required") {
+            Some(Value::Array(values)) => values
+                .iter()
+                .map(|value| {
+                    value
+                        .as_str()
+                        .map(str::to_owned)
+                        .ok_or_else(|| crate::lifecycle::invalid("invalid required digest"))
+                })
+                .collect::<Result<_, _>>()?,
+            None if matches!(created["state"].as_str(), Some("ready" | "processing")) => {
+                HashSet::new()
+            }
+            _ => {
+                return Err(crate::lifecycle::invalid(
+                    "deployment returned no required digest list",
+                ));
+            }
+        };
+        let available: HashSet<_> = files.iter().map(|f| sha1_hex(&f.data)).collect();
+        if !required.is_subset(&available) {
+            return Err(crate::lifecycle::invalid(
+                "deployment requires content outside its recorded upload",
+            ));
+        }
 
         // Upload each required digest once (Netlify dedups by SHA1).
         let mut uploaded: HashSet<String> = HashSet::new();
@@ -364,61 +750,15 @@ impl NetlifyApi {
             }
         }
 
-        let origin = self.wait_for_ready(&deploy_id, service, budget).await?;
+        let origin = self
+            .wait_for_ready(
+                &deploy_id,
+                service,
+                budget,
+                receipt.as_deref().map(|r| (site_id, r)),
+            )
+            .await?;
         Ok((origin, deploy_id))
-    }
-
-    /// Most recent deploy id for a site (resume/checkpoint fallback).
-    pub async fn latest_deploy_id(&self, site_id: &str) -> Result<String, NetlifyError> {
-        let path = format!("/sites/{site_id}/deploys?per_page=1");
-        let deploys = self.send_json(Method::GET, &path, None).await?;
-        let deploys = deploys.as_array().cloned().unwrap_or_default();
-        deploys
-            .first()
-            .and_then(|deploy| deploy.get("id"))
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .ok_or_else(|| api_failed("GET", &path, "site has no deploys"))
-    }
-
-    /// Fetch the deploy record for log/summary retrieval.
-    pub async fn get_site_deploy(
-        &self,
-        site_id: &str,
-        deploy_id: &str,
-    ) -> Result<Value, NetlifyError> {
-        let path = format!("/sites/{site_id}/deploys/{deploy_id}");
-        self.send_json(Method::GET, &path, None).await
-    }
-
-    /// Recent deploy log lines for the `logs` verb (§2). Netlify's public REST
-    /// API has no streaming build-log GET — this returns deploy metadata plus a
-    /// best-effort pull from `log_access_attributes` when the provider includes
-    /// it (full logs otherwise require the Netlify dashboard or websocket API).
-    pub async fn recent_deploy_log(
-        &self,
-        site_id: &str,
-        deploy_id: &str,
-        tail: usize,
-    ) -> Result<Vec<String>, NetlifyError> {
-        let deploy = self.get_site_deploy(site_id, deploy_id).await?;
-        let mut lines = Vec::new();
-        if let Some(firebase) = deploy.get("log_access_attributes")
-            && let Some(mut remote) = fetch_log_access_attributes(firebase).await
-        {
-            lines.append(&mut remote);
-        }
-        push_deploy_summary(&deploy, &mut lines);
-        if lines.is_empty() {
-            lines.push(format!(
-                "(deploy {deploy_id} has no retrievable log lines via the Netlify REST API)"
-            ));
-        }
-        let keep = tail.max(1);
-        if lines.len() > keep {
-            lines = lines.split_off(lines.len() - keep);
-        }
-        Ok(lines)
     }
 
     async fn upload_file(
@@ -427,11 +767,31 @@ impl NetlifyApi {
         rel_path: &str,
         bytes: &[u8],
     ) -> Result<(), NetlifyError> {
+        valid_id(deploy_id)?;
+        if rel_path
+            .split('/')
+            .any(|p| p.is_empty() || p == "." || p == "..")
+        {
+            return Err(api_failed("PUT", "/deploys/files", "invalid upload path"));
+        }
         let path = format!("/deploys/{deploy_id}/files/{rel_path}");
-        let url = format!("{}{path}", self.base);
+        let mut url = reqwest::Url::parse(&self.base).map_err(|e| api_failed("PUT", &path, e))?;
+        {
+            let mut segments = url
+                .path_segments_mut()
+                .map_err(|_| api_failed("PUT", &path, "invalid API base"))?;
+            segments
+                .pop_if_empty()
+                .push("deploys")
+                .push(deploy_id)
+                .push("files");
+            for component in rel_path.split('/') {
+                segments.push(component);
+            }
+        }
         let resp = self
             .client
-            .put(&url)
+            .put(url)
             .header(CONTENT_TYPE, "application/octet-stream")
             .body(bytes.to_vec())
             .send()
@@ -455,11 +815,20 @@ impl NetlifyApi {
         deploy_id: &str,
         service: &str,
         budget: Duration,
+        authority: Option<(&str, &str)>,
     ) -> Result<String, NetlifyError> {
         let path = format!("/deploys/{deploy_id}");
         let deadline = tokio::time::Instant::now() + budget;
         loop {
-            let deploy = self.send_json(Method::GET, &path, None).await?;
+            let deploy = match authority {
+                Some((site, receipt)) => self
+                    .owned_deploy(site, deploy_id, receipt)
+                    .await?
+                    .ok_or_else(|| {
+                        crate::lifecycle::invalid("deployment disappeared while waiting")
+                    })?,
+                None => self.send_json(Method::GET, &path, None).await?,
+            };
             let state = DeployState::from_api(
                 deploy
                     .get("state")
@@ -467,12 +836,15 @@ impl NetlifyApi {
                     .unwrap_or("unknown"),
             );
             if state.is_ready() {
-                return Ok(deploy
+                let origin = deploy
                     .get("ssl_url")
                     .or_else(|| deploy.get("deploy_ssl_url"))
                     .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_owned());
+                    .filter(|s| !s.is_empty())
+                    .ok_or_else(|| {
+                        api_failed("GET", &path, "ready deployment returned no endpoint")
+                    })?;
+                return Ok(origin.to_owned());
             }
             if state.is_failed() {
                 return Err(NetlifyError::DeployFailed {
@@ -492,72 +864,23 @@ impl NetlifyApi {
     }
 }
 
-fn push_deploy_summary(deploy: &Value, lines: &mut Vec<String>) {
-    for (key, label) in [
-        ("state", "state"),
-        ("error_message", "error"),
-        ("title", "title"),
-        ("branch", "branch"),
-        ("commit_ref", "commit"),
-        ("created_at", "created_at"),
-        ("published_at", "published_at"),
-    ] {
-        if let Some(value) = deploy.get(key).and_then(Value::as_str)
-            && !value.is_empty()
-        {
-            lines.push(format!("{label}: {value}"));
-        }
+fn valid_id(id: &str) -> Result<(), NetlifyError> {
+    if id.is_empty()
+        || !id
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_'))
+    {
+        return Err(api_failed("GET", "/sites", "invalid native ID"));
     }
-}
-
-async fn fetch_log_access_attributes(attrs: &Value) -> Option<Vec<String>> {
-    let endpoint = attrs.get("endpoint")?.as_str()?;
-    let path = attrs.get("path")?.as_str()?;
-    let token = attrs.get("token")?.as_str()?;
-    let url = format!("{endpoint}{path}.json?auth={token}");
-    let client = Client::builder().timeout(REQUEST_TIMEOUT).build().ok()?;
-    let response = client.get(url).send().await.ok()?;
-    if !response.status().is_success() {
-        return None;
-    }
-    let value: Value = response.json().await.ok()?;
-    Some(parse_firebase_log(value))
-}
-
-fn parse_firebase_log(value: Value) -> Vec<String> {
-    match value {
-        Value::Array(items) => items
-            .into_iter()
-            .filter_map(format_firebase_entry)
-            .collect(),
-        Value::Object(map) => {
-            let mut entries: Vec<(String, String)> = map
-                .into_iter()
-                .filter_map(|(key, value)| format_firebase_entry(value).map(|line| (key, line)))
-                .collect();
-            entries.sort_by(|left, right| left.0.cmp(&right.0));
-            entries.into_iter().map(|(_, line)| line).collect()
-        }
-        Value::String(line) => vec![line],
-        _ => Vec::new(),
-    }
-}
-
-fn format_firebase_entry(value: Value) -> Option<String> {
-    match value {
-        Value::String(line) => Some(line),
-        Value::Object(map) => map
-            .get("message")
-            .or_else(|| map.get("msg"))
-            .or_else(|| map.get("text"))
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-        _ => None,
-    }
+    Ok(())
 }
 
 fn site_info(value: &Value) -> Option<SiteInfo> {
-    let id = value.get("id").and_then(Value::as_str)?.to_owned();
+    let id = value
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())?
+        .to_owned();
     Some(SiteInfo {
         id,
         ssl_url: value
@@ -751,27 +1074,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn recent_deploy_log_returns_summary_lines() {
-        let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/sites/site_1/deploys/dep_1"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "id": "dep_1",
-                "state": "ready",
-                "error_message": "",
-                "created_at": "2026-01-01T00:00:00Z",
-            })))
-            .mount(&server)
-            .await;
-        let api = NetlifyApi::with_base("tok", server.uri());
-        let lines = api.recent_deploy_log("site_1", "dep_1", 10).await.unwrap();
-        assert!(lines.iter().any(|line| line.contains("state: ready")));
-    }
-
-    #[tokio::test]
     async fn deploy_build_zip_posts_multipart_and_polls_deploy() {
         let server = MockServer::start().await;
-        Mock::given(method("PUT"))
+        Mock::given(method("PATCH"))
             .and(path("/sites/site_1"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "id": "site_1" })))
             .mount(&server)

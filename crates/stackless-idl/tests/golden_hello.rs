@@ -118,3 +118,59 @@ fn check_mode_detects_stale() {
     let err = stackless_idl::check_bytes(&path, "fresh\n").expect_err("stale");
     assert!(matches!(err, stackless_idl::IdlError::Stale { .. }));
 }
+
+#[test]
+fn endpoints_survive_idl_roundtrip_and_emit_in_every_language() {
+    let compiled = stackless_idl::compile_source(&testdata("endpoints.toml"), &["local"]).unwrap();
+    assert_eq!(compiled.pretty_json, testdata("endpoints.idl.json"));
+    let idl = stackless_idl::parse_idl_json(&compiled.pretty_json).unwrap();
+    assert_eq!(
+        idl.body
+            .endpoints
+            .iter()
+            .map(|entry| (entry.dns.as_str(), entry.workload.as_str()))
+            .collect::<Vec<_>>(),
+        [("native-api", "web"), ("public-api", "web")]
+    );
+    assert!(!compiled.pretty_json.contains("https://public.example.test"));
+    for (actual, expected) in [
+        (
+            stackless_idl::emit_rust_from_idl(&idl).unwrap(),
+            "endpoints.rs",
+        ),
+        (
+            stackless_idl::emit_typescript_from_idl(&idl).unwrap(),
+            "endpoints.ts",
+        ),
+        (
+            stackless_idl::emit_python_from_idl(&idl).unwrap(),
+            "endpoints.py",
+        ),
+        (
+            stackless_idl::emit_go_from_idl(&idl, "stacklessbind").unwrap(),
+            "endpoints.go",
+        ),
+    ] {
+        assert_eq!(actual, testdata(expected), "{expected}");
+    }
+}
+
+#[path = "../testdata/endpoints.rs"]
+mod endpoint_bindings;
+
+#[test]
+fn generated_rust_endpoint_bindings_require_every_named_url() {
+    use endpoint_bindings::{BindError, Endpoints};
+    use std::collections::BTreeMap;
+    assert!(matches!(
+        Endpoints::from_map(&BTreeMap::new()),
+        Err(BindError::MissingEndpoint { dns: "native-api" })
+    ));
+    let values = BTreeMap::from([
+        ("native-api".into(), "http://native.example.test".into()),
+        ("public-api".into(), "https://public.example.test/v1".into()),
+    ]);
+    let endpoints = Endpoints::from_map(&values).unwrap();
+    assert_eq!(endpoints.native_api, values["native-api"]);
+    assert_eq!(endpoints.public_api, values["public-api"]);
+}

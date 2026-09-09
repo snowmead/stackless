@@ -56,7 +56,7 @@ pub enum CloudflareHostError {
 }
 
 impl Fault for CloudflareHostError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             Self::ConfigInvalid { .. } => codes::CLOUDFLARE_HOST_CONFIG_INVALID,
             Self::ApiFailed { .. } => codes::CLOUDFLARE_HOST_API_FAILED,

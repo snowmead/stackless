@@ -57,7 +57,7 @@ pub enum GitLabError {
 }
 
 impl Fault for GitLabError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             Self::ConfigInvalid { .. } => codes::GITLAB_CONFIG_INVALID,
             Self::ApiKeyMissing { .. } => codes::GITLAB_API_KEY_MISSING,

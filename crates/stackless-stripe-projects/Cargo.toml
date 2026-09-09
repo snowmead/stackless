@@ -16,7 +16,6 @@ serde_json               = "1.0.150"
 stackless-core.workspace = true
 thiserror                = "2.0.18"
 tokio                    = { version = "1.52.3", features = ["rt", "time", "macros", "process"] }
-toml_edit                = "0.25.12"
 
 [features]
 # Exposes `test_support` (a scripted mock CommandRunner + envelope builders) for

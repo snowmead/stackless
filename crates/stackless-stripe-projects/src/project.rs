@@ -3,7 +3,6 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::time::Duration;
 
 use serde_json::Value;
 use stackless_core::def::StackDef;
@@ -36,119 +35,192 @@ pub fn recorded_project_id(def: &StackDef) -> Option<String> {
         .and_then(|stripe| stripe.project.clone())
 }
 
-pub async fn ensure_project<R: CommandRunner>(
+/// Adapters can only use a project already linked by the controller.
+/// This check never initializes, pulls, or writes an application definition.
+pub async fn require_project<R: CommandRunner>(
     stripe: &StripeProjects<R>,
     def: &StackDef,
-    definition_dir: &Path,
 ) -> Result<(), ProjectsError> {
-    let recorded = recorded_project_id(def);
-    let status = stripe.json(&["status"]).await?;
-    let linked = serde_json::from_value::<StatusResponse>(status.data)
-        .ok()
-        .and_then(|s| s.project_id().map(str::to_owned));
-
-    match (&recorded, &linked) {
-        (Some(want), Some(have)) if want == have => Ok(()),
-        (Some(want), _) => {
-            stripe
-                .run_ok(
-                    "pull",
-                    &["pull", want, "--skip-skills", "--yes"],
-                    &["--yes"],
-                )
-                .await?;
-            Ok(())
-        }
-        (None, Some(have)) => {
-            write_project_anchor(definition_dir, have)?;
-            Ok(())
-        }
-        (None, None) => {
-            run_init_preflight(stripe, def.stack.name.as_str()).await?;
-            stripe
-                .run_ok(
-                    "init",
-                    &[
-                        "init",
-                        def.stack.name.as_str(),
-                        "--skip-skills",
-                        "--accept-tos",
-                    ],
-                    &["--accept-tos", "--yes"],
-                )
-                .await?;
-            let status = stripe.json(&["status"]).await?;
-            let id = serde_json::from_value::<StatusResponse>(status.data)
-                .ok()
-                .and_then(|s| s.project_id().map(str::to_owned))
-                .ok_or_else(|| ProjectsError::ProjectAnchor {
-                    detail: "created project but status reported no id".into(),
-                })?;
-            write_project_anchor(definition_dir, &id)?;
-            Ok(())
-        }
+    let result = stripe.json(&["status"]).await?;
+    if !result.ok {
+        return Err(stripe.classify_failure("status", &result));
     }
-}
-
-pub fn write_project_anchor(definition_dir: &Path, project_id: &str) -> Result<(), ProjectsError> {
-    let lock_path = stackless_core::lockfile::FileLock::stripe_lock_path(definition_dir);
-    let _guard = stackless_core::lockfile::FileLock::acquire_with_wait(
-        &lock_path,
-        Duration::from_secs(30 * 60),
-    )
-    .map_err(|err| ProjectsError::LockHeld {
-        definition_dir: definition_dir.display().to_string(),
-        detail: err.to_string(),
-    })?;
-    let path = definition_dir.join("stackless.toml");
-    let text = std::fs::read_to_string(&path).map_err(|err| ProjectsError::ProjectAnchor {
-        detail: format!("cannot read {}: {err}", path.display()),
-    })?;
-    let mut doc =
-        text.parse::<toml_edit::DocumentMut>()
-            .map_err(|err| ProjectsError::ProjectAnchor {
-                detail: format!("cannot parse {}: {err}", path.display()),
-            })?;
-    let stack = doc["stack"].or_insert(toml_edit::table());
-    if let Some(stack_table) = stack.as_table_mut() {
-        stack_table.set_implicit(false);
+    let status: StatusResponse =
+        serde_json::from_value(result.data).map_err(|_| ProjectsError::ProjectAnchor {
+            detail: "invalid prepared project status".into(),
+        })?;
+    let linked = status
+        .project_id()
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| ProjectsError::ProjectAnchor {
+            detail: "controller must prepare the Stripe project before provider execution".into(),
+        })?;
+    if recorded_project_id(def).is_some_and(|wanted| wanted != linked) {
+        return Err(ProjectsError::ProjectAnchor {
+            detail: "prepared Stripe project differs from the requested project".into(),
+        });
     }
-    let projects = doc["stack"]["projects"].or_insert(toml_edit::table());
-    if let Some(projects_table) = projects.as_table_mut() {
-        projects_table.set_implicit(false);
-    }
-    let stripe = doc["stack"]["projects"]["stripe"].or_insert(toml_edit::table());
-    if let Some(stripe_table) = stripe.as_table_mut() {
-        stripe_table.set_implicit(false);
-    }
-    doc["stack"]["projects"]["stripe"]["project"] = toml_edit::value(project_id);
-    std::fs::write(&path, doc.to_string()).map_err(|err| ProjectsError::ProjectAnchor {
-        detail: format!("cannot write {}: {err}", path.display()),
-    })?;
     Ok(())
 }
 
-pub async fn ensure_environment<R: CommandRunner>(
+/// Complete inventory, or an error. Malformed data cannot prove absence.
+pub async fn environment_registered<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+    instance: &str,
+) -> Result<bool, ProjectsError> {
+    let result = stripe.json(&["env", "list"]).await?;
+    if !result.ok {
+        return Err(stripe.classify_failure("env list", &result));
+    }
+    if !result.data.is_array()
+        && !result
+            .data
+            .get("environments")
+            .is_some_and(|v| v.is_array() || v.is_object())
+    {
+        return Err(ProjectsError::Failed {
+            command: "env list".into(),
+            detail: "environment inventory is missing; absence is unknown".into(),
+        });
+    }
+    let list: EnvListResponse =
+        serde_json::from_value(result.data).map_err(|err| ProjectsError::Failed {
+            command: "env list".into(),
+            detail: format!("invalid environment inventory: {err}"),
+        })?;
+    if !list.valid() {
+        return Err(ProjectsError::Failed {
+            command: "env list".into(),
+            detail: "environment inventory contains an unnamed row; absence is unknown".into(),
+        });
+    }
+    Ok(list.contains(instance))
+}
+
+pub async fn require_environment<R: CommandRunner>(
     stripe: &StripeProjects<R>,
     instance: &str,
 ) -> Result<(), ProjectsError> {
-    let list = stripe.json(&["env", "list"]).await?;
-    let exists = serde_json::from_value::<EnvListResponse>(list.data)
-        .map(|response| response.contains(instance))
-        .unwrap_or(false);
-    if exists {
-        stripe
-            .run_ok("env use", &["env", "use", instance], &["--yes"])
-            .await?;
+    if environment_registered(stripe, instance).await? {
+        select_environment(stripe, instance).await?;
     } else {
-        let output = format!(".env.{instance}");
-        stripe
-            .run_ok(
-                "env create",
-                &["env", "create", instance, "--output", &output, "--yes"],
-                &["--yes"],
-            )
-            .await?;
+        return Err(ProjectsError::ProjectAnchor {
+            detail: "controller must prepare the Stripe environment before provider execution"
+                .into(),
+        });
+    }
+    Ok(())
+}
+
+pub async fn select_environment<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+    instance: &str,
+) -> Result<(), ProjectsError> {
+    stripe
+        .run_ok("env use", &["env", "use", instance], &["--yes"])
+        .await?;
+    Ok(())
+}
+
+pub async fn create_environment<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+    instance: &str,
+) -> Result<(), ProjectsError> {
+    let output = format!(".env.{instance}");
+    stripe
+        .run_ok(
+            "env create",
+            &["env", "create", instance, "--output", &output, "--yes"],
+            &["--yes"],
+        )
+        .await?;
+    Ok(())
+}
+
+/// Recover a shared project by the exact name saved before initialization.
+pub async fn project_named<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+    name: &str,
+) -> Result<Option<String>, ProjectsError> {
+    #[derive(serde::Deserialize)]
+    struct Project {
+        id: String,
+        name: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct Projects {
+        projects: Vec<Project>,
+    }
+    let data = stripe.run_ok("list", &["list"], &[]).await?;
+    let list: Projects = serde_json::from_value(data).map_err(|err| ProjectsError::Failed {
+        command: "list".into(),
+        detail: format!("invalid project inventory; absence is unknown: {err}"),
+    })?;
+    if list
+        .projects
+        .iter()
+        .any(|p| p.id.is_empty() || p.name.is_empty())
+    {
+        return Err(ProjectsError::ProjectAnchor {
+            detail: "project inventory contains an empty identity".into(),
+        });
+    }
+    let mut matches = list.projects.into_iter().filter(|p| p.name == name);
+    let found = matches.next().map(|p| p.id);
+    if matches.next().is_some() {
+        return Err(ProjectsError::ProjectAnchor {
+            detail:
+                "multiple projects match the persisted creation name; refusing ambiguous ownership"
+                    .into(),
+        });
+    }
+    Ok(found)
+}
+
+pub async fn initialize_named_project<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+    name: &str,
+) -> Result<(), ProjectsError> {
+    stripe
+        .run_ok(
+            "init",
+            &[
+                "init",
+                name,
+                "--mode",
+                "manual",
+                "--skip-install",
+                "--skip-skills",
+                "--accept-tos",
+                "--yes",
+            ],
+            &[],
+        )
+        .await?;
+    Ok(())
+}
+
+pub async fn pull_project<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+    id: &str,
+) -> Result<(), ProjectsError> {
+    let pulled = stripe.json(&["pull", id, "--skip-skills", "--yes"]).await?;
+    if !pulled.ok && pulled.error_code.as_deref() != Some("PROJECT_ALREADY_CONNECTED") {
+        return Err(stripe.classify_failure("pull", &pulled));
+    }
+    // A reused runtime directory is already linked. Verify its identity before reuse.
+    let result = stripe.json(&["status"]).await?;
+    if !result.ok {
+        return Err(stripe.classify_failure("status", &result));
+    }
+    let status: StatusResponse =
+        serde_json::from_value(result.data).map_err(|err| ProjectsError::ProjectAnchor {
+            detail: format!("invalid linked project status: {err}"),
+        })?;
+    if status.project_id() != Some(id) {
+        return Err(ProjectsError::ProjectAnchor {
+            detail: "linked project does not match the persisted project ID".into(),
+        });
     }
     Ok(())
 }
@@ -158,9 +230,31 @@ async fn list_project_resources<R: CommandRunner>(
 ) -> Result<ServicesListResponse, ProjectsError> {
     let result = stripe.json(&["services", "list"]).await?;
     if !result.ok {
-        return Ok(ServicesListResponse::default());
+        return Err(stripe.classify_failure("services list", &result));
     }
-    Ok(serde_json::from_value::<ServicesListResponse>(result.data).unwrap_or_default())
+    if result.data.get("services").is_none() && result.data.get("plans").is_none() {
+        return Err(ProjectsError::Failed {
+            command: "services list".into(),
+            detail: "response contains neither services nor plans; resource absence is unknown"
+                .into(),
+        });
+    }
+    let list = serde_json::from_value::<ServicesListResponse>(result.data).map_err(|err| {
+        ProjectsError::Failed {
+            command: "services list".into(),
+            detail: format!("invalid inventory response; resource absence is unknown: {err}"),
+        }
+    })?;
+    let mut names = std::collections::BTreeSet::new();
+    if list.iter().any(|row| {
+        row.name
+            .as_deref()
+            .is_none_or(|name| name.is_empty() || !names.insert(name))
+    }) {
+        return Err(ProjectsError::Failed { command: "services list".into(),
+            detail: "resource inventory contains an unnamed or duplicate row; ownership and absence are unknown".into() });
+    }
+    Ok(list)
 }
 
 /// Whether a service or plan with this exact local name is already on the project.
@@ -185,10 +279,9 @@ fn provider_matches(row: &ServiceRef, provider: &str) -> bool {
 /// Resolve an existing service/plan to reuse for `reference`.
 ///
 /// Prefers an exact local `--name` match that is also provider-scoped and
-/// catalog-`service_id`-scoped. Otherwise takes the sole provider-scoped row
-/// whose catalog `service_id` equals the reference's service id. Ambiguous
-/// multi-matches fall through (no invented ranking). Rows without
-/// `provider_name` / `service_id` never match.
+/// catalog-`service_id`-scoped. Only shared parent plans may be found by catalog
+/// type under a different name. Deployables require their exact resource name:
+/// another instance's sole database or auth app is never ours to adopt.
 fn resolve_reusable<'a>(
     list: &'a ServicesListResponse,
     name: &str,
@@ -212,6 +305,7 @@ fn resolve_reusable<'a>(
         return None;
     }
     let by_id: Vec<&str> = list
+        .plans
         .iter()
         .filter(|r| provider_matches(r, provider))
         .filter(same_catalog)
@@ -224,17 +318,47 @@ fn resolve_reusable<'a>(
     }
 }
 
-/// Resolve an existing service/plan to reuse (exact name, else catalog `service_id`),
-/// always scoped to the provider in `reference`.
+/// Resolve by exact resource name, or by catalog type for shared plans only.
 pub async fn resolve_registered_resource<R: CommandRunner>(
     stripe: &StripeProjects<R>,
     name: &str,
     reference: &str,
 ) -> Result<Option<String>, ProjectsError> {
-    Ok(
-        resolve_reusable(&list_project_resources(stripe).await?, name, reference)
-            .map(str::to_owned),
-    )
+    let list = list_project_resources(stripe).await?;
+    let found = resolve_reusable(&list, name, reference).map(str::to_owned);
+    if list.contains(name) && found.as_deref() != Some(name) {
+        return Err(ProjectsError::Journal {
+            detail: format!(
+                "resource name {name:?} exists with a different or unreadable catalog identity"
+            ),
+        });
+    }
+    if list.plans.iter().any(|plan| {
+        plan.provider_name.as_deref().is_none_or(str::is_empty)
+            || plan.service_id.as_deref().is_none_or(str::is_empty)
+    }) {
+        return Err(ProjectsError::Journal {
+            detail: "shared plan inventory lacks catalog identity".into(),
+        });
+    }
+    let (provider, catalog_id) = split_reference(reference);
+    if found.is_none()
+        && list
+            .plans
+            .iter()
+            .filter(|plan| {
+                provider_matches(plan, provider) && plan.service_id.as_deref() == Some(catalog_id)
+            })
+            .count()
+            > 1
+    {
+        return Err(ProjectsError::Journal {
+            detail: format!(
+                "multiple shared plans match {reference:?}; an explicit plan identity is required"
+            ),
+        });
+    }
+    Ok(found)
 }
 
 async fn env_add_resource<R: CommandRunner>(
@@ -258,15 +382,80 @@ pub async fn add_resource<R: CommandRunner>(
     config: &Value,
     paid: bool,
 ) -> Result<AddedResource, ProjectsError> {
-    // Reuse orphan plans/services (including `plans[]`) and always env-attach.
-    // Returning early without `env add` left parent plans project-scoped after
-    // teardown and forced another `projects add` into Stripe 500s.
+    add_resource_scoped(stripe, reference, name, config, paid, false).await
+}
+
+pub(crate) async fn add_resource_scoped<R: CommandRunner>(
+    stripe: &StripeProjects<R>,
+    reference: &str,
+    name: &str,
+    config: &Value,
+    paid: bool,
+    shared: bool,
+) -> Result<AddedResource, ProjectsError> {
+    let shared_catalog = stripe
+        .journal()
+        .is_some_and(|journal| journal.shared_catalog(reference));
+    let shared = shared || shared_catalog;
+    let mut attempt = stripe
+        .journal()
+        .map(|journal| journal.begin(reference, name, config, shared))
+        .transpose()?;
+    if (!shared || shared_catalog)
+        && let (Some(journal), Some(attempt)) = (stripe.journal(), attempt.as_mut())
+        && attempt.creation.submitted
+    {
+        journal.confirm_existing(stripe, attempt, name).await?;
+        env_add_resource(stripe, name).await?;
+        return Ok(AddedResource {
+            name: name.into(),
+            data: if attempt.record.phase == stackless_core::state::ResourcePhase::Ready {
+                Value::Null
+            } else {
+                attempt.creation.response.clone()
+            },
+        });
+    }
+    // Exact identity for deployables; account plans may be shared. The caller
+    // records which resource was attached, including renamed parent plans.
     if let Some(existing) = resolve_registered_resource(stripe, name, reference).await? {
+        if let (Some(journal), Some(attempt)) = (stripe.journal(), attempt.as_mut()) {
+            if (!shared || shared_catalog) && !attempt.creation.submitted {
+                journal.decline_preexisting(attempt)?;
+                return Err(ProjectsError::Journal {
+                    detail: format!(
+                        "resource {existing:?} existed before this owner submitted creation"
+                    ),
+                });
+            }
+            journal.created(attempt, &existing, attempt.creation.response.clone())?;
+        }
         env_add_resource(stripe, &existing).await?;
         return Ok(AddedResource {
             name: existing,
-            data: Value::Null,
+            data: attempt
+                .map(|attempt| {
+                    if attempt.record.phase == stackless_core::state::ResourcePhase::Ready {
+                        Value::Null
+                    } else {
+                        attempt.creation.response
+                    }
+                })
+                .unwrap_or(Value::Null),
         });
+    }
+    if let (Some(journal), Some(attempt)) = (stripe.journal(), attempt.as_mut()) {
+        if attempt.creation.submitted
+            || attempt.record.phase != stackless_core::state::ResourcePhase::Intent
+        {
+            return Err(ProjectsError::CreationUnknown {
+                resource: name.into(),
+            });
+        }
+        if !shared || shared_catalog {
+            journal.ensure_available(stripe, attempt).await?;
+        }
+        journal.submitted(attempt)?;
     }
     let config_str = config.to_string();
     let mut args: Vec<&str> = vec![
@@ -290,6 +479,12 @@ pub async fn add_resource<R: CommandRunner>(
     let data = stripe
         .run_ok(&format!("add {reference}"), &args, &plain_extra)
         .await?;
+    if let (Some(journal), Some(attempt)) = (stripe.journal(), attempt.as_mut()) {
+        journal.created(attempt, name, data.clone())?;
+        if !shared || shared_catalog {
+            journal.confirm_existing(stripe, attempt, name).await?;
+        }
+    }
     env_add_resource(stripe, name).await?;
     Ok(AddedResource {
         name: name.to_owned(),
@@ -493,20 +688,36 @@ pub async fn sync_vault_pull_for_instance<R: CommandRunner>(
     stripe: &StripeProjects<R>,
     instance: &str,
 ) -> Result<(), ProjectsError> {
-    ensure_environment(stripe, instance).await?;
+    if !environment_registered(stripe, instance).await? {
+        return Err(ProjectsError::Failed { command: "env --pull".into(), detail: "the recorded environment is absent; run up to reconcile it before pulling credentials".into() });
+    }
+    stripe
+        .run_ok("env use", &["env", "use", instance], &["--yes"])
+        .await?;
     match refresh_vault(stripe).await {
         Ok(()) => Ok(()),
         Err(ProjectsError::Failed { detail, .. }) if detail.contains(EMPTY_ENV_PULL_CODE) => {
-            clear_stale_instance_env(stripe.dir(), instance);
+            clear_stale_instance_env(stripe.dir(), instance)?;
             Ok(())
         }
         Err(err) => Err(err),
     }
 }
 
-fn clear_stale_instance_env(definition_dir: &Path, instance: &str) {
-    let path = definition_dir.join(format!(".env.{instance}"));
-    let _ = std::fs::remove_file(&path);
+fn clear_stale_instance_env(directory: &Path, instance: &str) -> Result<(), ProjectsError> {
+    for path in [
+        directory.join(".env"),
+        directory.join(format!(".env.{instance}")),
+    ] {
+        if let Err(error) = std::fs::remove_file(&path)
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            return Err(ProjectsError::Unavailable {
+                detail: format!("cannot clear stale vault file {}: {error}", path.display()),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Whether `.projects/` exists under `definition_dir` (created by `init`).
@@ -515,22 +726,14 @@ pub fn project_initialized_in_dir(definition_dir: &Path) -> bool {
     definition_dir.join(".projects").is_dir()
 }
 
-/// Read env keys from pulled vault files. Scans `.env` then `.env.<instance>`
-/// (instance overrides base). Does not call the Stripe CLI.
-pub fn vault_env_from_dir(
-    definition_dir: &Path,
-    instance: Option<&str>,
-) -> BTreeMap<String, String> {
+/// Read only the selected environment's vault file. The combined `.env` is
+/// used only when no environment was requested.
+pub fn vault_env_from_dir(directory: &Path, instance: Option<&str>) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
-    let base = definition_dir.join(".env");
-    if let Ok(text) = std::fs::read_to_string(&base) {
+    let path =
+        directory.join(instance.map_or_else(|| ".env".into(), |name| format!(".env.{name}")));
+    if let Ok(text) = std::fs::read_to_string(path) {
         merge_env_lines(&mut out, &text);
-    }
-    if let Some(instance) = instance {
-        let inst = definition_dir.join(format!(".env.{instance}"));
-        if let Ok(text) = std::fs::read_to_string(inst) {
-            merge_env_lines(&mut out, &text);
-        }
     }
     out
 }
@@ -588,27 +791,59 @@ mod tests {
     use async_trait::async_trait;
     use serde_json::json;
 
-    #[test]
-    fn anchor_writeback_preserves_comments_and_adds_neutral_project() {
+    #[tokio::test]
+    async fn pull_reuses_only_the_recorded_project_and_preserves_other_failures() {
+        for (code, linked, succeeds) in [
+            ("PROJECT_ALREADY_CONNECTED", Some("project_expected"), true),
+            ("PROJECT_ALREADY_CONNECTED", Some("project_other"), false),
+            ("PROJECT_ALREADY_CONNECTED", None, false),
+            ("AUTH_REQUIRED", Some("project_expected"), false),
+        ] {
+            let runner = ScriptedRunner::new(vec![
+                CommandOutput {
+                    status: 1,
+                    stdout: json!({"ok":false,"error":{"code":code,"message":"pull failed"}})
+                        .to_string(),
+                    stderr: String::new(),
+                },
+                crate::test_support::status(linked),
+            ]);
+            let stripe = StripeProjects::new(&runner, "/unused");
+            assert_eq!(
+                pull_project(&stripe, "project_expected").await.is_ok(),
+                succeeds
+            );
+            assert_eq!(
+                runner.calls().len(),
+                if code == "AUTH_REQUIRED" { 1 } else { 2 }
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn adapter_context_never_creates_or_relinks_a_project() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("stackless.toml");
-        std::fs::write(
-            &path,
-            "# atto dogfood\n[stack]\nname = \"atto\"\n\n[stack.render]\nregion = \"oregon\"\n",
-        )
-        .unwrap();
-
-        write_project_anchor(dir.path(), "project_abc123").unwrap();
-
-        let after = std::fs::read_to_string(&path).unwrap();
-        assert!(after.contains("# atto dogfood"));
-        assert!(after.contains("project = \"project_abc123\""));
-
-        let doc: toml::Value = toml::from_str(&after).unwrap();
-        assert_eq!(
-            doc["stack"]["projects"]["stripe"]["project"].as_str(),
-            Some("project_abc123")
-        );
+        let text = "# unchanged\n[stack]\nname = 'context'\n[stack.projects.stripe]\nproject = 'project_expected'\n";
+        std::fs::write(dir.path().join("stackless.toml"), text).unwrap();
+        let def = StackDef::parse(text).unwrap();
+        for data in [
+            json!({}),
+            json!({"project":{"id":"project_other"}}),
+            json!({"project":{"id":""}}),
+        ] {
+            let runner = ScriptedRunner::new(vec![ok(data)]);
+            let stripe = StripeProjects::new(&runner, dir.path());
+            assert!(require_project(&stripe, &def).await.is_err());
+            assert_eq!(runner.calls().len(), 1);
+            assert_eq!(
+                std::fs::read_to_string(dir.path().join("stackless.toml")).unwrap(),
+                text
+            );
+        }
+        let runner = ScriptedRunner::new(vec![env_list(&[])]);
+        let stripe = StripeProjects::new(&runner, dir.path());
+        assert!(require_environment(&stripe, "instance").await.is_err());
+        assert_eq!(runner.calls().len(), 1);
     }
 
     #[tokio::test]
@@ -658,12 +893,18 @@ mod tests {
     }
 
     #[test]
-    fn vault_env_from_dir_prefers_instance_file() {
+    fn vault_env_from_dir_never_inherits_another_environment() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join(".env"), "KEY=base\n").unwrap();
+        std::fs::write(
+            dir.path().join(".env"),
+            "KEY=base\nOTHER_ENV_TOKEN=hidden\n",
+        )
+        .unwrap();
         std::fs::write(dir.path().join(".env.demo"), "KEY=instance\n").unwrap();
         let map = vault_env_from_dir(dir.path(), Some("demo"));
         assert_eq!(map.get("KEY").map(String::as_str), Some("instance"));
+        assert!(!map.contains_key("OTHER_ENV_TOKEN"));
+        assert!(vault_env_from_dir(dir.path(), Some("missing")).is_empty());
     }
 
     #[tokio::test]
@@ -754,7 +995,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn add_resource_reuses_deployable_by_catalog_service_id() {
+    async fn add_resource_never_adopts_another_instances_deployable() {
         let runner = ScriptedRunner::new(vec![
             ok(json!({
                 "services": [{
@@ -768,7 +1009,8 @@ mod tests {
                     "provider_name": "Clerk"
                 }]
             })),
-            ok_empty(), // env add clerk-auth
+            ok_empty(), // create e2e-clerk
+            ok_empty(), // env add e2e-clerk
         ]);
         let stripe = StripeProjects::new(&runner, std::env::temp_dir());
         let added = add_resource(
@@ -780,17 +1022,40 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(added.name, "clerk-auth");
+        assert_eq!(added.name, "e2e-clerk");
         let calls = runner.calls();
-        assert_eq!(calls.len(), 2);
+        assert_eq!(calls.len(), 3);
         assert!(
-            !calls.iter().any(|c| c.iter().any(|a| a == "clerk/auth")),
-            "must not projects-add clerk/auth when clerk-auth already exists"
+            calls[1].iter().any(|a| a == "clerk/auth"),
+            "the second instance must create its own auth resource"
         );
         assert_eq!(
-            calls[1],
-            vec!["env", "add", "clerk-auth", "--resource", "--json"]
+            calls[2],
+            vec!["env", "add", "e2e-clerk", "--resource", "--json"]
         );
+    }
+
+    #[tokio::test]
+    async fn malformed_inventory_cannot_prove_resource_absence() {
+        for data in [json!({}), json!({"services": "not an array"}), Value::Null] {
+            let runner = ScriptedRunner::new(vec![ok(data)]);
+            let stripe = StripeProjects::new(&runner, std::env::temp_dir());
+            assert!(resource_registered(&stripe, "demo-db").await.is_err());
+            assert_eq!(runner.calls().len(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_inventory_never_skips_destruction_as_already_gone() {
+        let runner = ScriptedRunner::new(vec![CommandOutput {
+            status: 0,
+            stdout: json!({"ok": false, "error": {"code": "UNAVAILABLE", "message": "offline"}})
+                .to_string(),
+            stderr: String::new(),
+        }]);
+        let stripe = StripeProjects::new(&runner, std::env::temp_dir());
+        assert!(remove_resource(&stripe, "demo-db").await.is_err());
+        assert_eq!(runner.calls().len(), 1);
     }
 
     #[tokio::test]
@@ -828,56 +1093,39 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn add_resource_does_not_reuse_other_provider_same_plan_name() {
-        let runner = ScriptedRunner::new(vec![
+    async fn add_resource_refuses_foreign_names_and_ambiguous_plans() {
+        for inventory in [
             plans(&[("hobby", "hobby", "Vercel")]),
-            ok(json!({ "variables": { "K": "v" } })), // projects add
-            ok_empty(),                               // env add
-        ]);
-        let stripe = StripeProjects::new(&runner, std::env::temp_dir());
-        let added = add_resource(
-            &stripe,
-            "clerk/hobby",
-            "hobby",
-            &serde_json::json!({}),
-            false,
-        )
-        .await
-        .unwrap();
-        assert_eq!(added.name, "hobby");
-        let calls = runner.calls();
-        assert!(
-            calls.iter().any(|c| c.iter().any(|a| a == "clerk/hobby")),
-            "must not env-attach Vercel hobby when ensuring clerk/hobby"
-        );
-    }
-
-    #[tokio::test]
-    async fn add_resource_falls_through_on_ambiguous_service_id_matches() {
-        let runner = ScriptedRunner::new(vec![
             plans(&[
                 ("clerk-plan", "hobby", "Clerk"),
                 ("hobby-2", "hobby", "Clerk"),
             ]),
-            ok(json!({ "variables": { "K": "v" } })),
-            ok_empty(),
-        ]);
-        let stripe = StripeProjects::new(&runner, std::env::temp_dir());
-        let added = add_resource(
-            &stripe,
-            "clerk/hobby",
-            "hobby",
-            &serde_json::json!({}),
-            false,
-        )
-        .await
-        .unwrap();
-        assert_eq!(added.name, "hobby");
-        let calls = runner.calls();
-        assert!(
-            calls.iter().any(|c| c.iter().any(|a| a == "clerk/hobby")),
-            "ambiguous service_id matches must not invent a ranking winner"
-        );
+        ] {
+            let runner = ScriptedRunner::new(vec![inventory]);
+            let stripe = StripeProjects::new(&runner, std::env::temp_dir());
+            let error = add_resource(&stripe, "clerk/hobby", "hobby", &json!({}), false)
+                .await
+                .unwrap_err();
+            assert!(matches!(error, ProjectsError::Journal { .. }));
+            assert_eq!(
+                runner.calls().len(),
+                1,
+                "ambiguous ownership cannot authorize creation or attachment"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_resource_inventory_cannot_establish_absence() {
+        for inventory in [
+            json!({"services": [{}], "plans": []}),
+            json!({"services": [{"name": ""}], "plans": []}),
+            json!({"services": [{"name": "demo"}, {"name": "demo"}], "plans": []}),
+        ] {
+            let runner = ScriptedRunner::new(vec![ok(inventory)]);
+            let stripe = StripeProjects::new(&runner, std::env::temp_dir());
+            assert!(resource_registered(&stripe, "missing").await.is_err());
+        }
     }
 
     #[tokio::test]

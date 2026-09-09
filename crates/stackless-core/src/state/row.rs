@@ -30,6 +30,15 @@ impl Row {
         }
     }
 
+    pub(super) fn get_opt_string(&self, idx: usize) -> Result<Option<String>, StateError> {
+        match self.columns.get(idx) {
+            Some(Value::Null) => Ok(None),
+            Some(Value::Text(value)) => Ok(Some(value.clone())),
+            Some(_) => Err(StateError::row_type(idx, "text|null")),
+            None => Err(StateError::row_range(idx)),
+        }
+    }
+
     /// A nullable integer column (`tombstoned_at`): NULL maps to `None`.
     pub(super) fn get_opt_i64(&self, idx: usize) -> Result<Option<i64>, StateError> {
         match self.columns.get(idx) {

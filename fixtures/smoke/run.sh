@@ -107,7 +107,8 @@ assert any(svc.get("lines") for svc in services), ("empty log window", doc)
 
 up=0
 # shellcheck disable=SC2086  # $extra is intentionally word-split
-cargo run -q -p stackless -- up --name "$inst" --on "$substrate" --file "$fixture" $extra --json | assert_json_ok || up=$?
+# These repository fixtures may run local probes or source-build commands.
+cargo run -q -p stackless -- up --name "$inst" --on "$substrate" --file "$fixture" --allow-host-execution $extra --json | assert_json_ok || up=$?
 
 # Live coverage for the machine contract on a real substrate: status must emit
 # ok:true; logs must emit ok:true, and for hosts with wired fetch_logs the

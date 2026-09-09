@@ -5,8 +5,8 @@ use stackless_core::def::StackDef;
 use crate::canonical::{fingerprint_for, sha256_hex_prefixed};
 use crate::error::IdlError;
 use crate::model::{
-    BodyV1, IntegrationEntry, InterfaceV1, KIND_V1, ServiceEntry, SourceMeta, TierEntry,
-    VerifySection,
+    BodyV1, EndpointEntry, IntegrationEntry, InterfaceV1, KIND_V1, ServiceEntry, SourceMeta,
+    TierEntry, VerifySection,
 };
 use crate::naming::Parts;
 
@@ -48,6 +48,9 @@ pub fn compile_with_outputs(
 ) -> Result<InterfaceV1, IdlError> {
     let mut services = Vec::new();
     for (dns, service) in &def.services {
+        if service.health.is_none() {
+            continue;
+        }
         // Reject reserved wire names early so compile fails before emit.
         Parts::from_dns(dns)?;
         services.push(ServiceEntry {
@@ -91,6 +94,15 @@ pub fn compile_with_outputs(
     }
     integrations.sort_by(|a, b| a.dns.cmp(&b.dns));
 
+    let mut endpoints = Vec::new();
+    for (dns, endpoint) in &def.endpoints {
+        Parts::from_dns(dns)?;
+        endpoints.push(EndpointEntry {
+            dns: dns.clone(),
+            workload: endpoint.workload.clone(),
+        });
+    }
+
     let mut secrets_required = def.secrets.required.clone();
     secrets_required.sort();
     secrets_required.dedup();
@@ -104,6 +116,7 @@ pub fn compile_with_outputs(
                 toml_sha256: toml_sha256.to_owned(),
             },
             services,
+            endpoints,
             verify: VerifySection { has_default, tiers },
             integrations,
             secrets_required,

@@ -46,6 +46,7 @@ const RUST_RESERVED: &[&str] = &[
     "while",
     "yield",
     "Origins",
+    "Endpoints",
     "VerifyTier",
     "BindError",
     "ServiceDns",

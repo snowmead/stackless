@@ -22,10 +22,14 @@ impl StackDef {
     /// that substrate requires (ARCHITECTURE.md §2).
     pub fn validate_for_substrate(&self, substrate: &str) -> Result<(), DefError> {
         for (name, service) in &self.services {
-            if !service.substrates.contains_key(substrate) {
+            let target = service.on.as_deref().unwrap_or(substrate);
+            if !service.substrates.contains_key(target)
+                && service.run.is_none()
+                && service.image.is_none()
+            {
                 return Err(DefError::SubstrateConfigMissing {
                     service: name.clone(),
-                    substrate: substrate.to_owned(),
+                    substrate: target.to_owned(),
                 });
             }
         }
@@ -40,7 +44,7 @@ fn validate_definition(def: &StackDef, known_substrates: &[&str]) -> Result<(), 
             name: def.stack.name.as_str().to_owned(),
         });
     }
-    if def.services.is_empty() {
+    if def.services.is_empty() && def.integrations.is_empty() {
         return Err(DefError::NoServices);
     }
 
@@ -55,6 +59,82 @@ fn validate_definition(def: &StackDef, known_substrates: &[&str]) -> Result<(), 
                 name: name.clone(),
             });
         }
+        if service.kind == super::model::WorkloadKind::Service && service.health.is_none() {
+            return Err(DefError::Schema {
+                message: format!("services.{name}.health is required for a service"),
+            });
+        }
+        if service.kind == super::model::WorkloadKind::Job && service.health.is_some() {
+            return Err(DefError::Schema {
+                message: format!(
+                    "jobs.{name} completes with an exit status and cannot declare health"
+                ),
+            });
+        }
+        if let Some(health) = &service.health {
+            health.validate(name)?;
+        }
+        if service.root_origin && service.health.as_ref().is_none_or(|health| health.is_tcp()) {
+            return Err(DefError::Schema {
+                message: format!("services.{name}.root_origin requires an HTTP listener"),
+            });
+        }
+        if service.timeout_secs == 0 || service.timeout_secs > 86400 {
+            return Err(DefError::Schema {
+                message: format!("services.{name}.timeout_secs must be between 1 and 86400"),
+            });
+        }
+        if service.image.as_ref().is_some_and(|image| {
+            image.is_empty()
+                || image
+                    .chars()
+                    .any(|character| character.is_whitespace() || character.is_control())
+        }) {
+            return Err(DefError::Schema {
+                message: format!(
+                    "services.{name}.image must be a nonempty image reference without whitespace"
+                ),
+            });
+        }
+        if !service.source.repo.is_empty() && service.source.path.is_some() {
+            return Err(DefError::Schema {
+                message: format!("services.{name}.source must select repo or path"),
+            });
+        }
+        service.source_root(name, "")?;
+        for provider in service.substrates.keys() {
+            service.source_root(name, provider)?;
+        }
+        if service
+            .on
+            .as_ref()
+            .is_some_and(|on| !known_substrates.contains(&on.as_str()))
+        {
+            return Err(DefError::Schema {
+                message: format!("services.{name}.on names an unknown provider"),
+            });
+        }
+        for (dependency, condition) in &service.depends_on {
+            let Some(target) = def.services.get(dependency) else {
+                return Err(DefError::UndeclaredReference {
+                    location: format!("services.{name}.depends_on"),
+                    kind: "workload",
+                    name: dependency.clone(),
+                });
+            };
+            if dependency == name
+                || (*condition == super::model::DependencyCondition::Completed
+                    && target.kind != super::model::WorkloadKind::Job)
+                || (*condition != super::model::DependencyCondition::Completed
+                    && target.kind == super::model::WorkloadKind::Job)
+            {
+                return Err(DefError::Schema {
+                    message: format!(
+                        "services.{name}.depends_on.{dependency} has an invalid condition for the target workload"
+                    ),
+                });
+            }
+        }
         if service.root_origin {
             root_origins.push(name.clone());
         }
@@ -65,6 +145,47 @@ fn validate_definition(def: &StackDef, known_substrates: &[&str]) -> Result<(), 
         )?;
         validate_service_references(def, name, service, known_substrates)?;
     }
+    for (name, endpoint) in &def.endpoints {
+        if !crate::types::dns_safe(name) || !def.services.contains_key(&endpoint.workload) {
+            return Err(DefError::Schema {
+                message: format!("endpoints.{name} must name an existing workload"),
+            });
+        }
+        if def.services[&endpoint.workload].health.is_none() {
+            return Err(DefError::Schema {
+                message: format!("endpoints.{name} requires a workload with a health listener"),
+            });
+        }
+        if let Some(raw) = &endpoint.url {
+            let tcp = def.services[&endpoint.workload]
+                .health
+                .as_ref()
+                .is_some_and(|health| health.is_tcp());
+            let valid = url::Url::parse(raw).is_ok_and(|url| {
+                (if tcp {
+                    url.scheme() == "tcp"
+                        && raw.starts_with("tcp://")
+                        && url.port().is_some_and(|port| port != 0)
+                        && url.path().is_empty()
+                        && url.query().is_none()
+                        && url.fragment().is_none()
+                } else {
+                    matches!(url.scheme(), "http" | "https")
+                        && (raw.starts_with("http://") || raw.starts_with("https://"))
+                }) && url.has_host()
+                    && url.username().is_empty()
+                    && url.password().is_none()
+                    && !raw.chars().any(char::is_whitespace)
+            });
+            if !valid {
+                return Err(DefError::Schema {
+                    message: format!(
+                        "endpoints.{name}.url must match the workload protocol and contain a host without credentials; TCP URLs also require a nonzero port and no path, query, or fragment"
+                    ),
+                });
+            }
+        }
+    }
     if root_origins.len() > 1 {
         return Err(DefError::RootOriginConflict {
             services: root_origins,
@@ -72,12 +193,24 @@ fn validate_definition(def: &StackDef, known_substrates: &[&str]) -> Result<(), 
     }
 
     if let Some(verify) = &def.stack.verify {
+        if verify.timeout_secs == 0 || verify.timeout_secs > 86400 {
+            return Err(DefError::Schema {
+                message: "stack.verify.timeout_secs must be between 1 and 86400".into(),
+            });
+        }
         for (key, value) in &verify.env {
             let location = format!("stack.verify.env.{key}");
             let refs = interp::references(value, &location)?;
             validate_references(def, &refs, &location)?;
         }
         for (tier, spec) in &verify.tiers {
+            if spec.timeout_secs == 0 || spec.timeout_secs > 86400 {
+                return Err(DefError::Schema {
+                    message: format!(
+                        "stack.verify.tiers.{tier}.timeout_secs must be between 1 and 86400"
+                    ),
+                });
+            }
             if !crate::types::dns_safe(tier) {
                 return Err(DefError::NameInvalid {
                     kind: "verify tier",
@@ -239,6 +372,27 @@ fn validate_references(def: &StackDef, refs: &[Reference], location: &str) -> Re
                         name: target.clone(),
                     });
                 }
+                if def.services[target].health.is_none() {
+                    return Err(DefError::Schema {
+                        message: format!("{location}: workload {target:?} has no listener origin"),
+                    });
+                }
+            }
+            Reference::EndpointUrl(target) => {
+                if location.starts_with("integrations.") {
+                    return Err(DefError::Schema {
+                        message: format!(
+                            "{location}: endpoint URL references are supported only in workload and verification environments"
+                        ),
+                    });
+                }
+                if !def.endpoints.contains_key(target) {
+                    return Err(DefError::UndeclaredReference {
+                        location: location.to_owned(),
+                        kind: "endpoint",
+                        name: target.clone(),
+                    });
+                }
             }
             Reference::DatastoreUrl(target) => {
                 // Fresh files cannot declare `[datastores.*]`; only
@@ -288,6 +442,36 @@ mod tests {
         assert!(!dns_safe("atto-"));
         assert!(!dns_safe("at to"));
         assert!(!dns_safe(&"a".repeat(64)));
+    }
+
+    #[test]
+    fn verification_deadlines_default_and_reject_invalid_default_or_tier_budgets() {
+        let base = "[stack]\nname='verify-test'\n[jobs.task]\nrun='true'\n";
+        let def = StackDef::parse(&format!(
+            "{base}\n[stack.verify]\nrun='true'\n[stack.verify.tiers.integration]\nrun='true'\n"
+        ))
+        .unwrap();
+        def.validate_hosts(&["local"]).unwrap();
+        let verify = def.stack.verify.unwrap();
+        assert_eq!(verify.resolve(None).unwrap().timeout_secs, 300);
+        assert_eq!(
+            verify.resolve(Some("integration")).unwrap().timeout_secs,
+            300
+        );
+        for table in ["stack.verify", "stack.verify.tiers.integration"] {
+            for budget in [0, 86401] {
+                let def = StackDef::parse(&format!(
+                    "{base}\n[{table}]\nrun='true'\ntimeout_secs={budget}\n"
+                ))
+                .unwrap();
+                assert!(
+                    def.validate_hosts(&["local"])
+                        .unwrap_err()
+                        .to_string()
+                        .contains("timeout_secs")
+                );
+            }
+        }
     }
 
     #[test]

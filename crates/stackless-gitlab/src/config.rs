@@ -33,12 +33,25 @@ impl CatalogService for GitLabProjectConfig {
 /// keys inside it are a fault, to trap agent typos).
 pub fn service_gitlab(def: &StackDef, service: &str) -> Result<ServiceGitlab, GitLabError> {
     let location = format!("services.{service}.gitlab");
+    let root = def
+        .services
+        .get(service)
+        .map(|spec| spec.source_root(service, SUBSTRATE_NAME))
+        .transpose()
+        .map_err(|error| GitLabError::ConfigInvalid {
+            location: location.clone(),
+            detail: error.to_string(),
+        })?
+        .flatten();
     let Some(block) = def
         .services
         .get(service)
         .and_then(|spec| spec.substrates.get(SUBSTRATE_NAME))
     else {
-        return Ok(ServiceGitlab::default());
+        return Ok(ServiceGitlab {
+            root,
+            ..Default::default()
+        });
     };
     let table = block.as_table().ok_or_else(|| GitLabError::ConfigInvalid {
         location: location.clone(),
@@ -69,19 +82,6 @@ pub fn service_gitlab(def: &StackDef, service: &str) -> Result<ServiceGitlab, Gi
                 });
             }
             Some(vis.to_owned())
-        }
-    };
-    let root = match table.get("root") {
-        None => None,
-        Some(value) => {
-            let root = value
-                .as_str()
-                .filter(|s| !s.trim().is_empty())
-                .ok_or_else(|| GitLabError::ConfigInvalid {
-                    location: format!("{location}.root"),
-                    detail: "must be a non-empty string".into(),
-                })?;
-            Some(root.to_owned())
         }
     };
     Ok(ServiceGitlab { visibility, root })

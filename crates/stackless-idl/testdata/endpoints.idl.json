@@ -1,0 +1,30 @@
+{
+  "kind": "stackless.stack-idl/v1",
+  "fingerprint": "sha256:10a25dc67e384236e9bc6c864ad2fdf4ea0ff7e98afc266fc4d9f9f7293a1b54",
+  "source": {
+    "stack_name": "endpoint-test",
+    "toml_sha256": "sha256:174228ff5dfe69a707ae7f78cb2139772557296ef5c90f6f93af00d496c9da53"
+  },
+  "services": [
+    {
+      "dns": "web",
+      "root_origin": false
+    }
+  ],
+  "endpoints": [
+    {
+      "dns": "native-api",
+      "workload": "web"
+    },
+    {
+      "dns": "public-api",
+      "workload": "web"
+    }
+  ],
+  "verify": {
+    "has_default": false,
+    "tiers": []
+  },
+  "integrations": [],
+  "secrets_required": []
+}

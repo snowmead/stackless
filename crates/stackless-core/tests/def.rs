@@ -76,14 +76,17 @@ fn atto_parses_to_the_documented_model() {
         api.env["CLERK_SECRET_KEY"],
         "${integrations.clerk.secret_key}"
     );
-    assert_eq!(api.health.path, "/health");
-    assert_eq!(api.health.status.get(), 200);
-    assert_eq!(api.health.contains.as_deref(), Some("ok"));
+    assert_eq!(api.health.as_ref().unwrap().path, "/health");
+    assert_eq!(api.health.as_ref().unwrap().status.get(), 200);
+    assert_eq!(api.health.as_ref().unwrap().contains.as_deref(), Some("ok"));
     assert!(!api.root_origin);
 
     let web = &def.services["web"];
     assert!(web.root_origin);
-    assert_eq!(web.health.contains.as_deref(), Some(r#"id="root""#));
+    assert_eq!(
+        web.health.as_ref().unwrap().contains.as_deref(),
+        Some(r#"id="root""#)
+    );
 
     // Substrate env overlays the common env, overlay wins (§1).
     let api_render_env = api.effective_env("api", "render").unwrap();
@@ -199,7 +202,7 @@ fn expect_invalid(name: &str, expected_code: &str) {
 fn invalid_fixtures_produce_stable_codes() {
     expect_invalid("undeclared_reference.toml", codes::DEF_UNDECLARED_REFERENCE);
     expect_invalid("bad_name.toml", codes::DEF_NAME_INVALID);
-    expect_invalid("depends_on.toml", codes::DEF_DEPENDS_ON_REJECTED);
+    expect_invalid("depends_on.toml", codes::DEF_PARSE_SCHEMA);
     expect_invalid("unknown_key.toml", codes::DEF_UNKNOWN_KEY);
     expect_invalid("secret_not_required.toml", codes::DEF_SECRET_NOT_REQUIRED);
     expect_invalid("root_origin_conflict.toml", codes::DEF_ROOT_ORIGIN_CONFLICT);
@@ -311,4 +314,45 @@ fn errors_are_reportable() {
     let report = stackless_core::fault::Report::from_fault(&err);
     assert_eq!(report.code, codes::DEF_NO_SERVICES);
     assert!(!report.remediation.is_empty());
+}
+
+#[test]
+fn source_root_and_provider_root_are_one_validated_directory() {
+    let definition = |common: &str, provider: &str| {
+        format!(
+            "[stack]\nname='test'\n[services.web]\nsource={{repo='r',root={common:?}}}\nhealth={{path='/'}}\n[services.web.vercel]\nroot={provider:?}\n"
+        )
+    };
+    let def = StackDef::parse(&definition("./app/", "app")).unwrap();
+    def.validate_hosts(KNOWN).unwrap();
+    assert_eq!(
+        def.services["web"]
+            .source_root("web", "vercel")
+            .unwrap()
+            .as_deref(),
+        Some("app")
+    );
+    assert!(
+        StackDef::parse(&definition("app", "other"))
+            .unwrap()
+            .validate_hosts(KNOWN)
+            .is_err()
+    );
+    for root in [
+        "../private",
+        "/private",
+        ".env",
+        ".git/data",
+        "app/../../private",
+        "",
+        "app\\nested",
+    ] {
+        assert!(
+            StackDef::parse(&definition(root, root))
+                .unwrap()
+                .validate_hosts(KNOWN)
+                .is_err(),
+            "{root}"
+        );
+    }
 }

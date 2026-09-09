@@ -1,0 +1,10 @@
+[stack]
+name = "endpoint-test"
+[services.web]
+run    = "server"
+health = { path = "/" }
+[endpoints.native-api]
+workload = "web"
+[endpoints.public-api]
+workload = "web"
+url      = "https://public.example.test/v1"

@@ -24,6 +24,9 @@ struct Cli {
     /// Emit machine-readable JSON on stdout.
     #[arg(long, global = true)]
     json: bool,
+    /// SSH controller for lifecycle operations (also STACKLESS_CONTROLLER).
+    #[arg(long, global = true)]
+    controller: Option<String>,
     /// Override state root (hidden; used by the daemon reaper).
     #[arg(long, global = true, hide = true)]
     state_dir: Option<PathBuf>,
@@ -36,6 +39,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Controller protocol, lease reaper, and verified boot persistence.
+    Controller,
     /// Create or resume a named instance; health-gated (invariant 2).
     Up {
         /// Instance name (DNS-safe; becomes hostnames). Omitted at
@@ -57,15 +62,30 @@ enum Command {
         /// instance-owned space (local-only; requires `--source`).
         #[arg(long)]
         dirty: bool,
+        /// Allow this instance to execute commands directly on the controller host.
+        #[arg(long)]
+        allow_host_execution: bool,
         /// Lease duration, e.g. 8h, 45m (default: substrate's).
         #[arg(long)]
         lease: Option<String>,
         /// Consent to paid cloud resources this invocation (§2/§4).
         #[arg(long = "confirm-paid")]
         confirm_paid: bool,
+        /// Return the durable operation ID without waiting for readiness.
+        #[arg(long)]
+        no_wait: bool,
     },
     /// Verified teardown; exits non-zero listing survivors.
-    Down { name: String },
+    Down {
+        name: String,
+        #[arg(long)]
+        no_wait: bool,
+    },
+    /// Inspect, wait for, or cancel a durable controller operation.
+    Operation {
+        #[command(subcommand)]
+        command: OperationCommand,
+    },
     /// Run the stack's proof contract against a live instance (§7).
     Verify {
         name: String,
@@ -164,13 +184,50 @@ enum Command {
 }
 
 /// Parse argv and run the selected verb.
+#[derive(Subcommand)]
+enum OperationCommand {
+    Get {
+        id: String,
+        #[arg(long, default_value_t = 0)]
+        after: i64,
+    },
+    Wait {
+        id: String,
+    },
+    Cancel {
+        id: String,
+    },
+    List {
+        #[arg(long)]
+        instance: Option<String>,
+    },
+}
+
 pub fn run() -> ExitCode {
     // Operator daemon spawn / launchd / reaper require this process to be the
     // CLI. SDK consumers linking the crate never call this entrypoint.
     stackless_daemon::mark_cli_process();
     let cli = Cli::parse();
+    let helper = match &cli.command {
+        Command::Daemon(daemon_cmd::DaemonCommand::Helper) => {
+            Some(stackless_core::helper_command::serve())
+        }
+        Command::Daemon(daemon_cmd::DaemonCommand::Workload) => {
+            Some(stackless_local::logging::run())
+        }
+        _ => None,
+    };
+    if let Some(result) = helper {
+        return match result {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("stackless internal runner: {error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     if matches!(cli.command, Command::Mcp) {
-        return match mcp::run_stdio_server() {
+        return match mcp::run_stdio_server(cli.controller.as_deref()) {
             Ok(()) => ExitCode::SUCCESS,
             Err(err) => {
                 eprintln!("stackless mcp: {err}");
@@ -209,32 +266,53 @@ pub fn run() -> ExitCode {
 
     let mut output = Output::new(cli.json);
     let layout = ClientLayout {
+        controller: cli.controller,
         state_dir: cli.state_dir,
         proxy_port: cli.proxy_port,
     };
     let result = match cli.command {
+        Command::Controller => client_for(&layout)
+            .and_then(|client| client.controller_info())
+            .map(|info| output.operation_result(&info)),
         Command::Up {
             name,
             file,
             on,
             sources,
             dirty,
+            allow_host_execution,
             lease,
             confirm_paid,
-        } => run_up(
-            UpArgs {
+            no_wait,
+        } => {
+            let args = UpArgs {
                 name,
                 file,
                 on,
                 sources,
                 dirty,
+                allow_host_execution,
                 lease,
                 confirm_paid,
-            },
-            &mut output,
-            &layout,
-        ),
-        Command::Down { name } => run_down(&name, &output, &layout),
+            };
+            if no_wait {
+                client_for(&layout)
+                    .and_then(|client| client.submit_up_args(args))
+                    .map(|operation| output.operation(&operation))
+            } else {
+                run_up(args, &mut output, &layout)
+            }
+        }
+        Command::Down { name, no_wait } => {
+            if no_wait {
+                client_for(&layout)
+                    .and_then(|client| client.submit_down(&name))
+                    .map(|operation| output.operation(&operation))
+            } else {
+                run_down(&name, &output, &layout)
+            }
+        }
+        Command::Operation { command } => run_operation(command, &mut output, &layout),
         Command::Verify { name, tier } => run_verify(&name, tier.as_deref(), &output, &layout),
         Command::Status { name } => run_status(&name, &output, &layout),
         Command::List => run_list(&output, &layout),
@@ -348,12 +426,16 @@ fn run_update(outcome: &UpdateOutcome, output: &Output) -> Result<(), Error> {
 }
 
 struct ClientLayout {
+    controller: Option<String>,
     state_dir: Option<PathBuf>,
     proxy_port: Option<u16>,
 }
 
 fn client_for(layout: &ClientLayout) -> Result<Client, Error> {
     let mut builder = Client::builder();
+    if let Some(target) = &layout.controller {
+        builder = builder.remote(target);
+    }
     if let Some(dir) = &layout.state_dir {
         builder = builder.paths(Paths::new(dir.clone()));
     }
@@ -364,6 +446,28 @@ fn client_for(layout: &ClientLayout) -> Result<Client, Error> {
         })?);
     }
     builder.build()
+}
+
+fn run_operation(
+    command: OperationCommand,
+    output: &mut Output,
+    layout: &ClientLayout,
+) -> Result<(), Error> {
+    let client = client_for(layout)?;
+    match command {
+        OperationCommand::Get { id, after } => {
+            output.operation_result(&client.operation(&id, after)?)
+        }
+        OperationCommand::Cancel { id } => output.operation(&client.cancel_operation(&id)?),
+        OperationCommand::List { instance } => {
+            output.operation_result(&client.operations(instance.as_deref())?)
+        }
+        OperationCommand::Wait { id } => {
+            let result: serde_json::Value = client.wait_operation(&id, Some(output))?;
+            output.operation_result(&result);
+        }
+    }
+    Ok(())
 }
 
 fn run_up(args: UpArgs, output: &mut Output, layout: &ClientLayout) -> Result<(), Error> {
@@ -417,14 +521,22 @@ fn run_doctor(
 fn run_status(name: &str, output: &Output, layout: &ClientLayout) -> Result<(), Error> {
     let client = client_for(layout)?;
     let report = client.status(name)?;
-    output::render_status(output, &report, client.paths());
+    output::render_status(
+        output,
+        &report,
+        client.controller_info()?.persistence_warning.as_deref(),
+    );
     Ok(())
 }
 
 fn run_list(output: &Output, layout: &ClientLayout) -> Result<(), Error> {
     let client = client_for(layout)?;
     let reports = client.list()?;
-    output::render_list(output, &reports, client.paths());
+    output::render_list(
+        output,
+        &reports,
+        client.controller_info()?.persistence_warning.as_deref(),
+    );
     Ok(())
 }
 

@@ -20,6 +20,15 @@ pub fn emit_python(idl: &InterfaceV1) -> Result<String, IdlError> {
         PyNames::from_dns,
         check_collisions,
     )?;
+    let endpoint_names = named_entries(
+        idl.body
+            .endpoints
+            .iter()
+            .map(|endpoint| endpoint.dns.as_str()),
+        IdentNamespace::Endpoint,
+        PyNames::from_dns,
+        check_collisions,
+    )?;
     let tier_names = named_entries(
         idl.body.verify.tiers.iter().map(|t| t.dns.as_str()),
         IdentNamespace::Tier,
@@ -125,7 +134,13 @@ pub fn emit_python(idl: &InterfaceV1) -> Result<String, IdlError> {
     out.push_str("class BindError(Exception):\n");
     out.push_str("    def __init__(\n");
     out.push_str("        self,\n");
-    out.push_str("        reason: Literal[\"service\", \"integration\", \"output\"],\n");
+    if endpoint_names.is_empty() {
+        out.push_str("        reason: Literal[\"service\", \"integration\", \"output\"],\n");
+    } else {
+        out.push_str(
+            "        reason: Literal[\"endpoint\", \"service\", \"integration\", \"output\"],\n",
+        );
+    }
     out.push_str("        dns: str,\n");
     out.push_str("        output_key: str | None = None,\n");
     out.push_str("    ) -> None:\n");
@@ -134,6 +149,9 @@ pub fn emit_python(idl: &InterfaceV1) -> Result<String, IdlError> {
     out.push_str("        self.output_key = output_key\n");
     out.push_str("        if reason == \"service\":\n");
     out.push_str("            message = f\"missing origin for service {dns}\"\n");
+    if !endpoint_names.is_empty() {
+        out.push_str("        elif reason == \"endpoint\":\n            message = f\"missing URL for endpoint {dns}\"\n");
+    }
     out.push_str("        elif reason == \"integration\":\n");
     out.push_str("            message = f\"missing integration {dns}\"\n");
     out.push_str("        else:\n");
@@ -164,6 +182,30 @@ pub fn emit_python(idl: &InterfaceV1) -> Result<String, IdlError> {
         ));
     }
     out.push_str("    )\n\n");
+
+    if !endpoint_names.is_empty() {
+        out.push_str("@dataclass(frozen=True)\nclass Endpoints:\n");
+        for (_, names) in &endpoint_names {
+            out.push_str(&format!("    {}: str\n", names.field));
+        }
+        out.push_str("\ndef bind_endpoints(values: Mapping[str, str]) -> Endpoints:\n");
+        for (dns, _) in &endpoint_names {
+            out.push_str(&format!(
+                "    if \"{}\" not in values:\n        raise BindError(\"endpoint\", \"{}\")\n",
+                escape_str(dns),
+                escape_str(dns)
+            ));
+        }
+        out.push_str("    return Endpoints(\n");
+        for (dns, names) in &endpoint_names {
+            out.push_str(&format!(
+                "        {}=values[\"{}\"],\n",
+                names.field,
+                escape_str(dns)
+            ));
+        }
+        out.push_str("    )\n\n");
+    }
 
     out.push_str(
         "def bind_integrations(values: Mapping[str, Mapping[str, str]]) -> Integrations:\n",

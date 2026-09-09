@@ -33,6 +33,16 @@ pub fn service_wordpress(
     service: &str,
 ) -> Result<ServiceWordpress, WordPressError> {
     let location = format!("services.{service}.wordpress");
+    let root = def
+        .services
+        .get(service)
+        .map(|spec| spec.source_root(service, SUBSTRATE_NAME))
+        .transpose()
+        .map_err(|error| WordPressError::ConfigInvalid {
+            location: location.clone(),
+            detail: error.to_string(),
+        })?
+        .flatten();
     let Some(block) = def
         .services
         .get(service)
@@ -40,7 +50,7 @@ pub fn service_wordpress(
     else {
         return Ok(ServiceWordpress {
             plan: "free".into(),
-            root: None,
+            root,
         });
     };
     let table = block
@@ -76,24 +86,6 @@ pub fn service_wordpress(
                 });
             }
             plan.to_owned()
-        }
-    };
-    let root = match table.get("root") {
-        None => None,
-        Some(value) => {
-            let root = value
-                .as_str()
-                .ok_or_else(|| WordPressError::ConfigInvalid {
-                    location: format!("{location}.root"),
-                    detail: "must be a string path".into(),
-                })?;
-            if root.trim().is_empty() {
-                return Err(WordPressError::ConfigInvalid {
-                    location: format!("{location}.root"),
-                    detail: "must be a non-empty string".into(),
-                });
-            }
-            Some(root.to_owned())
         }
     };
     Ok(ServiceWordpress { plan, root })

@@ -1,7 +1,8 @@
 //! Hermetic test helpers (feature `test-support`).
 //!
-//! Spins an embedded daemon on a temp [`Paths`] root and free proxy port,
+//! Runs a controller on a temp [`Paths`] root and free proxy port,
 //! then exposes [`Client`] / RAII [`Environment`] for local e2e tests.
+//! `with_cli` supplies the executable for controller and service subprocesses.
 //! Does **not** set `XDG_STATE_HOME`.
 
 use std::collections::BTreeMap;
@@ -32,6 +33,7 @@ pub struct TestContext {
     paths: Paths,
     client: Client,
     daemon: Option<JoinHandle<()>>,
+    process: Option<std::process::Child>,
 }
 
 impl std::fmt::Debug for TestContext {
@@ -44,6 +46,8 @@ impl std::fmt::Debug for TestContext {
 }
 
 impl TestContext {
+    /// Embed the controller. Host services still require a CLI on PATH or STACKLESS_BIN.
+    /// Use `with_cli` to supply the binary explicitly in hermetic tests.
     pub fn new() -> Result<Self, Error> {
         let temp = tempfile::tempdir().map_err(Error::Runtime)?;
         let paths = Paths::new(temp.path());
@@ -62,7 +66,7 @@ impl TestContext {
                         return;
                     }
                 };
-                if let Err(err) = rt.block_on(stackless_daemon::server::run_with(
+                if let Err(err) = rt.block_on(crate::controller::run(
                     &paths_for_daemon,
                     proxy_port,
                     DaemonRole::Embedded,
@@ -84,6 +88,42 @@ impl TestContext {
             paths,
             client,
             daemon: Some(daemon),
+            process: None,
+        })
+    }
+
+    /// Run the supplied CLI on a private state root. This also exercises service
+    /// helpers that must survive the calling process. No installed CLI is needed.
+    pub fn with_cli(executable: &std::path::Path) -> Result<Self, Error> {
+        let temp = tempfile::tempdir().map_err(Error::Runtime)?;
+        let paths = Paths::new(temp.path());
+        let proxy_port = free_port()?;
+        let mut process = std::process::Command::new(executable)
+            .args(["daemon", "run", "--embedded", "--state-dir"])
+            .arg(paths.state_dir())
+            .arg("--proxy-port")
+            .arg(proxy_port.get().to_string())
+            .env("STACKLESS_NO_SELF_UPDATE", "1")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(Error::Runtime)?;
+        if let Err(error) = wait_for_daemon(&paths, Duration::from_secs(5)) {
+            let _ = process.kill();
+            let _ = process.wait();
+            return Err(error);
+        }
+        let client = Client::builder()
+            .paths(paths.clone())
+            .proxy_port(proxy_port)
+            .build()?;
+        Ok(Self {
+            _temp: temp,
+            paths,
+            client,
+            daemon: None,
+            process: Some(process),
         })
     }
 
@@ -101,6 +141,8 @@ impl TestContext {
             client: self.client.clone(),
             name: outcome.name,
             origins: outcome.origins,
+            endpoints: outcome.endpoints,
+            placements: outcome.placements,
             guard,
         })
     }
@@ -110,6 +152,14 @@ impl Drop for TestContext {
     fn drop(&mut self) {
         if let Ok(mut client) = DaemonClient::connect_with(&self.paths) {
             let _ = client.call(Request::Shutdown);
+        }
+        if let Some(mut process) = self.process.take() {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while matches!(process.try_wait(), Ok(None)) && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            let _ = process.kill();
+            let _ = process.wait();
         }
         if let Some(handle) = self.daemon.take() {
             let _ = handle.join();
@@ -123,10 +173,16 @@ pub struct Environment {
     client: Client,
     name: String,
     origins: BTreeMap<String, String>,
+    endpoints: BTreeMap<String, stackless_core::def::ResolvedEndpoint>,
+    placements: crate::Placements,
     guard: GuardPolicy,
 }
 
 impl Environment {
+    pub fn placements(&self) -> &crate::Placements {
+        &self.placements
+    }
+
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -138,6 +194,23 @@ impl Environment {
             .ok_or_else(|| Error::BadArgument {
                 argument: "service".into(),
                 detail: format!("no origin for service {service:?}"),
+            })
+    }
+
+    pub fn endpoint_urls(&self) -> BTreeMap<String, String> {
+        self.endpoints
+            .iter()
+            .map(|(name, endpoint)| (name.clone(), endpoint.url.clone()))
+            .collect()
+    }
+
+    pub fn endpoint(&self, name: &str) -> Result<&str, Error> {
+        self.endpoints
+            .get(name)
+            .map(|endpoint| endpoint.url.as_str())
+            .ok_or_else(|| Error::BadArgument {
+                argument: "endpoint".into(),
+                detail: format!("no URL for endpoint {name:?}"),
             })
     }
 

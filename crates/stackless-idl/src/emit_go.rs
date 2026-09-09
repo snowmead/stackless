@@ -22,6 +22,15 @@ pub fn emit_go(idl: &InterfaceV1, package: &str) -> Result<String, IdlError> {
         GoNames::from_dns,
         check_collisions,
     )?;
+    let endpoint_names = named_entries(
+        idl.body
+            .endpoints
+            .iter()
+            .map(|endpoint| endpoint.dns.as_str()),
+        IdentNamespace::Endpoint,
+        GoNames::from_dns,
+        check_collisions,
+    )?;
     let tier_names = named_entries(
         idl.body.verify.tiers.iter().map(|t| t.dns.as_str()),
         IdentNamespace::Tier,
@@ -135,6 +144,9 @@ pub fn emit_go(idl: &InterfaceV1, package: &str) -> Result<String, IdlError> {
     out.push_str("\tBindErrorMissingService BindErrorKind = iota\n");
     out.push_str("\tBindErrorMissingIntegration\n");
     out.push_str("\tBindErrorMissingOutput\n");
+    if !endpoint_names.is_empty() {
+        out.push_str("\tBindErrorMissingEndpoint\n");
+    }
     out.push_str(")\n\n");
 
     out.push_str("type BindError struct {\n");
@@ -144,6 +156,11 @@ pub fn emit_go(idl: &InterfaceV1, package: &str) -> Result<String, IdlError> {
     out.push_str("}\n\n");
     out.push_str("func (e *BindError) Error() string {\n");
     out.push_str("\tswitch e.Kind {\n");
+    if !endpoint_names.is_empty() {
+        out.push_str(
+            "\tcase BindErrorMissingEndpoint:\n\t\treturn \"missing URL for endpoint \" + e.DNS\n",
+        );
+    }
     out.push_str("\tcase BindErrorMissingService:\n");
     out.push_str("\t\treturn \"missing origin for service \" + e.DNS\n");
     out.push_str("\tcase BindErrorMissingIntegration:\n");
@@ -171,6 +188,25 @@ pub fn emit_go(idl: &InterfaceV1, package: &str) -> Result<String, IdlError> {
     }
     out.push_str("\treturn out, nil\n");
     out.push_str("}\n\n");
+
+    if !endpoint_names.is_empty() {
+        out.push_str("type Endpoints struct {\n");
+        for (dns, names) in &endpoint_names {
+            out.push_str(&format!(
+                "\t{} string `json:\"{}\"`\n",
+                names.field,
+                escape_str(dns)
+            ));
+        }
+        out.push_str("}\n\nfunc BindEndpoints(values map[string]string) (Endpoints, error) {\n\tvar out Endpoints\n");
+        for (dns, names) in &endpoint_names {
+            out.push_str(&format!(
+                "\tv{0}, ok := values[\"{1}\"]\n\tif !ok {{ return Endpoints{{}}, &BindError{{Kind: BindErrorMissingEndpoint, DNS: \"{1}\"}} }}\n\tout.{0} = v{0}\n",
+                names.field, escape_str(dns)
+            ));
+        }
+        out.push_str("\treturn out, nil\n}\n\n");
+    }
 
     out.push_str(
         "func BindIntegrations(values map[string]map[string]string) (Integrations, error) {\n",

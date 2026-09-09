@@ -20,6 +20,15 @@ pub fn emit_rust(idl: &InterfaceV1) -> Result<String, IdlError> {
         RustNames::from_dns,
         check_collisions,
     )?;
+    let endpoint_names = named_entries(
+        idl.body
+            .endpoints
+            .iter()
+            .map(|endpoint| endpoint.dns.as_str()),
+        IdentNamespace::Endpoint,
+        RustNames::from_dns,
+        check_collisions,
+    )?;
     let tier_names = named_entries(
         idl.body.verify.tiers.iter().map(|t| t.dns.as_str()),
         IdentNamespace::Tier,
@@ -53,8 +62,8 @@ pub fn emit_rust(idl: &InterfaceV1) -> Result<String, IdlError> {
     out.push_str(&format!("// fingerprint: {}\n\n", idl.fingerprint));
     // Module wrapper so attrs apply when the file is `include!`d (inner `#!`
     // attrs are not valid after expansion into a parent item list).
-    out.push_str("#[allow(dead_code)]\n");
-    out.push_str("#[cfg_attr(rustfmt, rustfmt::skip)]\n");
+    out.push_str("#[allow(dead_code, clippy::enum_variant_names)]\n");
+    out.push_str("#[rustfmt::skip]\n");
     out.push_str("mod __stackless_bind {\n");
     out.push_str("use std::collections::BTreeMap;\n\n");
     out.push_str(&format!(
@@ -126,6 +135,9 @@ pub fn emit_rust(idl: &InterfaceV1) -> Result<String, IdlError> {
 
     out.push_str("#[derive(Debug, Clone, PartialEq, Eq)]\n");
     out.push_str("pub enum BindError {\n");
+    if !endpoint_names.is_empty() {
+        out.push_str("    MissingEndpoint { dns: &'static str },\n");
+    }
     out.push_str("    MissingService { dns: &'static str },\n");
     out.push_str("    MissingIntegration { dns: &'static str },\n");
     out.push_str("    MissingOutput { integration: &'static str, key: &'static str },\n");
@@ -134,6 +146,9 @@ pub fn emit_rust(idl: &InterfaceV1) -> Result<String, IdlError> {
     out.push_str("impl std::fmt::Display for BindError {\n");
     out.push_str("    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n");
     out.push_str("        match self {\n");
+    if !endpoint_names.is_empty() {
+        out.push_str("            Self::MissingEndpoint { dns } => write!(f, \"missing URL for endpoint {dns}\"),\n");
+    }
     out.push_str(
         "            Self::MissingService { dns } => write!(f, \"missing origin for service {dns}\"),\n",
     );
@@ -164,6 +179,21 @@ pub fn emit_rust(idl: &InterfaceV1) -> Result<String, IdlError> {
     out.push_str("        })\n");
     out.push_str("    }\n");
     out.push_str("}\n\n");
+
+    if !endpoint_names.is_empty() {
+        out.push_str("#[derive(Debug, Clone, PartialEq, Eq)]\npub struct Endpoints {\n");
+        for (_, names) in &endpoint_names {
+            out.push_str(&format!("    pub {}: String,\n", names.field));
+        }
+        out.push_str("}\n\nimpl Endpoints {\n    pub fn from_map(map: &BTreeMap<String, String>) -> Result<Self, BindError> {\n        Ok(Self {\n");
+        for (dns, names) in &endpoint_names {
+            out.push_str(&format!(
+                "            {}: map.get(\"{}\").cloned().ok_or(BindError::MissingEndpoint {{ dns: \"{}\" }})?,\n",
+                names.field, escape_str(dns), escape_str(dns)
+            ));
+        }
+        out.push_str("        })\n    }\n}\n\n");
+    }
 
     out.push_str("impl Integrations {\n");
     let integrations_map_param = if integrations.is_empty() {

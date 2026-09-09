@@ -29,6 +29,10 @@ impl InstanceStatus {
 #[derive(Debug, Clone)]
 pub struct InstanceRecord {
     pub name: DnsName,
+    /// Immutable for one birth; display names can be reused after teardown.
+    pub instance_id: String,
+    /// Provider namespace. Legacy instances retain their recorded name.
+    pub resource_namespace: String,
     pub substrate: DnsName,
     pub status: InstanceStatus,
     /// The definition snapshot taken at creation (raw stackless.toml).
@@ -45,7 +49,7 @@ pub struct InstanceRecord {
     pub tombstoned_at: Option<i64>,
 }
 
-const SELECT_COLUMNS: &str = "name, substrate, status, definition, source_overrides, created_at, tombstoned_at, definition_dir, dirty";
+const SELECT_COLUMNS: &str = "name, substrate, status, definition, source_overrides, created_at, tombstoned_at, definition_dir, dirty, instance_id, resource_namespace";
 
 impl TryFrom<&Row> for InstanceRecord {
     type Error = StateError;
@@ -64,9 +68,16 @@ impl TryFrom<&Row> for InstanceRecord {
                 column: 1,
                 detail: err.to_string(),
             })?,
+            instance_id: row.get_string(9)?,
+            resource_namespace: row.get_string(10)?,
             status: InstanceStatus::from_sql(&status)?,
             definition: row.get_string(3)?,
-            source_overrides: serde_json::from_str(&overrides_json).unwrap_or_default(),
+            source_overrides: serde_json::from_str(&overrides_json).map_err(|err| {
+                StateError::RowDecode {
+                    column: 4,
+                    detail: err.to_string(),
+                }
+            })?,
             created_at: row.get_i64(5)?,
             tombstoned_at: row.get_opt_i64(6)?,
             definition_dir: row.get_string(7)?,
@@ -91,9 +102,11 @@ impl Store {
     ) -> Result<InstanceRecord, StateError> {
         let overrides_json =
             serde_json::to_string(source_overrides).unwrap_or_else(|_| "{}".into());
+        let instance_id = uuid::Uuid::new_v4().simple().to_string();
+        let namespace = format!("sl-{instance_id}");
         let result = self.execute(
-            "INSERT INTO instances (name, substrate, status, definition, source_overrides, created_at, definition_dir, dirty)
-             VALUES (?1, ?2, 'active', ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO instances (name, substrate, status, definition, source_overrides, created_at, definition_dir, dirty, instance_id, resource_namespace)
+             VALUES (?1, ?2, 'active', ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             &[
                 name.into(),
                 substrate.into(),
@@ -102,6 +115,8 @@ impl Store {
                 Self::now().into(),
                 definition_dir.into(),
                 i64::from(dirty).into(),
+                instance_id.into(),
+                namespace.into(),
             ],
         );
         match result {
@@ -144,11 +159,21 @@ impl Store {
     /// Teardown leaves a tombstone, not amnesia (§2).
     pub fn tombstone_instance(&self, name: &str) -> Result<(), StateError> {
         let changed = self.execute(
-            "UPDATE instances SET status = 'tombstoned', tombstoned_at = ?2 WHERE name = ?1",
+            "UPDATE instances SET status = 'tombstoned', tombstoned_at = ?2 WHERE name = ?1
+             AND NOT EXISTS (SELECT 1 FROM checkpoints WHERE instance = ?1)
+             AND NOT EXISTS (SELECT 1 FROM resources WHERE owner_id = instances.instance_id AND phase != 'absent')",
             &[name.into(), Self::now().into()],
         )?;
         if changed == 0 {
-            return Err(StateError::InstanceNotFound { name: name.into() });
+            return Err(if self.instance(name)?.is_none() {
+                StateError::InstanceNotFound { name: name.into() }
+            } else {
+                StateError::ResourceInvariant {
+                    detail: format!(
+                        "instance {name:?} still has teardown evidence or is not eligible for this transition"
+                    ),
+                }
+            });
         }
         Ok(())
     }
@@ -164,24 +189,34 @@ impl Store {
     ) -> Result<(), StateError> {
         let overrides_json =
             serde_json::to_string(source_overrides).unwrap_or_else(|_| "{}".into());
+        let instance_id = uuid::Uuid::new_v4().simple().to_string();
+        let namespace = format!("sl-{instance_id}");
         let changed = self.execute(
             "UPDATE instances SET status = 'active', definition = ?2, source_overrides = ?3,
-             created_at = ?4, tombstoned_at = NULL, dirty = ?5 WHERE name = ?1",
+             created_at = ?4, tombstoned_at = NULL, dirty = ?5, instance_id = ?6, resource_namespace = ?7 WHERE name = ?1 AND status = 'tombstoned'
+             AND NOT EXISTS (SELECT 1 FROM checkpoints WHERE instance = ?1)
+             AND NOT EXISTS (SELECT 1 FROM resources WHERE owner_id = instances.instance_id AND phase != 'absent')",
             &[
                 name.into(),
                 definition.into(),
                 overrides_json.into(),
                 Self::now().into(),
                 i64::from(dirty).into(),
+                instance_id.into(),
+                namespace.into(),
             ],
         )?;
         if changed == 0 {
-            return Err(StateError::InstanceNotFound { name: name.into() });
+            return Err(if self.instance(name)?.is_none() {
+                StateError::InstanceNotFound { name: name.into() }
+            } else {
+                StateError::ResourceInvariant {
+                    detail: format!(
+                        "instance {name:?} still has teardown evidence or is not eligible for this transition"
+                    ),
+                }
+            });
         }
-        self.execute(
-            "DELETE FROM checkpoints WHERE instance = ?1",
-            &[name.into()],
-        )?;
         Ok(())
     }
 

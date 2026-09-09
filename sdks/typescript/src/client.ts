@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 
 import { resolveStacklessBin } from "./bin.js";
 import { parseEnvelope, StacklessError } from "./envelope.js";
@@ -11,6 +11,7 @@ export type UpRequest =
       on: string;
       sources?: string[];
       dirty?: boolean;
+      allowHostExecution?: boolean;
       lease?: string;
       confirmPaid?: boolean;
     }
@@ -20,14 +21,40 @@ export type UpRequest =
       file?: string;
       sources?: string[];
       dirty?: boolean;
+      allowHostExecution?: boolean;
       lease?: string;
     };
 
+export type SecretRef = {
+  kind: "secret_ref";
+  instance_id: string;
+  integration: string;
+  output: string;
+};
+
+export type EndpointBinding = {
+  workload: string;
+  url: string;
+  source: "provider" | "declared";
+};
+
+export function endpointUrls(outcome: UpOutcome): Record<string, string> {
+  return Object.fromEntries(Object.entries(outcome.endpoints).map(([name, endpoint]) => [name, endpoint.url]));
+}
+
+export type Placements = {
+  workloads: Record<string, string>;
+  resources: Record<string, string>;
+};
+
 export type UpOutcome = {
+  instance_id: string;
   instance: string;
   substrate: string;
   origins: Record<string, string>;
-  integrations: Record<string, Record<string, string>>;
+  endpoints: Record<string, EndpointBinding>;
+  placements: Placements;
+  integrations: Record<string, Record<string, SecretRef>>;
 };
 
 export type DownOutcome = {
@@ -54,32 +81,64 @@ export type SpawnRunner = (
   bin: string,
   args: string[],
   options: { cwd?: string },
-) => SpawnResult;
+) => SpawnResult | Promise<SpawnResult>;
 
 export type ClientOptions = {
   bin?: string;
   cwd?: string;
+  controller?: string;
   run?: SpawnRunner;
 };
 
-function defaultRun(
-  bin: string,
-  args: string[],
-  options: { cwd?: string },
-): SpawnResult {
-  const result = spawnSync(bin, args, {
-    cwd: options.cwd,
-    encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024,
+function defaultRun(bin: string, args: string[], options: { cwd?: string }): Promise<SpawnResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(bin, args, { cwd: options.cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    let size = 0;
+    const collect = (target: Buffer[]) => (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > 64 * 1024 * 1024) {
+        child.kill();
+        reject(new StacklessError("stackless CLI output exceeded 64 MiB"));
+      } else { target.push(chunk); }
+    };
+    child.stdout.on("data", collect(stdout));
+    child.stderr.on("data", collect(stderr));
+    child.on("error", reject);
+    child.on("close", (status) => resolve({ stdout: Buffer.concat(stdout).toString("utf8"), stderr: Buffer.concat(stderr).toString("utf8"), status }));
   });
-  return {
-    stdout: result.stdout ?? "",
-    stderr: result.stderr ?? "",
-    status: result.status,
-  };
 }
 
+export type Operation = {
+  id: string;
+  instance: string;
+  verb: "up" | "down" | "verify" | "gc";
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "interrupted";
+  result: unknown;
+  error: unknown;
+  cancel_requested: boolean;
+  created_at: number;
+  updated_at: number;
+};
+export type OperationPage = { operation: Operation; events: { sequence: number; event: unknown }[] };
+
 type OriginEntry = { service: string; origin: string };
+
+function mapPlacements(raw: unknown): Placements {
+  if (raw == null) return { workloads: {}, resources: {} };
+  if (typeof raw !== "object" || Array.isArray(raw)) throw new StacklessError("invalid placements");
+  const result: Placements = { workloads: {}, resources: {} };
+  for (const kind of ["workloads", "resources"] as const) {
+    const values = (raw as Record<string, unknown>)[kind];
+    if (!values || typeof values !== "object" || Array.isArray(values)) throw new StacklessError("invalid placement map");
+    for (const [name, on] of Object.entries(values)) {
+      if (!name || typeof on !== "string" || !on) throw new StacklessError("invalid hosting placement");
+      result[kind][name] = on;
+    }
+  }
+  return result;
+}
 
 function mapUpOutcome(raw: Record<string, unknown>): UpOutcome {
   const origins: Record<string, string> = {};
@@ -91,13 +150,51 @@ function mapUpOutcome(raw: Record<string, unknown>): UpOutcome {
       }
     }
   }
-  const integrations =
-    (raw.integrations as Record<string, Record<string, string>> | undefined) ??
-    {};
+  const instance_id = raw.instance_id;
+  if (typeof instance_id !== "string" || !instance_id) {
+    throw new StacklessError("up response lacks an immutable instance ID");
+  }
+  const integrations: UpOutcome["integrations"] = {};
+  const source = raw.integrations ?? {};
+  if (!source || typeof source !== "object" || Array.isArray(source)) {
+    throw new StacklessError("invalid integration reference map");
+  }
+  for (const [integration, outputs] of Object.entries(source)) {
+    if (!outputs || typeof outputs !== "object" || Array.isArray(outputs)) {
+      throw new StacklessError("invalid integration reference map");
+    }
+    integrations[integration] = {};
+    for (const [output, rawRef] of Object.entries(outputs)) {
+      const ref = rawRef as SecretRef | null;
+      if (!ref || typeof ref !== "object" || ref.kind !== "secret_ref" ||
+          ref.instance_id !== instance_id || ref.integration !== integration || ref.output !== output ||
+          Object.keys(ref).sort().join(",") !== "instance_id,integration,kind,output") {
+        throw new StacklessError("invalid or foreign integration secret reference");
+      }
+      integrations[integration][output] = { kind: "secret_ref", instance_id, integration, output };
+    }
+  }
+  const endpoints: Record<string, EndpointBinding> = {};
+  const bindings = raw.endpoints ?? {};
+  if (typeof bindings !== "object" || Array.isArray(bindings)) {
+    throw new StacklessError("invalid endpoint binding map");
+  }
+  for (const [name, value] of Object.entries(bindings)) {
+    const binding = value as EndpointBinding | null;
+    if (!binding || typeof binding.workload !== "string" || !binding.workload ||
+        typeof binding.url !== "string" || !binding.url ||
+        (binding.source !== "provider" && binding.source !== "declared")) {
+      throw new StacklessError("invalid endpoint binding");
+    }
+    endpoints[name] = { workload: binding.workload, url: binding.url, source: binding.source };
+  }
   return {
     instance: String(raw.instance),
+    instance_id,
     substrate: String(raw.substrate),
     origins,
+    endpoints,
+    placements: mapPlacements(raw.placements),
     integrations,
   };
 }
@@ -153,6 +250,9 @@ function buildUpArgs(request: UpRequest): string[] {
       args.push("--source", source);
     }
   }
+  if (request.allowHostExecution) {
+    args.push("--allow-host-execution");
+  }
   if (request.dirty) {
     args.push("--dirty");
   }
@@ -163,31 +263,32 @@ function buildUpArgs(request: UpRequest): string[] {
 }
 
 /**
- * Blocking CLI subprocess per call (`spawnSync`). Methods are async only for
- * a stable Promise-based surface; work runs synchronously on the caller thread.
+ * Async CLI transport. The controller keeps operations alive when this client exits.
  */
 export class Client {
   private readonly bin: string;
   private readonly cwd?: string;
+  private readonly controller?: string;
   private readonly run: SpawnRunner;
 
   constructor(options: ClientOptions = {}) {
     this.bin = resolveStacklessBin(options.bin);
     this.cwd = options.cwd;
+    this.controller = options.controller;
     this.run = options.run ?? defaultRun;
   }
 
-  static system(options?: { bin?: string; cwd?: string }): Client {
+  static system(options?: { bin?: string; cwd?: string; controller?: string }): Client {
     return new Client(options);
   }
 
   async up(request: UpRequest): Promise<UpOutcome> {
-    const raw = this.invoke(buildUpArgs(request));
+    const raw = await this.invoke(buildUpArgs(request));
     return mapUpOutcome(raw);
   }
 
   async down(name: string): Promise<DownOutcome> {
-    const raw = this.invoke(["down", name]);
+    const raw = await this.invoke(["down", name]);
     return mapDownOutcome(raw);
   }
 
@@ -196,7 +297,7 @@ export class Client {
     if (tier !== undefined) {
       args.push("--tier", tier);
     }
-    const raw = this.invoke(args);
+    const raw = await this.invoke(args);
     return mapVerifyOutcome(raw);
   }
 
@@ -230,14 +331,45 @@ export class Client {
     return this.invoke(args);
   }
 
+  async submitUp(request: UpRequest): Promise<Operation> {
+    const raw = await this.invoke([...buildUpArgs(request), "--no-wait"]);
+    return raw.operation as Operation;
+  }
+
+  async submitDown(name: string): Promise<Operation> {
+    const raw = await this.invoke(["down", name, "--no-wait"]);
+    return raw.operation as Operation;
+  }
+
+  async operation(id: string, after = 0): Promise<OperationPage> {
+    const raw = await this.invoke(["operation", "get", id, "--after", String(after)]);
+    return raw.result as OperationPage;
+  }
+
+  async cancelOperation(id: string): Promise<Operation> {
+    const raw = await this.invoke(["operation", "cancel", id]);
+    return raw.operation as Operation;
+  }
+
+  async waitOperation<T = unknown>(id: string): Promise<T> {
+    const raw = await this.invoke(["operation", "wait", id]);
+    return raw.result as T;
+  }
+
+  async operations(instance?: string): Promise<Operation[]> {
+    const args = ["operation", "list"];
+    if (instance !== undefined) args.push("--instance", instance);
+    return (await this.invoke(args)).result as Operation[];
+  }
+
   /** Resolved stackless binary path (for tests and tooling). */
   resolvedBin(): string {
     return this.bin;
   }
 
-  private invoke(subcommandArgs: string[]): Record<string, unknown> {
-    const args = ["--json", ...subcommandArgs];
-    const result = this.run(this.bin, args, { cwd: this.cwd });
+  private async invoke(subcommandArgs: string[]): Promise<Record<string, unknown>> {
+    const args = ["--json", ...(this.controller ? ["--controller", this.controller] : []), ...subcommandArgs];
+    const result = await this.run(this.bin, args, { cwd: this.cwd });
     const stdout = result.stdout.trim();
     if (stdout.length > 0) {
       try {

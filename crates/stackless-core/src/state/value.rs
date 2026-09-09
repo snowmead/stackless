@@ -1,6 +1,6 @@
 //! A driver-agnostic SQL value for the helper layer.
 
-/// Bridges rusqlite and libsql params; only the variants the state store
+/// SQL parameters and decoded columns. Only the variants the state store
 /// actually binds (text, integers, null) — no blobs or reals are stored.
 #[derive(Debug, Clone)]
 pub(super) enum Value {

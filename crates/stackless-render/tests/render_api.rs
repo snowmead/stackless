@@ -55,6 +55,71 @@ async fn find_service_by_name_miss() {
 }
 
 #[tokio::test]
+async fn source_configuration_requires_independent_readback_and_can_clear_root() {
+    for (root, observed, succeeds) in [("app", "wrong", false), ("", "", true)] {
+        let server = MockServer::start().await;
+        let reads = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let count = reads.clone();
+        Mock::given(method("GET"))
+            .and(path("/services/srv_1"))
+            .respond_with(move |_: &wiremock::Request| {
+                let actual = if count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                    "old"
+                } else {
+                    observed
+                };
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "id":"srv_1", "name":"owned", "rootDir":actual
+                }))
+            })
+            .expect(2)
+            .mount(&server)
+            .await;
+        Mock::given(method("PATCH"))
+            .and(path("/services/srv_1"))
+            .and(wiremock::matchers::body_json(
+                serde_json::json!({"autoDeploy":"no", "rootDir":root}),
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id":"srv_1", "name":"owned", "autoDeploy":"no", "rootDir":root
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        assert_eq!(
+            api(&server)
+                .configure_source("srv_1", "owned", root)
+                .await
+                .is_ok(),
+            succeeds
+        );
+    }
+}
+
+#[tokio::test]
+async fn source_configuration_rejects_foreign_service_before_patch() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/services/srv_1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id":"srv_1", "name":"sibling", "rootDir":"app"
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("PATCH"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(0)
+        .mount(&server)
+        .await;
+    assert!(
+        api(&server)
+            .configure_source("srv_1", "owned", "app")
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
 async fn put_env_vars_sends_array() {
     let server = MockServer::start().await;
     Mock::given(method("PUT"))
@@ -75,157 +140,170 @@ async fn put_env_vars_sends_array() {
         .unwrap();
 }
 
-/// A `GET /services/{id}/deploys` list wrapper with one deploy.
-fn deploys_list(id: &str, status: &str) -> serde_json::Value {
-    serde_json::json!([{ "deploy": { "id": id, "status": status }, "cursor": "c" }])
-}
-
 #[tokio::test]
-async fn wait_for_deploy_reaches_live() {
+async fn readiness_checks_the_exact_deployment() {
     let server = MockServer::start().await;
-    // First poll: building; second poll: live. wait_for_deploy is now
-    // service-centric, so it polls the deploys list, not a single deploy.
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = calls.clone();
+    Mock::given(method("GET"))
+        .and(path("/services/srv_1/deploys/dep_1"))
+        .respond_with(move |_: &wiremock::Request| {
+            let status = if count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                "build_in_progress"
+            } else {
+                "live"
+            };
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({"id":"dep_1","status":status}))
+        })
+        .expect(2)
+        .mount(&server)
+        .await;
+    // A later deployment must never replace the submitted ID during polling.
     Mock::given(method("GET"))
         .and(path("/services/srv_1/deploys"))
         .respond_with(
-            ResponseTemplate::new(200).set_body_json(deploys_list("dep_1", "build_in_progress")),
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!([{"deploy":{"id":"foreign","status":"live"}}])),
         )
-        .up_to_n_times(1)
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
-        .and(path("/services/srv_1/deploys"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(deploys_list("dep_1", "live")))
+        .expect(0)
         .mount(&server)
         .await;
     api(&server)
-        .wait_for_deploy("api", "srv_1", "dep_1", Duration::from_secs(5))
+        .wait_for_deploy("api", "srv_1", "dep_1", Duration::from_secs(1))
         .await
         .unwrap();
+    server.verify().await;
 }
 
 #[tokio::test]
-async fn wait_for_deploy_fails_on_terminal_status() {
+async fn a_failed_or_superseded_deployment_cannot_succeed_using_a_newer_deployment() {
     let server = MockServer::start().await;
-    // The tracked deploy stays the newest and failed across polls → real failure.
-    Mock::given(method("GET"))
-        .and(path("/services/srv_1/deploys"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(deploys_list("dep_1", "build_failed")),
-        )
-        .mount(&server)
-        .await;
-    let err = api(&server)
-        .wait_for_deploy("api", "srv_1", "dep_1", Duration::from_secs(5))
-        .await
-        .unwrap_err();
-    assert_eq!(
-        stackless_core::fault::Fault::code(&err),
-        stackless_render::codes::RENDER_DEPLOY_FAILED
-    );
+    for status in ["build_failed", "update_failed", "canceled", "deactivated"] {
+        Mock::given(method("GET"))
+            .and(path("/services/srv_1/deploys/dep_1"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"id":"dep_1","status":status})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        let error = api(&server)
+            .wait_for_deploy("api", "srv_1", "dep_1", Duration::from_secs(1))
+            .await
+            .unwrap_err();
+        assert_eq!(
+            stackless_core::fault::Fault::code(&error),
+            stackless_render::codes::RENDER_DEPLOY_FAILED
+        );
+        server.verify().await;
+        server.reset().await;
+    }
 }
 
 #[tokio::test]
 async fn wait_for_deploy_times_out() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/services/srv_1/deploys"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(deploys_list("dep_1", "building")))
+        .and(path("/services/srv_1/deploys/dep_1"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({"id":"dep_1","status":"building"})),
+        )
         .mount(&server)
         .await;
-    // Zero budget: the first deadline check fires.
-    let err = api(&server)
-        .wait_for_deploy("api", "srv_1", "dep_1", Duration::from_millis(1))
+    let error = api(&server)
+        .wait_for_deploy("api", "srv_1", "dep_1", Duration::ZERO)
         .await
         .unwrap_err();
     assert_eq!(
-        stackless_core::fault::Fault::code(&err),
+        stackless_core::fault::Fault::code(&error),
         stackless_render::codes::RENDER_DEPLOY_TIMEOUT
     );
 }
 
-/// The headline regression: Render's initial auto-deploy (dep_A) fails before
-/// env vars are set, then the deploy stackless triggers (dep_B) goes live. The
-/// poller must follow dep_B and succeed, not fail on dep_A.
 #[tokio::test]
-async fn wait_for_deploy_follows_newer_deploy_after_auto_deploy_fails() {
+async fn deployment_identity_and_auth_failures_remain_errors() {
     let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/services/srv_1/deploys"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(deploys_list("dep_A", "build_failed")),
-        )
-        .up_to_n_times(1)
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
-        .and(path("/services/srv_1/deploys"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(deploys_list("dep_B", "build_in_progress")),
-        )
-        .up_to_n_times(1)
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
-        .and(path("/services/srv_1/deploys"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(deploys_list("dep_B", "live")))
-        .mount(&server)
-        .await;
-    // Tracked id seeded with the (wrong) auto-deploy id, as the 202 recovery may do.
-    api(&server)
-        .wait_for_deploy("web", "srv_1", "dep_A", Duration::from_secs(5))
-        .await
-        .unwrap();
+    for response in [
+        ResponseTemplate::new(401),
+        ResponseTemplate::new(404),
+        ResponseTemplate::new(429),
+        ResponseTemplate::new(200).set_body_json(serde_json::json!({"status":"live"})),
+        ResponseTemplate::new(200)
+            .set_body_json(serde_json::json!({"id":"foreign","status":"live"})),
+        ResponseTemplate::new(200).set_body_json(serde_json::json!({"id":"dep_1"})),
+    ] {
+        Mock::given(method("GET"))
+            .and(path("/services/srv_1/deploys/dep_1"))
+            .respond_with(response)
+            .expect(1)
+            .mount(&server)
+            .await;
+        assert!(api(&server).get_deploy("srv_1", "dep_1").await.is_err());
+        server.verify().await;
+        server.reset().await;
+    }
 }
 
-/// `canceled` is a superseded deploy, not a failure: it must not fail the wait.
 #[tokio::test]
-async fn wait_for_deploy_treats_canceled_as_non_terminal() {
+async fn creation_returns_the_provider_handle_and_pins_the_commit() {
     let server = MockServer::start().await;
-    Mock::given(method("GET"))
+    Mock::given(method("POST"))
         .and(path("/services/srv_1/deploys"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(deploys_list("dep_1", "canceled")))
-        .up_to_n_times(1)
+        .and(wiremock::matchers::body_json(
+            serde_json::json!({"clearCache":"do_not_clear","commitId":"abc"}),
+        ))
+        .respond_with(ResponseTemplate::new(201).set_body_json(
+            serde_json::json!({"id":"dep_1","status":"created","commit":{"id":"abc"}}),
+        ))
+        .expect(1)
         .mount(&server)
         .await;
-    Mock::given(method("GET"))
-        .and(path("/services/srv_1/deploys"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(deploys_list("dep_1", "live")))
-        .mount(&server)
-        .await;
-    api(&server)
-        .wait_for_deploy("web", "srv_1", "dep_1", Duration::from_secs(5))
-        .await
-        .unwrap();
+    assert_eq!(
+        api(&server)
+            .trigger_pinned_deploy("srv_1", "abc")
+            .await
+            .unwrap()
+            .unwrap()
+            .id,
+        "dep_1"
+    );
 }
 
-/// When the deploys list is momentarily empty, fall back to the tracked deploy.
 #[tokio::test]
-async fn wait_for_deploy_falls_back_to_get_deploy_when_list_empty() {
+async fn deployment_inventory_reads_all_pages_and_rejects_missing_cursors() {
     let server = MockServer::start().await;
+    let rows: Vec<_> = (0..100).map(|i| serde_json::json!({"cursor":format!("c{i}"),"deploy":{"id":format!("dep_{i}"),"status":"live"}})).collect();
     Mock::given(method("GET"))
         .and(path("/services/srv_1/deploys"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([])))
-        .up_to_n_times(1)
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
-        .and(path("/services/srv_1/deploys/dep_1"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(serde_json::json!({ "status": "build_in_progress" })),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(&rows))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path("/services/srv_1/deploys"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(deploys_list("dep_1", "live")))
+        .and(query_param("cursor", "c99"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(
+            serde_json::json!([{"cursor":"last","deploy":{"id":"dep_last","status":"live"}}]),
+        ))
+        .with_priority(1)
+        .expect(1)
         .mount(&server)
         .await;
-    api(&server)
-        .wait_for_deploy("api", "srv_1", "dep_1", Duration::from_secs(5))
-        .await
-        .unwrap();
+    assert_eq!(api(&server).deployments("srv_1").await.unwrap().len(), 101);
+    server.verify().await;
+    server.reset().await;
+    let bad: Vec<_> = (0..100)
+        .map(|i| serde_json::json!({"deploy":{"id":format!("dep_{i}"),"status":"live"}}))
+        .collect();
+    Mock::given(method("GET"))
+        .and(path("/services/srv_1/deploys"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(bad))
+        .expect(1)
+        .mount(&server)
+        .await;
+    assert!(api(&server).deployments("srv_1").await.is_err());
 }
 
 #[tokio::test]
@@ -294,4 +372,54 @@ async fn api_error_status_surfaces() {
         stackless_core::fault::Fault::code(&err),
         stackless_render::codes::RENDER_API_FAILED
     );
+}
+
+#[tokio::test]
+async fn foreign_service_identity_blocks_deletion() {
+    let server = MockServer::start().await;
+    for body in [
+        serde_json::json!({"id":"srv_one","name":"foreign"}),
+        serde_json::json!({"id":"foreign","name":"owned"}),
+        serde_json::json!({"name":"owned"}),
+    ] {
+        Mock::given(method("GET"))
+            .and(path("/services/srv_one"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("DELETE"))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(0)
+            .mount(&server)
+            .await;
+        assert!(
+            api(&server)
+                .delete_service("srv_one", "owned")
+                .await
+                .is_err()
+        );
+        server.verify().await;
+        server.reset().await;
+    }
+}
+
+#[tokio::test]
+async fn ambiguous_or_malformed_service_names_are_not_recovered() {
+    let server = MockServer::start().await;
+    for rows in [
+        serde_json::json!([{"service":{"id":"srv_one","name":"owned"}},{"service":{"id":"srv_two","name":"owned"}}]),
+        serde_json::json!([{"service":{"name":"owned"}}]),
+        serde_json::json!([{"cursor":"c"}]),
+    ] {
+        Mock::given(method("GET"))
+            .and(path("/services"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(rows))
+            .expect(1)
+            .mount(&server)
+            .await;
+        assert!(api(&server).find_service_by_name("owned").await.is_err());
+        server.verify().await;
+        server.reset().await;
+    }
 }

@@ -10,33 +10,32 @@
 //!
 //! Unlike Render/Vercel (operator-supplied API key), provisioning `flyio/app`
 //! returns a Stripe-managed, app-scoped **deploy token** (`DEPLOY_TOKEN`). The
-//! substrate reads it from the provision output and uses it as the Machines-API
-//! bearer for that one `start` step. Because that token is ephemeral (revoked
-//! when the app is removed), `observe`/`destroy` key off the **Stripe resource
-//! registration** (like catalog integrations), not the Fly API — the Fly API is
-//! only touched at deploy time, when the token is fresh.
+//! substrate reads the token from scoped provision or vault outputs. Native
+//! identity and mutation receipts live beside the catalog creation record.
+//! Teardown verifies native app absence before removing the Stripe resource.
 //!
 //! ## Deploy paths and cloud invariants
 //!
 //! - **Image** (`[services.X.fly].image`): explicit fast path — deploy a prebuilt
 //!   container as a Fly machine via the Machines API.
-//! - **Source-build** (no `image`): clone the pinned ref and build via Fly's
+//! - **Source-build** (no `image`): build the sealed source archive via Fly's
 //!   remote builder (`flyctl deploy --remote-only`). Optional `dockerfile`
 //!   (default `Dockerfile`). Requires `fly`/`flyctl` on PATH.
 //! - **Cloud resource names** are `{stack}-{instance}-{service}` — DNS-safe and a
 //!   legal Fly app name (`^[a-z][a-z0-9-]{2,62}$`). Origins are
 //!   `https://{stack}-{instance}-{service}.fly.dev`.
 //! - **Setup is skipped on cloud** (recorded as a no-op action).
-//! - **Prepare runs on the operator's machine** from a fresh shallow clone.
+//! - **Prepare runs on the operator's machine** from the saved snapshot working copy.
 //! - **Source override is unsupported** — Fly deploys committed refs.
 
 pub mod codes;
 pub mod config;
 pub mod error;
 pub mod fly_api;
-pub mod prepare;
+mod lifecycle;
 pub mod remote_build;
 
+use stackless_core::substrate::InstanceContext;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -54,7 +53,7 @@ use tokio::sync::Mutex;
 use crate::config::{FlyAppConfig, FlyDeployMode};
 use crate::error::FlyError;
 use crate::fly_api::{FLY_DEPLOY_BUDGET, FlyApi, HEALTH_BUDGET, MachineSpec};
-use crate::remote_build::{RemoteBuildArgs, build_and_deploy};
+use crate::remote_build::RemoteBuildArgs;
 use stackless_stripe_projects::ProjectsError;
 use stackless_stripe_projects::provision::{ProvisionContext, provision_outputs};
 use stackless_stripe_projects::stripe::{CommandRunner, StripeProjects, TokioRunner};
@@ -84,23 +83,15 @@ fn integration_fault(err: stackless_integrations::IntegrationError) -> Substrate
 }
 
 /// What a `start:<service>` checkpoint records: the live Fly app + machine. The
-/// deploy token is intentionally NOT stored — observe/destroy use Stripe.
+/// deploy token stays in the controller credential store. Native receipts carry no token.
 #[derive(Debug, Serialize, Deserialize)]
 struct ServicePayload {
     stripe_resource: String,
     app_name: String,
     machine_id: String,
     origin: String,
-}
-
-/// What a `materialize:<service>` checkpoint records: the pinned source. Owns
-/// nothing locally (Fly deploys remotely), so observe reports Gone and resume
-/// cheaply re-records it.
-#[derive(Debug, Serialize, Deserialize)]
-struct SourceRefPayload {
-    repo: String,
-    #[serde(rename = "ref")]
-    reference: String,
+    #[serde(default, rename = "_fly")]
+    native: Option<lifecycle::NativeState>,
 }
 
 /// The Fly substrate. Generic over the command runner so tests inject canned
@@ -109,6 +100,7 @@ pub struct FlySubstrate<R: CommandRunner = TokioRunner> {
     /// Where the definition lives — Stripe Projects runs here and the project
     /// anchor is written back here (record.definition_dir).
     pub definition_dir: PathBuf,
+    flyctl: Option<PathBuf>,
     /// Resolved secrets (vault/env-file overlay), injected as env vars.
     pub secrets: BTreeMap<String, String>,
     /// Per-invocation paid consent (§2/§4).
@@ -143,6 +135,7 @@ impl FlySubstrate<TokioRunner> {
     ) -> Self {
         Self {
             definition_dir: definition_dir.into(),
+            flyctl: None,
             secrets,
             confirm_paid,
             runner: TokioRunner,
@@ -165,6 +158,7 @@ impl<R: CommandRunner> FlySubstrate<R> {
     ) -> Self {
         Self {
             definition_dir: definition_dir.into(),
+            flyctl: None,
             secrets: BTreeMap::new(),
             confirm_paid,
             runner,
@@ -192,13 +186,20 @@ impl<R: CommandRunner> FlySubstrate<R> {
     }
 
     /// `{stack}-{instance}-{service}` (DNS-safe; a legal Fly app name).
-    fn resource_name(def: &StackDef, instance: &str, node: &str) -> String {
-        format!("{}-{instance}-{node}", def.stack.name.as_str())
+    fn resource_name(def: &StackDef, instance: &InstanceContext<'_>, node: &str) -> String {
+        instance.provider_resource_name(def.stack.name.as_str(), node)
     }
 
     /// `https://{stack}-{instance}-{service}.fly.dev` — derivable from the name
     /// alone, so mutual references are not cycles (§1).
-    fn origin(def: &StackDef, instance: &str, service: &str) -> String {
+    fn origin(def: &StackDef, instance: &InstanceContext<'_>, service: &str) -> String {
+        if def
+            .services
+            .get(service)
+            .is_some_and(|spec| spec.health.is_none())
+        {
+            return String::new();
+        }
         format!(
             "https://{}.fly.dev",
             Self::resource_name(def, instance, service)
@@ -207,19 +208,27 @@ impl<R: CommandRunner> FlySubstrate<R> {
 
     /// Build the interpolation namespace: service origins are the fly.dev URLs;
     /// same-named secrets are injected.
-    fn namespace(&self, def: &StackDef, instance: &str, prior: &[Checkpoint]) -> Namespace {
+    fn namespace(
+        &self,
+        def: &StackDef,
+        instance: &InstanceContext<'_>,
+        prior: &[Checkpoint],
+    ) -> Namespace {
         let mut namespace = Namespace {
             stack_name: def.stack.name.clone(),
-            instance_name: stackless_core::types::DnsName::from_stored(instance),
+            instance_name: stackless_core::types::DnsName::from_stored(instance.name),
             ..Namespace::default()
         };
-        for service in def.services.keys() {
-            namespace
-                .service_origins
-                .insert(service.clone(), Self::origin(def, instance, service));
+        for (service, spec) in &def.services {
+            if spec.health.is_some() {
+                namespace
+                    .service_origins
+                    .insert(service.clone(), Self::origin(def, instance, service));
+            }
         }
-        namespace.secrets = self.secrets.clone();
+        namespace.secrets = stackless_core::security::application_secrets(&self.secrets);
         namespace.add_integration_checkpoints(prior);
+        instance.bind_namespace(&mut namespace, def);
         namespace
     }
 
@@ -229,7 +238,7 @@ impl<R: CommandRunner> FlySubstrate<R> {
     fn resolved_env(
         &self,
         def: &StackDef,
-        instance: &str,
+        instance: &InstanceContext<'_>,
         service: &str,
         prior: &[Checkpoint],
     ) -> Result<Vec<(String, String)>, SubstrateFault> {
@@ -259,10 +268,20 @@ impl<R: CommandRunner> FlySubstrate<R> {
             resolved.push((key.clone(), value));
         }
         for key in &spec.secrets {
-            if let Some(value) = self.secrets.get(key) {
+            if let Some(value) = namespace.secrets.get(key) {
                 resolved.push((key.clone(), value.clone()));
             }
         }
+        stackless_core::security::validate_environment(
+            resolved.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+            &self.secrets,
+        )
+        .map_err(|detail| {
+            fault(FlyError::ConfigInvalid {
+                location: format!("services.{service}.env"),
+                detail,
+            })
+        })?;
         Ok(resolved)
     }
 
@@ -272,7 +291,7 @@ impl<R: CommandRunner> FlySubstrate<R> {
     async fn ensure_project_and_env(
         &self,
         def: &StackDef,
-        instance: &str,
+        instance: &InstanceContext<'_>,
     ) -> Result<(), SubstrateFault> {
         let mut done = self.ensured.lock().await;
         if *done {
@@ -283,7 +302,7 @@ impl<R: CommandRunner> FlySubstrate<R> {
             &self.stripe(),
             def,
             &self.definition_dir,
-            instance,
+            instance.resource_namespace,
             spend,
         )
         .await
@@ -304,21 +323,36 @@ impl<R: CommandRunner> FlySubstrate<R> {
 
     async fn start_service(
         &self,
-        def: &StackDef,
-        instance: &str,
-        service: &str,
-        prior: &[Checkpoint],
+        step_ctx: &StepContext<'_>,
     ) -> Result<StepResource, SubstrateFault> {
+        let def = step_ctx.def;
+        let instance = step_ctx.instance;
+        let service = step_ctx.step.node.as_str();
+        let prior = step_ctx.prior;
         let fly_cfg = config::service_fly(def, service).map_err(fault)?;
+        let worker = def.services[service].kind == stackless_core::def::WorkloadKind::Worker;
+        let internal_port = def.services[service]
+            .health
+            .as_ref()
+            .map(|_| fly_cfg.internal_port);
+        let archive = if let FlyDeployMode::Build { dockerfile } = &fly_cfg.mode {
+            let archive = stackless_cloud::source::recorded(prior, service)?
+                .archive(fly_cfg.root.as_deref())?;
+            remote_build::validate_dockerfile(&archive, dockerfile).map_err(fault)?;
+            Some(archive)
+        } else {
+            None
+        };
         let app_name = Self::resource_name(def, instance, service);
-        let resource = format!("{instance}-{service}");
+        let resource = instance.resource_name(service);
         let region = config::stack_region(def);
-
-        // Provision the Fly app via Stripe Projects (paid → confirm-gated) and
-        // capture the Stripe-managed deploy token it returns (the only output
-        // field, pinned by `mise run discover flyio/app`).
-        let catalog = self
+        let stripe = self
             .stripe()
+            .with_journal(step_ctx, SUBSTRATE_NAME, "fly-machine");
+        let catalog_journal = stripe
+            .journal()
+            .ok_or_else(|| fault(lifecycle::invalid("catalog journal missing")))?;
+        let catalog = stripe
             .catalog_for::<FlyAppConfig>()
             .await
             .map_err(projects_fault)?;
@@ -330,15 +364,14 @@ impl<R: CommandRunner> FlySubstrate<R> {
         }
         let ctx = ProvisionContext {
             def,
-            instance,
+            instance: instance.resource_namespace,
             logical_name: service,
             definition_dir: &self.definition_dir,
             substrate: SUBSTRATE_NAME,
-            // ensure_project_and_env already ran for this instance in execute().
             skip_instance_context: true,
         };
-        let (_resource_name, outputs) = provision_outputs(
-            &self.stripe(),
+        let (_, outputs) = provision_outputs(
+            &stripe,
             &catalog,
             &ctx,
             &app_config,
@@ -348,161 +381,184 @@ impl<R: CommandRunner> FlySubstrate<R> {
         .await
         .map_err(projects_fault)?;
         let token = outputs.get("deploy_token").ok_or_else(|| {
-            fault(FlyError::ProvisionFailed {
-                resource: resource.clone(),
-                detail: "flyio/app did not return a deploy token".into(),
-            })
+            fault(lifecycle::invalid(
+                "flyio/app did not return a deploy token",
+            ))
         })?;
-
-        // Allocate the app's public IPs, deploy the machine, wait for it to start.
-        let fly = self.fly_with_token(token);
-        fly.ensure_ips(&app_name).await.map_err(fault)?;
-        let env = self.resolved_env(def, instance, service, prior)?;
-
+        let native = lifecycle::Journal::new(step_ctx, &resource, self.step_revision(step_ctx)?)
+            .map_err(fault)?;
+        let fly = self.fly_with_token(token).with_journal(native.clone());
+        let app = fly
+            .app(&app_name)
+            .await
+            .map_err(fault)?
+            .ok_or_else(|| fault(lifecycle::invalid("provisioned Fly app is absent")))?;
+        native.bind(&app).map_err(fault)?;
+        let mut payload = ServicePayload {
+            stripe_resource: resource.clone(),
+            app_name: app_name.clone(),
+            machine_id: String::new(),
+            origin: Self::origin(def, instance, service),
+            native: Some(native.load().map_err(fault)?),
+        };
+        save_application(catalog_journal, &payload, false)?;
+        if internal_port.is_some() {
+            fly.ensure_ips(&app_name).await.map_err(fault)?;
+        }
+        let mut env = self.resolved_env(def, instance, service, prior)?;
+        if env.iter().any(|(key, _)| key == lifecycle::RECEIPT_ENV) {
+            return Err(fault(lifecycle::invalid(
+                "reserved Fly deployment receipt environment variable",
+            )));
+        }
+        if let Some(port) = internal_port
+            && !env.iter().any(|(key, _)| key == "PORT")
+        {
+            env.push(("PORT".into(), port.to_string()));
+        }
+        let fingerprint =
+            lifecycle::digest(&(self.step_revision(step_ctx)?, &app_name, &region, &env))
+                .map_err(fault)?;
+        let request = native.begin(fingerprint).map_err(fault)?;
+        env.push((lifecycle::RECEIPT_ENV.into(), request.receipt));
+        let spec = MachineSpec {
+            name: &app_name,
+            region: &region,
+            image: match &fly_cfg.mode {
+                FlyDeployMode::Image { image } => image,
+                _ => "",
+            },
+            cmd: fly_cfg.cmd.as_deref(),
+            run: step_ctx.def.services[service].run.as_deref(),
+            env: &env,
+            internal_port,
+            worker,
+            cpu_kind: &fly_cfg.guest.cpu_kind,
+            cpus: fly_cfg.guest.cpus,
+            memory_mb: fly_cfg.guest.memory_mb,
+        };
         let machine_id = match &fly_cfg.mode {
-            FlyDeployMode::Image { image } => {
-                let spec = MachineSpec {
-                    name: &app_name,
+            FlyDeployMode::Image { .. } => {
+                fly.deploy_image(&app_name, &spec).await.map_err(fault)?
+            }
+            FlyDeployMode::Build { dockerfile } => {
+                let only_machine = native.request().map_err(fault)?.target_machine;
+                let args = RemoteBuildArgs {
+                    app: &app_name,
                     region: &region,
-                    image,
-                    cmd: fly_cfg.cmd.as_deref(),
+                    dockerfile,
+                    token,
                     env: &env,
-                    internal_port: fly_cfg.internal_port,
+                    internal_port,
+                    worker,
                     cpu_kind: &fly_cfg.guest.cpu_kind,
                     cpus: fly_cfg.guest.cpus,
                     memory_mb: fly_cfg.guest.memory_mb,
+                    only_machine: only_machine.as_deref(),
                 };
-                // Resume idempotency: reuse a machine a prior partial run already
-                // created (create_machine is not idempotent).
-                match fly
-                    .find_machine(&app_name, &app_name)
-                    .await
-                    .map_err(fault)?
+                let request = native.request().map_err(fault)?;
+                if request.submitted
+                    && request.observed_config.is_none()
+                    && request
+                        .build
+                        .as_ref()
+                        .is_none_or(|build| build.process.is_none())
                 {
-                    Some(existing) => existing,
-                    None => fly.create_machine(&app_name, &spec).await.map_err(fault)?,
+                    return Err(fault(lifecycle::invalid(
+                        "legacy builder submission has no process receipt; inspect the owned app before recovery",
+                    )));
                 }
-            }
-            FlyDeployMode::Build { dockerfile } => {
-                let spec = def.services.get(service).ok_or_else(|| {
-                    fault(FlyError::ConfigInvalid {
-                        location: format!("services.{service}"),
-                        detail: "service not in definition".into(),
-                    })
-                })?;
-                let repo = spec.source.repo.clone();
-                let reference = spec.source.reference.clone();
-                let app = app_name.clone();
-                let region = region.clone();
-                let dockerfile = dockerfile.clone();
-                let token = token.clone();
-                let env = env.clone();
-                let internal_port = fly_cfg.internal_port;
-                let service_owned = service.to_owned();
-                tokio::task::spawn_blocking(move || {
-                    build_and_deploy(
-                        &repo,
-                        &reference,
-                        &RemoteBuildArgs {
-                            app: &app,
-                            region: &region,
-                            dockerfile: &dockerfile,
-                            token: &token,
-                            env: &env,
-                            internal_port,
-                        },
-                    )
-                    .map_err(|err| match err {
-                        FlyError::DeployFailed { state, .. } => FlyError::DeployFailed {
-                            service: service_owned,
-                            state,
-                        },
-                        other => other,
-                    })
-                })
-                .await
-                .map_err(|err| {
-                    fault(FlyError::ProvisionFailed {
-                        resource: resource.clone(),
-                        detail: format!("remote-build task panicked: {err}"),
-                    })
-                })?
-                .map_err(fault)?;
-                // flyctl creates/updates the machine (name may differ from app).
-                match fly
-                    .list_machine_ids(&app_name)
-                    .await
-                    .map_err(fault)?
-                    .into_iter()
-                    .next()
+                if request
+                    .build
+                    .as_ref()
+                    .is_some_and(|build| build.process.is_some())
                 {
-                    Some(id) => id,
-                    None => {
-                        return Err(fault(FlyError::DeployFailed {
-                            service: service.to_owned(),
-                            state: "remote build finished but no machine was created".into(),
-                        }));
-                    }
+                    // A machine receipt can appear while flyctl is still changing the app.
+                    // Reconnect and stop its helpers before checking native readiness.
+                    remote_build::durable::settle(
+                        &self.definition_dir,
+                        instance.id,
+                        &request,
+                        || step_ctx.is_cancelled(),
+                    )
+                    .await
+                    .map_err(fault)?;
+                }
+                if let Some(id) = fly.recover_machine(&app_name).await.map_err(fault)? {
+                    id
+                } else {
+                    let archive = archive.as_ref().ok_or_else(|| {
+                        fault(lifecycle::invalid("build source archive is missing"))
+                    })?;
+                    remote_build::durable::launch(
+                        step_ctx,
+                        &self.definition_dir,
+                        archive,
+                        self.flyctl.as_deref(),
+                        &args,
+                        &native,
+                    )
+                    .await
+                    .map_err(fault)?;
+                    fly.recover_machine(&app_name)
+                        .await
+                        .map_err(fault)?
+                        .ok_or_else(|| {
+                            fault(lifecycle::invalid(
+                                "remote build returned no machine receipt",
+                            ))
+                        })?
                 }
             }
         };
+        if worker {
+            fly.resume_worker(&app_name, &machine_id)
+                .await
+                .map_err(fault)?;
+        }
         fly.wait_for_started(&app_name, &machine_id, service, FLY_DEPLOY_BUDGET)
             .await
             .map_err(fault)?;
-
-        let payload = ServicePayload {
-            stripe_resource: resource,
-            app_name: app_name.clone(),
-            machine_id,
-            origin: Self::origin(def, instance, service),
-        };
-        Ok(StepResource {
-            resource_kind: "fly-machine".into(),
-            resource_id: app_name,
-            payload: serde_json::to_string(&payload).unwrap_or_default(),
-        })
+        fly.verify_deployment(
+            &app_name,
+            &machine_id,
+            &spec,
+            matches!(fly_cfg.mode, FlyDeployMode::Image { .. }),
+        )
+        .await
+        .map_err(fault)?;
+        payload.machine_id = machine_id;
+        payload.native = Some(native.load().map_err(fault)?);
+        save_application(catalog_journal, &payload, true)
     }
 
-    /// Run the service's `prepare` hook on the operator's machine from a fresh
-    /// shallow checkout, with the resolved service env exported.
-    async fn run_prepare(
-        &self,
-        def: &StackDef,
-        instance: &str,
-        service: &str,
-        prior: &[Checkpoint],
-    ) -> Result<(), SubstrateFault> {
-        let spec = def.services.get(service);
-        let Some(command) = spec.and_then(|s| s.prepare.clone()) else {
-            return Ok(());
-        };
-        let Some(spec) = spec else { return Ok(()) };
-
-        let env = self.resolved_env(def, instance, service, prior)?;
-        let repo = spec.source.repo.clone();
-        let reference = spec.source.reference.clone();
-        let service_owned = service.to_owned();
-        let command_for_task = command.clone();
-        tokio::task::spawn_blocking(move || {
-            prepare::run_prepare_command(&service_owned, &repo, &reference, &command_for_task, &env)
-        })
+    async fn run_hook(&self, ctx: &StepContext<'_>) -> Result<StepResource, SubstrateFault> {
+        stackless_cloud::prepare::run_snapshot_hook(
+            ctx,
+            &self.definition_dir,
+            &self.namespace(ctx.def, ctx.instance, ctx.prior),
+            &self.secrets,
+            SUBSTRATE_NAME,
+        )
         .await
-        .map_err(|err| {
-            fault(FlyError::PrepareFailed {
-                service: service.to_owned(),
-                command: Some(command),
-                message: format!("prepare task panicked: {err}"),
-                log_tail: None,
+        .map_err(|failure| {
+            stackless_cloud::prepare::hook_fault(ctx.step.kind, failure, |f| {
+                fault(FlyError::PrepareFailed {
+                    service: f.service,
+                    command: f.command,
+                    message: f.message,
+                    log_tail: f.log_tail,
+                })
             })
-        })?
-        .map_err(fault)
+        })
     }
 
     async fn health_gate(
         &self,
         def: &StackDef,
-        instance: &str,
+        instance: &InstanceContext<'_>,
         service: &str,
+        prior: &[Checkpoint],
     ) -> Result<(), SubstrateFault> {
         let spec = def.services.get(service).ok_or_else(|| {
             fault(FlyError::ConfigInvalid {
@@ -511,11 +567,27 @@ impl<R: CommandRunner> FlySubstrate<R> {
             })
         })?;
         let origin = Self::origin(def, instance, service);
-        let url = format!("{origin}{}", spec.health.path);
+        let Some(health) = &spec.health else {
+            let checkpoint = prior
+                .iter()
+                .find(|cp| cp.step_id == format!("start:{service}"))
+                .ok_or_else(|| {
+                    fault(FlyError::WorkerNotReady {
+                        service: service.into(),
+                    })
+                })?;
+            return match self.observe(instance, checkpoint).await? {
+                Observation::Present => Ok(()),
+                _ => Err(fault(FlyError::WorkerNotReady {
+                    service: service.into(),
+                })),
+            };
+        };
+        let url = format!("{origin}{}", health.path);
         stackless_cloud::health::poll(
             &url,
-            spec.health.status.get(),
-            spec.health.contains.as_deref(),
+            health.status.get(),
+            health.contains.as_deref(),
             HEALTH_BUDGET,
         )
         .await
@@ -536,20 +608,70 @@ impl<R: CommandRunner> Substrate for FlySubstrate<R> {
         SUBSTRATE_NAME
     }
 
+    fn capabilities(&self) -> stackless_core::capabilities::Capabilities {
+        stackless_core::capabilities::Capabilities {
+            workers: true,
+            early_origins: true,
+            containers: true,
+            empty_sources: true,
+            ..stackless_core::capabilities::Capabilities::cloud(true, true)
+        }
+    }
+
     fn validate_definition(&self, def: &StackDef) -> Result<(), SubstrateFault> {
-        // Every service needs a well-shaped [services.X.fly] block, and its
-        // derived app name must be a legal Fly app name.
-        for service in def.services.keys() {
+        let check_reference = |value: &str, location: &str| -> Result<(), SubstrateFault> {
+            for reference in stackless_core::def::interp::references(value, location)
+                .map_err(|error| SubstrateFault::from_fault(&error))?
+            {
+                if let stackless_core::def::Reference::ServiceOrigin(target) = reference
+                    && def
+                        .services
+                        .get(&target)
+                        .is_some_and(|spec| spec.health.is_none())
+                {
+                    return Err(fault(FlyError::ConfigInvalid {
+                        location: location.into(),
+                        detail: format!(
+                            "workload {target:?} has no HTTP health listener or origin"
+                        ),
+                    }));
+                }
+            }
+            Ok(())
+        };
+        for (service, spec) in &def.services {
+            if spec.on.as_deref().is_some_and(|on| on != SUBSTRATE_NAME) {
+                continue;
+            }
             config::service_fly(def, service).map_err(fault)?;
-            let app_name = Self::resource_name(def, "i", service);
-            if !config::is_valid_app_name(&app_name) {
+            if spec.health.is_none()
+                && (spec.root_origin
+                    || def
+                        .endpoints
+                        .values()
+                        .any(|endpoint| endpoint.workload == *service))
+            {
                 return Err(fault(FlyError::ConfigInvalid {
                     location: format!("services.{service}"),
-                    detail: format!(
-                        "derived Fly app name {app_name:?} is not a legal app name \
-                         (^[a-z][a-z0-9-]{{2,62}}$); shorten the stack/service name"
-                    ),
+                    detail: "a workload without HTTP health cannot publish an origin or endpoint"
+                        .into(),
                 }));
+            }
+            for (key, value) in spec
+                .effective_env(service, SUBSTRATE_NAME)
+                .map_err(|error| SubstrateFault::from_fault(&error))?
+            {
+                check_reference(&value, &format!("services.{service}.env.{key}"))?;
+            }
+        }
+        if let Some(verify) = &def.stack.verify {
+            for (key, value) in &verify.env {
+                check_reference(value, &format!("stack.verify.env.{key}"))?;
+            }
+            for (tier, spec) in &verify.tiers {
+                for (key, value) in &spec.env {
+                    check_reference(value, &format!("stack.verify.tiers.{tier}.env.{key}"))?;
+                }
             }
         }
         Ok(())
@@ -565,75 +687,91 @@ impl<R: CommandRunner> Substrate for FlySubstrate<R> {
         Duration::from_secs(8 * 3600)
     }
 
-    fn service_origin(&self, def: &StackDef, instance: &str, service: &str) -> String {
+    fn service_origin(
+        &self,
+        def: &StackDef,
+        instance: &InstanceContext<'_>,
+        service: &str,
+    ) -> String {
         Self::origin(def, instance, service)
     }
 
     fn build_namespace(
         &self,
         def: &StackDef,
-        instance: &str,
+        instance: &InstanceContext<'_>,
         prior: &[Checkpoint],
         secrets: &BTreeMap<String, String>,
         _purpose: NamespacePurpose,
     ) -> Namespace {
         let mut namespace = self.namespace(def, instance, prior);
-        namespace.secrets = secrets.clone();
+        namespace.secrets = stackless_core::security::application_secrets(secrets);
         namespace
     }
 
+    fn step_revision(&self, ctx: &StepContext<'_>) -> Result<String, SubstrateFault> {
+        let definition = stackless_core::engine::revision::step_revision(ctx, self)?;
+        if matches!(
+            ctx.step.kind,
+            StepKind::Start | StepKind::Setup | StepKind::Prepare
+        ) {
+            stackless_core::engine::revision::digest(&(
+                definition,
+                stackless_core::security::application_secrets(&self.secrets),
+            ))
+        } else {
+            Ok(definition)
+        }
+    }
+
+    fn refresh_each_operation(&self, step: &stackless_core::engine::Step) -> bool {
+        matches!(
+            step.kind,
+            StepKind::Materialize | StepKind::Prepare | StepKind::Start | StepKind::HealthGate
+        )
+    }
+
     async fn execute(&self, ctx: StepContext<'_>) -> Result<StepResource, SubstrateFault> {
+        stackless_cloud::prepare::durable::require_host_grant(&ctx)?;
         self.ensure_project_and_env(ctx.def, ctx.instance).await?;
 
         let node = ctx.step.node.as_str();
         match ctx.step.kind {
+            StepKind::RunJob => Err(stackless_core::capabilities::unsupported_feature(
+                SUBSTRATE_NAME,
+                &ctx.step.node,
+                "jobs",
+            )),
             StepKind::ProvisionIntegration => stackless_integrations::provision(
                 SUBSTRATE_NAME,
                 &self.stripe(),
-                ctx.def,
+                &ctx,
                 &self.definition_dir,
-                ctx.instance,
-                node,
                 true,
             )
             .await
             .map_err(integration_fault),
             StepKind::Materialize => {
-                // No local checkout on fly — record the pinned ref. It owns
-                // nothing destructible: observe reports Gone so teardown drops
-                // it, and resume cheaply re-records it.
-                let spec = ctx.def.services.get(node).ok_or_else(|| {
-                    fault(FlyError::ConfigInvalid {
-                        location: format!("services.{node}"),
-                        detail: "service not in definition".into(),
-                    })
-                })?;
-                let payload = SourceRefPayload {
-                    repo: spec.source.repo.clone(),
-                    reference: spec.source.reference.clone(),
-                };
-                Ok(StepResource {
-                    resource_kind: "source-ref".into(),
-                    resource_id: format!("{}@{}", spec.source.repo, spec.source.reference),
-                    payload: serde_json::to_string(&payload).unwrap_or_default(),
-                })
+                let config = config::service_fly(ctx.def, node).map_err(fault)?;
+                if matches!(config.mode, FlyDeployMode::Image { .. })
+                    && ctx.def.services[node].prepare.is_none()
+                    && ctx.def.services[node].setup.is_none()
+                {
+                    return Ok(stackless_core::substrate::action_resource(&ctx.step.id));
+                }
+                stackless_cloud::source::materialize(
+                    &ctx,
+                    &self.definition_dir,
+                    SUBSTRATE_NAME,
+                    &self.secrets,
+                )
+                .await
             }
-            StepKind::Setup => {
-                // Setup is local toolchain provisioning; Fly runs a prebuilt
-                // image. Record and skip (§4).
-                Ok(stackless_core::substrate::action_resource(&ctx.step.id))
-            }
-            StepKind::Prepare => {
-                self.run_prepare(ctx.def, ctx.instance, node, ctx.prior)
-                    .await?;
-                Ok(stackless_core::substrate::action_resource(&ctx.step.id))
-            }
-            StepKind::Start => {
-                self.start_service(ctx.def, ctx.instance, node, ctx.prior)
-                    .await
-            }
+            StepKind::Setup | StepKind::Prepare => self.run_hook(&ctx).await,
+            StepKind::Start => self.start_service(&ctx).await,
             StepKind::HealthGate => {
-                self.health_gate(ctx.def, ctx.instance, node).await?;
+                self.health_gate(ctx.def, ctx.instance, node, ctx.prior)
+                    .await?;
                 Ok(stackless_core::substrate::action_resource(&ctx.step.id))
             }
         }
@@ -641,27 +779,97 @@ impl<R: CommandRunner> Substrate for FlySubstrate<R> {
 
     async fn observe(
         &self,
-        _instance: &str,
+        instance: &InstanceContext<'_>,
         checkpoint: &Checkpoint,
     ) -> Result<Observation, SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
-            // The Fly app's deploy token is ephemeral, so existence is checked
-            // via the Stripe resource registration (the source of truth for what
-            // Stripe provisioned), not the Fly API.
+            stackless_cloud::prepare::durable::KIND => stackless_cloud::prepare::durable::observe(
+                &self.definition_dir,
+                instance,
+                SUBSTRATE_NAME,
+                checkpoint,
+            ),
+            stackless_cloud::source::KIND => {
+                stackless_cloud::source::observe(&self.definition_dir, instance, checkpoint)
+            }
+            "fly-machine" if has_catalog_receipt(&checkpoint.payload) => {
+                let value: serde_json::Value = serde_json::from_str(&checkpoint.payload)
+                    .map_err(|e| fault(lifecycle::invalid(e.to_string())))?;
+                let (native, name) = native_identity(&value)?;
+                if native.absence_verified {
+                    return Ok(Observation::Gone);
+                }
+                let token = self.fly_token(instance, &checkpoint.resource_id).await?;
+                let api = self.fly_with_token(&token);
+                let Some(app) = api.app(&name).await.map_err(fault)? else {
+                    return Ok(Observation::Gone);
+                };
+                if native.app.as_ref() != Some(&app) {
+                    return Err(fault(lifecycle::invalid(
+                        "native app identity differs from its ownership record",
+                    )));
+                }
+                let payload: ServicePayload = serde_json::from_value(value)
+                    .map_err(|e| fault(lifecycle::invalid(e.to_string())))?;
+                let requests: Vec<_> = native
+                    .requests
+                    .values()
+                    .filter(|r| {
+                        r.machine_id.as_deref() == Some(&payload.machine_id)
+                            && r.receipt.as_str() == native.active_receipt.as_deref().unwrap_or("")
+                    })
+                    .collect();
+                if requests.len() != 1 {
+                    return Err(fault(lifecycle::invalid(
+                        "checkpoint has no unique native deployment",
+                    )));
+                }
+                let request = requests[0];
+                let Some(machine) = api
+                    .machine(&name, &payload.machine_id)
+                    .await
+                    .map_err(fault)?
+                else {
+                    return Ok(deployment_drift());
+                };
+                let state = machine
+                    .get("state")
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| fault(lifecycle::invalid("machine state missing")))?;
+                if matches!(
+                    fly_api::MachineState::from_api(state),
+                    fly_api::MachineState::Unknown(_)
+                ) {
+                    return Err(fault(lifecycle::invalid("unknown machine state")));
+                }
+                let config = fly_api::machine_fingerprint(&machine).map_err(fault)?;
+                if !api
+                    .only_machine(&name, &payload.machine_id)
+                    .await
+                    .map_err(fault)?
+                {
+                    return Ok(deployment_drift());
+                }
+                Ok(
+                    if state == "started"
+                        && fly_api::machine_receipt(&machine) == Some(request.receipt.as_str())
+                        && request.observed_config.as_deref() == Some(config.as_str())
+                    {
+                        Observation::Present
+                    } else {
+                        deployment_drift()
+                    },
+                )
+            }
             "fly-machine" => {
                 let payload = stackless_cloud::checkpoint::parse_payload::<ServicePayload>(
                     &checkpoint.payload,
                 )
-                .map_err(|detail| {
-                    fault(FlyError::ConfigInvalid {
-                        location: "checkpoint.payload".into(),
-                        detail,
-                    })
-                })?;
-                let stripe_resource = payload
+                .map_err(|e| fault(lifecycle::invalid(e)))?;
+                let resource = payload
                     .map(|p| p.stripe_resource)
                     .unwrap_or_else(|| checkpoint.resource_id.clone());
-                let present = project::resource_registered(&self.stripe(), &stripe_resource)
+                let present = project::resource_registered(&self.stripe(), &resource)
                     .await
                     .map_err(projects_fault)?;
                 Ok(stackless_core::substrate::present_or_gone(present))
@@ -690,13 +898,19 @@ impl<R: CommandRunner> Substrate for FlySubstrate<R> {
 
     async fn destroy(
         &self,
-        _instance: &str,
+        instance: &InstanceContext<'_>,
         checkpoint: &Checkpoint,
     ) -> Result<(), SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
+            stackless_cloud::source::KIND => {
+                stackless_cloud::source::destroy(&self.definition_dir, instance, checkpoint)
+            }
             // Removing the Stripe `flyio/app` resource tears down the Fly app
             // (and its machine). `remove_resource` is idempotent; the engine
             // then re-`observe`s via Stripe registration to confirm gone.
+            "fly-machine" if has_catalog_receipt(&checkpoint.payload) => Err(fault(
+                lifecycle::invalid("native Fly teardown requires the ownership inventory"),
+            )),
             "fly-machine" => {
                 let payload = stackless_cloud::checkpoint::parse_payload::<ServicePayload>(
                     &checkpoint.payload,
@@ -733,8 +947,206 @@ impl<R: CommandRunner> Substrate for FlySubstrate<R> {
         }
     }
 
-    async fn finalize_teardown(&self, instance: &str) -> Result<(), SubstrateFault> {
-        stackless_integrations::finalize_stripe_instance(&self.stripe(), instance).await;
+    async fn destroy_record(
+        &self,
+        store: &stackless_core::state::Store,
+        instance: &InstanceContext<'_>,
+        record: &stackless_core::state::ResourceRecord,
+    ) -> Result<(), SubstrateFault> {
+        if record.resource_kind == stackless_cloud::prepare::durable::KIND {
+            return stackless_cloud::prepare::durable::destroy_record(
+                &self.definition_dir,
+                store,
+                instance,
+                SUBSTRATE_NAME,
+                record,
+            )
+            .await;
+        }
+        if record.owner_id != instance.id
+            || record.ownership != stackless_core::state::Ownership::Owned
+        {
+            return Err(fault(lifecycle::invalid(
+                "teardown requires this instance's owned resource",
+            )));
+        }
+        if !has_catalog_receipt(&record.payload) {
+            return self
+                .destroy(instance, &record.checkpoint(instance.name))
+                .await;
+        }
+        if record.resource_kind == "fly-machine" {
+            if record.provider != SUBSTRATE_NAME
+                || record.key != format!("catalog:flyio/app:{}", record.resource_id)
+            {
+                return Err(fault(lifecycle::invalid("invalid Fly ownership record")));
+            }
+            let value: serde_json::Value = serde_json::from_str(&record.payload)
+                .map_err(|e| fault(lifecycle::invalid(e.to_string())))?;
+            let (native, _) = native_identity(&value)?;
+            for (revision, request) in &native.requests {
+                if request.receipt
+                    != lifecycle::digest(&(instance.id, &record.key, revision)).map_err(fault)?
+                {
+                    return Err(fault(lifecycle::invalid(
+                        "builder receipt belongs to another deployment",
+                    )));
+                }
+                remote_build::durable::cleanup(&self.definition_dir, instance.id, request)
+                    .await
+                    .map_err(fault)?;
+            }
+        }
+        stackless_stripe_projects::journal::recover_for_teardown(&self.stripe(), store, record)
+            .await
+            .map_err(projects_fault)?;
+        let current = store
+            .resource(instance.id, &record.key)
+            .map_err(|e| SubstrateFault::from_fault(&e))?
+            .ok_or_else(|| fault(lifecycle::invalid("ownership record disappeared")))?;
+        if current.phase == stackless_core::state::ResourcePhase::Absent {
+            return Ok(());
+        }
+        if current.resource_kind == "fly-machine" {
+            if current.provider != SUBSTRATE_NAME
+                || current.key != format!("catalog:flyio/app:{}", current.resource_id)
+            {
+                return Err(fault(lifecycle::invalid("invalid Fly ownership record")));
+            }
+            let mut value: serde_json::Value = serde_json::from_str(&current.payload)
+                .map_err(|e| fault(lifecycle::invalid(e.to_string())))?;
+            let (mut native, name) = native_identity(&value)?;
+            if !native.absence_verified {
+                let token = self.fly_token(instance, &current.resource_id).await?;
+                let api = self.fly_with_token(&token);
+                if let Some(app) = api.app(&name).await.map_err(fault)? {
+                    if native.app.as_ref().is_some_and(|old| old != &app) {
+                        return Err(fault(lifecycle::invalid(
+                            "native app identity differs; refusing deletion",
+                        )));
+                    }
+                    native.app = Some(app);
+                    save_native(store, instance.id, &current, &mut value, &native)?;
+                    if !native.removal_submitted {
+                        native.removal_submitted = true;
+                        save_native(store, instance.id, &current, &mut value, &native)?;
+                        api.delete_app(&name).await.map_err(fault)?;
+                    }
+                    if let Some(app) = api.app(&name).await.map_err(fault)? {
+                        if native.app.as_ref() != Some(&app) {
+                            return Err(fault(lifecycle::invalid(
+                                "native app identity changed during teardown",
+                            )));
+                        }
+                        return Err(fault(lifecycle::invalid(
+                            "native Fly deletion is unconfirmed; retaining ownership",
+                        )));
+                    }
+                }
+                native.absence_verified = true;
+                save_native(store, instance.id, &current, &mut value, &native)?;
+            }
+        }
+        let current = store
+            .resource(instance.id, &record.key)
+            .map_err(|e| SubstrateFault::from_fault(&e))?
+            .ok_or_else(|| fault(lifecycle::invalid("ownership record disappeared")))?;
+        stackless_stripe_projects::journal::destroy_record(&self.stripe(), store, &current)
+            .await
+            .map_err(projects_fault)
+    }
+
+    async fn observe_record(
+        &self,
+        store: &stackless_core::state::Store,
+        instance: &InstanceContext<'_>,
+        record: &stackless_core::state::ResourceRecord,
+    ) -> Result<Observation, SubstrateFault> {
+        if record.resource_kind == stackless_cloud::prepare::durable::KIND {
+            return stackless_cloud::prepare::durable::observe_record(
+                &self.definition_dir,
+                store,
+                instance,
+                SUBSTRATE_NAME,
+                record,
+            );
+        }
+        if record.owner_id != instance.id {
+            return Err(fault(lifecycle::invalid(
+                "resource belongs to another instance",
+            )));
+        }
+        let current = store
+            .resource(instance.id, &record.key)
+            .map_err(|e| SubstrateFault::from_fault(&e))?
+            .ok_or_else(|| fault(lifecycle::invalid("ownership record disappeared")))?;
+        if current.phase == stackless_core::state::ResourcePhase::Absent {
+            return Ok(Observation::Gone);
+        }
+        if !has_catalog_receipt(&current.payload) {
+            return self
+                .observe(instance, &current.checkpoint(instance.name))
+                .await;
+        }
+        let catalog =
+            stackless_stripe_projects::journal::observe_payload(&self.stripe(), &current.payload)
+                .await
+                .map_err(projects_fault)?;
+        if current.resource_kind != "fly-machine" {
+            return Ok(catalog);
+        }
+        if current.provider != SUBSTRATE_NAME
+            || current.key != format!("catalog:flyio/app:{}", current.resource_id)
+        {
+            return Err(fault(lifecycle::invalid("invalid Fly ownership record")));
+        }
+        let value: serde_json::Value = serde_json::from_str(&current.payload)
+            .map_err(|e| fault(lifecycle::invalid(e.to_string())))?;
+        let (native, name) = native_identity(&value)?;
+        for (revision, request) in &native.requests {
+            if request.receipt
+                != lifecycle::digest(&(instance.id, &current.key, revision)).map_err(fault)?
+            {
+                return Err(fault(lifecycle::invalid(
+                    "builder receipt belongs to another deployment",
+                )));
+            }
+            if remote_build::durable::present(&self.definition_dir, instance.id, request)
+                .map_err(fault)?
+            {
+                return Ok(Observation::Present);
+            }
+        }
+
+        if native.absence_verified {
+            return Ok(catalog);
+        }
+        let token = self.fly_token(instance, &current.resource_id).await?;
+        if let Some(app) = self
+            .fly_with_token(&token)
+            .app(&name)
+            .await
+            .map_err(fault)?
+        {
+            if native.app.as_ref().is_some_and(|old| old != &app) {
+                return Err(fault(lifecycle::invalid(
+                    "native app identity differs from its record",
+                )));
+            }
+            return Ok(Observation::Present);
+        }
+        Ok(catalog)
+    }
+
+    async fn finalize_teardown(
+        &self,
+        instance: &InstanceContext<'_>,
+    ) -> Result<(), SubstrateFault> {
+        stackless_integrations::finalize_stripe_instance(
+            &self.stripe(),
+            instance.resource_namespace,
+        )
+        .await;
         Ok(())
     }
 
@@ -752,8 +1164,9 @@ impl<R: CommandRunner> Substrate for FlySubstrate<R> {
 
     async fn fetch_logs(
         &self,
+        _store: &stackless_core::state::Store,
         _def: &StackDef,
-        instance: &str,
+        instance: &InstanceContext<'_>,
         services: &[String],
         tail: usize,
     ) -> Result<Option<Vec<ServiceLog>>, SubstrateFault> {
@@ -771,10 +1184,81 @@ impl<R: CommandRunner> Substrate for FlySubstrate<R> {
     }
 }
 
-fn start_service_payload(instance: &str, service: &str) -> Option<ServicePayload> {
-    let store = stackless_core::state::Store::open_configured().ok()?;
-    let checkpoints = store.checkpoints(instance).ok()?;
-    checkpoints.into_iter().find_map(|checkpoint| {
+fn deployment_drift() -> Observation {
+    Observation::Drifted {
+        settings: vec![stackless_core::substrate::SettingDrift {
+            setting: "deployment".into(),
+            expected: "recorded machine configuration and started state".into(),
+            actual: "machine missing, changed, or not started".into(),
+        }],
+    }
+}
+
+fn has_catalog_receipt(payload: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(payload)
+        .ok()
+        .is_some_and(|v| v.get("_catalog_creation").is_some())
+}
+
+fn native_identity(
+    value: &serde_json::Value,
+) -> Result<(lifecycle::NativeState, String), SubstrateFault> {
+    let native: lifecycle::NativeState = match value.get("_fly") {
+        None | Some(serde_json::Value::Null) => Default::default(),
+        Some(value) => serde_json::from_value(value.clone())
+            .map_err(|e| fault(lifecycle::invalid(e.to_string())))?,
+    };
+    let name = value
+        .pointer("/_catalog_creation/config/app_name")
+        .and_then(serde_json::Value::as_str)
+        .filter(|s| fly_api::valid_id(s))
+        .ok_or_else(|| fault(lifecycle::invalid("catalog app name missing or malformed")))?;
+    if value
+        .get("app_name")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|old| old != name)
+        || native.app.as_ref().is_some_and(|old| {
+            old.name != name || !fly_api::valid_id(&old.id) || !fly_api::valid_id(&old.organization)
+        })
+    {
+        return Err(fault(lifecycle::invalid(
+            "native app identity differs from the catalog request",
+        )));
+    }
+    Ok((native, name.into()))
+}
+
+fn save_native(
+    store: &stackless_core::state::Store,
+    owner: &str,
+    record: &stackless_core::state::ResourceRecord,
+    value: &mut serde_json::Value,
+    native: &lifecycle::NativeState,
+) -> Result<(), SubstrateFault> {
+    value["_fly"] =
+        serde_json::to_value(native).map_err(|e| fault(lifecycle::invalid(e.to_string())))?;
+    store
+        .resource_refresh_payload(owner, &record.key, &record.resource_id, &value.to_string())
+        .map_err(|e| SubstrateFault::from_fault(&e))
+}
+
+fn save_application(
+    journal: &stackless_stripe_projects::journal::ResourceJournal,
+    payload: &ServicePayload,
+    ready: bool,
+) -> Result<StepResource, SubstrateFault> {
+    let mut resource = StepResource {
+        resource_kind: "fly-machine".into(),
+        resource_id: payload.stripe_resource.clone(),
+        payload: serde_json::to_string(payload)
+            .map_err(|e| fault(lifecycle::invalid(e.to_string())))?,
+    };
+    resource.payload = journal.outputs(&resource, ready).map_err(projects_fault)?;
+    Ok(resource)
+}
+
+fn start_service_payload(instance: &InstanceContext<'_>, service: &str) -> Option<ServicePayload> {
+    instance.checkpoints.iter().find_map(|checkpoint| {
         if checkpoint.step_id == format!("start:{service}")
             && checkpoint.resource_kind == "fly-machine"
         {
@@ -788,7 +1272,7 @@ fn start_service_payload(instance: &str, service: &str) -> Option<ServicePayload
 impl<R: CommandRunner> FlySubstrate<R> {
     async fn fetch_service_logs(
         &self,
-        instance: &str,
+        instance: &InstanceContext<'_>,
         service: &str,
         tail: usize,
     ) -> Result<Vec<String>, SubstrateFault> {
@@ -806,13 +1290,13 @@ impl<R: CommandRunner> FlySubstrate<R> {
 
     async fn fly_token(
         &self,
-        instance: &str,
+        instance: &InstanceContext<'_>,
         stripe_resource: &str,
     ) -> Result<String, SubstrateFault> {
         let resource_prefix = stripe_resource.to_ascii_uppercase().replace('-', "_");
         let resource_key = format!("{resource_prefix}_DEPLOY_TOKEN");
         let keys = [resource_key.as_str(), "FLYIO_DEPLOY_TOKEN"];
-        let pulled = project::pull_env_values(&self.stripe(), instance, &keys)
+        let pulled = project::pull_env_values(&self.stripe(), instance.resource_namespace, &keys)
             .await
             .map_err(projects_fault)?;
         if let Some(token) = pulled
@@ -853,6 +1337,30 @@ mod tests {
         }
     }
 
+    #[test]
+    fn worker_validation_rejects_origins_without_a_health_listener() {
+        let dir = tempfile::tempdir().unwrap();
+        let substrate = FlySubstrate::for_test(NoRunner, dir.path(), "http://127.0.0.1:1", false);
+        let text = "[stack]\nname='fixture'\n[services.worker]\nkind='worker'\nimage='nginx'\nrun='exec worker'\n";
+        substrate.validate(&StackDef::parse(text).unwrap()).unwrap();
+        for suffix in [
+            "root_origin=true\n",
+            "env={WRONG='${services.worker.origin}'}\n",
+            "[services.worker.fly.env]\nWRONG='${services.worker.origin}'\n",
+            "[stack.verify]\nrun='true'\nenv={WRONG='${services.worker.origin}'}\n",
+            "[stack.verify.tiers.test]\nrun='true'\nenv={WRONG='${services.worker.origin}'}\n",
+            "[endpoints.worker]\nworkload='worker'\nurl='https://claimed.invalid'\n",
+        ] {
+            let def = StackDef::parse(&format!("{text}{suffix}")).unwrap();
+            assert_eq!(
+                substrate.validate(&def).unwrap_err().code.as_ref(),
+                codes::FLY_CONFIG_INVALID
+            );
+        }
+        let healthy = StackDef::parse(&format!("{text}health={{path='/'}}\nroot_origin=true\nenv={{SELF='${{services.worker.origin}}'}}\n")).unwrap();
+        substrate.validate(&healthy).unwrap();
+    }
+
     fn checkpoint(kind: &str, step_id: &str, payload: &str) -> Checkpoint {
         Checkpoint {
             instance: "demo".into(),
@@ -883,12 +1391,32 @@ mod tests {
     fn resource_name_and_origin_are_dns_safe() {
         let def = fly_def();
         assert_eq!(
-            FlySubstrate::<TokioRunner>::resource_name(&def, "demo", "web"),
+            FlySubstrate::<TokioRunner>::resource_name(
+                &def,
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                "web"
+            ),
             "atto-demo-web"
         );
         let (_dir, s) = subj();
         assert_eq!(
-            s.service_origin(&def, "demo", "web"),
+            s.service_origin(
+                &def,
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                "web"
+            ),
             "https://atto-demo-web.fly.dev"
         );
     }
@@ -907,7 +1435,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let s = FlySubstrate::for_test(&runner, dir.path(), "http://127.0.0.1:1", false);
         let cp = checkpoint("fly-machine", "start:web", SERVICE_PAYLOAD);
-        assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Present);
+        assert_eq!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .unwrap(),
+            Observation::Present
+        );
     }
 
     #[tokio::test]
@@ -916,7 +1458,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let s = FlySubstrate::for_test(&runner, dir.path(), "http://127.0.0.1:1", false);
         let cp = checkpoint("fly-machine", "start:web", SERVICE_PAYLOAD);
-        assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Gone);
+        assert_eq!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .unwrap(),
+            Observation::Gone
+        );
     }
 
     #[tokio::test]
@@ -927,23 +1483,87 @@ mod tests {
             "materialize:web",
             r#"{"repo":"r","ref":"main"}"#,
         );
-        assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Gone);
-        s.destroy("demo", &cp).await.unwrap();
+        assert_eq!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .unwrap(),
+            Observation::Gone
+        );
+        s.destroy(
+            &InstanceContext {
+                routed_origins: None,
+                name: "demo",
+                id: "legacy-test",
+                resource_namespace: "demo",
+                checkpoints: &[],
+            },
+            &cp,
+        )
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
     async fn unknown_resource_kind_fails_closed() {
         let (_dir, s) = subj();
         let cp = checkpoint("not-a-real-kind", "start:web", "{}");
-        assert!(s.observe("demo", &cp).await.is_err());
-        assert!(s.destroy("demo", &cp).await.is_err());
+        assert!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            s.destroy(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .is_err()
+        );
     }
 
     #[tokio::test]
     async fn malformed_nonempty_payload_fails_on_destroy() {
         let (_dir, s) = subj();
         let cp = checkpoint("fly-machine", "start:web", "{");
-        assert!(s.destroy("demo", &cp).await.is_err());
+        assert!(
+            s.destroy(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .is_err()
+        );
     }
 
     #[tokio::test]
@@ -955,7 +1575,18 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let s = FlySubstrate::for_test(&runner, dir.path(), "http://127.0.0.1:1", false);
         let cp = checkpoint("fly-machine", "start:web", SERVICE_PAYLOAD);
-        s.destroy("demo", &cp).await.unwrap();
+        s.destroy(
+            &InstanceContext {
+                routed_origins: None,
+                name: "demo",
+                id: "legacy-test",
+                resource_namespace: "demo",
+                checkpoints: &[],
+            },
+            &cp,
+        )
+        .await
+        .unwrap();
 
         let calls = runner.calls();
         assert!(
@@ -967,3 +1598,10 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[cfg(unix)]
+mod source_tests;
+
+#[cfg(test)]
+mod lifecycle_tests;

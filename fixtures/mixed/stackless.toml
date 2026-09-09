@@ -1,0 +1,21 @@
+# Requires a linked Fly account and --confirm-paid.
+# The local verification job requires --allow-host-execution.
+[stack]
+name = "mixed"
+
+[workloads.api]
+on     = "fly"
+image  = "nginx:alpine"
+health = { path = "/", contains = "Welcome to nginx" }
+
+[workloads.api.fly]
+internal_port = 80
+
+[endpoints.api]
+workload = "api"
+
+[jobs.check]
+on         = "local"
+run        = 'curl --fail --silent --show-error "$API"'
+env        = { API = "${endpoints.api.url}" }
+depends_on = { api = "ready" }

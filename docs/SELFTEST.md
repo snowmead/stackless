@@ -24,7 +24,7 @@ per-substrate `logs` sources and `spend` fields) gets live coverage, not just
 the hermetic wiremock tier.
 
 On `snowmead/stackless`, hosting substrate smokes (vercel / render / fly /
-netlify) plus `live-fleet` run on **every PR** via `ci.yml`. Cloudflare is
+netlify) run on **every PR** via `ci.yml`. Cloudflare is
 nightly-only (`smoke.yml`) to avoid PR contention on account rate limits.
 Forks skip live smokes (no secrets). `smoke.yml` also repeats the full
 substrate matrix (including Cloudflare) on `workflow_dispatch`.
@@ -58,11 +58,13 @@ mise run smoke            # full matrix (see mise.toml)
 ```
 
 In CI: `ci.yml` runs gated jobs for vercel / render / fly / netlify on every
-PR to `main` (plus `live-fleet` for Turso). The full cloud `--on` matrix
+PR to `main`. The full cloud `--on` matrix
 (including railway / cloudflare-workers / wordpress / laravel-cloud / gitlab)
-runs via `.github/workflows/smoke.yml` nightly and on demand. Secrets:
+runs via `.github/workflows/smoke.yml` nightly and on demand. The `controller-regression` CI job runs operation and
+transport tests without provider credentials. It does not prove live SSH login
+or systemd reboot survival. Secrets:
 `STRIPE_API_KEY` / `VERCEL_TOKEN` / `RENDER_API_KEY` / `FLY_API_TOKEN` /
-per-host API tokens as needed / `STACKLESS_STATE_URL` / `STACKLESS_STATE_TOKEN`.
+per-host API tokens as needed.
 
 ### Prerequisites (one-time, human)
 

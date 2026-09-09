@@ -23,5 +23,6 @@ root_origin = true
 health      = { path = "/", contains = "stackless-smoke-ok" }
 
 [services.web.fly]
-dockerfile    = "fixtures/smoke/fly-site/Dockerfile"
+root          = "fixtures/smoke/fly-site"
+dockerfile    = "Dockerfile"
 internal_port = 8080

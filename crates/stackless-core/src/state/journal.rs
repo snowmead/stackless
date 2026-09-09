@@ -40,6 +40,12 @@ impl Store {
         resource_id: &str,
         payload: &str,
     ) -> Result<(), StateError> {
+        let owner = self
+            .instance(instance)?
+            .ok_or_else(|| StateError::InstanceNotFound {
+                name: instance.into(),
+            })?;
+        self.remember_payload_secrets(&owner.instance_id, payload)?;
         self.execute(
             "INSERT INTO checkpoints (instance, step_id, resource_kind, resource_id, payload, recorded_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)

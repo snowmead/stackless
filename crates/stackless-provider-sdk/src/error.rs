@@ -18,7 +18,7 @@ pub enum IntegrationError {
 }
 
 impl Fault for IntegrationError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             Self::ConfigInvalid { .. } => codes::INTEGRATION_CONFIG_INVALID,
             Self::HostUnsupported { .. } => codes::INTEGRATION_HOST_UNSUPPORTED,
