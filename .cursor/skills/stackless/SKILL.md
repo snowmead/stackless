@@ -11,9 +11,10 @@ description: >-
 Use `--json` and branch on `error.code`. The controller owns execution and
 cleanup. CLI, SDK, and MCP callers submit operations and inspect their results.
 
-For the current model, read [the schema](../../../docs/SCHEMA.md) and
-[execution support](../../../docs/EXECUTION.md). Use [the SDK protocol](../../../sdks/PROTOCOL.md)
-for envelope fields and [the README](../../../README.md) for installation.
+For the current model, read [the schema](https://github.com/snowmead/stackless/blob/58a3e6cbf745dab46109b587d4a429c00573937e/docs/SCHEMA.md) and
+[execution support](https://github.com/snowmead/stackless/blob/58a3e6cbf745dab46109b587d4a429c00573937e/docs/EXECUTION.md).
+Use [the SDK protocol](https://github.com/snowmead/stackless/blob/58a3e6cbf745dab46109b587d4a429c00573937e/sdks/PROTOCOL.md)
+for envelope fields and [the README](https://github.com/snowmead/stackless/blob/58a3e6cbf745dab46109b587d4a429c00573937e/README.md) for installation.
 Inside this checkout, build with `cargo build` and use `target/debug/stackless`.
 A released binary may precede this checkout's schema changes.
 
