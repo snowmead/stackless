@@ -8,7 +8,7 @@ MAIN=origin/main
 WAVES=(
   "1:neon,supabase,turso,upstash,auth0,workos,privy,prisma"
   "2:planetscale,clickhouse,chroma,sentry,posthog,amplitude,mixpanel,algolia"
-  "3:openrouter,exa,firecrawl,parallel,elevenlabs,heygen,huggingface,inngest"
+  "3:openrouter,exa,firecrawl,parallel,elevenlabs,heygen,inngest"
   "4:e2b,daytona,browserbase,blaxel,runloop,kernel,agentmail,agentphone"
   "5:railway,gitlab,laravel_cloud,wordpress_com,base44_projects,wix,postalform,metronome,supermemory"
   "6:render_db,flyio"
