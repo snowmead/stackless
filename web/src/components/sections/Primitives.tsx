@@ -18,7 +18,6 @@ import {
   LogoElevenLabs,
   LogoFly,
   LogoGitLab,
-  LogoHuggingFace,
   LogoLaravel,
   LogoMixpanel,
   LogoNeon,
@@ -145,12 +144,6 @@ const INTEGRATION_PROVIDERS: {
   { id: "mixpanel", label: "mixpanel", Logo: LogoMixpanel, color: "#7856FF" },
   { id: "algolia", label: "algolia", Logo: LogoAlgolia, color: "#003DFF" },
   { id: "twilio", label: "twilio", Logo: LogoTwilio, color: "#F22F46" },
-  {
-    id: "huggingface",
-    label: "huggingface",
-    Logo: LogoHuggingFace,
-    color: "#FFD21E",
-  },
   {
     id: "elevenlabs",
     label: "elevenlabs",

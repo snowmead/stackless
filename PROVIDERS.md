@@ -73,8 +73,6 @@ Stripe Projects catalog reference. Offline catalog detail:
 | `flyio-mpg` | `flyio/mpg` |
 | `flyio-sprite` | `flyio/sprite` |
 | `gitlab` | `gitlab/project` |
-| `huggingface` | `huggingface/platform` |
-| `huggingface-bucket` | `huggingface/bucket` |
 | `inngest` | `inngest/app` |
 | `kernel` | `kernel/project` |
 | `laravel-cloud` | `laravel_cloud/application` |
