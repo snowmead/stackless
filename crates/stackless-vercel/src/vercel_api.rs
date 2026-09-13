@@ -55,6 +55,7 @@ pub struct VercelApi {
     base: String,
     team_id: Option<String>,
     poll_interval: Duration,
+    receipt: Option<String>,
 }
 
 impl std::fmt::Debug for VercelApi {
@@ -105,11 +106,17 @@ impl VercelApi {
             base,
             team_id,
             poll_interval: POLL_INTERVAL,
+            receipt: None,
         }
     }
 
     pub fn with_poll_interval(mut self, interval: Duration) -> Self {
         self.poll_interval = interval;
+        self
+    }
+
+    pub fn with_receipt(mut self, receipt: &str) -> Self {
+        self.receipt = Some(receipt.into());
         self
     }
 
@@ -151,25 +158,10 @@ impl VercelApi {
         &self,
         name: &str,
     ) -> Result<Option<VercelProject>, VercelError> {
-        let search = types::GetProjectsSearch::try_from(name)
-            .map_err(|err| api_failed("GET", "/v10/projects", err))?;
-        let response = self
-            .client
-            .get_projects(Some(&search), None, self.team())
-            .await
-            .map_err(|err| api_failed("GET", "/v10/projects", err))?
-            .into_inner();
-        for project in response.projects {
-            if project.name.as_deref() == Some(name)
-                && let Some(id) = project.id
-            {
-                return Ok(Some(VercelProject {
-                    id,
-                    name: name.to_owned(),
-                }));
-            }
-        }
-        Ok(None)
+        Ok(self
+            .get_project(name)
+            .await?
+            .filter(|project| project.name == name))
     }
 
     pub async fn get_project(
@@ -184,10 +176,22 @@ impl VercelApi {
         {
             Ok(response) => {
                 let project = response.into_inner();
-                Ok(Some(VercelProject {
-                    id: project.id.unwrap_or_else(|| project_id.to_owned()),
-                    name: project.name.unwrap_or_else(|| project_id.to_owned()),
-                }))
+                let id = project
+                    .id
+                    .filter(|id| !id.is_empty())
+                    .ok_or_else(|| api_failed("GET", "/v9/projects/{id}", "project has no ID"))?;
+                let name = project
+                    .name
+                    .filter(|name| !name.is_empty())
+                    .ok_or_else(|| api_failed("GET", "/v9/projects/{id}", "project has no name"))?;
+                if id != project_id && name != project_id {
+                    return Err(api_failed(
+                        "GET",
+                        "/v9/projects/{id}",
+                        "project identity differs from the requested handle",
+                    ));
+                }
+                Ok(Some(VercelProject { id, name }))
             }
             Err(err) if err.status().map(|s| s.as_u16()) == Some(404) => Ok(None),
             Err(err) => Err(api_failed("GET", "/v9/projects/{id}", err)),
@@ -219,7 +223,7 @@ impl VercelApi {
                 ],
             };
             self.client
-                .create_project_env(project_id, None, self.team(), None, &body)
+                .create_project_env(project_id, None, self.team(), Some("true"), &body)
                 .await
                 .map_err(|err| api_failed("POST", "/v10/projects/{id}/env", err))?;
         }
@@ -232,27 +236,10 @@ impl VercelApi {
         name: &str,
         github: &GitHubRepo,
         git_ref: &str,
+        commit: &str,
         cfg: &ServiceVercel,
     ) -> Result<VercelDeployment, VercelError> {
-        // Posted raw via `post_deployment`: the generated client exposes neither
-        // the `skipAutoDetectionConfirmation` query param nor the error body.
-        //
-        // Only include settings the caller actually set — Vercel's schema is
-        // string-only, so sending explicit nulls for unset fields can be rejected
-        // or misread. Absent settings + the skip-confirmation flag let Vercel
-        // auto-detect.
-        let mut settings = serde_json::Map::new();
-        for (key, value) in [
-            ("framework", cfg.framework.as_deref()),
-            ("buildCommand", cfg.build.as_deref()),
-            ("installCommand", cfg.install.as_deref()),
-            ("rootDirectory", cfg.root.as_deref()),
-            ("outputDirectory", cfg.output.as_deref()),
-        ] {
-            if let Some(value) = value {
-                settings.insert(key.to_owned(), serde_json::Value::String(value.to_owned()));
-            }
-        }
+        let settings = deployment_settings(cfg, cfg.root.as_deref());
         let mut body = serde_json::json!({
             "name": name,
             "project": project_id,
@@ -261,6 +248,7 @@ impl VercelApi {
                 "org": github.org.as_str(),
                 "repo": github.repo.as_str(),
                 "ref": git_ref,
+                "sha": commit,
             },
         });
         if !settings.is_empty() {
@@ -277,10 +265,14 @@ impl VercelApi {
         body: &serde_json::Value,
     ) -> Result<VercelDeployment, VercelError> {
         let url = self.deployments_url();
+        let mut body = body.clone();
+        if let Some(receipt) = &self.receipt {
+            body["meta"]["stacklessReceipt"] = serde_json::json!(receipt);
+        }
         let response = self
             .http
             .post(&url)
-            .json(body)
+            .json(&body)
             .send()
             .await
             .map_err(|err| api_failed("POST", "/v13/deployments", err))?;
@@ -322,6 +314,7 @@ impl VercelApi {
         project_id: &str,
         name: &str,
         files: &[UploadFile],
+        cfg: &ServiceVercel,
     ) -> Result<VercelDeployment, VercelError> {
         use base64::Engine as _;
         let entries: Vec<serde_json::Value> = files
@@ -338,6 +331,7 @@ impl VercelApi {
             "name": name,
             "project": project_id,
             "target": "production",
+            "projectSettings": deployment_settings(cfg, None),
             "files": entries,
         });
         self.post_deployment(&body).await
@@ -387,6 +381,156 @@ impl VercelApi {
         })
     }
 
+    /// Scan every page. An empty or malformed page never permits a repeated POST.
+    pub async fn find_receipt(
+        &self,
+        project: &str,
+        receipt: &str,
+    ) -> Result<Option<VercelDeployment>, VercelError> {
+        let route = "/v7/deployments";
+        let mut cursor: Option<u64> = None;
+        let mut seen = std::collections::BTreeSet::new();
+        let mut found = None;
+        for _ in 0..1000 {
+            let mut query = vec![("projectId", project.to_owned()), ("limit", "100".into())];
+            if let Some(team) = self.team() {
+                query.push(("teamId", team.into()));
+            }
+            if let Some(until) = cursor {
+                query.push(("until", until.to_string()));
+            }
+            let response = self
+                .http
+                .get(format!("{}{route}", self.base))
+                .query(&query)
+                .send()
+                .await
+                .map_err(|e| api_failed("GET", route, e))?;
+            if !response.status().is_success() {
+                return Err(api_failed("GET", route, response.status()));
+            }
+            let value: serde_json::Value = response
+                .json()
+                .await
+                .map_err(|e| api_failed("GET", route, e))?;
+            let rows = value["deployments"]
+                .as_array()
+                .ok_or_else(|| api_failed("GET", route, "missing deployment inventory"))?;
+            for row in rows {
+                let id = row["uid"]
+                    .as_str()
+                    .filter(|id| !id.is_empty())
+                    .ok_or_else(|| api_failed("GET", route, "deployment has no ID"))?;
+                if !seen.insert(id.to_owned()) || row["projectId"].as_str() != Some(project) {
+                    return Err(api_failed(
+                        "GET",
+                        route,
+                        "duplicate deployment or foreign project",
+                    ));
+                }
+                if row["meta"]["stacklessReceipt"].as_str() == Some(receipt) {
+                    if found.is_some() {
+                        return Err(api_failed(
+                            "GET",
+                            route,
+                            "multiple deployments have this receipt",
+                        ));
+                    }
+                    found = Some(VercelDeployment {
+                        id: id.into(),
+                        url: row["url"].as_str().unwrap_or_default().into(),
+                        status: row["readyState"]
+                            .as_str()
+                            .or_else(|| row["state"].as_str())
+                            .unwrap_or("UNKNOWN")
+                            .into(),
+                    });
+                }
+            }
+            let next = value
+                .get("pagination")
+                .and_then(|p| p.get("next"))
+                .ok_or_else(|| api_failed("GET", route, "missing pagination cursor"))?;
+            if next.is_null() {
+                return Ok(found);
+            }
+            let next = next
+                .as_u64()
+                .ok_or_else(|| api_failed("GET", route, "invalid pagination cursor"))?;
+            if cursor.is_some_and(|old| next >= old) {
+                return Err(api_failed("GET", route, "pagination did not advance"));
+            }
+            cursor = Some(next);
+        }
+        Err(api_failed(
+            "GET",
+            route,
+            "deployment inventory exceeds 1000 pages",
+        ))
+    }
+
+    pub async fn owned_deployment(
+        &self,
+        project: &str,
+        receipt: &str,
+        id: &str,
+    ) -> Result<Option<VercelDeployment>, VercelError> {
+        let route = format!("/v13/deployments/{id}");
+        let mut request = self.http.get(format!("{}{route}", self.base));
+        if let Some(team) = self.team() {
+            request = request.query(&[("teamId", team)]);
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|e| api_failed("GET", &route, e))?;
+        if response.status().as_u16() == 404 {
+            return Ok(None);
+        }
+        if !response.status().is_success() {
+            return Err(api_failed("GET", &route, response.status()));
+        }
+        let value: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| api_failed("GET", &route, e))?;
+        if value["id"].as_str() != Some(id)
+            || value["projectId"].as_str() != Some(project)
+            || value["meta"]["stacklessReceipt"].as_str() != Some(receipt)
+        {
+            return Err(api_failed(
+                "GET",
+                &route,
+                "deployment ownership does not match its receipt",
+            ));
+        }
+        Ok(Some(VercelDeployment {
+            id: id.into(),
+            url: value["url"].as_str().unwrap_or_default().into(),
+            status: value["readyState"]
+                .as_str()
+                .or_else(|| value["status"].as_str())
+                .unwrap_or("UNKNOWN")
+                .into(),
+        }))
+    }
+
+    pub async fn delete_deployment(&self, id: &str) -> Result<(), VercelError> {
+        let route = format!("/v13/deployments/{id}");
+        let mut request = self.http.delete(format!("{}{route}", self.base));
+        if let Some(team) = self.team() {
+            request = request.query(&[("teamId", team)]);
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|e| api_failed("DELETE", &route, e))?;
+        if response.status().is_success() || response.status().as_u16() == 404 {
+            return Ok(());
+        }
+        Err(api_failed("DELETE", &route, response.status()))
+    }
+
     /// Recent deployment build events for the `logs` verb (§2 — a bounded
     /// window, no streaming). Hand-written: the trimmed OpenAPI client omits
     /// `/v3/deployments/{id}/events`.
@@ -396,7 +540,7 @@ impl VercelApi {
         tail: usize,
     ) -> Result<Vec<String>, VercelError> {
         let mut url = format!(
-            "{}/v3/deployments/{deployment_id}/events?direction=backward&limit={}",
+            "{}/v3/deployments/{deployment_id}/events?builds=1&follow=0&direction=backward&limit={}",
             self.base,
             tail.max(1)
         );
@@ -502,6 +646,22 @@ fn format_deployment_events(events: Vec<serde_json::Value>) -> Vec<String> {
     lines
 }
 
+fn deployment_settings(
+    cfg: &ServiceVercel,
+    root: Option<&str>,
+) -> serde_json::Map<String, serde_json::Value> {
+    [
+        ("framework", cfg.framework.as_deref()),
+        ("buildCommand", cfg.build.as_deref()),
+        ("installCommand", cfg.install.as_deref()),
+        ("rootDirectory", root.filter(|root| *root != ".")),
+        ("outputDirectory", cfg.output.as_deref()),
+    ]
+    .into_iter()
+    .map(|(key, value)| (key.into(), serde_json::json!(value)))
+    .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -513,9 +673,9 @@ mod tests {
     async fn find_project_by_name_hit() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
-            .and(path_regex(r"/v10/projects.*"))
+            .and(path("/v9/projects/atto-demo-api"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "projects": [{ "id": "prj_1", "name": "atto-demo-api" }]
+                "id": "prj_1", "name": "atto-demo-api"
             })))
             .mount(&server)
             .await;
@@ -571,7 +731,14 @@ mod tests {
             repo: "web".into(),
         };
         let deploy = api
-            .create_git_deployment("prj_1", "web", &github, "main", &cfg)
+            .create_git_deployment(
+                "prj_1",
+                "web",
+                &github,
+                "main",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                &cfg,
+            )
             .await
             .unwrap();
         assert_eq!(deploy.id, "dpl_1");
@@ -587,6 +754,7 @@ mod tests {
             .and(body_partial_json(serde_json::json!({
                 "project": "prj_1",
                 "target": "production",
+                "projectSettings": {"rootDirectory":null,"buildCommand":"npm run build","installCommand":null},
                 "files": [{ "file": "index.html", "encoding": "base64" }],
             })))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
@@ -600,7 +768,16 @@ mod tests {
             data: b"<p>hi</p>".to_vec(),
         }];
         let deploy = api
-            .create_file_deployment("prj_1", "web", &files)
+            .create_file_deployment(
+                "prj_1",
+                "web",
+                &files,
+                &ServiceVercel {
+                    root: Some("app".into()),
+                    build: Some("npm run build".into()),
+                    ..Default::default()
+                },
+            )
             .await
             .unwrap();
         assert_eq!(deploy.id, "dpl_2");
@@ -611,6 +788,10 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path_regex(r"/v3/deployments/dpl_1/events.*"))
+            .and(query_param("builds", "1"))
+            .and(query_param("follow", "0"))
+            .and(query_param("direction", "backward"))
+            .and(query_param("limit", "10"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
                 {
                     "type": "stdout",
@@ -649,5 +830,124 @@ mod tests {
             .await;
         let api = VercelApi::with_base("tok", None, server.uri());
         api.disable_deployment_protection("prj_1").await.unwrap();
+    }
+}
+
+#[cfg(test)]
+mod receipt_tests {
+    use super::*;
+    use serde_json::json;
+    use wiremock::{
+        Mock, MockServer, ResponseTemplate,
+        matchers::{method, path, query_param},
+    };
+
+    #[tokio::test]
+    async fn receipt_lookup_reads_later_pages_and_rejects_ambiguous_results() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET")).and(path("/v7/deployments"))
+            .and(query_param("until", "100"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"pagination":{"next":null},"deployments":[
+                {"uid":"dpl_two","projectId":"prj_one","meta":{"stacklessReceipt":"receipt"},"readyState":"READY"}
+            ]}))).with_priority(1).mount(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/v7/deployments"))
+            .and(query_param("projectId", "prj_one"))
+            .and(query_param("teamId", "team_one"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                json!({"pagination":{"next":100},"deployments":[
+                    {"uid":"dpl_one","projectId":"prj_one","meta":{}}
+                ]}),
+            ))
+            .with_priority(2)
+            .mount(&server)
+            .await;
+        let api = VercelApi::with_base("test", Some("team_one".into()), server.uri());
+        assert_eq!(
+            api.find_receipt("prj_one", "receipt")
+                .await
+                .unwrap()
+                .unwrap()
+                .id,
+            "dpl_two"
+        );
+        server.reset().await;
+        Mock::given(method("GET"))
+            .and(path("/v7/deployments"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                json!({"pagination":{"next":null},"deployments":[
+                    {"uid":"dpl_one","projectId":"prj_one","meta":{"stacklessReceipt":"receipt"}},
+                    {"uid":"dpl_two","projectId":"prj_one","meta":{"stacklessReceipt":"receipt"}}
+                ]}),
+            ))
+            .mount(&server)
+            .await;
+        assert!(api.find_receipt("prj_one", "receipt").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn malformed_inventory_and_failed_reads_never_prove_absence() {
+        let server = MockServer::start().await;
+        let api = VercelApi::with_base("test", None, server.uri());
+        for response in [
+            json!({}),
+            json!({"deployments":[]}),
+            json!({"pagination":{"next":null},"deployments":[{"uid":"dpl_one","projectId":"foreign"}]}),
+            json!({"pagination":{"next":100},"deployments":[]}),
+        ] {
+            server.reset().await;
+            Mock::given(method("GET"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(response))
+                .mount(&server)
+                .await;
+            assert!(api.find_receipt("prj_one", "receipt").await.is_err());
+        }
+        for status in [401, 403, 429, 500] {
+            server.reset().await;
+            Mock::given(method("GET"))
+                .respond_with(ResponseTemplate::new(status))
+                .mount(&server)
+                .await;
+            assert!(api.find_receipt("prj_one", "receipt").await.is_err());
+            assert!(
+                api.owned_deployment("prj_one", "receipt", "dpl_one")
+                    .await
+                    .is_err()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn exact_handle_requires_project_and_receipt_identity() {
+        let server = MockServer::start().await;
+        let api = VercelApi::with_base("test", None, server.uri());
+        for value in [
+            json!({"id":"dpl_one","projectId":"foreign","meta":{"stacklessReceipt":"receipt"}}),
+            json!({"id":"dpl_one","projectId":"prj_one","meta":{"stacklessReceipt":"foreign"}}),
+            json!({"id":"foreign","projectId":"prj_one","meta":{"stacklessReceipt":"receipt"}}),
+            json!({}),
+        ] {
+            server.reset().await;
+            Mock::given(method("GET"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(value))
+                .mount(&server)
+                .await;
+            assert!(
+                api.owned_deployment("prj_one", "receipt", "dpl_one")
+                    .await
+                    .is_err()
+            );
+        }
+        server.reset().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        assert!(
+            api.owned_deployment("prj_one", "receipt", "dpl_one")
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 }

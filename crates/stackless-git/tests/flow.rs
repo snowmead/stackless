@@ -80,3 +80,34 @@ fn https_fetch_and_checkout() {
     checkout_detached(&dest, &cache, &commit).expect("checkout");
     assert!(dest.join("README").exists(), "checked out the repo");
 }
+
+#[test]
+fn default_reference_tracks_remote_head_when_it_differs_from_main() {
+    let work = tempfile::tempdir().unwrap();
+    let repo = work.path().join("repo");
+    let release = build_repo(&repo, &[COMMIT_1]).unwrap();
+    let main = build_repo(&repo, &[COMMIT_1, COMMIT_2]).unwrap();
+    std::fs::write(repo.join(".git/refs/heads/release"), format!("{release}\n")).unwrap();
+    std::fs::write(repo.join(".git/HEAD"), "ref: refs/heads/release\n").unwrap();
+    let cache = work.path().join("cache");
+    fetch_bare(
+        &cache,
+        repo.to_str().unwrap(),
+        CACHE_REFSPECS,
+        None,
+        &Credentials::default(),
+    )
+    .unwrap();
+    assert_eq!(resolve_commit(&cache, "HEAD").unwrap(), release);
+    assert_eq!(resolve_commit(&cache, "main").unwrap(), main);
+    std::fs::write(repo.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+    fetch_bare(
+        &cache,
+        repo.to_str().unwrap(),
+        CACHE_REFSPECS,
+        None,
+        &Credentials::default(),
+    )
+    .unwrap();
+    assert_eq!(resolve_commit(&cache, "HEAD").unwrap(), main);
+}

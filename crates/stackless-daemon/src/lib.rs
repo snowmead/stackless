@@ -11,6 +11,7 @@ pub mod reaper;
 pub mod rpc;
 pub mod server;
 pub mod state;
+pub mod systemd;
 
 pub use binary::{
     ResolveSource, is_cli_process, mark_cli_process, resolve_daemon_bin, should_replace_daemon,

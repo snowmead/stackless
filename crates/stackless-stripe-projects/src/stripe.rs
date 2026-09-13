@@ -71,12 +71,32 @@ pub struct CommandOutput {
 #[async_trait]
 pub trait CommandRunner: Send + Sync {
     async fn run(&self, args: &[String], cwd: &Path) -> Result<CommandOutput, ProjectsError>;
+
+    /// Direct provisioning API requests. Projects status can hide refresh errors.
+    async fn request(
+        &self,
+        _method: &str,
+        _path: &str,
+        _cwd: &Path,
+    ) -> Result<CommandOutput, ProjectsError> {
+        Err(ProjectsError::Unavailable {
+            detail: "runner has no remote provisioning API transport".into(),
+        })
+    }
 }
 
 #[async_trait]
 impl<T: CommandRunner + ?Sized> CommandRunner for &T {
     async fn run(&self, args: &[String], cwd: &Path) -> Result<CommandOutput, ProjectsError> {
         (**self).run(args, cwd).await
+    }
+    async fn request(
+        &self,
+        method: &str,
+        path: &str,
+        cwd: &Path,
+    ) -> Result<CommandOutput, ProjectsError> {
+        (**self).request(method, path, cwd).await
     }
 }
 
@@ -94,19 +114,63 @@ impl CommandRunner for TokioRunner {
                 detail: format!("stripe task panicked: {err}"),
             })?
     }
+    async fn request(
+        &self,
+        method: &str,
+        path: &str,
+        cwd: &Path,
+    ) -> Result<CommandOutput, ProjectsError> {
+        let args = vec![
+            method.to_ascii_lowercase(),
+            path.into(),
+            "--live".into(),
+            "--stripe-version".into(),
+            "unsafe-development".into(),
+            "--color".into(),
+            "off".into(),
+            "--confirm".into(),
+        ];
+        let cwd = cwd.to_path_buf();
+        tokio::task::spawn_blocking(move || run_stripe_command(&args, &cwd, false))
+            .await
+            .map_err(|_| ProjectsError::Unavailable {
+                detail: "Stripe request task failed".into(),
+            })?
+    }
 }
 
 fn run_stripe_locked(args: &[String], cwd: &Path) -> Result<CommandOutput, ProjectsError> {
+    run_stripe_command(args, cwd, true)
+}
+
+fn run_stripe_command(
+    args: &[String],
+    cwd: &Path,
+    projects: bool,
+) -> Result<CommandOutput, ProjectsError> {
     let lock_path = stackless_core::lockfile::FileLock::stripe_lock_path(cwd);
-    let _guard =
-        stackless_core::lockfile::FileLock::acquire_with_wait(&lock_path, STRIPE_LOCK_BUDGET)
-            .map_err(|err| ProjectsError::LockHeld {
+    let mut cmd = stackless_core::helper_command::HelperCommand::new("stripe");
+    if projects {
+        cmd.arg("projects");
+    }
+    cmd.args(args)
+        .current_dir(cwd)
+        .lock(&lock_path, STRIPE_LOCK_BUDGET);
+    command_output(cmd.run(STRIPE_CMD_BUDGET), args, cwd)
+}
+
+fn command_output(
+    outcome: stackless_core::process::TimedCommand,
+    args: &[String],
+    cwd: &Path,
+) -> Result<CommandOutput, ProjectsError> {
+    match outcome {
+        stackless_core::process::TimedCommand::LockFailed { detail, .. } => {
+            Err(ProjectsError::LockHeld {
                 definition_dir: cwd.display().to_string(),
-                detail: err.to_string(),
-            })?;
-    let mut cmd = std::process::Command::new("stripe");
-    cmd.arg("projects").args(args).current_dir(cwd);
-    match stackless_core::process::run_with_timeout(&mut cmd, STRIPE_CMD_BUDGET) {
+                detail,
+            })
+        }
         stackless_core::process::TimedCommand::Finished(output) => Ok(CommandOutput {
             status: output.status.code().unwrap_or(-1),
             stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
@@ -119,6 +183,17 @@ fn run_stripe_locked(args: &[String], cwd: &Path) -> Result<CommandOutput, Proje
         stackless_core::process::TimedCommand::Spawn(err) => Err(ProjectsError::Unavailable {
             detail: format!("could not run `stripe`: {err}"),
         }),
+        stackless_core::process::TimedCommand::CaptureFailed(
+            stackless_core::process::CaptureFailure::Limit { stream, limit },
+        ) => Err(ProjectsError::OutputLimit { stream, limit }),
+        stackless_core::process::TimedCommand::CaptureFailed(error) => {
+            Err(ProjectsError::OutputUnavailable {
+                detail: error.to_string(),
+            })
+        }
+        stackless_core::process::TimedCommand::CleanupFailed { pid } => {
+            Err(ProjectsError::CleanupFailed { pid })
+        }
     }
 }
 
@@ -166,15 +241,10 @@ pub struct StripeResult {
     pub data: serde_json::Value,
 }
 
-const PLAIN_FALLBACK_CODES: &[&str] = &[
-    "JSON_REQUIRES_CONFIRMATION",
-    "JSON_REQUIRES_AUTH",
-    "DIRECTORY_SELECTION_REQUIRED",
-];
-
 pub struct StripeProjects<R: CommandRunner> {
     runner: R,
     dir: PathBuf,
+    journal: Option<crate::journal::ResourceJournal>,
 }
 
 impl<R: CommandRunner> std::fmt::Debug for StripeProjects<R> {
@@ -190,11 +260,44 @@ impl<R: CommandRunner> StripeProjects<R> {
         Self {
             runner,
             dir: dir.into(),
+            journal: None,
         }
     }
 
     pub fn dir(&self) -> &Path {
         &self.dir
+    }
+
+    pub fn with_journal(
+        mut self,
+        ctx: &stackless_core::substrate::StepContext<'_>,
+        provider: &str,
+        resource_kind: &str,
+    ) -> Self {
+        self.journal = Some(crate::journal::ResourceJournal::new(
+            ctx,
+            provider,
+            resource_kind,
+        ));
+        self
+    }
+
+    pub fn with_shared_catalog_journal(
+        mut self,
+        ctx: &stackless_core::substrate::StepContext<'_>,
+        provider: &str,
+        resource_kind: &str,
+        reference: &str,
+    ) -> Self {
+        self.journal = Some(
+            crate::journal::ResourceJournal::new(ctx, provider, resource_kind)
+                .share_catalog(reference),
+        );
+        self
+    }
+
+    pub fn journal(&self) -> Option<&crate::journal::ResourceJournal> {
+        self.journal.as_ref()
     }
 
     /// Borrow as a `StripeProjects<&dyn CommandRunner>` so callers holding a
@@ -204,6 +307,7 @@ impl<R: CommandRunner> StripeProjects<R> {
         StripeProjects {
             runner: &self.runner as &dyn CommandRunner,
             dir: self.dir.clone(),
+            journal: self.journal.clone(),
         }
     }
 
@@ -221,7 +325,7 @@ impl<R: CommandRunner> StripeProjects<R> {
             return Err(ProjectsError::Unavailable {
                 detail: format!(
                     "`stripe projects {}` exited without delivering a JSON envelope{}",
-                    args.join(" "),
+                    args.first().copied().unwrap_or("?"),
                     if stderr.is_empty() {
                         String::new()
                     } else {
@@ -234,7 +338,7 @@ impl<R: CommandRunner> StripeProjects<R> {
             ProjectsError::Unavailable {
                 detail: format!(
                     "`stripe projects {}` exited without delivering a parseable JSON envelope: {err}",
-                    args.join(" ")
+                    args.first().copied().unwrap_or("?")
                 ),
             }
         })?;
@@ -409,6 +513,30 @@ impl<R: CommandRunner> StripeProjects<R> {
         self.runner.run(&argv, &self.dir).await
     }
 
+    pub(crate) async fn request(
+        &self,
+        method: &str,
+        path: &str,
+    ) -> Result<serde_json::Value, ProjectsError> {
+        let out = self.runner.request(method, path, &self.dir).await?;
+        // Do not include response bodies or stderr. API failures can contain credentials.
+        if out.status != 0 {
+            return Err(ProjectsError::Unavailable {
+                detail: "remote provisioning API request failed".into(),
+            });
+        }
+        let value: serde_json::Value =
+            serde_json::from_str(out.stdout.trim()).map_err(|_| ProjectsError::Unavailable {
+                detail: "remote provisioning API returned invalid JSON".into(),
+            })?;
+        if value.get("error").is_some() {
+            return Err(ProjectsError::Unavailable {
+                detail: "remote provisioning API returned an error".into(),
+            });
+        }
+        Ok(value)
+    }
+
     pub fn classify_failure(&self, command: &str, result: &StripeResult) -> ProjectsError {
         let message = result
             .error_message
@@ -440,34 +568,16 @@ impl<R: CommandRunner> StripeProjects<R> {
         &self,
         command: &str,
         args: &[&str],
-        plain_extra: &[&str],
+        _plain_extra: &[&str],
     ) -> Result<serde_json::Value, ProjectsError> {
         let result = self.json(args).await?;
         if result.ok {
             return Ok(result.data);
         }
-        let code = result.error_code.as_deref().unwrap_or("");
-        let message = result.error_message.clone().unwrap_or_default();
-        let live_mode = message.to_ascii_lowercase().contains("live mode");
-        if PLAIN_FALLBACK_CODES.contains(&code) || live_mode {
-            let mut plain_args: Vec<&str> = args.to_vec();
-            plain_args.extend_from_slice(plain_extra);
-            let out = self.plain(&plain_args).await?;
-            if out.status != 0 || out.stdout.contains('✗') || out.stderr.contains('✗') {
-                return Err(ProjectsError::Failed {
-                    command: command.to_owned(),
-                    detail: merge_output(&out),
-                });
-            }
-            return Ok(serde_json::Value::Null);
-        }
+        // Plaintext retries can repeat creations or enter interactive plan cleanup.
+        // A structured failure must remain a failure of this one submitted request.
         Err(self.classify_failure(command, &result))
     }
-}
-
-fn merge_output(out: &CommandOutput) -> String {
-    let merged = format!("{}{}", out.stdout.trim(), out.stderr.trim());
-    merged.trim().to_owned()
 }
 
 /// Provider filter token for `stripe projects catalog <provider>`.
@@ -570,6 +680,65 @@ mod tests {
             }
             other => panic!("expected timeout, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn capture_faults_do_not_include_partial_output_or_config_arguments() {
+        let args = vec![
+            "env".into(),
+            "--config".into(),
+            "private-config-canary".into(),
+        ];
+        for (outcome, code) in [
+            (
+                stackless_core::process::TimedCommand::CaptureFailed(
+                    stackless_core::process::CaptureFailure::Incomplete { stream: "stdout" },
+                ),
+                codes::STRIPE_PROJECTS_OUTPUT_UNAVAILABLE,
+            ),
+            (
+                stackless_core::process::TimedCommand::CleanupFailed { pid: 42 },
+                codes::STRIPE_PROJECTS_CLEANUP_FAILED,
+            ),
+        ] {
+            let error = command_output(outcome, &args, Path::new(".")).unwrap_err();
+            assert_eq!(error.code(), code);
+            assert!(!error.to_string().contains("private-config-canary"));
+        }
+    }
+
+    #[tokio::test]
+    async fn capture_overflow_cannot_turn_a_valid_json_prefix_into_confirmed_absence() {
+        struct OverflowRunner;
+        #[async_trait]
+        impl CommandRunner for OverflowRunner {
+            async fn run(
+                &self,
+                args: &[String],
+                _cwd: &Path,
+            ) -> Result<CommandOutput, ProjectsError> {
+                let mut command = std::process::Command::new("python3");
+                command.args(["-c", &format!(r#"import sys; sys.stdout.write('{{"ok":true,"data":{{"environments":[]}}}}' + ' ' * {}); sys.stdout.flush()"#,
+                    stackless_core::process::COMMAND_STDOUT_LIMIT)]);
+                command_output(
+                    stackless_core::process::run_with_timeout(&mut command, Duration::from_secs(5)),
+                    args,
+                    _cwd,
+                )
+            }
+        }
+        let stripe = StripeProjects::new(OverflowRunner, std::env::temp_dir());
+        let error = crate::project::environment_registered(&stripe, "demo")
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), codes::STRIPE_PROJECTS_OUTPUT_LIMIT);
+        assert!(matches!(
+            error,
+            ProjectsError::OutputLimit {
+                stream: "stdout",
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -816,7 +985,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn confirmation_code_falls_back_to_plain_mode() {
+    async fn remove_never_retries_in_plaintext_mode() {
+        for code in [
+            "JSON_REQUIRES_CONFIRMATION",
+            "JSON_REQUIRES_AUTH",
+            "DIRECTORY_SELECTION_REQUIRED",
+        ] {
+            let body = serde_json::json!({"ok": false, "error": {"code": code, "message": "live mode requires confirmation"}}).to_string();
+            let d = driver(vec![out(0, &body, "")]);
+            assert!(
+                d.run_ok(
+                    "remove",
+                    &["remove", "owned-resource", "--yes"],
+                    &["--force"]
+                )
+                .await
+                .is_err()
+            );
+            assert_eq!(d.runner().calls().len(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn initialization_confirmation_failure_does_not_repeat_creation() {
         let d = driver(vec![
             out(
                 0,
@@ -825,17 +1016,17 @@ mod tests {
             ),
             out(0, "✓ created project", ""),
         ]);
-        d.run_ok(
-            "init",
-            &["init", "atto", "--skip-skills", "--accept-tos"],
-            &["--accept-tos", "--yes"],
-        )
-        .await
-        .unwrap();
+        assert!(
+            d.run_ok(
+                "init",
+                &["init", "atto", "--skip-skills", "--accept-tos"],
+                &["--accept-tos", "--yes"],
+            )
+            .await
+            .is_err()
+        );
         let calls = d.runner().calls();
-        assert_eq!(calls.len(), 2);
+        assert_eq!(calls.len(), 1);
         assert!(calls[0].contains(&"--json".to_owned()));
-        assert!(!calls[1].contains(&"--json".to_owned()));
-        assert!(calls[1].contains(&"--yes".to_owned()));
     }
 }

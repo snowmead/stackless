@@ -9,6 +9,8 @@ use stackless_core::state::StateError;
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
+    #[error(transparent)]
+    Controller(#[from] Box<stackless_core::fault::Report>),
     #[error("cannot read {path}: {source}")]
     FileRead {
         path: String,
@@ -107,14 +109,15 @@ impl Error {
     }
 
     /// Stable machine-readable code for agents and SDK callers.
-    pub fn error_code(&self) -> &'static str {
+    pub fn error_code(&self) -> &str {
         Fault::code(self)
     }
 }
 
 impl Fault for Error {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
+            Self::Controller(report) => report.code(),
             Self::FileRead { .. } => codes::CLI_FILE_READ,
             Self::FileWrite { .. } => codes::CLI_FILE_WRITE,
             Self::InitExists { .. } => codes::CLI_INIT_EXISTS,
@@ -143,6 +146,7 @@ impl Fault for Error {
 
     fn remediation(&self) -> String {
         match self {
+            Self::Controller(report) => report.remediation(),
             Self::FileRead { path, .. } => {
                 format!("check that {path} exists and is readable, or pass the right path")
             }
@@ -217,6 +221,7 @@ impl Fault for Error {
 
     fn step(&self) -> Option<&str> {
         match self {
+            Self::Controller(report) => report.step(),
             Self::Def(err) => err.step(),
             Self::Engine(err) => err.step(),
             Self::Substrate { fault, .. } => fault.step(),
@@ -226,6 +231,7 @@ impl Fault for Error {
 
     fn instance(&self) -> Option<&str> {
         match self {
+            Self::Controller(report) => report.instance(),
             Self::Def(err) => err.instance(),
             Self::Engine(err) => err.instance(),
             Self::State(err) => err.instance(),
@@ -241,6 +247,7 @@ impl Fault for Error {
 
     fn context(&self) -> stackless_core::fault::ErrorContext {
         match self {
+            Self::Controller(report) => report.context(),
             Self::Engine(err) => err.context(),
             Self::Substrate { fault, .. } => fault.context(),
             Self::VerifyFailed {
@@ -273,7 +280,7 @@ mod tests {
             instance: "git-auth-test".into(),
             step: "setup:web".into(),
             fault: SubstrateFault {
-                code: codes::LOCAL_HOOK_FAILED,
+                code: codes::LOCAL_HOOK_FAILED.into(),
                 message: "setup hook exited".into(),
                 remediation: "re-run".into(),
                 context: Box::default(),

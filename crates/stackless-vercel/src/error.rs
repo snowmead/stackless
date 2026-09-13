@@ -52,7 +52,7 @@ pub enum VercelError {
 }
 
 impl Fault for VercelError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             Self::ConfigInvalid { .. } => codes::VERCEL_CONFIG_INVALID,
             Self::ApiKeyMissing { .. } => codes::VERCEL_API_KEY_MISSING,

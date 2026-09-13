@@ -55,7 +55,7 @@ pub enum RailwayError {
 }
 
 impl Fault for RailwayError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             Self::ConfigInvalid { .. } => codes::RAILWAY_CONFIG_INVALID,
             Self::ApiFailed { .. } => codes::RAILWAY_API_FAILED,

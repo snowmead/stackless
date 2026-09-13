@@ -1,29 +1,29 @@
 //! Cross-process file locks keyed by path (ARCHITECTURE.md §2/§3).
 //!
-//! `create_new` with stale-holder detection by PID + start time — the
-//! same liveness identity op locks use. Daemon spawn, Stripe Projects,
-//! and git cache writers share this helper.
+//! The OS releases a lock when its file handle closes or its process exits.
+//! Lock files remain in place: unlinking a held lock would allow another
+//! process to lock a different inode at the same path.
 
+use std::fs::{File, TryLockError};
 use std::hash::{Hash, Hasher};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use crate::process::ProcessStamp;
 use crate::state::Store;
-use crate::types::{Pid, ProcessStartTime};
 
 const DEFAULT_POLL: Duration = Duration::from_millis(100);
 
 /// A held lock; released when dropped.
 #[derive(Debug)]
 pub struct FileLock {
-    path: PathBuf,
+    _file: File,
 }
 
 impl Drop for FileLock {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
+        // A concurrent fork can briefly inherit this open file description.
+        // Unlock explicitly so that child cannot delay a normal release.
+        let _ = self._file.unlock();
     }
 }
 
@@ -36,49 +36,29 @@ impl FileLock {
                 detail: err.to_string(),
             })?;
         }
-        for _ in 0..2 {
-            match std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(path)
-            {
-                Ok(mut file) => {
-                    let me = ProcessStamp::current();
-                    let _ = writeln!(file, "{} {}", me.pid.get(), me.start_time.get());
-                    return Ok(Self {
-                        path: path.to_path_buf(),
-                    });
-                }
-                Err(_) => {
-                    let stale = std::fs::read_to_string(path)
-                        .ok()
-                        .and_then(|content| {
-                            let mut parts = content.split_whitespace();
-                            let pid = parts.next()?.parse().ok()?;
-                            let start_time = parts.next()?.parse().ok()?;
-                            Some(ProcessStamp {
-                                pid: Pid::from_os(pid),
-                                start_time: ProcessStartTime::from_os(start_time),
-                            })
-                        })
-                        .is_none_or(|stamp| !stamp.is_alive());
-                    if stale {
-                        let _ = std::fs::remove_file(path);
-                        continue;
-                    }
-                    return Err(LockError::Held {
-                        path: path.to_path_buf(),
-                    });
-                }
-            }
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)
+            .map_err(|source| LockError::Io {
+                path: path.to_path_buf(),
+                source,
+            })?;
+        match file.try_lock() {
+            Ok(()) => Ok(Self { _file: file }),
+            Err(TryLockError::WouldBlock) => Err(LockError::Held {
+                path: path.to_path_buf(),
+            }),
+            Err(TryLockError::Error(source)) => Err(LockError::Io {
+                path: path.to_path_buf(),
+                source,
+            }),
         }
-        Err(LockError::Held {
-            path: path.to_path_buf(),
-        })
     }
 
-    /// Block until the lock is acquired, a stale holder is taken over, or
-    /// `budget` elapses.
+    /// Wait for contention only. Filesystem errors return immediately.
     pub fn acquire_with_wait(path: &Path, budget: Duration) -> Result<Self, LockError> {
         let start = Instant::now();
         loop {
@@ -89,6 +69,22 @@ impl FileLock {
                 }
                 Err(err) => return Err(err),
             }
+        }
+    }
+
+    /// Wait for an existing command lock without creating one for an unused runtime.
+    pub fn acquire_existing(path: &Path, budget: Duration) -> Result<Option<Self>, LockError> {
+        match std::fs::symlink_metadata(path) {
+            Ok(meta) if meta.is_file() => Self::acquire_with_wait(path, budget).map(Some),
+            Ok(_) => Err(LockError::Io {
+                path: path.into(),
+                source: std::io::Error::other("lock is not an ordinary file"),
+            }),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(source) => Err(LockError::Io {
+                path: path.into(),
+                source,
+            }),
         }
     }
 
@@ -121,6 +117,11 @@ pub enum LockError {
     Held { path: PathBuf },
     #[error("could not create lock parent for {path}: {detail}")]
     CreateParent { path: PathBuf, detail: String },
+    #[error("cannot lock {path}: {source}")]
+    Io {
+        path: PathBuf,
+        source: std::io::Error,
+    },
 }
 
 #[cfg(test)]
@@ -164,5 +165,40 @@ mod tests {
         for handle in handles {
             handle.join().unwrap();
         }
+    }
+    #[test]
+    fn lock_crash_helper() {
+        let Some(path) = std::env::var_os("STACKLESS_TEST_LOCK_FILE") else {
+            return;
+        };
+        let path = PathBuf::from(path);
+        let _lock = FileLock::try_acquire(&path).unwrap();
+        std::fs::write(path.with_extension("ready"), "locked").unwrap();
+        std::thread::sleep(Duration::from_secs(30));
+    }
+
+    #[test]
+    fn process_crash_releases_os_lock_without_unlinking() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("crash.lock");
+        let mut holder = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "lockfile::tests::lock_crash_helper"])
+            .env("STACKLESS_TEST_LOCK_FILE", &path)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !path.with_extension("ready").exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let ready = path.with_extension("ready").exists();
+        let excluded = matches!(FileLock::try_acquire(&path), Err(LockError::Held { .. }));
+        holder.kill().unwrap();
+        holder.wait().unwrap();
+        assert!(ready);
+        assert!(excluded);
+        assert!(path.exists());
+        assert!(FileLock::try_acquire(&path).is_ok());
     }
 }

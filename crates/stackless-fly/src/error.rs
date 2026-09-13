@@ -9,6 +9,9 @@ pub enum FlyError {
     #[error("[{location}] is invalid: {detail}")]
     ConfigInvalid { location: String, detail: String },
 
+    #[error("Fly builder stopped: {detail}")]
+    BuilderStopped { detail: String },
+
     #[error("Fly API {method} {path} failed: {detail}")]
     ApiFailed {
         method: String,
@@ -42,6 +45,9 @@ pub enum FlyError {
         budget_secs: u64,
     },
 
+    #[error("worker {service:?} is not running with its recorded deployment")]
+    WorkerNotReady { service: String },
+
     #[error("prepare for {service:?} failed: {message}")]
     PrepareFailed {
         service: String,
@@ -55,14 +61,16 @@ pub enum FlyError {
 }
 
 impl Fault for FlyError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             Self::ConfigInvalid { .. } => codes::FLY_CONFIG_INVALID,
+            Self::BuilderStopped { .. } => codes::FLY_BUILD_STOPPED,
             Self::ApiFailed { .. } => codes::FLY_API_FAILED,
             Self::PaymentNotConfirmed { .. } => codes::FLY_PAYMENT_NOT_CONFIRMED,
             Self::ProvisionFailed { .. } => codes::FLY_PROVISION_FAILED,
             Self::DeployFailed { .. } => codes::FLY_DEPLOY_FAILED,
             Self::DeployTimeout { .. } => codes::FLY_DEPLOY_TIMEOUT,
+            Self::WorkerNotReady { .. } => codes::FLY_WORKER_NOT_READY,
             Self::HealthFailed { .. } => codes::FLY_HEALTH_FAILED,
             Self::PrepareFailed { .. } => codes::FLY_PREPARE_FAILED,
             Self::TeardownSurvivor { .. } => codes::FLY_TEARDOWN_SURVIVOR,
@@ -71,6 +79,7 @@ impl Fault for FlyError {
 
     fn remediation(&self) -> String {
         match self {
+            Self::BuilderStopped { .. } => "inspect the recorded build and native deployment; recovery will not launch this command again; use down to remove the owned app".into(),
             Self::ConfigInvalid { location, .. } => {
                 format!("fix the [{location}] block; see ARCHITECTURE.md §1 for the fly schema")
             }
@@ -95,6 +104,7 @@ impl Fault for FlyError {
                 "the machine for {service:?} is still starting on Fly; re-run `up` to resume \
                  waiting, or check fly.io/dashboard"
             ),
+            Self::WorkerNotReady { .. } => "inspect the owned machine and its logs; resume up after correcting the worker".into(),
             Self::HealthFailed { service, .. } => format!(
                 "the {service:?} service did not pass its health contract; check fly.io/dashboard \
                  logs, fix, and re-run `up`"
@@ -111,6 +121,11 @@ impl Fault for FlyError {
 
     fn context(&self) -> ErrorContext {
         match self {
+            Self::WorkerNotReady { service } => ErrorContext {
+                service: Some(service.clone()),
+                log_hint: Some(format!("stackless logs <name> {service}")),
+                ..ErrorContext::default()
+            },
             Self::PrepareFailed {
                 service,
                 command,

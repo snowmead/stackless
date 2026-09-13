@@ -33,9 +33,11 @@ fn ensure_with_spawns_daemon_on_injectable_paths() {
 
 #[test]
 fn hello_fixture_up_http_down() {
-    let ctx = TestContext::new().expect("test context");
+    let ctx =
+        TestContext::with_cli(Path::new(env!("CARGO_BIN_EXE_stackless"))).expect("test context");
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/hello");
     let create = Create::new(fixture.join("stackless.toml"), "local")
+        .allow_host_execution()
         .named("sdk-hello")
         .source(format!("web={}", fixture.display()));
     let env = ctx

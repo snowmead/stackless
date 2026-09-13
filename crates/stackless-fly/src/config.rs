@@ -6,7 +6,7 @@
 //!
 //! Two deploy paths:
 //! - **Image** (`image = "..."`): explicit fast path — deploy a prebuilt container.
-//! - **Source-build** (no `image`): clone the pinned ref and build via Fly's
+//! - **Source-build** (no `image`): build the sealed source archive via Fly's
 //!   remote builder (`flyctl deploy --remote-only`), then run the resulting
 //!   machine. Optional `dockerfile` (default `Dockerfile`).
 
@@ -39,9 +39,9 @@ pub enum FlyDeployMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServiceFly {
     pub mode: FlyDeployMode,
+    pub root: Option<String>,
     pub internal_port: u16,
-    /// Overrides the image entrypoint/cmd (Fly `config.init.cmd` / container
-    /// args), e.g. `["-text=ok", "-listen=:5678"]`. Image path only.
+    /// Overrides Docker CMD while retaining ENTRYPOINT. Image path only.
     pub cmd: Option<Vec<String>>,
     pub guest: FlyGuest,
 }
@@ -55,7 +55,7 @@ impl ServiceFly {
         }
     }
 
-    /// Dockerfile path (repo-relative) when `mode` is [`FlyDeployMode::Build`].
+    /// Dockerfile path relative to the source root when `mode` is [`FlyDeployMode::Build`].
     pub fn dockerfile(&self) -> Option<&str> {
         match &self.mode {
             FlyDeployMode::Build { dockerfile } => Some(dockerfile.as_str()),
@@ -96,20 +96,33 @@ impl CatalogService for FlyAppConfig {
 /// Read and shape-check `[services.<service>.fly]`.
 pub fn service_fly(def: &StackDef, service: &str) -> Result<ServiceFly, FlyError> {
     let location = format!("services.{service}.fly");
-    let block = def
+    let spec = def
         .services
         .get(service)
-        .and_then(|spec| spec.substrates.get(SUBSTRATE_NAME))
-        .and_then(|value| value.as_table())
         .ok_or_else(|| FlyError::ConfigInvalid {
             location: location.clone(),
-            detail: "missing [services.X.fly] block".into(),
+            detail: "service missing".into(),
         })?;
+    let empty = toml::Table::new();
+    let block = match spec.substrates.get(SUBSTRATE_NAME) {
+        Some(value) => value.as_table().ok_or_else(|| FlyError::ConfigInvalid {
+            location: location.clone(),
+            detail: "must be a table".into(),
+        })?,
+        None if spec.image.is_some() => &empty,
+        None => {
+            return Err(FlyError::ConfigInvalid {
+                location: location.clone(),
+                detail: "missing [services.X.fly] block or workload image".into(),
+            });
+        }
+    };
 
     for key in block.keys() {
         if !matches!(
             key.as_str(),
-            "image"
+            "root"
+                | "image"
                 | "dockerfile"
                 | "internal_port"
                 | "cmd"
@@ -121,14 +134,44 @@ pub fn service_fly(def: &StackDef, service: &str) -> Result<ServiceFly, FlyError
             return Err(FlyError::ConfigInvalid {
                 location: location.clone(),
                 detail: format!(
-                    "unknown key {key:?} (known: image, dockerfile, internal_port, cmd, env, \
+                    "unknown key {key:?} (known: root, image, dockerfile, internal_port, cmd, env, \
                      cpu_kind, cpus, memory_mb)"
                 ),
             });
         }
     }
 
-    let image = opt_str(block, "image");
+    let root = def.services[service]
+        .source_root(service, SUBSTRATE_NAME)
+        .map_err(|err| FlyError::ConfigInvalid {
+            location: location.clone(),
+            detail: err.to_string(),
+        })?;
+    let provider_image = match block.get("image") {
+        None => None,
+        Some(value) => Some(
+            value
+                .as_str()
+                .filter(|s| !s.is_empty() && !s.chars().any(char::is_whitespace))
+                .ok_or_else(|| FlyError::ConfigInvalid {
+                    location: format!("{location}.image"),
+                    detail: "must be a nonempty image reference without whitespace".into(),
+                })?
+                .to_owned(),
+        ),
+    };
+    if spec
+        .image
+        .as_ref()
+        .zip(provider_image.as_ref())
+        .is_some_and(|(a, b)| a != b)
+    {
+        return Err(FlyError::ConfigInvalid {
+            location: location.clone(),
+            detail: "workload image conflicts with fly.image".into(),
+        });
+    }
+    let image = spec.image.clone().or(provider_image);
     let dockerfile = opt_str(block, "dockerfile");
     let mode = match (image, dockerfile) {
         (Some(_image), Some(_)) => {
@@ -145,6 +188,22 @@ pub fn service_fly(def: &StackDef, service: &str) -> Result<ServiceFly, FlyError
         },
     };
 
+    if let FlyDeployMode::Build { dockerfile } = &mode
+        && (dockerfile.contains('\\')
+            || dockerfile.chars().any(char::is_control)
+            || std::path::Path::new(dockerfile).components().any(|part| {
+                !matches!(
+                    part,
+                    std::path::Component::CurDir | std::path::Component::Normal(_)
+                )
+            }))
+    {
+        return Err(FlyError::ConfigInvalid {
+            location: format!("{location}.dockerfile"),
+            detail: "must name a file inside source.root".into(),
+        });
+    }
+
     let internal_port =
         u16::try_from(opt_int(block, "internal_port", &location)?.unwrap_or(DEFAULT_INTERNAL_PORT))
             .map_err(|_| FlyError::ConfigInvalid {
@@ -157,7 +216,24 @@ pub fn service_fly(def: &StackDef, service: &str) -> Result<ServiceFly, FlyError
             detail: "must be a TCP port in 1..=65535".into(),
         });
     }
+    if spec.source.repo.is_empty()
+        && (matches!(mode, FlyDeployMode::Build { .. })
+            || root.as_deref().is_some_and(|r| r != "."))
+    {
+        return Err(FlyError::ConfigInvalid {
+            location: location.clone(),
+            detail:
+                "source-free workloads require an image and cannot select a source subdirectory"
+                    .into(),
+        });
+    }
     let cmd = opt_string_array(block, "cmd", &location)?;
+    if spec.run.is_some() && (cmd.is_some() || matches!(mode, FlyDeployMode::Build { .. })) {
+        return Err(FlyError::ConfigInvalid {
+            location: location.clone(),
+            detail: "run requires an image and cannot be combined with fly.cmd".into(),
+        });
+    }
     if cmd.is_some() && matches!(mode, FlyDeployMode::Build { .. }) {
         return Err(FlyError::ConfigInvalid {
             location: format!("{location}.cmd"),
@@ -183,6 +259,7 @@ pub fn service_fly(def: &StackDef, service: &str) -> Result<ServiceFly, FlyError
     };
 
     Ok(ServiceFly {
+        root,
         mode,
         internal_port,
         cmd,
@@ -268,6 +345,31 @@ mod tests {
 
     fn parse(toml: &str) -> StackDef {
         StackDef::parse(toml).expect("valid base toml")
+    }
+
+    #[test]
+    fn common_image_without_source_or_provider_block_and_conflicts() {
+        let text = "[stack]\nname='fixture'\n[services.web]\nimage='nginx:alpine'\nrun='exec server'\nhealth={path='/'}\n";
+        let def = parse(text);
+        assert_eq!(
+            service_fly(&def, "web").unwrap().image(),
+            Some("nginx:alpine")
+        );
+        for suffix in [
+            "[services.web.fly]\nimage='different'\n",
+            "[services.web.fly]\ncmd=['other']\n",
+            "[services.web.source]\nroot='app'\n",
+        ] {
+            assert!(service_fly(&parse(&format!("{text}{suffix}")), "web").is_err());
+        }
+        let no_image = text.replace("image='nginx:alpine'\n", "");
+        assert!(service_fly(&parse(&no_image), "web").is_err());
+        let alias = text.replace("image='nginx:alpine'\n", "")
+            + "[services.web.fly]\nimage='nginx:alpine'\n";
+        assert_eq!(
+            service_fly(&parse(&alias), "web").unwrap().image(),
+            Some("nginx:alpine")
+        );
     }
 
     const BASE: &str = r#"

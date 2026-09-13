@@ -5,14 +5,14 @@
 //! (a concrete command, flag, or fix). Agents branch on stable codes,
 //! never on prose.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Lines of captured output included in failure context (hooks, health,
 /// prepare). Aligns with `stackless logs --tail` defaults for operators.
 pub const FAILURE_LOG_TAIL_LINES: usize = 80;
 
 /// Factual observables agents use to locate and inspect a failure.
-#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ErrorContext {
     pub service: Option<String>,
     pub hook: Option<String>,
@@ -40,6 +40,7 @@ pub mod codes {
     pub const DEF_SUBSTRATE_CONFIG_MISSING: &str = "def.validate.substrate_config_missing";
     pub const DEF_ROOT_ORIGIN_CONFLICT: &str = "def.validate.root_origin_conflict";
     pub const DEF_REFERENCE_SYNTAX: &str = "def.validate.reference_syntax";
+    pub const DEF_ENDPOINT_UNAVAILABLE: &str = "def.resolve.endpoint_unavailable";
     pub const DEF_UNDECLARED_REFERENCE: &str = "def.validate.undeclared_reference";
     pub const DEF_SECRET_NOT_REQUIRED: &str = "def.validate.secret_not_required";
     pub const DEF_INTEGRATION_INVALID: &str = "def.validate.integration_invalid";
@@ -51,10 +52,12 @@ pub mod codes {
     pub const STATE_OPEN: &str = "state.open_failed";
     pub const STATE_MIGRATE: &str = "state.migrate_failed";
     pub const STATE_QUERY: &str = "state.query_failed";
+    pub const STATE_PLACEMENT_CONFLICT: &str = "state.placement_conflict";
     pub const STATE_INSTANCE_EXISTS: &str = "state.instance.exists";
     pub const STATE_INSTANCE_NOT_FOUND: &str = "state.instance.not_found";
     pub const STATE_LOCK_HELD: &str = "state.lock.held";
     pub const STATE_GC_FAILED: &str = "state.gc_failed";
+    pub const STATE_REMOTE_DISABLED: &str = "state.remote.disabled";
     pub const STATE_REMOTE_OPEN: &str = "state.remote.open_failed";
     pub const STATE_REMOTE_QUERY: &str = "state.remote.query_failed";
     pub const STATE_REMOTE_RUNTIME: &str = "state.remote.runtime_failed";
@@ -64,6 +67,9 @@ pub mod codes {
     pub const ENGINE_SUBSTRATE_REQUIRED: &str = "engine.substrate.required";
     pub const ENGINE_SOURCE_OVERRIDE_UNSUPPORTED: &str = "engine.source_override.unsupported";
     pub const ENGINE_SOURCE_OVERRIDE_SHARED: &str = "engine.source_override.shared";
+    pub const OPERATION_CANCELLED: &str = "operation.cancelled";
+    pub const OPERATION_INTERRUPTED: &str = "operation.interrupted";
+    pub const OPERATION_RESULT_MISSING: &str = "operation.result_missing";
     pub const ENGINE_STEP_FAILED: &str = "engine.step.failed";
     pub const ENGINE_TEARDOWN_SURVIVORS: &str = "engine.teardown.survivors";
     pub const DAEMON_UNREACHABLE: &str = "daemon.unreachable";
@@ -108,6 +114,9 @@ pub mod codes {
     pub const STRIPE_PROJECTS_FAILED: &str = "stripe.projects.failed";
     pub const STRIPE_PROJECTS_LOCK_HELD: &str = "stripe.projects.lock_held";
     pub const STRIPE_PROJECTS_TIMEOUT: &str = "stripe.projects.timeout";
+    pub const STRIPE_PROJECTS_OUTPUT_LIMIT: &str = "stripe.projects.output_limit";
+    pub const STRIPE_PROJECTS_OUTPUT_UNAVAILABLE: &str = "stripe.projects.output_unavailable";
+    pub const STRIPE_PROJECTS_CLEANUP_FAILED: &str = "stripe.projects.cleanup_failed";
     pub const STRIPE_PROJECT_ANCHOR: &str = "stripe.project.anchor";
     pub const STRIPE_PROJECTS_PROVISION_FAILED: &str = "stripe.projects.provision_failed";
     pub const STRIPE_PROJECTS_CATALOG_MISSING: &str = "stripe.projects.catalog_missing";
@@ -130,6 +139,7 @@ pub mod codes {
         DEF_ROOT_ORIGIN_CONFLICT,
         DEF_REFERENCE_SYNTAX,
         DEF_UNDECLARED_REFERENCE,
+        DEF_ENDPOINT_UNAVAILABLE,
         DEF_SECRET_NOT_REQUIRED,
         DEF_INTEGRATION_INVALID,
         DEF_WIRING_CYCLE,
@@ -141,9 +151,11 @@ pub mod codes {
         STATE_MIGRATE,
         STATE_QUERY,
         STATE_INSTANCE_EXISTS,
+        STATE_PLACEMENT_CONFLICT,
         STATE_INSTANCE_NOT_FOUND,
         STATE_LOCK_HELD,
         STATE_GC_FAILED,
+        STATE_REMOTE_DISABLED,
         STATE_REMOTE_OPEN,
         STATE_REMOTE_QUERY,
         STATE_REMOTE_RUNTIME,
@@ -153,6 +165,9 @@ pub mod codes {
         ENGINE_SUBSTRATE_REQUIRED,
         ENGINE_SOURCE_OVERRIDE_UNSUPPORTED,
         ENGINE_SOURCE_OVERRIDE_SHARED,
+        OPERATION_CANCELLED,
+        OPERATION_INTERRUPTED,
+        OPERATION_RESULT_MISSING,
         ENGINE_STEP_FAILED,
         ENGINE_TEARDOWN_SURVIVORS,
         DAEMON_UNREACHABLE,
@@ -196,6 +211,9 @@ pub mod codes {
         STRIPE_PROJECTS_FAILED,
         STRIPE_PROJECTS_LOCK_HELD,
         STRIPE_PROJECTS_TIMEOUT,
+        STRIPE_PROJECTS_OUTPUT_LIMIT,
+        STRIPE_PROJECTS_OUTPUT_UNAVAILABLE,
+        STRIPE_PROJECTS_CLEANUP_FAILED,
         STRIPE_PROJECT_ANCHOR,
         STRIPE_PROJECTS_PROVISION_FAILED,
         STRIPE_PROJECTS_CATALOG_MISSING,
@@ -211,7 +229,7 @@ pub mod codes {
 /// what the operator should actually do (ARCHITECTURE.md §8).
 pub trait Fault: std::error::Error {
     /// The stable machine-readable code from [`codes`].
-    fn code(&self) -> &'static str;
+    fn code(&self) -> &str;
     /// How to proceed: a concrete command, flag, or fix.
     fn remediation(&self) -> String;
     /// The lifecycle step that failed, when one was executing.
@@ -229,10 +247,10 @@ pub trait Fault: std::error::Error {
 }
 
 /// The serialized error shape agents consume in `--json` mode.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Report {
     pub schema_version: u32,
-    pub code: &'static str,
+    pub code: String,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub step: Option<String>,
@@ -245,14 +263,40 @@ pub struct Report {
 impl Report {
     pub fn from_fault(fault: &dyn Fault) -> Self {
         Self {
-            schema_version: 1,
-            code: fault.code(),
+            schema_version: 2,
+            code: fault.code().to_owned(),
             message: fault.to_string(),
             step: fault.step().map(str::to_owned),
             instance: fault.instance().map(str::to_owned),
             remediation: fault.remediation(),
             context: fault.context(),
         }
+    }
+}
+
+impl std::fmt::Display for Report {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for Report {}
+
+impl Fault for Report {
+    fn code(&self) -> &str {
+        &self.code
+    }
+    fn remediation(&self) -> String {
+        self.remediation.clone()
+    }
+    fn step(&self) -> Option<&str> {
+        self.step.as_deref()
+    }
+    fn instance(&self) -> Option<&str> {
+        self.instance.as_deref()
+    }
+    fn context(&self) -> ErrorContext {
+        self.context.clone()
     }
 }
 
@@ -271,7 +315,7 @@ mod tests {
     #[test]
     fn report_serializes_schema_version_and_context() {
         let fault = SubstrateFault {
-            code: codes::LOCAL_HOOK_FAILED,
+            code: codes::LOCAL_HOOK_FAILED.into(),
             message: "setup hook exited with exit status: 1".into(),
             remediation: "re-run up".into(),
             context: Box::new(ErrorContext {
@@ -286,10 +330,10 @@ mod tests {
             }),
         };
         let report = Report::from_fault(&fault);
-        assert_eq!(report.schema_version, 1);
+        assert_eq!(report.schema_version, 2);
         assert_eq!(report.context.service.as_deref(), Some("web"));
         let json = serde_json::to_value(&report).unwrap();
-        assert_eq!(json["schema_version"], 1);
+        assert_eq!(json["schema_version"], 2);
         assert_eq!(json["context"]["command"], "mise install");
         assert_eq!(json["context"]["log_tail"], "error: trust denied");
     }

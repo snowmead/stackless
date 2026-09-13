@@ -8,7 +8,6 @@ pub mod registry;
 
 use std::path::Path;
 
-use stackless_core::def::StackDef;
 use stackless_core::substrate::{Observation, StepResource};
 use stackless_stripe_projects::project;
 use stackless_stripe_projects::stripe::{CommandRunner, StripeProjects};
@@ -23,12 +22,13 @@ pub use registry::{known_outputs, validate_all};
 pub async fn provision<R: CommandRunner>(
     substrate: &str,
     stripe: &StripeProjects<R>,
-    def: &StackDef,
+    ctx: &stackless_core::substrate::StepContext<'_>,
     definition_dir: &Path,
-    instance: &str,
-    name: &str,
     skip_stripe_instance_context: bool,
 ) -> Result<StepResource, IntegrationError> {
+    let def = ctx.def;
+    let name = ctx.step.node.as_str();
+    let instance = ctx.instance.resource_namespace;
     let spec = def
         .integrations
         .get(name)
@@ -46,8 +46,14 @@ pub async fn provision<R: CommandRunner>(
         location: format!("integrations.{name}"),
         detail: format!("no adapter for provider {:?}", spec.provider),
     })?;
-    let stripe = stripe.as_dyn();
-    let resource = ops
+    let kind = registry::dispatch_resource_kind(&spec.provider).ok_or_else(|| {
+        IntegrationError::ConfigInvalid {
+            location: format!("integrations.{name}"),
+            detail: "integration has no resource kind".into(),
+        }
+    })?;
+    let stripe = stripe.as_dyn().with_journal(ctx, substrate, kind);
+    let mut resource = ops
         .provision(
             &stripe,
             def,
@@ -58,7 +64,13 @@ pub async fn provision<R: CommandRunner>(
             skip_stripe_instance_context,
         )
         .await?;
+    if let Some(journal) = stripe.journal() {
+        journal.outputs(&resource, false)?;
+    }
     ops.apply(&stripe, def, name, substrate, &resource).await?;
+    if let Some(journal) = stripe.journal() {
+        resource.payload = journal.outputs(&resource, true)?;
+    }
     Ok(resource)
 }
 
@@ -70,6 +82,14 @@ pub async fn observe<R: CommandRunner>(
     resource_kind: &str,
 ) -> Result<Observation, IntegrationError> {
     let _ = substrate;
+    if serde_json::from_str::<serde_json::Value>(checkpoint_payload)
+        .ok()
+        .is_some_and(|value| value.get("_catalog_creation").is_some())
+    {
+        return Ok(
+            stackless_stripe_projects::journal::observe_payload(stripe, checkpoint_payload).await?,
+        );
+    }
     match registry::ops_for_resource_kind(resource_kind) {
         Some(ops) => ops
             .observe(&stripe.as_dyn(), checkpoint_payload, fallback_resource)

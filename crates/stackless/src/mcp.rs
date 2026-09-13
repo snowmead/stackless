@@ -15,7 +15,12 @@ use crate::verify;
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
 
-pub fn run_stdio_server() -> io::Result<()> {
+pub fn run_stdio_server(controller: Option<&str>) -> io::Result<()> {
+    let mut builder = Client::builder();
+    if let Some(target) = controller {
+        builder = builder.remote(target);
+    }
+    let client = builder.build().map_err(io::Error::other)?;
     let stdin = io::stdin();
     let mut stdout = io::stdout();
     for line in stdin.lock().lines() {
@@ -32,7 +37,7 @@ pub fn run_stdio_server() -> io::Result<()> {
                 continue;
             }
         };
-        if let Some(response) = handle_request(&request) {
+        if let Some(response) = handle_request(&request, &client) {
             write_response(&mut stdout, &response)?;
         }
     }
@@ -91,13 +96,13 @@ impl JsonRpcResponse {
     }
 }
 
-fn handle_request(request: &JsonRpcRequest) -> Option<JsonRpcResponse> {
+fn handle_request(request: &JsonRpcRequest, client: &Client) -> Option<JsonRpcResponse> {
     request.id.as_ref()?;
     let id = request.id.clone();
     match request.method.as_str() {
         "initialize" => Some(handle_initialize(id)),
         "tools/list" => Some(handle_tools_list(id)),
-        "tools/call" => Some(handle_tools_call(id, &request.params)),
+        "tools/call" => Some(handle_tools_call(id, &request.params, client)),
         "ping" => Some(JsonRpcResponse::ok(id, json!({}))),
         other => Some(JsonRpcResponse::error(
             id,
@@ -127,7 +132,7 @@ fn handle_tools_list(id: Option<Value>) -> JsonRpcResponse {
     JsonRpcResponse::ok(id, json!({ "tools": tool_definitions() }))
 }
 
-fn handle_tools_call(id: Option<Value>, params: &Value) -> JsonRpcResponse {
+fn handle_tools_call(id: Option<Value>, params: &Value, client: &Client) -> JsonRpcResponse {
     let name = match params.get("name").and_then(Value::as_str) {
         Some(name) => name,
         None => {
@@ -138,7 +143,7 @@ fn handle_tools_call(id: Option<Value>, params: &Value) -> JsonRpcResponse {
         .get("arguments")
         .cloned()
         .unwrap_or_else(|| json!({}));
-    match dispatch_tool(name, &arguments) {
+    match dispatch_tool(name, &arguments, client) {
         Ok(result) => JsonRpcResponse::ok(id, result),
         Err(message) => JsonRpcResponse::error(id, -32000, message),
     }
@@ -191,9 +196,11 @@ fn tool_definitions() -> Vec<ToolDefinition> {
                         "items": { "type": "string" },
                         "description": "Source pins: SERVICE or SERVICE=PATH"
                     },
+                    "allow_host_execution": { "type": "boolean", "description": "Explicitly grant this instance permission to run commands on the controller host" },
                     "dirty": { "type": "boolean", "description": "Snapshot --source pins (local-only)" },
                     "lease": { "type": "string", "description": "Lease duration, e.g. 8h" },
-                    "confirm_paid": { "type": "boolean", "description": "Consent to paid cloud resources" }
+                    "confirm_paid": { "type": "boolean", "description": "Consent to paid cloud resources" },
+                    "no_wait": { "type": "boolean", "description": "Return an operation ID immediately; reconnect with stackless_operation" }
                 }
             }),
         },
@@ -240,6 +247,16 @@ fn tool_definitions() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
+            name: "stackless_operation",
+            description: "Read durable operation status and progress after a cursor.",
+            input_schema: json!({"type":"object", "properties":{"id":{"type":"string"}, "after":{"type":"integer"}}, "required":["id"]}),
+        },
+        ToolDefinition {
+            name: "stackless_cancel_operation",
+            description: "Request cancellation at the next durable step boundary.",
+            input_schema: json!({"type":"object", "properties":{"id":{"type":"string"}}, "required":["id"]}),
+        },
+        ToolDefinition {
             name: "stackless_logs",
             description: "Tail captured service output for an instance.",
             input_schema: json!({
@@ -255,13 +272,12 @@ fn tool_definitions() -> Vec<ToolDefinition> {
     ]
 }
 
-fn dispatch_tool(name: &str, args: &Value) -> Result<Value, String> {
+fn dispatch_tool(name: &str, args: &Value, client: &Client) -> Result<Value, String> {
     match name {
         "stackless_check" => {
             let file = require_str(args, "file")?;
             let substrate = optional_str(args, "substrate");
             run_command(|output| {
-                let client = Client::system()?;
                 let outcome = client.check(&PathBuf::from(file), substrate.as_deref())?;
                 output::render_check(output, &PathBuf::from(file), &outcome)
             })
@@ -270,8 +286,7 @@ fn dispatch_tool(name: &str, args: &Value) -> Result<Value, String> {
             let file = optional_path(args, "file");
             let substrate = optional_str(args, "substrate");
             run_command(|output| {
-                let client = Client::system()?;
-                doctor::doctor(doctor::DoctorArgs { file, substrate }, output, &client)
+                doctor::doctor(doctor::DoctorArgs { file, substrate }, output, client)
             })
         }
         "stackless_up" => {
@@ -286,19 +301,28 @@ fn dispatch_tool(name: &str, args: &Value) -> Result<Value, String> {
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
             run_command_mut(|output| {
-                let client = Client::system()?;
-                let outcome = client.up_from_args_with_progress(
-                    UpArgs {
-                        name,
-                        file,
-                        on,
-                        sources,
-                        dirty,
-                        lease,
-                        confirm_paid,
-                    },
-                    Some(output),
-                )?;
+                let up_args = UpArgs {
+                    name,
+                    file,
+                    on,
+                    sources,
+                    dirty,
+                    allow_host_execution: args
+                        .get("allow_host_execution")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                    lease,
+                    confirm_paid,
+                };
+                if args
+                    .get("no_wait")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    output.operation(&client.submit_up_args(up_args)?);
+                    return Ok(());
+                }
+                let outcome = client.up_from_args_with_progress(up_args, Some(output))?;
                 output::render_up(output, &outcome);
                 Ok(())
             })
@@ -306,7 +330,6 @@ fn dispatch_tool(name: &str, args: &Value) -> Result<Value, String> {
         "stackless_down" => {
             let name = require_str(args, "name")?;
             run_command(|output| {
-                let client = Client::system()?;
                 let outcome = client.down(name)?;
                 output::render_down(output, &outcome);
                 Ok(())
@@ -315,26 +338,44 @@ fn dispatch_tool(name: &str, args: &Value) -> Result<Value, String> {
         "stackless_verify" => {
             let name = require_str(args, "name")?.to_owned();
             let tier = optional_str(args, "tier");
-            run_command(|output| {
-                let client = Client::system()?;
-                verify::verify(verify::VerifyArgs { name, tier }, output, &client)
-            })
+            run_command(|output| verify::verify(verify::VerifyArgs { name, tier }, output, client))
         }
         "stackless_status" => {
             let name = require_str(args, "name")?;
             run_command(|output| {
-                let client = Client::system()?;
                 let report = client.status(name)?;
-                output::render_status(output, &report, client.paths());
+                output::render_status(
+                    output,
+                    &report,
+                    client.controller_info()?.persistence_warning.as_deref(),
+                );
                 Ok(())
             })
         }
         "stackless_list" => run_command(|output| {
-            let client = Client::system()?;
             let reports = client.list()?;
-            output::render_list(output, &reports, client.paths());
+            output::render_list(
+                output,
+                &reports,
+                client.controller_info()?.persistence_warning.as_deref(),
+            );
             Ok(())
         }),
+        "stackless_operation" => {
+            let id = require_str(args, "id")?;
+            let after = args.get("after").and_then(Value::as_i64).unwrap_or(0);
+            run_command(|output| {
+                output.operation_result(&client.operation(id, after)?);
+                Ok(())
+            })
+        }
+        "stackless_cancel_operation" => {
+            let id = require_str(args, "id")?;
+            run_command(|output| {
+                output.operation(&client.cancel_operation(id)?);
+                Ok(())
+            })
+        }
         "stackless_logs" => {
             let name = require_str(args, "name")?;
             let service = optional_str(args, "service");
@@ -344,7 +385,6 @@ fn dispatch_tool(name: &str, args: &Value) -> Result<Value, String> {
                 .map(|n| n as usize)
                 .unwrap_or(100);
             run_command(|output| {
-                let client = Client::system()?;
                 let outcome = client.logs(name, service.as_deref(), tail)?;
                 output::render_logs(output, &outcome);
                 Ok(())
@@ -444,7 +484,7 @@ mod tests {
         assert!(names.contains(&"stackless_check"));
         assert!(names.contains(&"stackless_up"));
         assert!(names.contains(&"stackless_list"));
-        assert_eq!(tools.len(), 8);
+        assert_eq!(tools.len(), 10);
     }
 
     #[test]
@@ -457,7 +497,7 @@ mod tests {
 
     #[test]
     fn unknown_tool_returns_error_result() {
-        let err = dispatch_tool("nope", &json!({})).unwrap_err();
+        let err = dispatch_tool("nope", &json!({}), &Client::system().unwrap()).unwrap_err();
         assert!(err.contains("unknown tool"));
     }
 }

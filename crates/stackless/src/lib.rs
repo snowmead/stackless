@@ -26,6 +26,7 @@
 //! That path does not require a CLI on `PATH`.
 
 pub mod client;
+pub(crate) mod controller;
 pub mod error;
 
 pub mod cli;
@@ -47,11 +48,15 @@ pub(crate) mod verify;
 pub mod test_support;
 
 pub use client::{
-    CheckOutcome, Client, ClientBuilder, Create, DownOutcome, DownStatus, InstanceReport, LogEntry,
-    LogsOutcome, PaidConsent, Resume, ServiceStatus, UpOutcome, UpRequest, VerifyOutcome,
+    CheckOutcome, Client, ClientBuilder, Configuration, ControllerInfo, Create, DownOutcome,
+    DownStatus, EndpointStatus, Existence, InstanceReport, IntegrationStatus, LogEntry,
+    LogsOutcome, ObservedState, PaidConsent, Readiness, ResourceStatus, Resume, ServiceStatus,
+    UpOutcome, UpRequest, VerifyOutcome,
 };
 pub use error::Error;
+pub use stackless_core::def::placement::Placements;
 pub use stackless_core::paths::Paths;
+pub use stackless_core::security::SecretRef;
 
 #[cfg(feature = "test-support")]
 pub use test_support::{Environment, GuardPolicy, TestContext};

@@ -20,6 +20,15 @@ pub fn emit_typescript(idl: &InterfaceV1) -> Result<String, IdlError> {
         TsNames::from_dns,
         check_collisions,
     )?;
+    let endpoint_names = named_entries(
+        idl.body
+            .endpoints
+            .iter()
+            .map(|endpoint| endpoint.dns.as_str()),
+        IdentNamespace::Endpoint,
+        TsNames::from_dns,
+        check_collisions,
+    )?;
     let tier_names = named_entries(
         idl.body.verify.tiers.iter().map(|t| t.dns.as_str()),
         IdentNamespace::Tier,
@@ -118,11 +127,20 @@ pub fn emit_typescript(idl: &InterfaceV1) -> Result<String, IdlError> {
 
     out.push_str("export class BindError extends Error {\n");
     out.push_str("  constructor(\n");
-    out.push_str("    readonly reason: \"service\" | \"integration\" | \"output\",\n");
+    if endpoint_names.is_empty() {
+        out.push_str("    readonly reason: \"service\" | \"integration\" | \"output\",\n");
+    } else {
+        out.push_str(
+            "    readonly reason: \"endpoint\" | \"service\" | \"integration\" | \"output\",\n",
+        );
+    }
     out.push_str("    readonly dns: string,\n");
     out.push_str("    readonly outputKey?: string,\n");
     out.push_str("  ) {\n");
     out.push_str("    const message =\n");
+    if !endpoint_names.is_empty() {
+        out.push_str("      reason === \"endpoint\" ? `missing URL for endpoint ${dns}` :\n");
+    }
     out.push_str("      reason === \"service\"\n");
     out.push_str("        ? `missing origin for service ${dns}`\n");
     out.push_str("        : reason === \"integration\"\n");
@@ -152,6 +170,27 @@ pub fn emit_typescript(idl: &InterfaceV1) -> Result<String, IdlError> {
     }
     out.push_str("  };\n");
     out.push_str("}\n\n");
+
+    if !endpoint_names.is_empty() {
+        out.push_str("export type Endpoints = {\n");
+        for (_, names) in &endpoint_names {
+            out.push_str(&format!("  {}: string;\n", names.prop));
+        }
+        out.push_str(
+            "};\n\nexport function bindEndpoints(map: Record<string, string>): Endpoints {\n",
+        );
+        for (dns, names) in &endpoint_names {
+            out.push_str(&format!(
+                "  const {} = map[\"{}\"];\n  if ({} === undefined) throw new BindError(\"endpoint\", \"{}\");\n",
+                names.prop, escape_str(dns), names.prop, escape_str(dns)
+            ));
+        }
+        out.push_str("  return {\n");
+        for (_, names) in &endpoint_names {
+            out.push_str(&format!("    {}: {},\n", names.prop, names.prop));
+        }
+        out.push_str("  };\n}\n\n");
+    }
 
     out.push_str(
         "export function bindIntegrations(map: Record<string, Record<string, string>>): Integrations {\n",

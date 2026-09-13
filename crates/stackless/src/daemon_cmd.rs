@@ -9,13 +9,22 @@ use clap::Subcommand;
 use stackless_core::paths::Paths;
 use stackless_core::types::{ProxyHost, TcpPort};
 use stackless_daemon::rpc::{Request, ResponseBody};
-use stackless_daemon::{DaemonClient, DaemonRole, proxy, server};
+use stackless_daemon::{DaemonClient, DaemonRole, proxy};
 
 use crate::error::Error;
 use crate::output::Output;
 
 #[derive(Subcommand)]
 pub enum DaemonCommand {
+    /// Internal privileged CLI deadline and output runner.
+    #[command(hide = true)]
+    Helper,
+    /// Internal service runner with bounded log retention.
+    #[command(hide = true)]
+    Workload,
+    /// Lifecycle RPC bridge for authenticated SSH clients.
+    #[command(hide = true)]
+    RemoteControl,
     /// Run the daemon in the foreground (what spawn-on-demand starts).
     Run {
         /// State root (default: `$XDG_STATE_HOME/stackless`).
@@ -27,6 +36,9 @@ pub enum DaemonCommand {
         /// Skip launchd registration and the lease reaper (test / SDK embeds).
         #[arg(long)]
         embedded: bool,
+        /// Run under stackless-controller.service and keep the lease reaper enabled.
+        #[arg(long, conflicts_with = "embedded")]
+        systemd_user: bool,
     },
     /// Liveness + version probe; spawns the daemon if needed.
     Ping,
@@ -42,10 +54,14 @@ pub enum DaemonCommand {
 
 pub fn run(command: DaemonCommand, output: &Output) -> Result<(), Error> {
     match command {
+        DaemonCommand::Helper => stackless_core::helper_command::serve().map_err(Error::Runtime),
+        DaemonCommand::Workload => stackless_local::logging::run().map_err(Error::Runtime),
+        DaemonCommand::RemoteControl => crate::client::remote::serve_stdio(),
         DaemonCommand::Run {
             state_dir,
             proxy_port,
             embedded,
+            systemd_user,
         } => {
             let paths = match state_dir {
                 Some(dir) => Paths::new(dir),
@@ -58,14 +74,16 @@ pub fn run(command: DaemonCommand, output: &Output) -> Result<(), Error> {
                 })?,
                 None => proxy::proxy_port(),
             };
-            let role = if embedded {
+            let role = if systemd_user {
+                DaemonRole::SystemdUser
+            } else if embedded {
                 DaemonRole::Embedded
             } else {
                 DaemonRole::Operator
             };
             let runtime = tokio::runtime::Runtime::new().map_err(Error::Runtime)?;
             runtime
-                .block_on(server::run_with(&paths, port, role))
+                .block_on(crate::controller::run(&paths, port, role))
                 .map_err(Error::Runtime)?;
             Ok(())
         }

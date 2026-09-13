@@ -1,12 +1,6 @@
 use stackless_core::substrate::Observation;
 
-/// One provider-side setting that differs from what the checkpoint records.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Drift {
-    pub setting: String,
-    pub expected: String,
-    pub actual: String,
-}
+pub use stackless_core::substrate::SettingDrift as Drift;
 
 /// What an integration resource looks like when re-checked beyond Stripe
 /// registration. Providers return empty drift until a check-time surface
@@ -18,10 +12,11 @@ pub enum IntegrationObservation {
 }
 
 impl IntegrationObservation {
-    /// Reduce to the substrate/engine boundary type (drift is dropped for now).
+    /// Preserve configuration drift at the engine boundary.
     pub fn into_substrate(self) -> Observation {
         match self {
-            Self::Present { .. } => Observation::Present,
+            Self::Present { drift } if drift.is_empty() => Observation::Present,
+            Self::Present { drift } => Observation::Drifted { settings: drift },
             Self::Gone => Observation::Gone,
         }
     }

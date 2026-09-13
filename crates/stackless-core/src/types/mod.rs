@@ -91,9 +91,10 @@ pub struct ProtocolVersion(u32);
 
 impl ProtocolVersion {
     pub const V1: Self = Self(1);
+    pub const V2: Self = Self(2);
 
     pub fn try_new(raw: u32) -> Result<Self, TypeError> {
-        if raw == Self::V1.0 {
+        if raw == Self::V1.0 || raw == Self::V2.0 {
             Ok(Self(raw))
         } else {
             Err(TypeError::InvalidProtocolVersion { value: raw })

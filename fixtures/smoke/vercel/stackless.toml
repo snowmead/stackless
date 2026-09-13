@@ -17,3 +17,6 @@ health      = { path = "/", contains = "stackless-smoke-ok" }
 [services.web.vercel]
 deploy = "upload"              # upload files directly (no Vercel<->GitHub connection)
 root   = "fixtures/smoke/site"
+# Static uploads can skip the build and produce no build logs.
+build  = "printf 'stackless-smoke-build-ok\\n'"
+output = "."

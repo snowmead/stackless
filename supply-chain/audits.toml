@@ -1,4 +1,14 @@
 
 # cargo-vet audits file
 
-[audits]
+[[audits.anyhow]]
+who = "Codex (automated differential review)"
+criteria = "safe-to-deploy"
+delta = "1.0.102 -> 1.0.103"
+notes = "Reviewed the registry source and manifest delta. Context downcasts derive raw field addresses without creating an intermediate shared reference, fixing RUSTSEC-2026-0190. TypeId guards and allocation ownership are unchanged; added tests mutate every context level and verify drops. Build script and runtime dependencies are unchanged. Differential review only; the baseline remains exempted."
+
+[[audits.h2]]
+who = "Codex (automated differential review)"
+criteria = "safe-to-deploy"
+delta = "0.4.14 -> 0.4.16"
+notes = "Reviewed the registry source and manifest delta: bounded DATA-frame accounting, header limits, padding arithmetic, stream reset and wakeup handling, write-zero handling, lock release during IO, and HPACK buffer and decoder changes. Verified all 3840 generated Huffman decode entries against the unchanged 257-symbol encoding table. No new runtime dependencies or external IO authority. Differential review only; the baseline remains exempted."

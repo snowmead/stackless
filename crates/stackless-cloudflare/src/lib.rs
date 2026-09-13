@@ -35,10 +35,16 @@ pub mod api_key;
 pub mod codes;
 pub mod config;
 pub mod error;
+mod lifecycle;
+#[cfg(test)]
+mod lifecycle_tests;
 pub mod workers_api;
 
+use stackless_core::substrate::InstanceContext;
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::Path;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -47,7 +53,7 @@ use stackless_core::def::{Namespace, StackDef};
 use stackless_core::engine::StepKind;
 use stackless_core::state::Checkpoint;
 use stackless_core::substrate::{
-    NamespacePurpose, Observation, ServiceLog, StepContext, StepResource, Substrate, SubstrateFault,
+    NamespacePurpose, Observation, StepContext, StepResource, Substrate, SubstrateFault,
 };
 use tokio::sync::Mutex;
 
@@ -110,13 +116,10 @@ struct CloudflarePayload {
     script_etag: String,
     #[serde(default)]
     script_modified_on: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct SourceRefPayload {
-    repo: String,
-    #[serde(rename = "ref")]
-    reference: String,
+    #[serde(default)]
+    owner_tag: Option<String>,
+    #[serde(default)]
+    revision: Option<String>,
 }
 
 pub struct CloudflareSubstrate<R: CommandRunner = TokioRunner> {
@@ -183,38 +186,46 @@ impl<R: CommandRunner> CloudflareSubstrate<R> {
         }
     }
 
-    fn resource_name(def: &StackDef, instance: &str, node: &str) -> String {
-        format!("{}-{instance}-{node}", def.stack.name.as_str())
+    fn resource_name(def: &StackDef, instance: &InstanceContext<'_>, node: &str) -> String {
+        instance.provider_resource_name(def.stack.name.as_str(), node)
     }
 
-    fn origin(worker_name: &str, workers_dev_subdomain: Option<&str>) -> String {
-        match workers_dev_subdomain.filter(|s| !s.is_empty()) {
-            Some(subdomain) => format!("https://{worker_name}.{subdomain}.workers.dev"),
-            None => format!("https://{worker_name}.workers.dev"),
-        }
+    fn origin(worker_name: &str, workers_dev_subdomain: &str) -> String {
+        format!("https://{worker_name}.{workers_dev_subdomain}.workers.dev")
     }
 
-    fn namespace(&self, def: &StackDef, instance: &str, prior: &[Checkpoint]) -> Namespace {
+    fn namespace(
+        &self,
+        def: &StackDef,
+        instance: &InstanceContext<'_>,
+        prior: &[Checkpoint],
+    ) -> Namespace {
         let mut namespace = Namespace {
             stack_name: def.stack.name.clone(),
-            instance_name: stackless_core::types::DnsName::from_stored(instance),
+            instance_name: stackless_core::types::DnsName::from_stored(instance.name),
             ..Namespace::default()
         };
         for service in def.services.keys() {
-            let name = Self::resource_name(def, instance, service);
-            namespace
-                .service_origins
-                .insert(service.clone(), Self::origin(&name, None));
+            if let Some(origin) = prior
+                .iter()
+                .find(|cp| cp.step_id == format!("start:{service}"))
+                .and_then(|cp| serde_json::from_str::<CloudflarePayload>(&cp.payload).ok())
+                .map(|payload| payload.origin)
+                .filter(|origin| !origin.is_empty())
+            {
+                namespace.service_origins.insert(service.clone(), origin);
+            }
         }
-        namespace.secrets = self.secrets.clone();
+        namespace.secrets = stackless_core::security::application_secrets(&self.secrets);
         namespace.add_integration_checkpoints(prior);
+        instance.bind_namespace(&mut namespace, def);
         namespace
     }
 
     async fn ensure_project_and_env(
         &self,
         def: &StackDef,
-        instance: &str,
+        instance: &InstanceContext<'_>,
     ) -> Result<(), SubstrateFault> {
         let mut done = self.ensured.lock().await;
         if *done {
@@ -225,7 +236,7 @@ impl<R: CommandRunner> CloudflareSubstrate<R> {
             &self.stripe(),
             def,
             &self.definition_dir,
-            instance,
+            instance.resource_namespace,
             spend,
         )
         .await
@@ -245,13 +256,13 @@ impl<R: CommandRunner> CloudflareSubstrate<R> {
 
     async fn cloudflare_api_token(
         &self,
-        instance: &str,
+        instance: &InstanceContext<'_>,
         stripe_resource: &str,
     ) -> Result<String, SubstrateFault> {
         let resource_prefix = stripe_resource.to_ascii_uppercase().replace('-', "_");
         let resource_key = format!("{resource_prefix}_CLOUDFLARE_API_TOKEN");
         let keys = [resource_key.as_str(), "CLOUDFLARE_API_TOKEN"];
-        let pulled = project::pull_env_values(&self.stripe(), instance, &keys)
+        let pulled = project::pull_env_values(&self.stripe(), instance.resource_namespace, &keys)
             .await
             .map_err(projects_fault)?;
         if let Some(token) = pulled
@@ -264,24 +275,27 @@ impl<R: CommandRunner> CloudflareSubstrate<R> {
         api_key::resolve(&self.definition_dir, &self.secrets).map_err(fault)
     }
 
-    async fn start_service(
-        &self,
-        def: &StackDef,
-        instance: &str,
-        service: &str,
-    ) -> Result<StepResource, SubstrateFault> {
+    async fn start_service(&self, ctx: &StepContext<'_>) -> Result<StepResource, SubstrateFault> {
+        let def = ctx.def;
+        let instance = ctx.instance;
+        let service = ctx.step.node.as_str();
+        let stripe = self.stripe().with_shared_catalog_journal(
+            ctx,
+            SUBSTRATE_NAME,
+            lifecycle::CATALOG_KIND,
+            "cloudflare/workers",
+        );
         let cloudflare_cfg = config::service_cloudflare(def, service).map_err(fault)?;
         let worker_name = Self::resource_name(def, instance, service);
-        let resource = format!("{instance}-{service}");
-        let spec = def.services.get(service).ok_or_else(|| {
+        let resource = instance.resource_name(service);
+        let _spec = def.services.get(service).ok_or_else(|| {
             fault(CloudflareHostError::ConfigInvalid {
                 location: format!("services.{service}"),
                 detail: "service not in definition".into(),
             })
         })?;
 
-        let catalog = self
-            .stripe()
+        let catalog = stripe
             .catalog_for::<CloudflareWorkersConfig>()
             .await
             .map_err(projects_fault)?;
@@ -289,18 +303,18 @@ impl<R: CommandRunner> CloudflareSubstrate<R> {
         if requires_confirmation(&catalog, &cfg).unwrap_or(false) {
             self.require_confirm_paid(&resource)?;
         }
-        let ctx = ProvisionContext {
+        let provision_ctx = ProvisionContext {
             def,
-            instance,
+            instance: instance.resource_namespace,
             logical_name: service,
             definition_dir: &self.definition_dir,
             substrate: SUBSTRATE_NAME,
             skip_instance_context: true,
         };
         let (_resource_name, outputs) = provision_outputs(
-            &self.stripe(),
+            &stripe,
             &catalog,
-            &ctx,
+            &provision_ctx,
             &cfg,
             PROVIDER_PREFIX,
             stackless_integrations::providers::cloudflare::WORKERS_FAMILY_OUTPUT_FIELDS,
@@ -313,41 +327,60 @@ impl<R: CommandRunner> CloudflareSubstrate<R> {
                 detail: "cloudflare/workers did not return an account id".into(),
             })
         })?;
-        let workers_dev_subdomain = outputs.get("workers_dev_subdomain").cloned();
+        let workers_dev_subdomain = outputs
+            .get("workers_dev_subdomain")
+            .filter(|subdomain| stackless_core::types::dns_safe(subdomain))
+            .cloned()
+            .ok_or_else(|| {
+                fault(CloudflareHostError::ProvisionFailed {
+                    resource: resource.clone(),
+                    detail: "cloudflare/workers did not return a valid workers.dev subdomain"
+                        .into(),
+                })
+            })?;
+        let catalog_resource = StepResource {
+            resource_kind: lifecycle::CATALOG_KIND.into(),
+            resource_id: resource.clone(),
+            payload: serde_json::json!({"stripe_resource":resource,"outputs":outputs}).to_string(),
+        };
+        stripe
+            .journal()
+            .ok_or_else(|| {
+                projects_fault(ProjectsError::Journal {
+                    detail: "hosting journal missing".into(),
+                })
+            })?
+            .outputs(&catalog_resource, true)
+            .map_err(projects_fault)?;
+        let parent = format!("catalog:cloudflare/workers:{resource}");
+        let mut attempt =
+            lifecycle::WorkerAttempt::begin(ctx, account_id, &worker_name, &resource, &parent)?;
 
         let token = self.cloudflare_api_token(instance, &resource).await?;
         let api = self.workers_api_with_token(&token);
 
-        let repo = spec.source.repo.clone();
-        let reference = spec.source.reference.clone();
-        let root = cloudflare_cfg.root.clone();
-        let bundle = tokio::task::spawn_blocking(move || {
-            collect_worker_bundle(&repo, &reference, root.as_deref())
-        })
-        .await
-        .map_err(|err| {
-            fault(CloudflareHostError::ProvisionFailed {
-                resource: resource.clone(),
-                detail: format!("source collection task panicked: {err}"),
-            })
-        })?
-        .map_err(fault)?;
+        let source = stackless_cloud::source::recorded(ctx.prior, service)?;
+        let archive = source.archive(cloudflare_cfg.root.as_deref())?;
+        let bundle = worker_bundle_from_archive(archive).map_err(fault)?;
 
-        let deploy_info = api
-            .put_script(
+        let revision = stackless_core::engine::revision::digest(&(
+            self.step_revision(ctx)?,
+            &bundle.main_module,
+            &bundle.script,
+        ))?;
+        let api = api.with_ownership(&attempt.payload.owner_tag, &revision);
+        if attempt.needs_upload(&api, &revision).await? {
+            attempt.submit(&revision)?;
+            api.put_script(
                 account_id,
                 &worker_name,
                 &bundle.main_module,
                 &bundle.script,
             )
             .await
-            .map_err(|err| match err {
-                CloudflareHostError::ApiFailed { .. } => fault(CloudflareHostError::DeployFailed {
-                    service: service.to_owned(),
-                    detail: err.to_string(),
-                }),
-                other => fault(other),
-            })?;
+            .map_err(fault)?;
+        }
+        let deploy_info = attempt.uploaded(&api, &revision).await?;
 
         api.enable_workers_dev(account_id, &worker_name)
             .await
@@ -359,16 +392,19 @@ impl<R: CommandRunner> CloudflareSubstrate<R> {
                 other => fault(other),
             })?;
 
-        let origin = Self::origin(&worker_name, workers_dev_subdomain.as_deref());
+        attempt.ready()?;
+        let origin = Self::origin(&worker_name, &workers_dev_subdomain);
         let payload = CloudflarePayload {
             stripe_resource: resource,
             account_id: account_id.clone(),
-            workers_dev_subdomain: workers_dev_subdomain.clone(),
+            workers_dev_subdomain: Some(workers_dev_subdomain.clone()),
             worker_name: worker_name.clone(),
             origin: origin.clone(),
             script_id: deploy_info.id.clone(),
             script_etag: deploy_info.etag.clone(),
             script_modified_on: deploy_info.modified_on.clone(),
+            owner_tag: Some(attempt.payload.owner_tag.clone()),
+            revision: Some(revision),
         };
         Ok(StepResource {
             resource_kind: "cloudflare-worker".into(),
@@ -377,32 +413,24 @@ impl<R: CommandRunner> CloudflareSubstrate<R> {
         })
     }
 
-    async fn run_prepare(
-        &self,
-        def: &StackDef,
-        instance: &str,
-        service: &str,
-        prior: &[Checkpoint],
-    ) -> Result<(), SubstrateFault> {
-        let Some(spec) = def.services.get(service) else {
-            return Ok(());
-        };
-        let namespace = self.namespace(def, instance, prior);
-        stackless_cloud::prepare::run_service_prepare(
-            &namespace,
+    async fn run_hook(&self, ctx: &StepContext<'_>) -> Result<StepResource, SubstrateFault> {
+        stackless_cloud::prepare::run_snapshot_hook(
+            ctx,
+            &self.definition_dir,
+            &self.namespace(ctx.def, ctx.instance, ctx.prior),
             &self.secrets,
-            service,
             SUBSTRATE_NAME,
-            spec,
         )
         .await
-        .map_err(prepare_fault)
+        .map_err(|failure| {
+            stackless_cloud::prepare::hook_fault(ctx.step.kind, failure, prepare_fault)
+        })
     }
 
     async fn health_gate(
         &self,
         def: &StackDef,
-        instance: &str,
+        _instance: &InstanceContext<'_>,
         service: &str,
         prior: &[Checkpoint],
     ) -> Result<(), SubstrateFault> {
@@ -419,13 +447,21 @@ impl<R: CommandRunner> CloudflareSubstrate<R> {
             })
             .and_then(|c| serde_json::from_str::<CloudflarePayload>(&c.payload).ok())
             .map(|p| p.origin)
-            .filter(|o| !o.trim().is_empty())
-            .unwrap_or_else(|| Self::origin(&Self::resource_name(def, instance, service), None));
-        let url = format!("{origin}{}", spec.health.path);
+            .filter(|origin| !origin.trim().is_empty())
+            .ok_or_else(|| {
+                fault(CloudflareHostError::ConfigInvalid {
+                    location: format!("services.{service}.health"),
+                    detail: "deployment has no recorded provider endpoint".into(),
+                })
+            })?;
+        let Some(health) = &spec.health else {
+            return Ok(());
+        };
+        let url = format!("{origin}{}", health.path);
         stackless_cloud::health::poll(
             &url,
-            spec.health.status.get(),
-            spec.health.contains.as_deref(),
+            health.status.get(),
+            health.contains.as_deref(),
             HEALTH_BUDGET,
         )
         .await
@@ -440,69 +476,48 @@ impl<R: CommandRunner> CloudflareSubstrate<R> {
     }
 }
 
-fn collect_worker_bundle(
-    repo: &str,
-    reference: &str,
-    root: Option<&str>,
-) -> Result<WorkerBundle, CloudflareHostError> {
-    let provision_fault = |detail: String| CloudflareHostError::ProvisionFailed {
-        resource: repo.to_owned(),
-        detail,
-    };
-    let tmp = tempfile::tempdir().map_err(|err| provision_fault(format!("tempdir: {err}")))?;
-    stackless_git::clone_checkout(
-        repo,
-        reference,
-        tmp.path(),
-        &stackless_git::Credentials::default(),
-    )
-    .map_err(|err| provision_fault(format!("clone {repo}@{reference} failed: {err}")))?;
-    let base = match root {
-        Some(root) => tmp.path().join(root),
-        None => tmp.path().to_path_buf(),
-    };
-    if !base.is_dir() {
-        return Err(provision_fault(format!(
-            "upload root {:?} not found in {repo}@{reference}",
-            root.unwrap_or(".")
-        )));
-    }
-    if let Some(bundle) = read_existing_worker(&base)? {
-        return Ok(bundle);
-    }
-    let index = base.join("index.html");
-    if !index.is_file() {
-        return Err(provision_fault(format!(
-            "no worker.js/worker.mjs or index.html under {:?}",
-            root.unwrap_or(".")
-        )));
-    }
-    let html = std::fs::read_to_string(&index)
-        .map_err(|err| provision_fault(format!("read index.html: {err}")))?;
-    let (main_module, script) = module_worker_for_html(&html);
-    Ok(WorkerBundle {
-        main_module,
-        script,
-    })
+#[cfg(test)]
+fn worker_bundle_from_dir(base: &Path) -> Result<WorkerBundle, CloudflareHostError> {
+    let archive =
+        stackless_core::source_archive::SourceArchive::capture_beneath(base, Path::new("."))
+            .map_err(|e| CloudflareHostError::ProvisionFailed {
+                resource: base.display().to_string(),
+                detail: e.to_string(),
+            })?;
+    worker_bundle_from_archive(archive)
 }
 
-fn read_existing_worker(base: &Path) -> Result<Option<WorkerBundle>, CloudflareHostError> {
-    let provision_fault = |detail: String| CloudflareHostError::ProvisionFailed {
-        resource: base.display().to_string(),
+fn worker_bundle_from_archive(
+    archive: stackless_core::source_archive::SourceArchive,
+) -> Result<WorkerBundle, CloudflareHostError> {
+    use base64::Engine as _;
+    let fail = |detail: String| CloudflareHostError::ProvisionFailed {
+        resource: "worker source".into(),
         detail,
     };
-    for name in ["worker.mjs", "worker.js"] {
-        let path = base.join(name);
-        if path.is_file() {
-            let script = std::fs::read(&path)
-                .map_err(|err| provision_fault(format!("read {name}: {err}")))?;
-            return Ok(Some(WorkerBundle {
-                main_module: name.to_owned(),
-                script,
-            }));
+    for name in ["worker.mjs", "worker.js", "index.html"] {
+        if let Some(file) = archive.files.iter().find(|file| file.path == name) {
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(&file.contents)
+                .map_err(|e| fail(e.to_string()))?;
+            if name == "index.html" {
+                let html =
+                    String::from_utf8(bytes).map_err(|_| fail("index.html is not UTF-8".into()))?;
+                let (main_module, script) = module_worker_for_html(&html);
+                return Ok(WorkerBundle {
+                    main_module,
+                    script,
+                });
+            }
+            return Ok(WorkerBundle {
+                main_module: name.into(),
+                script: bytes,
+            });
         }
     }
-    Ok(None)
+    Err(fail(
+        "source contains no worker.mjs, worker.js, or index.html".into(),
+    ))
 }
 
 #[async_trait]
@@ -511,19 +526,20 @@ impl<R: CommandRunner> Substrate for CloudflareSubstrate<R> {
         SUBSTRATE_NAME
     }
 
+    fn capabilities(&self) -> stackless_core::capabilities::Capabilities {
+        stackless_core::capabilities::Capabilities::cloud(false, false)
+    }
+
     fn validate_definition(&self, def: &StackDef) -> Result<(), SubstrateFault> {
         for service in def.services.keys() {
-            config::service_cloudflare(def, service).map_err(fault)?;
-            let worker_name = Self::resource_name(def, "i", service);
-            if !config::is_valid_worker_name(&worker_name) {
-                return Err(fault(CloudflareHostError::ConfigInvalid {
-                    location: format!("services.{service}"),
-                    detail: format!(
-                        "derived Cloudflare worker name {worker_name:?} is not DNS-safe; \
-                         shorten the stack/service name"
-                    ),
-                }));
+            if def.services[service]
+                .on
+                .as_deref()
+                .is_some_and(|on| on != SUBSTRATE_NAME)
+            {
+                continue;
             }
+            config::service_cloudflare(def, service).map_err(fault)?;
         }
         Ok(())
     }
@@ -536,63 +552,72 @@ impl<R: CommandRunner> Substrate for CloudflareSubstrate<R> {
         Duration::from_secs(8 * 3600)
     }
 
-    fn service_origin(&self, def: &StackDef, instance: &str, service: &str) -> String {
-        Self::origin(&Self::resource_name(def, instance, service), None)
-    }
-
     fn build_namespace(
         &self,
         def: &StackDef,
-        instance: &str,
+        instance: &InstanceContext<'_>,
         prior: &[Checkpoint],
         secrets: &BTreeMap<String, String>,
         _purpose: NamespacePurpose,
     ) -> Namespace {
         let mut namespace = self.namespace(def, instance, prior);
-        namespace.secrets = secrets.clone();
+        namespace.secrets = stackless_core::security::application_secrets(secrets);
         namespace
     }
 
+    fn step_revision(&self, ctx: &StepContext<'_>) -> Result<String, SubstrateFault> {
+        let definition = stackless_core::engine::revision::step_revision(ctx, self)?;
+        if matches!(
+            ctx.step.kind,
+            StepKind::Start | StepKind::Setup | StepKind::Prepare
+        ) {
+            stackless_core::engine::revision::digest(&(
+                definition,
+                stackless_core::security::application_secrets(&self.secrets),
+            ))
+        } else {
+            Ok(definition)
+        }
+    }
+
+    fn refresh_each_operation(&self, step: &stackless_core::engine::Step) -> bool {
+        matches!(
+            step.kind,
+            StepKind::Materialize | StepKind::Prepare | StepKind::HealthGate
+        )
+    }
+
     async fn execute(&self, ctx: StepContext<'_>) -> Result<StepResource, SubstrateFault> {
+        stackless_cloud::prepare::durable::require_host_grant(&ctx)?;
         self.ensure_project_and_env(ctx.def, ctx.instance).await?;
 
         let node = ctx.step.node.as_str();
         match ctx.step.kind {
+            StepKind::RunJob => Err(stackless_core::capabilities::unsupported_feature(
+                SUBSTRATE_NAME,
+                &ctx.step.node,
+                "jobs",
+            )),
             StepKind::ProvisionIntegration => stackless_integrations::provision(
                 SUBSTRATE_NAME,
                 &self.stripe(),
-                ctx.def,
+                &ctx,
                 &self.definition_dir,
-                ctx.instance,
-                node,
                 true,
             )
             .await
             .map_err(integration_fault),
             StepKind::Materialize => {
-                let spec = ctx.def.services.get(node).ok_or_else(|| {
-                    fault(CloudflareHostError::ConfigInvalid {
-                        location: format!("services.{node}"),
-                        detail: "service not in definition".into(),
-                    })
-                })?;
-                let payload = SourceRefPayload {
-                    repo: spec.source.repo.clone(),
-                    reference: spec.source.reference.clone(),
-                };
-                Ok(StepResource {
-                    resource_kind: "source-ref".into(),
-                    resource_id: format!("{}@{}", spec.source.repo, spec.source.reference),
-                    payload: serde_json::to_string(&payload).unwrap_or_default(),
-                })
+                stackless_cloud::source::materialize(
+                    &ctx,
+                    &self.definition_dir,
+                    SUBSTRATE_NAME,
+                    &self.secrets,
+                )
+                .await
             }
-            StepKind::Setup => Ok(stackless_core::substrate::action_resource(&ctx.step.id)),
-            StepKind::Prepare => {
-                self.run_prepare(ctx.def, ctx.instance, node, ctx.prior)
-                    .await?;
-                Ok(stackless_core::substrate::action_resource(&ctx.step.id))
-            }
-            StepKind::Start => self.start_service(ctx.def, ctx.instance, node).await,
+            StepKind::Setup | StepKind::Prepare => self.run_hook(&ctx).await,
+            StepKind::Start => self.start_service(&ctx).await,
             StepKind::HealthGate => {
                 self.health_gate(ctx.def, ctx.instance, node, ctx.prior)
                     .await?;
@@ -603,10 +628,19 @@ impl<R: CommandRunner> Substrate for CloudflareSubstrate<R> {
 
     async fn observe(
         &self,
-        _instance: &str,
+        instance: &InstanceContext<'_>,
         checkpoint: &Checkpoint,
     ) -> Result<Observation, SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
+            stackless_cloud::prepare::durable::KIND => stackless_cloud::prepare::durable::observe(
+                &self.definition_dir,
+                instance,
+                SUBSTRATE_NAME,
+                checkpoint,
+            ),
+            stackless_cloud::source::KIND => {
+                stackless_cloud::source::observe(&self.definition_dir, instance, checkpoint)
+            }
             "cloudflare-worker" => {
                 let payload = stackless_cloud::checkpoint::parse_payload::<CloudflarePayload>(
                     &checkpoint.payload,
@@ -617,6 +651,52 @@ impl<R: CommandRunner> Substrate for CloudflareSubstrate<R> {
                         detail,
                     })
                 })?;
+                if let Some(payload) = &payload
+                    && let Some(owner_tag) = &payload.owner_tag
+                {
+                    if owner_tag != &format!("stackless-owner:{}", instance.id) {
+                        return Err(projects_fault(ProjectsError::Journal {
+                            detail: "worker checkpoint has a foreign owner".into(),
+                        }));
+                    }
+                    let token = self
+                        .cloudflare_api_token(instance, &payload.stripe_resource)
+                        .await?;
+                    let api = self.workers_api_with_token(&token);
+                    let Some(settings) = api
+                        .settings(&payload.account_id, &payload.worker_name)
+                        .await
+                        .map_err(fault)?
+                    else {
+                        return Ok(Observation::Gone);
+                    };
+                    if !settings.tags.contains(owner_tag)
+                        || settings
+                            .tags
+                            .iter()
+                            .any(|tag| tag.starts_with("stackless-owner:") && tag != owner_tag)
+                    {
+                        return Err(projects_fault(ProjectsError::Journal {
+                            detail: "worker has a foreign or missing ownership tag".into(),
+                        }));
+                    }
+                    let actual = settings
+                        .annotations
+                        .get("workers/tag")
+                        .cloned()
+                        .unwrap_or_default();
+                    return Ok(if payload.revision.as_deref() == Some(&actual) {
+                        Observation::Present
+                    } else {
+                        Observation::Drifted {
+                            settings: vec![stackless_core::substrate::SettingDrift {
+                                setting: "worker.revision".into(),
+                                expected: payload.revision.clone().unwrap_or_default(),
+                                actual,
+                            }],
+                        }
+                    });
+                }
                 let stripe_resource = payload
                     .map(|p| p.stripe_resource)
                     .unwrap_or_else(|| checkpoint.resource_id.clone());
@@ -648,10 +728,13 @@ impl<R: CommandRunner> Substrate for CloudflareSubstrate<R> {
 
     async fn destroy(
         &self,
-        _instance: &str,
+        instance: &InstanceContext<'_>,
         checkpoint: &Checkpoint,
     ) -> Result<(), SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
+            stackless_cloud::source::KIND => {
+                stackless_cloud::source::destroy(&self.definition_dir, instance, checkpoint)
+            }
             "cloudflare-worker" => {
                 let payload = stackless_cloud::checkpoint::parse_payload::<CloudflarePayload>(
                     &checkpoint.payload,
@@ -688,8 +771,108 @@ impl<R: CommandRunner> Substrate for CloudflareSubstrate<R> {
         }
     }
 
-    async fn finalize_teardown(&self, instance: &str) -> Result<(), SubstrateFault> {
-        stackless_integrations::finalize_stripe_instance(&self.stripe(), instance).await;
+    async fn destroy_record(
+        &self,
+        store: &stackless_core::state::Store,
+        instance: &InstanceContext<'_>,
+        record: &stackless_core::state::ResourceRecord,
+    ) -> Result<(), SubstrateFault> {
+        if record.resource_kind == stackless_cloud::prepare::durable::KIND {
+            return stackless_cloud::prepare::durable::destroy_record(
+                &self.definition_dir,
+                store,
+                instance,
+                SUBSTRATE_NAME,
+                record,
+            )
+            .await;
+        }
+        if record.resource_kind == lifecycle::SCRIPT_KIND {
+            let mut attempt = lifecycle::WorkerAttempt::load(store, record)?;
+            if attempt.payload.submitted_revision.is_none() {
+                store
+                    .resource_absent(instance.id, &record.key)
+                    .map_err(|e| SubstrateFault::from_fault(&e))?;
+                return Ok(());
+            }
+            let token = self
+                .cloudflare_api_token(instance, &attempt.payload.stripe_resource)
+                .await?;
+            return attempt.destroy(&self.workers_api_with_token(&token)).await;
+        }
+        if serde_json::from_str::<serde_json::Value>(&record.payload)
+            .ok()
+            .is_some_and(|value| value.get("_catalog_creation").is_some())
+        {
+            return stackless_stripe_projects::journal::destroy_record(
+                &self.stripe(),
+                store,
+                record,
+            )
+            .await
+            .map_err(projects_fault);
+        }
+        self.destroy(instance, &record.checkpoint(instance.name))
+            .await
+    }
+
+    async fn observe_record(
+        &self,
+        store: &stackless_core::state::Store,
+        instance: &InstanceContext<'_>,
+        record: &stackless_core::state::ResourceRecord,
+    ) -> Result<Observation, SubstrateFault> {
+        if record.resource_kind == stackless_cloud::prepare::durable::KIND {
+            return stackless_cloud::prepare::durable::observe_record(
+                &self.definition_dir,
+                store,
+                instance,
+                SUBSTRATE_NAME,
+                record,
+            );
+        }
+        let current = store
+            .resource(instance.id, &record.key)
+            .map_err(|e| SubstrateFault::from_fault(&e))?
+            .ok_or_else(|| {
+                projects_fault(ProjectsError::Journal {
+                    detail: "resource disappeared".into(),
+                })
+            })?;
+        if current.phase == stackless_core::state::ResourcePhase::Absent {
+            return Ok(Observation::Gone);
+        }
+        if current.resource_kind == lifecycle::SCRIPT_KIND {
+            let attempt = lifecycle::WorkerAttempt::load(store, &current)?;
+            let token = self
+                .cloudflare_api_token(instance, &attempt.payload.stripe_resource)
+                .await?;
+            return attempt.observe(&self.workers_api_with_token(&token)).await;
+        }
+        if serde_json::from_str::<serde_json::Value>(&current.payload)
+            .ok()
+            .is_some_and(|value| value.get("_catalog_creation").is_some())
+        {
+            return stackless_stripe_projects::journal::observe_payload(
+                &self.stripe(),
+                &current.payload,
+            )
+            .await
+            .map_err(projects_fault);
+        }
+        self.observe(instance, &current.checkpoint(instance.name))
+            .await
+    }
+
+    async fn finalize_teardown(
+        &self,
+        instance: &InstanceContext<'_>,
+    ) -> Result<(), SubstrateFault> {
+        stackless_integrations::finalize_stripe_instance(
+            &self.stripe(),
+            instance.resource_namespace,
+        )
+        .await;
         Ok(())
     }
 
@@ -704,75 +887,6 @@ impl<R: CommandRunner> Substrate for CloudflareSubstrate<R> {
             .await,
         )
     }
-
-    async fn fetch_logs(
-        &self,
-        _def: &StackDef,
-        instance: &str,
-        services: &[String],
-        _tail: usize,
-    ) -> Result<Option<Vec<ServiceLog>>, SubstrateFault> {
-        let mut out = Vec::with_capacity(services.len());
-        for service in services {
-            let lines = self.fetch_service_logs(instance, service).await?;
-            out.push(ServiceLog {
-                service: service.clone(),
-                source: "cloudflare_api",
-                log_path: None,
-                lines,
-            });
-        }
-        Ok(Some(out))
-    }
-}
-
-fn start_service_payload(instance: &str, service: &str) -> Option<CloudflarePayload> {
-    let store = stackless_core::state::Store::open_configured().ok()?;
-    let checkpoints = store.checkpoints(instance).ok()?;
-    checkpoints.into_iter().find_map(|checkpoint| {
-        if checkpoint.step_id == format!("start:{service}")
-            && checkpoint.resource_kind == "cloudflare-worker"
-        {
-            serde_json::from_str::<CloudflarePayload>(&checkpoint.payload).ok()
-        } else {
-            None
-        }
-    })
-}
-
-impl<R: CommandRunner> CloudflareSubstrate<R> {
-    async fn fetch_service_logs(
-        &self,
-        instance: &str,
-        service: &str,
-    ) -> Result<Vec<String>, SubstrateFault> {
-        let Some(payload) = start_service_payload(instance, service) else {
-            return Ok(vec![format!(
-                "(no start checkpoint for service {service}; run `stackless up` first)"
-            )]);
-        };
-        let token = self
-            .cloudflare_api_token(instance, &payload.stripe_resource)
-            .await?;
-        let api = self.workers_api_with_token(&token);
-        let info = match api
-            .get_script(&payload.account_id, &payload.worker_name)
-            .await
-        {
-            Ok(info) => info,
-            Err(_) => crate::workers_api::ScriptDeployInfo {
-                id: payload.script_id.clone(),
-                etag: payload.script_etag.clone(),
-                modified_on: payload.script_modified_on.clone(),
-            },
-        };
-        Ok(WorkersApi::deploy_summary_lines(
-            &payload.worker_name,
-            &payload.account_id,
-            &payload.origin,
-            &info,
-        ))
-    }
 }
 
 #[cfg(test)]
@@ -780,16 +894,11 @@ mod tests {
     use super::*;
     use stackless_stripe_projects::stripe::{CommandOutput, CommandRunner};
     use stackless_stripe_projects::test_support;
-    use std::path::Path as StdPath;
 
     struct NoRunner;
     #[async_trait]
     impl CommandRunner for NoRunner {
-        async fn run(
-            &self,
-            _args: &[String],
-            _cwd: &StdPath,
-        ) -> Result<CommandOutput, ProjectsError> {
+        async fn run(&self, _args: &[String], _cwd: &Path) -> Result<CommandOutput, ProjectsError> {
             Err(ProjectsError::Unavailable {
                 detail: "stripe should not be called in this test".into(),
             })
@@ -822,22 +931,57 @@ mod tests {
 
     const PAYLOAD: &str = r#"{"stripe_resource":"demo-web","account_id":"acc_1","workers_dev_subdomain":"atto-demo","worker_name":"atto-demo-web","origin":"https://atto-demo-web.atto-demo.workers.dev","script_id":"atto-demo-web","script_etag":"e1","script_modified_on":"2026-01-01"}"#;
 
-    #[test]
-    fn resource_name_and_origin_are_dns_safe() {
+    #[tokio::test]
+    async fn resource_names_are_dns_safe_and_origins_wait_for_outputs() {
         let def = cloudflare_def();
         assert_eq!(
-            CloudflareSubstrate::<TokioRunner>::resource_name(&def, "demo", "web"),
+            CloudflareSubstrate::<TokioRunner>::resource_name(
+                &def,
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                "web"
+            ),
             "atto-demo-web"
         );
         let (_dir, s) = subj();
         assert_eq!(
-            s.service_origin(&def, "demo", "web"),
-            "https://atto-demo-web.workers.dev"
+            s.service_origin(
+                &def,
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                "web"
+            ),
+            ""
         );
         assert_eq!(
-            CloudflareSubstrate::<TokioRunner>::origin("atto-demo-web", Some("atto-demo")),
+            CloudflareSubstrate::<TokioRunner>::origin("atto-demo-web", "atto-demo"),
             "https://atto-demo-web.atto-demo.workers.dev"
         );
+        let context = InstanceContext {
+            name: "demo",
+            id: "legacy-test",
+            resource_namespace: "demo",
+            checkpoints: &[],
+            routed_origins: None,
+        };
+        let error = tokio::time::timeout(
+            Duration::from_millis(100),
+            s.health_gate(&def, &context, "web", &[]),
+        )
+        .await
+        .expect("missing URL must fail before health polling")
+        .unwrap_err();
+        assert!(error.message.contains("recorded"), "{error}");
     }
 
     #[test]
@@ -854,7 +998,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let s = CloudflareSubstrate::for_test(&runner, dir.path(), "http://127.0.0.1:1", false);
         let cp = checkpoint("cloudflare-worker", "start:web", PAYLOAD);
-        assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Present);
+        assert_eq!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .unwrap(),
+            Observation::Present
+        );
     }
 
     #[tokio::test]
@@ -863,7 +1021,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let s = CloudflareSubstrate::for_test(&runner, dir.path(), "http://127.0.0.1:1", false);
         let cp = checkpoint("cloudflare-worker", "start:web", PAYLOAD);
-        assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Gone);
+        assert_eq!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .unwrap(),
+            Observation::Gone
+        );
     }
 
     #[tokio::test]
@@ -874,16 +1046,67 @@ mod tests {
             "materialize:web",
             r#"{"repo":"r","ref":"main"}"#,
         );
-        assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Gone);
-        s.destroy("demo", &cp).await.unwrap();
+        assert_eq!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .unwrap(),
+            Observation::Gone
+        );
+        s.destroy(
+            &InstanceContext {
+                routed_origins: None,
+                name: "demo",
+                id: "legacy-test",
+                resource_namespace: "demo",
+                checkpoints: &[],
+            },
+            &cp,
+        )
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
     async fn unknown_resource_kind_fails_closed() {
         let (_dir, s) = subj();
         let cp = checkpoint("not-a-real-kind", "start:web", "{}");
-        assert!(s.observe("demo", &cp).await.is_err());
-        assert!(s.destroy("demo", &cp).await.is_err());
+        assert!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            s.destroy(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .is_err()
+        );
     }
 
     #[tokio::test]
@@ -895,7 +1118,18 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let s = CloudflareSubstrate::for_test(&runner, dir.path(), "http://127.0.0.1:1", false);
         let cp = checkpoint("cloudflare-worker", "start:web", PAYLOAD);
-        s.destroy("demo", &cp).await.unwrap();
+        s.destroy(
+            &InstanceContext {
+                routed_origins: None,
+                name: "demo",
+                id: "legacy-test",
+                resource_namespace: "demo",
+                checkpoints: &[],
+            },
+            &cp,
+        )
+        .await
+        .unwrap();
         let calls = runner.calls();
         assert!(
             calls
@@ -912,28 +1146,11 @@ mod tests {
         let site = dir.path().join("site");
         std::fs::create_dir_all(&site).unwrap();
         std::fs::write(site.join("index.html"), "<p>stackless-smoke-ok</p>").unwrap();
-        let bundle = collect_worker_bundle_from_dir(&site).expect("local dir");
+        let bundle = worker_bundle_from_dir(&site).expect("local dir");
         assert!(
             String::from_utf8(bundle.script)
                 .unwrap()
                 .contains("stackless-smoke-ok")
         );
-    }
-
-    fn collect_worker_bundle_from_dir(base: &StdPath) -> Result<WorkerBundle, CloudflareHostError> {
-        if let Some(bundle) = read_existing_worker(base)? {
-            return Ok(bundle);
-        }
-        let html = std::fs::read_to_string(base.join("index.html")).map_err(|err| {
-            CloudflareHostError::ProvisionFailed {
-                resource: base.display().to_string(),
-                detail: err.to_string(),
-            }
-        })?;
-        let (main_module, script) = module_worker_for_html(&html);
-        Ok(WorkerBundle {
-            main_module,
-            script,
-        })
     }
 }

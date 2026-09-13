@@ -6,11 +6,33 @@ use super::error::DefError;
 use super::model::StackDef;
 
 impl StackDef {
+    fn normalize(mut self) -> Result<Self, DefError> {
+        for (name, mut job) in std::mem::take(&mut self.jobs) {
+            job.kind = super::model::WorkloadKind::Job;
+            if self.services.insert(name.clone(), job).is_some() {
+                return Err(DefError::Schema {
+                    message: format!("workload and job share the name {name:?}"),
+                });
+            }
+        }
+        for (name, workload) in &self.services {
+            if let Some(health) = &workload.health {
+                health.validate(name)?;
+            }
+            if workload.kind == super::model::WorkloadKind::Service && workload.health.is_none() {
+                return Err(DefError::Schema {
+                    message: format!("services.{name}.health is required for a service"),
+                });
+            }
+        }
+        Ok(self)
+    }
+
     /// Parse definition text. Syntax errors and schema mismatches are
     /// distinct codes: an agent fixes them differently.
     pub fn parse(text: &str) -> Result<Self, DefError> {
         match toml::from_str::<Self>(text) {
-            Ok(def) => Ok(def),
+            Ok(def) => def.normalize(),
             Err(err) => Err(map_toml_error(err.to_string())),
         }
     }
@@ -38,7 +60,7 @@ impl StackDef {
         match StackDef::deserialize(value) {
             Ok(mut def) => {
                 def.legacy_datastores = legacy_datastores;
-                Ok(def)
+                def.normalize()
             }
             Err(err) => Err(map_toml_error(err.to_string())),
         }
@@ -59,7 +81,8 @@ fn map_toml_error(message: String) -> DefError {
     // wrong types) through the same error type as syntax
     // failures; a span into valid TOML with a serde message is
     // a schema problem.
-    if message.contains("unknown field")
+    if message.contains("wanted string or table")
+        || message.contains("unknown field")
         || message.contains("missing field")
         || message.contains("invalid type")
         || message.contains("unknown variant")

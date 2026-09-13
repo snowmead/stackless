@@ -166,7 +166,16 @@ impl ServiceVercel {
             framework: optional_str(block, "framework", &location)?,
             build: optional_str(block, "build", &location)?,
             install: optional_str(block, "install", &location)?,
-            root: optional_str(block, "root", &location)?,
+            root: def
+                .services
+                .get(service)
+                .map(|spec| spec.source_root(service, SUBSTRATE_NAME))
+                .transpose()
+                .map_err(|error| VercelError::ConfigInvalid {
+                    location: location.clone(),
+                    detail: error.to_string(),
+                })?
+                .flatten(),
             output: optional_str(block, "output", &location)?,
             deploy,
         })
@@ -241,6 +250,22 @@ build = "npm run build"
         let cfg = ServiceVercel::parse(&def, "web").unwrap();
         assert_eq!(cfg.framework.as_deref(), Some("vite"));
         assert_eq!(cfg.build.as_deref(), Some("npm run build"));
+    }
+
+    #[test]
+    fn common_root_applies_without_a_provider_root() {
+        let mut def = parse(
+            "[stack]\nname='test'\n[services.web]\nsource={repo='r',root='./app/'}\nhealth={path='/'}\n[services.web.vercel]\n",
+        );
+        assert_eq!(
+            ServiceVercel::parse(&def, "web").unwrap().root.as_deref(),
+            Some("app")
+        );
+        def.services.get_mut("web").unwrap().substrates.insert(
+            "vercel".into(),
+            toml::Value::Table(toml::toml! { root = "other" }),
+        );
+        assert!(ServiceVercel::parse(&def, "web").is_err());
     }
 
     #[test]

@@ -9,6 +9,8 @@ use crate::substrate::SubstrateFault;
 
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
+    #[error("operation on instance {instance:?} was cancelled; resource records were retained")]
+    Cancelled { instance: String },
     #[error(transparent)]
     Def(#[from] DefError),
 
@@ -48,16 +50,18 @@ pub enum EngineError {
         fault: SubstrateFault,
     },
 
-    #[error("teardown of {instance:?} left survivors: {survivors:?}")]
+    #[error("teardown of {instance:?} left survivors: {survivors:?}; failures: {failures:?}")]
     TeardownSurvivors {
         instance: String,
         survivors: Vec<String>,
+        failures: Vec<String>,
     },
 }
 
 impl Fault for EngineError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
+            Self::Cancelled { .. } => codes::OPERATION_CANCELLED,
             Self::Def(err) => err.code(),
             Self::State(err) => err.code(),
             Self::SubstrateMismatch { .. } => codes::ENGINE_SUBSTRATE_MISMATCH,
@@ -65,13 +69,16 @@ impl Fault for EngineError {
             Self::SourceOverrideShared { .. } => codes::ENGINE_SOURCE_OVERRIDE_SHARED,
             // The substrate's own code is the meaningful one; the
             // engine only adds context.
-            Self::Step { fault, .. } | Self::SubstrateValidation { fault, .. } => fault.code,
+            Self::Step { fault, .. } | Self::SubstrateValidation { fault, .. } => &fault.code,
             Self::TeardownSurvivors { .. } => codes::ENGINE_TEARDOWN_SURVIVORS,
         }
     }
 
     fn remediation(&self) -> String {
         match self {
+            Self::Cancelled { .. } => {
+                "run up to resume or down to remove the retained resources".into()
+            }
             Self::Def(err) => err.remediation(),
             Self::State(err) => err.remediation(),
             Self::SubstrateMismatch {
@@ -111,7 +118,8 @@ impl Fault for EngineError {
     fn instance(&self) -> Option<&str> {
         match self {
             Self::State(err) => err.instance(),
-            Self::SubstrateMismatch { instance, .. }
+            Self::Cancelled { instance }
+            | Self::SubstrateMismatch { instance, .. }
             | Self::SourceOverrideShared { instance, .. }
             | Self::Step { instance, .. }
             | Self::TeardownSurvivors { instance, .. } => Some(instance),

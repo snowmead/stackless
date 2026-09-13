@@ -149,7 +149,17 @@ impl Store {
     /// Delete an instance row outright (the GC step). FK cascade removes
     /// its leases, locks, checkpoints, and reap-attempt row.
     pub fn delete_instance(&self, instance: &str) -> Result<(), StateError> {
-        self.execute("DELETE FROM instances WHERE name = ?1", &[instance.into()])?;
+        let changed = self.execute(
+            "DELETE FROM instances WHERE name = ?1 AND status = 'tombstoned'
+             AND NOT EXISTS (SELECT 1 FROM checkpoints WHERE instance = ?1)
+             AND NOT EXISTS (SELECT 1 FROM resources WHERE owner_id = instances.instance_id AND phase != 'absent')",
+            &[instance.into()],
+        )?;
+        if changed == 0 && self.instance(instance)?.is_some() {
+            return Err(StateError::ResourceInvariant {
+                detail: format!("cannot forget instance {instance:?} before verified teardown"),
+            });
+        }
         Ok(())
     }
 }
