@@ -14,7 +14,7 @@ pub enum DefError {
     #[error("{kind} name {name:?} is not DNS-safe")]
     NameInvalid { kind: &'static str, name: String },
 
-    #[error("the stack declares no services")]
+    #[error("the stack declares no workloads or resources")]
     NoServices,
 
     #[error("unknown key {key:?} under {location}")]
@@ -50,6 +50,9 @@ pub enum DefError {
         name: String,
     },
 
+    #[error("{location} references endpoint {name:?}, whose URL is not available yet")]
+    EndpointUnavailable { location: String, name: String },
+
     #[error("{location} uses secret {key:?} which is not in [secrets].required")]
     SecretNotRequired { location: String, key: String },
 
@@ -64,7 +67,7 @@ pub enum DefError {
 }
 
 impl Fault for DefError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             Self::Syntax { .. } => codes::DEF_PARSE_SYNTAX,
             Self::Schema { .. } => codes::DEF_PARSE_SCHEMA,
@@ -77,6 +80,7 @@ impl Fault for DefError {
             Self::RootOriginConflict { .. } => codes::DEF_ROOT_ORIGIN_CONFLICT,
             Self::ReferenceSyntax { .. } => codes::DEF_REFERENCE_SYNTAX,
             Self::UndeclaredReference { .. } => codes::DEF_UNDECLARED_REFERENCE,
+            Self::EndpointUnavailable { .. } => codes::DEF_ENDPOINT_UNAVAILABLE,
             Self::SecretNotRequired { .. } => codes::DEF_SECRET_NOT_REQUIRED,
             Self::IntegrationInvalid { .. } => codes::DEF_INTEGRATION_INVALID,
             Self::WiringCycle { .. } => codes::DEF_WIRING_CYCLE,
@@ -94,9 +98,7 @@ impl Fault for DefError {
                 "rename the {kind} to lowercase letters, digits, and hyphens, starting with a \
                  letter (it becomes hostnames and cloud service names)"
             ),
-            Self::NoServices => {
-                "declare at least one [services.<name>] table in stackless.toml".into()
-            }
+            Self::NoServices => "declare a workload, job, or resource in stackless.toml".into(),
             Self::UnknownKey {
                 key,
                 known_substrates,
@@ -124,13 +126,16 @@ impl Fault for DefError {
             ),
             Self::ReferenceSyntax { .. } => {
                 "valid references are ${stack.name}, ${instance.name}, \
-                 ${services.<name>.origin}, ${secrets.<KEY>}, and \
+                 ${services.<name>.origin}, ${endpoints.<name>.url}, ${secrets.<KEY>}, and \
                  ${integrations.<name>.<output>}"
                     .into()
             }
             Self::UndeclaredReference { kind, name, .. } => format!(
                 "declare [{kind}s.{name}] in stackless.toml, or fix the reference to name a \
                  declared {kind}"
+            ),
+            Self::EndpointUnavailable { name, .. } => format!(
+                "start the workload for endpoints.{name}, or declare its caller-managed URL"
             ),
             Self::SecretNotRequired { key, .. } => format!(
                 "add {key:?} to [secrets].required so it is resolved and validated before \

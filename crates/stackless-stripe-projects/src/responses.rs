@@ -80,6 +80,21 @@ pub struct EnvRef {
 }
 
 impl EnvListResponse {
+    pub fn valid(&self) -> bool {
+        let valid_list = |list: &[EnvRef]| {
+            list.iter()
+                .all(|e| e.name.as_ref().is_some_and(|name| !name.is_empty()))
+        };
+        match self {
+            Self::Bare(list) => valid_list(list),
+            Self::Wrapped(wrapper) => match &wrapper.environments {
+                Some(EnvCollection::Named(map)) => map.keys().all(|name| !name.is_empty()),
+                Some(EnvCollection::List(list)) => valid_list(list),
+                None => false,
+            },
+        }
+    }
+
     /// Whether an environment named `instance` is present.
     pub fn contains(&self, instance: &str) -> bool {
         let in_list = |list: &[EnvRef]| list.iter().any(|e| e.name.as_deref() == Some(instance));

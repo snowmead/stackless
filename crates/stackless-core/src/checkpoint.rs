@@ -9,6 +9,8 @@ use crate::types::{LogPath, Pid, ProcessStartTime, ProxyHost, TcpPort};
 pub struct StartCheckpoint {
     pub pid: Pid,
     pub start_time: ProcessStartTime,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<crate::durable_command::CommandStamp>,
     pub port: TcpPort,
     pub hosts: Vec<ProxyHost>,
     pub log: LogPath,
@@ -23,6 +25,7 @@ mod tests {
         let original = StartCheckpoint {
             pid: Pid::from_os(12345),
             start_time: ProcessStartTime::from_os(1_700_000_000),
+            command: None,
             port: TcpPort::try_new(8080).unwrap(),
             hosts: vec![
                 ProxyHost::try_new("api.dev.localhost").unwrap(),

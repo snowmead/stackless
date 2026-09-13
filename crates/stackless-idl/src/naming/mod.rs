@@ -15,6 +15,7 @@ use crate::error::IdlError;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IdentNamespace {
     Service,
+    Endpoint,
     Tier,
     Integration,
     IntegrationOutput,
@@ -24,6 +25,7 @@ impl IdentNamespace {
     pub fn label(self) -> &'static str {
         match self {
             Self::Service => "service",
+            Self::Endpoint => "endpoint",
             Self::Tier => "tier",
             Self::Integration => "integration",
             Self::IntegrationOutput => "integration output",

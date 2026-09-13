@@ -83,26 +83,47 @@ impl<'a> Materializer<'a> {
         repo: &str,
         reference: &str,
     ) -> Result<(PathBuf, String), LocalError> {
+        let commit = self.resolve(service, repo, reference)?;
+        let dest = self.source_dir(instance, service).join(&commit);
+        self.checkout(service, repo, &commit, &dest)?;
+        Ok((dest, commit))
+    }
+
+    pub fn resolve(
+        &self,
+        service: &str,
+        repo: &str,
+        reference: &str,
+    ) -> Result<String, LocalError> {
         let cache = self.cache_path(repo);
         self.ensure_cache(repo, &cache)?;
-        let commit = stackless_git::resolve_commit(&cache, reference).map_err(|err| {
-            LocalError::GitRefNotFound {
-                service: service.to_owned(),
-                repo: repo.to_owned(),
-                reference: reference.to_owned(),
-                detail: err.to_string(),
-            }
-        })?;
-        let dest = self.source_dir(instance, service);
-        stackless_git::checkout_detached(&dest, &cache, &commit).map_err(|err| {
+        stackless_git::resolve_commit(&cache, reference).map_err(|err| LocalError::GitRefNotFound {
+            service: service.to_owned(),
+            repo: repo.to_owned(),
+            reference: reference.to_owned(),
+            detail: err.to_string(),
+        })
+    }
+
+    /// Never rebuild a tree a running workload might still be using.
+    pub fn checkout(
+        &self,
+        service: &str,
+        repo: &str,
+        commit: &str,
+        dest: &Path,
+    ) -> Result<(), LocalError> {
+        if observe(dest, commit) {
+            return Ok(());
+        }
+        stackless_git::checkout_detached(dest, &self.cache_path(repo), commit).map_err(|err| {
             LocalError::GitCheckoutFailed {
                 service: service.to_owned(),
-                commit: commit.clone(),
+                commit: commit.into(),
                 dest: dest.display().to_string(),
                 detail: err.to_string(),
             }
-        })?;
-        Ok((dest, commit))
+        })
     }
 
     /// Ensure the bare cache exists and is current: a fresh fetch clones it,

@@ -82,6 +82,7 @@ name = "atto"            # required, DNS-safe
 
 [stack.verify]           # optional: the proof contract (see below)
 run = "bun e2e/smoke.ts"
+timeout_secs = 300       # optional, 1 through 86400, per default or named tier
 env = { ATTO_STACKLESS = "1", ATTO_E2E_WEB_ORIGIN = "${services.web.origin}" }
 
 [stack.projects.stripe]  # optional: shared Stripe Projects anchor
@@ -102,16 +103,22 @@ region = "iad"           # Fly region (default iad)
   `stackless verify <instance>` (or `stackless verify <instance> --tier default`).
   `env` (table of strings, interpolation allowed) is resolved and exported.
   The command runs from the materialized source of the `root_origin` service
-  (or the first service if none). Output is captured to a per-instance log file;
+  (or the first service if none). Each operation retains the first 64 KiB of
+  combined output in its owned command workspace;
   `--json` success includes `duration_ms`, `exit_status`, and `log_path`.
-  Named tiers live under `[stack.verify.tiers.<name>]` with the same `{run, env}`
+  `timeout_secs` defaults to 300 and must be between 1 and 86400. The watchdog
+  enforces it even while the controller is dead. A timeout is `verify.timeout`;
+  a command that exits 124 itself is `verify.failed`. Recovery reconnects to
+  the recorded process and does not run a second command for the same operation.
+  Named tiers live under `[stack.verify.tiers.<name>]` with the same `{run, env, timeout_secs}`
   shape; `<name>` must be DNS-safe (same rules as service names). Unknown tiers
   fail with `verify.tier_unknown`. Declaring no `[stack.verify]` and no tiers
   makes `stackless verify` fail with `verify.not_declared`.
-- `projects.stripe.project` — optional. Stackless writes this after it
-  creates or adopts the stack's Stripe Project. Local integrations and
-  cloud resources (Render, Vercel, Clerk, …) share this anchor;
-  re-link a fresh checkout with `stripe projects pull <id>`.
+- `projects.stripe.project` is an optional existing project ID. Without it,
+  the controller records a shared project anchor for the definition directory
+  and stack name. Local integrations and cloud services use this binding.
+  Lifecycle commands write Stripe files into private instance directories,
+  never into the application's `stackless.toml`.
 - Any other key under `[stack]` must be the name of a registered
   substrate (`local`, `render`, `vercel`, `fly`, `netlify`, `railway`,
   `cloudflare`, `wordpress`, `laravel-cloud`, `gitlab`) and must be a table
@@ -134,16 +141,12 @@ required = ["GITHUB_PACKAGES_TOKEN"]
 - `required` — list of secret names the stack needs. Every key
   referenced anywhere (`${secrets.KEY}` or a service's `secrets`
   list) **must** appear here (`def.validate.secret_not_required`).
-- Resolution at `up`/`verify` time: when `[stack.projects.stripe].project`
-  is recorded, stackless refreshes the Stripe Projects vault (`.env` /
-  `.env.<instance>` written by `stripe projects env --pull`) as the
-  **base**. Shared team secrets belong in backend-backed project variables
-  (`stripe projects variables set <name> --env-key <KEY>`). A gitignored
-  **`.stackless.env`** next to `stackless.toml` (`KEY=value` lines)
-  **overlays** the vault — the file wins. Local-only stacks without a
-  Stripe anchor use `.stackless.env` only. A required key resolving from
-  no source fails before anything provisions (`secrets.unresolved`). Run
-  `stackless doctor` for aggregated Stripe Projects `--preflight` blockers.
+- At `up` and `verify`, the controller refreshes the selected environment's
+  vault in its private runtime directory. `.stackless.env` next to the application
+  definition overlays that vault. A local stack without Stripe resources uses
+  the overlay alone. Missing required keys fail before workload provisioning
+  with `secrets.unresolved`. Project and environment setup can precede this check
+  because vault resolution needs their context.
 - The directory the definition came from is recorded at instance
   creation, so resume and `verify` find the same `.stackless.env`
   regardless of the invoking shell's working directory.
@@ -225,19 +228,45 @@ root_origin = false               # optional, at most one service true
 
 | Key | Required | Type | Meaning |
 |---|---|---|---|
-| `source` | yes | `{ repo, ref }` | Git source: `repo` is a URL (https, file://, ssh), `ref` a branch, tag, or commit SHA. Materialized per instance from a shared cache. |
-| `setup` | no | string | Shell command run **once** after the source is materialized (toolchain, deps — e.g. `mise install && bun install`). Re-run if interrupted; must be idempotent. |
-| `prepare` | no | string | Shell command run on **every** `up`, after the service's dependencies are ready and before the service starts (migrations, seed). On cloud substrates it runs on the operator's machine against external connection strings. Must be re-run-safe. If your service migrates on boot, omit migration here. |
+| `kind` | no | `service`, `worker`, `job` | Defaults to `service`. `jobs` is a table alias that sets `job`. |
+| `run` | provider-dependent | string | Workload command. Image defaults apply when supported and omitted. |
+| `image` | no | string | Container image. Support depends on the provider. |
+| `on` | no | provider name | Hosting adapter for this workload. Defaults to `--on`; mixed placement uses one shared dependency graph. |
+| `timeout_secs` | no | integer | Job and hook deadline, default 300, range 1 through 86400. |
+| `depends_on` | no | string table | Workload dependencies with `started`, `ready`, or `completed` conditions. |
+| `source` | provider-dependent | `{ repo, ref }` | Git source: `repo` is a URL (https, file://, ssh), `ref` a branch, tag, or commit SHA. Materialized per instance from a shared cache. |
+| `setup` | no | string | Shell command that initializes the materialized working copy, for example `mise install && bun install`. Recovery uses its saved execution receipt. Cloud operations each materialize a new copy and run setup again, including at the same Git commit. |
+| `prepare` | no | string | Shell command run for each accepted `up`, after dependencies are ready and before service start. Recovery uses its saved execution receipt. On cloud substrates, setup and prepare run on the operator's machine with a host-execution grant and application environment, including external connection strings. Hooks must tolerate execution in later operations. |
 | `secrets` | no | string list | Each name must be in `[secrets].required`; injected into the service's environment as a same-named variable. |
 | `env` | no | string table | The service's environment. Values may interpolate (next section). This is also where dependencies are expressed. |
-| `health` | yes | `{ path, status?, contains? }` | The health contract gating `up` (below). |
+| `health` | services | `{ path, status?, contains? }` or `{ protocol = "tcp" }` | The health contract gating `up` (below). |
 | `root_origin` | no | bool | Exactly zero or one service may set this; it additionally claims the instance's root origin (`http://{instance}.localhost:4444` locally). Give it to the user-facing web service. (`def.validate.root_origin_conflict`) |
 
-Any other key under a service must be a registered substrate name with
-a table value. `depends_on` is rejected outright
-(`def.validate.depends_on_rejected`): a dependency must be expressed
-in wiring — reference the dependency from `env` and the startup order
-is derived from that.
+`source.root` selects a directory inside the source tree. A provider block's
+`root` is an alias. If both are present, they must resolve to the same relative
+path: `./apps/web/` and `apps/web` agree, but `apps/web` and `dist` fail validation.
+Parent traversal, absolute paths, and protected credential directories are
+rejected. See [execution source scope](EXECUTION.md#source-scope) for provider
+coverage and remaining deployment limits.
+
+`services` and `workloads` name the same table. `jobs` sets `kind = "job"`.
+Workers may omit health; jobs cannot declare it. `completed` dependencies
+require jobs. `started` and `ready` dependencies require non-job workloads.
+Other keys must be registered substrate names with table values.
+See [execution support](EXECUTION.md) for provider coverage and
+[placement](EXECUTION.md#provider-placement) for mixed stacks and reassignment rules.
+
+## `[endpoints.<name>]`
+
+| Key | Required | Meaning |
+|---|---|---|
+| `workload` | yes | Existing workload with `health`. |
+| `url` | no | Caller-managed URL matching the workload protocol. HTTP accepts HTTP/HTTPS; TCP requires `tcp://host:port` with a nonzero port and no path, query, or fragment. Embedded credentials are prohibited. Omit it to use the provider-assigned origin. |
+
+Endpoint names follow the same DNS naming rules as workloads. Multiple endpoints
+can reference one workload. `${endpoints.<name>.url}` resolves the alias;
+`${services.<workload>.origin}` keeps the native origin. A declared URL does not
+create routing or establish readiness. See [named endpoints](EXECUTION.md#named-endpoints).
 
 ### `health` — the contract gating `up`
 
@@ -245,19 +274,26 @@ is derived from that.
 health = { path = "/health" }                          # expect HTTP 200
 health = { path = "/health", contains = "ok" }         # 200 AND body contains "ok"
 health = { path = "/", status = 200, contains = 'id="root"' }  # SPA shell check
+health = { protocol = "tcp" }                        # TCP listener accepts a connection
 ```
 
-- `path` — required, the HTTP path probed.
+- `protocol` defaults to `http`. Local host processes also accept `tcp`.
+- `path` is required for HTTP and must start with `/`.
 - `status` — optional, default `200`.
 - `contains` — optional substring the body must contain.
 
-Checks run **through the instance's public origin** (the proxy
+HTTP checks run **through the instance's public origin** (the proxy
 locally, the `onrender.com` URL on Render) — never the raw port — so
 routing is part of what "healthy" proves. Retry budgets: 300 s
 locally (generous because `cargo run`-style commands compile before
 serving; a dead process fails fast), 5 min against a cold cloud
 deploy. `up` refuses to report success until every service passes
 (`local.health_failed`, `local.service_died`).
+
+TCP probes use the workload's recorded loopback port. They prove a connection,
+not an application response. TCP excludes HTTP assertions and `root_origin`.
+Cloud and isolated-container TCP routes are unsupported. See
+[TCP services](EXECUTION.md#tcp-services) for URL availability and readiness.
 
 ### `[services.<name>.local]` — how the local substrate runs it
 
@@ -335,8 +371,10 @@ Or a static site:
   (`def.validate.substrate_config_missing`), refuses `--source` pins
   (`engine.source_override.unsupported`), and requires `--confirm-paid`
   when `[stack.vercel].plan = "pro"` (`vercel.payment.not_confirmed`).
-- Setup is skipped on cloud (same as Render); prepare runs on the
-  operator's machine from a shallow `git clone` of the pinned ref.
+- Setup and prepare run on the operator's machine with the stored host
+  execution grant. Their edits do not change the sealed build archive.
+  Images without hooks skip fetching. Source-free images with hooks receive
+  an owned empty workspace.
 - **Two layers (same as Render):** Stripe Projects provisions the
   `vercel/project` catalog resource; the Vercel REST API handles env,
   deploy, health, and teardown. Stripe does not replace the API token —
@@ -346,10 +384,37 @@ Or a static site:
 - `stackless logs` returns a recent per-service window from Vercel
   deployment build events (`source: "vercel_api"`; no streaming).
 
+### Fly workers
+
+`kind = "worker"` works with a Fly image or source build. Omit `health` for a
+worker with no public listener or origin. Stackless sets restart policy to
+`always` and gates readiness on the recorded machine. Explicit HTTP health
+creates a listener. Origin references require that health contract. See
+[execution](EXECUTION.md) for recovery, validation, and log limitations.
+
+### Source-free Railway images
+
+```toml
+[services.web]
+image = "nginx:alpine"
+health = { path = "/" }
+```
+
+Railway accepts this common image field or `services.web.railway.image`.
+The provider block and source are optional for images. `run` replaces image
+startup through `/bin/sh -c`; `railway.cmd` supplies exec-form arguments.
+Do not set both. Conflicting image aliases and source subdirectories without
+source files fail validation. Setup, prepare, and verification use recorded
+empty workspaces when no Git source exists. See [execution](EXECUTION.md).
+
 ### `[services.<name>.fly]` — how Fly runs it
 
 Two deploy paths: **image** (explicit fast path) or **source-build** via
-Fly's remote builder when `image` is omitted.
+Fly's remote builder when `image` is omitted. Common workload `image` is
+also accepted. With an image, `source` and the `fly` block can be omitted.
+`run` executes through `/bin/sh -c` using Fly `init.exec`; it replaces image
+startup defaults and cannot be combined with `fly.cmd`. Conflicting common
+and provider image values fail validation.
 
 ```toml
   # Image fast path — prebuilt container
@@ -362,25 +427,31 @@ Fly's remote builder when `image` is omitted.
   memory_mb = 256                       # optional (default 256)
   env = { API_ORIGIN = "${services.api.origin}" }  # optional overlay
 
-  # Source-build path — remote builder from the pinned checkout
+  # Source-build path from the sealed archive
   [services.api.fly]
-  dockerfile = "Dockerfile"             # optional (default Dockerfile); repo-relative
+  root = "app"                         # optional alias for source.root
+  dockerfile = "Dockerfile"             # relative to source.root; default Dockerfile
   internal_port = 8080
 ```
 
 - Set **either** `image` **or** omit it for source-build (optional
   `dockerfile`). Setting both is rejected. `cmd` is image-path only.
-- Source-build clones the pinned ref and runs
-  `flyctl deploy --remote-only` (`fly`/`flyctl` must be on `PATH`).
+- Source-build resolves a commit during materialization, saves its filtered
+  archive, and runs `flyctl deploy --remote-only` on a fresh extraction.
+  `fly`/`flyctl` must be on `PATH`. The build context is `source.root`, defaulting
+  to the repository root. Moving the Dockerfile does not move the build context.
+  Dockerfile paths cannot escape that root. The Fly smoke fixture sets its root
+  explicitly to `fixtures/smoke/fly-site`.
 - Cloud resource names are `{stack}-{instance}-{service}` — also the Fly
   app name, so it must be a legal app name (`^[a-z][a-z0-9-]{2,62}$`);
   origins are `https://{stack}-{instance}-{service}.fly.dev`.
-- `up --on fly` requires every service to carry a `fly` block
+- `up --on fly` requires a common `image` or a `fly` block
   (`fly.config.invalid`), refuses `--source` pins
   (`engine.source_override.unsupported`), and requires `--confirm-paid`
   (`fly.payment.not_confirmed` — `flyio/app` is usage-billed).
 - Setup is skipped on cloud (same as Render); prepare runs on the
-  operator's machine from a shallow `git clone` of the pinned ref.
+  operator's machine from the snapshot working copy. Prepare edits do not
+  change the build archive. Image-only services without prepare skip fetching.
 - **Two layers (same as Render):** Stripe Projects provisions the
   `flyio/app` catalog resource and returns a Stripe-managed, app-scoped
   deploy token; the Fly Machines REST API (image path) or `flyctl` remote
@@ -442,15 +513,17 @@ Env values (common `env`, substrate `env` overlays, and
 | Reference | Resolves to |
 |---|---|
 | `${stack.name}` | the stack's declared name |
-| `${instance.name}` | the instance's name — the one identity everything derives from |
-| `${services.X.origin}` | service X's substrate-appropriate origin. Local: `http://x.{instance}.localhost:4444` (the root-origin service resolves to `http://{instance}.localhost:4444` — what browsers actually use). Render: `https://{stack}-{instance}-x.onrender.com`. Vercel: the deployment URL after `start` (best-effort `https://{stack}-{instance}-x.vercel.app` before deploy). Fly: `https://{stack}-{instance}-x.fly.dev`. Netlify: the deploy's `ssl_url` recorded at `start` (`https://{stack}-{instance}-x.netlify.app`) |
+| `${instance.name}` | User-facing display name. Owned resources use a separate immutable instance identity and namespace. |
+| `${services.X.origin}` | Workload X's URL on its selected provider. Local HTTP and Fly listeners can supply it before startup. Local TCP and other cloud adapters use recorded listener or deployment outputs, without a guessed fallback. |
+| `${endpoints.X.url}` | endpoint X's declared URL or its workload's provider-assigned origin |
 | `${secrets.KEY}` | the resolved secret value (KEY must be in `[secrets].required`) — for renaming; the `secrets = [...]` list already injects same-named vars |
 | `${integrations.clerk.secret_key}` | the Clerk secret key selected from Stripe Projects' Clerk environments JSON (`CLERK_AUTH_ENVIRONMENTS` or `CLERK_ENVIRONMENTS`) |
 | `${integrations.clerk.publishable_key}` | the Clerk publishable key selected from Stripe Projects' Clerk environments JSON (`CLERK_AUTH_ENVIRONMENTS` or `CLERK_ENVIRONMENTS`) |
 
-`$PORT` is **not** an interpolation reference — it is injected by the
-local substrate into `run` commands only, and passes through env
-values untouched.
+`$PORT` is a runtime environment variable, not an interpolation reference.
+Local supplies the allocated listener port. Fly supplies its configured internal
+HTTP port unless the workload defines `PORT`. Values in TOML env strings pass
+through unchanged; a shell command can expand the runtime variable.
 
 Rules, all enforced at parse/validate time (never at `up` time):
 
@@ -459,13 +532,17 @@ Rules, all enforced at parse/validate time (never at `up` time):
 - Any other `${...}` form → `def.validate.reference_syntax`.
 - An unterminated `${...` → `def.validate.reference_syntax`.
 
-### Wiring derives the graph — there is no `depends_on`
+### Output and readiness dependencies
 
-If service A's env references `${services.B.origin}`, that is recorded
-wiring but never an ordering constraint — origins are derivable from
-the instance name alone, so mutual references (api ↔ web CORS) are
-legal and are not cycles. `stackless check` prints the derived startup
-order and wiring edges.
+Integration references wait for integration provisioning. Service-origin and
+dynamic endpoint references wait for the target's start when the provider cannot
+supply origins early. Declared endpoint URLs require no start output. They never
+remove dependencies from `${services.X.origin}`. `depends_on` separately requires
+`started`, `ready`, or a job's `completed` condition. Cycles fail admission.
+A URL dependency is checked against its target workload's selected provider.
+Mutual URL references are valid when the remaining late-output edges are acyclic.
+A late-bound self-reference is a cycle.
+An unavailable dynamic endpoint resolves to `def.resolve.endpoint_unavailable`.
 
 ## What happens on `up` (so you can write definitions that fit it)
 
@@ -495,7 +572,7 @@ most:
 | `def.parse.schema` | valid TOML, unknown/missing/mistyped field (includes a missing required `health` or `source`) |
 | `def.validate.name_invalid` | a name is not DNS-safe |
 | `def.validate.unknown_key` | a key that is neither a schema field nor a registered substrate (typos land here) |
-| `def.validate.depends_on_rejected` | use wiring, not `depends_on` |
+| `def.resolve.endpoint_unavailable` | start the target workload or declare its caller-managed URL |
 | `def.validate.undeclared_reference` | `${...}` names something not declared |
 | `def.validate.secret_not_required` | a secret used but not in `[secrets].required` |
 | `def.validate.integration_invalid` | an `[integrations.*]` block is structurally invalid (missing `provider`, bad host override) |
@@ -624,3 +701,18 @@ that file is maintained from the registries.
    requires `source.repo` as `https://github.com/org/repo`. Set
    `RENDER_API_KEY` / `VERCEL_TOKEN` (or scoped key files) before
    `stackless up --on render` / `--on vercel`.
+
+## Credential boundary
+
+Lifecycle JSON schema version 2 returns integration outputs as secret references:
+`{ "kind": "secret_ref", "instance_id": "...", "integration": "clerk", "output": "secret_key" }`.
+References identify a single instance birth. Reusing the display name does not
+transfer a reference to the new instance. The public API has no plaintext
+resolution method. Service and verify environment interpolation happens inside
+the controller.
+
+`[secrets].required` cannot request infrastructure administration credentials.
+Literal environment values and renamed aliases are checked against known
+controller credentials after interpolation. Host commands inherit a controlled
+environment baseline, then their declared app environment. Host filesystem and
+network access require a separate execution boundary.

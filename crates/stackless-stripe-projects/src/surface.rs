@@ -151,6 +151,31 @@ fn normalize_block(raw: &str) -> String {
     while lines.last().is_some_and(|line| line.is_empty()) {
         lines.pop();
     }
+    // The plugin renders this banner boxed or plain depending on its terminal.
+    // Keep command descriptions, indentation, and flags below it unchanged.
+    if lines.first().is_some_and(|line| line.starts_with('╭'))
+        && let Some(end) = lines.iter().position(|line| line.starts_with('╰'))
+        && let Some(contents) = lines[1..end]
+            .iter()
+            .map(|line| line.strip_prefix('│')?.strip_suffix('│').map(str::trim))
+            .collect::<Option<Vec<_>>>()
+        && let Some(title) = contents.first()
+    {
+        let title = title.trim_start_matches('⡜').trim();
+        if title.starts_with("Stripe Projects (v") && title.ends_with(')') {
+            let description = contents[1..]
+                .iter()
+                .filter(|line| !line.is_empty())
+                .copied()
+                .collect::<Vec<_>>()
+                .join(" ");
+            return std::iter::once(title)
+                .chain(std::iter::once(description.as_str()))
+                .chain(lines[end + 1..].iter().copied())
+                .collect::<Vec<_>>()
+                .join("\n");
+        }
+    }
     lines.join("\n")
 }
 
@@ -195,6 +220,29 @@ mod tests {
     fn normalize_strips_trailing_ws_and_blank_edges() {
         assert_eq!(normalize_block("\n\n  body   \n\n"), "  body");
         assert_eq!(normalize_block("a   \nb\t\n"), "a\nb");
+    }
+
+    #[test]
+    fn normalize_banner_preserves_version_and_commands_across_terminal_styles() {
+        let boxed = "╭─────────────────────────────────────────────────────╮\n\
+│ ⡜ Stripe Projects (v0.37.0)                         │\n\
+│                                                     │\n\
+│ Provision third-party services, manage credentials, │\n\
+│ and pull environment variables.                     │\n\
+╰─────────────────────────────────────────────────────╯\n\n\
+GET STARTED\n  init [name]  Initialize a new project\n";
+        let plain = "Stripe Projects (v0.37.0)\n\
+Provision third-party services, manage credentials, and pull environment variables.\n\n\
+GET STARTED\n  init [name]  Initialize a new project\n";
+        assert_eq!(normalize_block(boxed), normalize_block(plain));
+        assert_ne!(
+            normalize_block(boxed),
+            normalize_block(&plain.replace("0.37.0", "0.38.0"))
+        );
+        assert_ne!(
+            normalize_block(boxed),
+            normalize_block(&plain.replace("init [name]", "init [name] --new-flag"))
+        );
     }
 
     #[test]

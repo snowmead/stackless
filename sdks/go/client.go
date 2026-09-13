@@ -39,9 +39,17 @@ func (defaultRunner) Run(bin string, args []string, cwd string) ([]byte, []byte,
 }
 
 type Client struct {
-	bin    string
-	cwd    string
-	runner ExecRunner
+	bin        string
+	cwd        string
+	runner     ExecRunner
+	controller string
+}
+
+// WithController returns a client that sends lifecycle calls through an SSH host.
+func (c *Client) WithController(target string) *Client {
+	copy := *c
+	copy.controller = target
+	return &copy
 }
 
 func (c *Client) SetRunner(r ExecRunner) {
@@ -73,6 +81,9 @@ func resolveBin() string {
 
 func (c *Client) invoke(args []string) (map[string]any, error) {
 	full := append([]string{"--json"}, args...)
+	if c.controller != "" {
+		full = append([]string{"--json", "--controller", c.controller}, args...)
+	}
 	stdout, stderr, exitCode, err := c.runner.Run(c.bin, full, c.cwd)
 	if err != nil {
 		return nil, err
@@ -111,7 +122,7 @@ func trimJSON(b []byte) string {
 	return string(b[start:end])
 }
 
-func (c *Client) Up(req UpRequest) (*UpOutcome, error) {
+func upArgs(req UpRequest) ([]string, error) {
 	var args []string
 	args = append(args, "up")
 	switch {
@@ -126,6 +137,9 @@ func (c *Client) Up(req UpRequest) (*UpOutcome, error) {
 		}
 		for _, s := range r.Sources {
 			args = append(args, "--source", s)
+		}
+		if r.AllowHostExecution {
+			args = append(args, "--allow-host-execution")
 		}
 		if r.Dirty {
 			args = append(args, "--dirty")
@@ -145,6 +159,9 @@ func (c *Client) Up(req UpRequest) (*UpOutcome, error) {
 		for _, s := range r.Sources {
 			args = append(args, "--source", s)
 		}
+		if r.AllowHostExecution {
+			args = append(args, "--allow-host-execution")
+		}
 		if r.Dirty {
 			args = append(args, "--dirty")
 		}
@@ -154,15 +171,39 @@ func (c *Client) Up(req UpRequest) (*UpOutcome, error) {
 	default:
 		return nil, &Error{Code: "bad_argument", Message: "up requires Create or Resume"}
 	}
+	return args, nil
+}
+
+func (c *Client) Up(req UpRequest) (*UpOutcome, error) {
+	args, err := upArgs(req)
+	if err != nil {
+		return nil, err
+	}
 	data, err := c.invoke(args)
 	if err != nil {
 		return nil, err
 	}
+	instanceID := asString(data["instance_id"])
+	integrations, err := secretRefs(data["integrations"], instanceID)
+	if err != nil {
+		return nil, err
+	}
+	endpoints, err := endpointBindings(data["endpoints"])
+	if err != nil {
+		return nil, err
+	}
+	placements, err := placementsMap(data["placements"])
+	if err != nil {
+		return nil, err
+	}
 	return &UpOutcome{
+		InstanceID:   instanceID,
 		Instance:     asString(data["instance"]),
 		Substrate:    asString(data["substrate"]),
 		Origins:      originsMap(data["origins"]),
-		Integrations: nestedStrMap(data["integrations"]),
+		Endpoints:    endpoints,
+		Placements:   placements,
+		Integrations: integrations,
 		Executed:     asStringSlice(data["executed"]),
 		Skipped:      asStringSlice(data["skipped"]),
 		DurationMs:   asUint64(data["duration_ms"]),
@@ -279,11 +320,20 @@ func (c *Client) Check(file, on string) (*CheckOutcome, error) {
 	if graph == nil {
 		graph = map[string]any{}
 	}
+	var placements *Placements
+	if data["placements"] != nil {
+		value, err := placementsMap(data["placements"])
+		if err != nil {
+			return nil, err
+		}
+		placements = &value
+	}
 	return &CheckOutcome{
-		Stack:     asString(data["stack"]),
-		Substrate: asString(data["substrate"]),
-		Services:  asStringSlice(data["services"]),
-		Graph:     graph,
+		Placements: placements,
+		Stack:      asString(data["stack"]),
+		Substrate:  asString(data["substrate"]),
+		Services:   asStringSlice(data["services"]),
+		Graph:      graph,
 	}, nil
 }
 
@@ -307,28 +357,33 @@ func originsMap(raw any) map[string]string {
 	return out
 }
 
-func nestedStrMap(raw any) map[string]map[string]string {
-	out := map[string]map[string]string{}
+func secretRefs(raw any, instanceID string) (map[string]map[string]SecretRef, error) {
+	out := map[string]map[string]SecretRef{}
+	if instanceID == "" {
+		return nil, fmt.Errorf("up response lacks an immutable instance ID")
+	}
+	if raw == nil {
+		return out, nil
+	}
 	top, ok := raw.(map[string]any)
 	if !ok {
-		return out
+		return nil, fmt.Errorf("invalid integration reference map")
 	}
-	for dns, val := range top {
-		innerMap, ok := val.(map[string]any)
+	for integration, val := range top {
+		outputs, ok := val.(map[string]any)
 		if !ok {
-			continue
+			return nil, fmt.Errorf("invalid integration reference map")
 		}
-		inner := map[string]string{}
-		for k, v := range innerMap {
-			if s, ok := v.(string); ok {
-				inner[k] = s
+		out[integration] = map[string]SecretRef{}
+		for output, val := range outputs {
+			ref, ok := val.(map[string]any)
+			if !ok || len(ref) != 4 || ref["kind"] != "secret_ref" || ref["instance_id"] != instanceID || ref["integration"] != integration || ref["output"] != output {
+				return nil, fmt.Errorf("invalid or foreign integration secret reference")
 			}
-		}
-		if len(inner) > 0 {
-			out[dns] = inner
+			out[integration][output] = SecretRef{Kind: "secret_ref", InstanceID: instanceID, Integration: integration, Output: output}
 		}
 	}
-	return out
+	return out, nil
 }
 
 func asString(v any) string {
@@ -398,4 +453,126 @@ func asInt(v any) int {
 	default:
 		return 0
 	}
+}
+
+func decodeOperationValue[T any](value any) (*T, error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	var result T
+	if err = json.Unmarshal(encoded, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) SubmitUp(req UpRequest) (*Operation, error) {
+	args, err := upArgs(req)
+	if err != nil {
+		return nil, err
+	}
+	data, err := c.invoke(append(args, "--no-wait"))
+	if err != nil {
+		return nil, err
+	}
+	return decodeOperationValue[Operation](data["operation"])
+}
+
+func (c *Client) SubmitDown(name string) (*Operation, error) {
+	data, err := c.invoke([]string{"down", name, "--no-wait"})
+	if err != nil {
+		return nil, err
+	}
+	return decodeOperationValue[Operation](data["operation"])
+}
+
+func (c *Client) Operation(id string, after int64) (*OperationPage, error) {
+	data, err := c.invoke([]string{"operation", "get", id, "--after", fmt.Sprint(after)})
+	if err != nil {
+		return nil, err
+	}
+	return decodeOperationValue[OperationPage](data["result"])
+}
+
+func (c *Client) CancelOperation(id string) (*Operation, error) {
+	data, err := c.invoke([]string{"operation", "cancel", id})
+	if err != nil {
+		return nil, err
+	}
+	return decodeOperationValue[Operation](data["operation"])
+}
+
+func (c *Client) WaitOperation(id string) (any, error) {
+	data, err := c.invoke([]string{"operation", "wait", id})
+	if err != nil {
+		return nil, err
+	}
+	return data["result"], nil
+}
+
+func (c *Client) Operations(instance string) ([]Operation, error) {
+	args := []string{"operation", "list"}
+	if instance != "" {
+		args = append(args, "--instance", instance)
+	}
+	data, err := c.invoke(args)
+	if err != nil {
+		return nil, err
+	}
+	result, err := decodeOperationValue[[]Operation](data["result"])
+	if err != nil {
+		return nil, err
+	}
+	return *result, nil
+}
+
+func endpointBindings(raw any) (map[string]EndpointBinding, error) {
+	bindings := map[string]EndpointBinding{}
+	if raw == nil {
+		return bindings, nil
+	}
+	values, ok := raw.(map[string]any)
+	if !ok {
+		return nil, &Error{Message: "invalid endpoint binding map"}
+	}
+	for name, rawValue := range values {
+		value, ok := rawValue.(map[string]any)
+		if !ok {
+			return nil, &Error{Message: "invalid endpoint binding"}
+		}
+		workload, wok := value["workload"].(string)
+		url, uok := value["url"].(string)
+		source, sok := value["source"].(string)
+		if !wok || workload == "" || !uok || url == "" || !sok || (source != "provider" && source != "declared") {
+			return nil, &Error{Message: "invalid endpoint binding"}
+		}
+		bindings[name] = EndpointBinding{Workload: workload, URL: url, Source: source}
+	}
+	return bindings, nil
+}
+
+func placementsMap(raw any) (Placements, error) {
+	result := Placements{Workloads: map[string]string{}, Resources: map[string]string{}}
+	if raw == nil {
+		return result, nil
+	}
+	values, ok := raw.(map[string]any)
+	if !ok {
+		return result, &Error{Message: "invalid placements"}
+	}
+	for kind, target := range map[string]map[string]string{"workloads": result.Workloads, "resources": result.Resources} {
+		entries, ok := values[kind].(map[string]any)
+		if !ok {
+			return result, &Error{Message: "invalid placement map"}
+		}
+		for name, value := range entries {
+			on, ok := value.(string)
+			if !ok || on == "" || name == "" {
+				return result, &Error{Message: "invalid hosting placement"}
+			}
+			target[name] = on
+		}
+	}
+	return result, nil
 }

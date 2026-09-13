@@ -1,24 +1,40 @@
 //! Source-build deploy via Fly's remote builder (`flyctl deploy --remote-only`).
 //!
-//! The Machines REST API has no build endpoint — Fly's own guidance is to shell
-//! out to `flyctl` for remote image builds. We clone the pinned ref, point
-//! flyctl at the Dockerfile, and let the remote builder push to
-//! `registry.fly.io` and update the app's machines.
+//! Build input comes from the sealed source archive. Journaled execution keeps
+//! its private context and process receipt until teardown.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use crate::error::FlyError;
+use stackless_core::source_archive::SourceArchive;
+
+pub(crate) mod durable;
 
 /// Inputs for a remote-builder deploy.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RemoteBuildArgs<'a> {
     pub app: &'a str,
     pub region: &'a str,
     pub dockerfile: &'a str,
     pub token: &'a str,
     pub env: &'a [(String, String)],
-    pub internal_port: u16,
+    pub internal_port: Option<u16>,
+    pub worker: bool,
+    pub cpu_kind: &'a str,
+    pub cpus: u32,
+    pub memory_mb: u32,
+    pub only_machine: Option<&'a str>,
+}
+
+impl std::fmt::Debug for RemoteBuildArgs<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RemoteBuildArgs")
+            .field("app", &self.app)
+            .field("region", &self.region)
+            .field("dockerfile", &self.dockerfile)
+            .field("internal_port", &self.internal_port)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Resolve `fly` / `flyctl` on PATH.
@@ -51,133 +67,170 @@ pub fn flyctl_deploy_args(args: &RemoteBuildArgs<'_>) -> Vec<String> {
         args.region.to_owned(),
         "--dockerfile".into(),
         args.dockerfile.to_owned(),
-        // Keep a single always-on machine (matches the image-path Machines
-        // config: autostop off, min 1).
-        "--env".into(),
-        format!("PORT={}", args.internal_port),
+        "--no-public-ips".into(),
+        "--vm-cpu-kind".into(),
+        args.cpu_kind.into(),
+        "--vm-cpus".into(),
+        args.cpus.to_string(),
+        "--vm-memory".into(),
+        args.memory_mb.to_string(),
     ];
-    for (key, value) in args.env {
-        out.push("--env".into());
-        out.push(format!("{key}={value}"));
+    if let Some(id) = args.only_machine {
+        out.extend(["--only-machines".into(), id.into(), "--update-only".into()]);
     }
     out
 }
 
-/// Write a minimal `fly.toml` so flyctl configures HTTP services for the
-/// container port, then run `flyctl deploy --remote-only`.
-pub fn deploy_from_checkout(checkout: &Path, args: &RemoteBuildArgs<'_>) -> Result<(), FlyError> {
-    let flyctl = resolve_flyctl()?;
-    let dockerfile_path = checkout.join(args.dockerfile);
-    if !dockerfile_path.is_file() {
-        return Err(FlyError::ProvisionFailed {
-            resource: args.app.to_owned(),
-            detail: format!(
-                "dockerfile {:?} not found in checkout (set [services.X.fly].dockerfile or add \
-                 a Dockerfile at the repo root)",
-                args.dockerfile
-            ),
-        });
+/// Reject paths outside the selected archive before any remote provisioning.
+pub fn validate_dockerfile(archive: &SourceArchive, dockerfile: &str) -> Result<(), FlyError> {
+    archive
+        .validate()
+        .map_err(|err| build_fault(err.to_string()))?;
+    let mut parts = Vec::new();
+    for part in Path::new(dockerfile).components() {
+        match part {
+            std::path::Component::CurDir => (),
+            std::path::Component::Normal(part) => parts.push(part.to_string_lossy().into_owned()),
+            _ => return Err(build_fault("dockerfile must stay inside source.root")),
+        }
     }
-
-    // Build context is the dockerfile's parent so COPY paths in small fixture
-    // Dockerfiles stay local to that directory; fall back to checkout root when
-    // the dockerfile lives at the repo root.
-    let context = dockerfile_path
-        .parent()
-        .filter(|p| *p != checkout)
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| checkout.to_path_buf());
-    let dockerfile_arg = if context == checkout {
-        args.dockerfile.to_owned()
-    } else {
-        dockerfile_path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("Dockerfile")
-            .to_owned()
-    };
-
-    write_fly_toml(&context, args)?;
-
-    let deploy_args = RemoteBuildArgs {
-        app: args.app,
-        region: args.region,
-        dockerfile: &dockerfile_arg,
-        token: args.token,
-        env: args.env,
-        internal_port: args.internal_port,
-    };
-    let argv = flyctl_deploy_args(&deploy_args);
-
-    let output = Command::new(&flyctl)
-        .args(&argv)
-        .current_dir(&context)
-        .env("FLY_API_TOKEN", args.token)
-        .output()
-        .map_err(|err| FlyError::ProvisionFailed {
-            resource: args.app.to_owned(),
-            detail: format!("failed to spawn flyctl: {err}"),
-        })?;
-    if output.status.success() {
-        return Ok(());
+    let normalized = parts.join("/");
+    if dockerfile.contains('\\')
+        || dockerfile.chars().any(char::is_control)
+        || !archive.files.iter().any(|file| file.path == normalized)
+    {
+        return Err(build_fault(
+            "dockerfile is absent from the sealed source root",
+        ));
     }
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let detail = [stderr.trim(), stdout.trim()]
-        .into_iter()
-        .find(|s| !s.is_empty())
-        .unwrap_or("flyctl deploy failed with no output");
-    Err(FlyError::DeployFailed {
-        service: args.app.to_owned(),
-        state: truncate(detail, 800),
-    })
+    Ok(())
 }
 
-/// Clone `repo`@`reference` into a temp dir and run the remote builder.
+fn build_fault(detail: impl Into<String>) -> FlyError {
+    FlyError::ProvisionFailed {
+        resource: "source-build".into(),
+        detail: detail.into(),
+    }
+}
+
+/// Extract immutable bytes, keep controller config outside the build context,
+/// and run the remote builder with only the app's deploy token.
 pub fn build_and_deploy(
-    repo: &str,
-    reference: &str,
+    archive: &SourceArchive,
+    binary: Option<&Path>,
     args: &RemoteBuildArgs<'_>,
 ) -> Result<(), FlyError> {
-    let tmp = tempfile::tempdir().map_err(|err| FlyError::ProvisionFailed {
-        resource: args.app.to_owned(),
-        detail: format!("tempdir: {err}"),
-    })?;
-    stackless_git::clone_checkout(
-        repo,
-        reference,
-        tmp.path(),
-        &stackless_git::Credentials::default(),
-    )
-    .map_err(|err| FlyError::ProvisionFailed {
-        resource: args.app.to_owned(),
-        detail: format!("clone {repo}@{reference} failed: {err}"),
-    })?;
-    deploy_from_checkout(tmp.path(), args)
+    validate_dockerfile(archive, args.dockerfile)?;
+    let flyctl = match binary {
+        Some(path) => path.to_path_buf(),
+        None => resolve_flyctl()?,
+    };
+    let tmp = tempfile::tempdir().map_err(|err| build_fault(err.to_string()))?;
+    let context = tmp.path().join("context");
+    std::fs::create_dir(&context).map_err(|err| build_fault(err.to_string()))?;
+    archive
+        .extract(&context)
+        .map_err(|err| build_fault(err.to_string()))?;
+    let config = tmp.path().join("fly.toml");
+    write_fly_toml(&config, args)?;
+    let home = tmp.path().join("home");
+    std::fs::create_dir(&home).map_err(|err| build_fault(err.to_string()))?;
+    let mut argv = flyctl_deploy_args(args);
+    argv.extend(["--config".into(), config.display().to_string()]);
+
+    let binary = flyctl
+        .canonicalize()
+        .map_err(|e| build_fault(e.to_string()))?;
+    let env = std::collections::BTreeMap::from([
+        ("HOME".into(), home.display().to_string()),
+        ("XDG_CONFIG_HOME".into(), home.display().to_string()),
+        ("FLY_API_TOKEN".into(), args.token.into()),
+    ]);
+    let result = tmp.path().join("exit");
+    let log = tmp.path().join("output");
+    let pending =
+        stackless_core::durable_command::spawn(stackless_core::durable_command::CommandInput {
+            program: &binary,
+            args: &argv,
+            directory: &context,
+            environment: &env,
+            result: &result,
+            output: &log,
+            budget: std::time::Duration::from_secs(300),
+        })
+        .map_err(|error| build_fault(error.to_string()))?;
+    let process = pending.stamp.clone();
+    pending
+        .release()
+        .map_err(|error| build_fault(error.to_string()))?;
+    let observed = (|| -> Result<Option<i32>, FlyError> {
+        loop {
+            let status = stackless_core::durable_command::result(&result)
+                .map_err(|e| build_fault(e.to_string()))?;
+            if status.is_some() || !process.process().is_alive() {
+                break Ok(status);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    })();
+    process.stop().map_err(|e| build_fault(e.to_string()))?;
+    let status = observed?;
+    if status == Some(0) {
+        return Ok(());
+    }
+    let output =
+        stackless_core::durable_command::output(&log).map_err(|e| build_fault(e.to_string()))?;
+    let text = String::from_utf8_lossy(&output);
+    let detail = if text.is_empty() {
+        "flyctl deploy failed without an exit receipt or output"
+    } else {
+        text.trim()
+    };
+    Err(FlyError::BuilderStopped {
+        detail: truncate(
+            &stackless_core::security::Redactor::new(
+                std::iter::once(args.token.to_owned())
+                    .chain(args.env.iter().map(|(_, value)| value.clone())),
+            )
+            .text(detail),
+            800,
+        ),
+    })
 }
 
-fn write_fly_toml(context: &Path, args: &RemoteBuildArgs<'_>) -> Result<(), FlyError> {
-    let contents = format!(
-        "app = {app:?}\n\
-         primary_region = {region:?}\n\
-         \n\
-         [build]\n\
-         \n\
-         [http_service]\n\
-           internal_port = {port}\n\
-           force_https = true\n\
-           auto_stop_machines = \"off\"\n\
-           auto_start_machines = true\n\
-           min_machines_running = 1\n\
-           processes = [\"app\"]\n",
+fn write_fly_toml(path: &Path, args: &RemoteBuildArgs<'_>) -> Result<(), FlyError> {
+    let mut contents = format!(
+        "app = {app:?}\nprimary_region = {region:?}\n\n[build]\n",
         app = args.app,
-        region = args.region,
-        port = args.internal_port,
+        region = args.region
     );
-    std::fs::write(context.join("fly.toml"), contents).map_err(|err| FlyError::ProvisionFailed {
-        resource: args.app.to_owned(),
-        detail: format!("writing fly.toml: {err}"),
-    })
+    if let Some(port) = args.internal_port {
+        contents.push_str(&format!("\n[http_service]\ninternal_port = {port}\nforce_https = true\nauto_stop_machines = \"off\"\nauto_start_machines = true\nmin_machines_running = 1\nprocesses = [\"app\"]\n"));
+    }
+    if args.worker {
+        contents.push_str("\n[[restart]]\npolicy = \"always\"\nprocesses = [\"app\"]\n");
+    }
+    let mut env: std::collections::BTreeMap<String, String> = args.env.iter().cloned().collect();
+    if let Some(port) = args.internal_port {
+        env.entry("PORT".into()).or_insert_with(|| port.to_string());
+    }
+    contents.push_str("\n[env]\n");
+    contents.push_str(&toml::to_string(&env).map_err(|e| build_fault(e.to_string()))?);
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .and_then(|mut file| {
+            file.write_all(contents.as_bytes())?;
+            file.sync_all()
+        })
+        .map_err(|err| FlyError::ProvisionFailed {
+            resource: args.app.to_owned(),
+            detail: format!("writing fly.toml: {err}"),
+        })
 }
 
 fn which(name: &str) -> Result<PathBuf, ()> {
@@ -202,7 +255,7 @@ fn truncate(text: &str, max: usize) -> String {
     if text.len() <= max {
         text.to_owned()
     } else {
-        format!("{}…", &text[..max])
+        format!("{}…", &text[..text.floor_char_boundary(max)])
     }
 }
 
@@ -219,14 +272,73 @@ mod tests {
             dockerfile: "Dockerfile",
             token: "tok",
             env: &env,
-            internal_port: 8080,
+            internal_port: Some(8080),
+            worker: false,
+            cpu_kind: "shared",
+            cpus: 1,
+            memory_mb: 256,
+            only_machine: None,
         };
         let argv = flyctl_deploy_args(&args);
         assert_eq!(argv[0], "deploy");
         assert!(argv.iter().any(|a| a == "--remote-only"));
         assert!(argv.windows(2).any(|w| w == ["--app", "smoke-fly-web"]));
         assert!(argv.windows(2).any(|w| w == ["--dockerfile", "Dockerfile"]));
-        assert!(argv.iter().any(|a| a == "FOO=bar"));
-        assert!(argv.iter().any(|a| a == "PORT=8080"));
+        assert!(!argv.iter().any(|a| a.contains("FOO=bar")));
+        assert!(argv.iter().any(|a| a == "--no-public-ips"));
+    }
+    #[cfg(unix)]
+    #[test]
+    fn build_failures_redact_credentials_and_reject_paths_before_spawn() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Dockerfile"), "FROM scratch").unwrap();
+        let archive = SourceArchive::capture(dir.path()).unwrap();
+        let binary = dir.path().join("fake-flyctl");
+        std::fs::write(
+            &binary,
+            "#!/bin/sh\nprintf '%s' \"$FLY_API_TOKEN app-secret-value\" >&2\nexit 1\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let env = vec![("APP_SECRET".into(), "app-secret-value".into())];
+        let mut args = RemoteBuildArgs {
+            app: "fixture",
+            region: "iad",
+            dockerfile: "Dockerfile",
+            token: "scoped-deploy-token",
+            env: &env,
+            internal_port: Some(8080),
+            worker: false,
+            cpu_kind: "shared",
+            cpus: 1,
+            memory_mb: 256,
+            only_machine: None,
+        };
+        let error = build_and_deploy(&archive, Some(&binary), &args)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("[redacted]"));
+        assert!(!error.contains(args.token));
+        assert!(!error.contains("app-secret-value"));
+        let debug = format!("{args:?}");
+        assert!(!debug.contains(args.token));
+        assert!(!debug.contains("app-secret-value"));
+        std::fs::remove_file(binary).unwrap();
+        for invalid in [
+            "../Dockerfile",
+            "/Dockerfile",
+            "missing",
+            ".env",
+            "docker\\Dockerfile",
+        ] {
+            args.dockerfile = invalid;
+            let error = build_and_deploy(&archive, Some(Path::new("/missing-builder")), &args)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("dockerfile"), "{error}");
+            assert!(!error.contains("spawn"));
+        }
+        assert!(truncate(&"é".repeat(401), 799).ends_with('…'));
     }
 }

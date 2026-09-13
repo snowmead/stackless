@@ -35,6 +35,7 @@ const GO_KEYWORDS: &[&str] = &[
 /// Identifiers that collide with emitted exported slots (PascalCase).
 const GO_RESERVED_EXPORTED: &[&str] = &[
     "Origins",
+    "Endpoints",
     "BindError",
     "ServiceDNS",
     "VerifyTier",

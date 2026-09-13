@@ -2,8 +2,9 @@
 //! agents and human operators.
 
 use super::plan::StepKind;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StepProgressEvent {
     Started,
     Skipped,
@@ -11,7 +12,7 @@ pub enum StepProgressEvent {
     Failed,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepProgress {
     pub event: StepProgressEvent,
     pub instance: String,
@@ -22,7 +23,7 @@ pub struct StepProgress {
     pub index: usize,
     pub total: usize,
     /// Set on [`StepProgressEvent::Failed`] when a stable code is known.
-    pub code: Option<&'static str>,
+    pub code: Option<String>,
     /// Wall-clock time of this event (Unix epoch milliseconds).
     pub at_epoch_ms: i64,
     /// Elapsed time since `step_started`, set on completed/failed/skipped.
@@ -31,6 +32,12 @@ pub struct StepProgress {
 
 pub trait ProgressSink {
     fn on_step(&mut self, progress: StepProgress);
+    /// Called after admission, before any provisioning side effect.
+    fn on_admitted(&mut self, _record: &crate::state::InstanceRecord) {}
+    /// Cancellation is honored between steps, after resource handles are durable.
+    fn is_cancelled(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug, Default)]

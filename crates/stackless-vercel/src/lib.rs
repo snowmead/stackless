@@ -9,10 +9,16 @@ pub mod codes;
 pub mod config;
 pub mod error;
 pub mod git;
+mod lifecycle;
+#[cfg(test)]
+mod lifecycle_tests;
 pub mod vercel_api;
 
+use stackless_core::substrate::InstanceContext;
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::Path;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -115,6 +121,8 @@ struct ServicePayload {
     vercel_name: String,
     project_id: String,
     deployment_id: String,
+    #[serde(default)]
+    deployment_receipt: Option<String>,
     origin: String,
 }
 
@@ -191,7 +199,7 @@ impl<R: CommandRunner> VercelSubstrate<R> {
             let mut values =
                 project::pull_env_values(&stripe, instance, &["VERCEL_TOKEN", "VERCEL_ORG_ID"])
                     .await
-                    .unwrap_or_default()
+                    .map_err(projects_fault)?
                     .into_iter();
             let token = values
                 .next()
@@ -220,45 +228,42 @@ impl<R: CommandRunner> VercelSubstrate<R> {
         }
     }
 
-    fn resource_name(def: &StackDef, instance: &str, node: &str) -> String {
-        format!("{}-{instance}-{node}", def.stack.name.as_str())
+    fn resource_name(def: &StackDef, instance: &InstanceContext<'_>, node: &str) -> String {
+        instance.provider_resource_name(def.stack.name.as_str(), node)
     }
 
-    /// Best-effort origin before deploy; health uses the recorded deployment URL.
-    fn origin(def: &StackDef, instance: &str, service: &str) -> String {
-        format!(
-            "https://{}.vercel.app",
-            Self::resource_name(def, instance, service)
-        )
-    }
-
-    fn namespace(&self, def: &StackDef, instance: &str, prior: &[Checkpoint]) -> Namespace {
+    fn namespace(
+        &self,
+        def: &StackDef,
+        instance: &InstanceContext<'_>,
+        prior: &[Checkpoint],
+    ) -> Namespace {
         let mut namespace = Namespace {
             stack_name: def.stack.name.clone(),
-            instance_name: stackless_core::types::DnsName::from_stored(instance),
+            instance_name: stackless_core::types::DnsName::from_stored(instance.name),
             ..Namespace::default()
         };
         for service in def.services.keys() {
-            let origin = prior
+            if let Some(origin) = prior
                 .iter()
-                .find(|checkpoint| checkpoint.step_id == format!("start:{service}"))
-                .and_then(|checkpoint| {
-                    serde_json::from_str::<ServicePayload>(&checkpoint.payload)
-                        .ok()
-                        .map(|payload| payload.origin)
-                })
-                .unwrap_or_else(|| Self::origin(def, instance, service));
-            namespace.service_origins.insert(service.clone(), origin);
+                .find(|cp| cp.step_id == format!("start:{service}"))
+                .and_then(|cp| serde_json::from_str::<ServicePayload>(&cp.payload).ok())
+                .map(|payload| payload.origin)
+                .filter(|origin| !origin.is_empty())
+            {
+                namespace.service_origins.insert(service.clone(), origin);
+            }
         }
-        namespace.secrets = self.secrets.clone();
+        namespace.secrets = stackless_core::security::application_secrets(&self.secrets);
         namespace.add_integration_checkpoints(prior);
+        instance.bind_namespace(&mut namespace, def);
         namespace
     }
 
     fn resolved_env(
         &self,
         def: &StackDef,
-        instance: &str,
+        instance: &InstanceContext<'_>,
         service: &str,
         prior: &[Checkpoint],
     ) -> Result<Vec<(String, String)>, SubstrateFault> {
@@ -288,30 +293,40 @@ impl<R: CommandRunner> VercelSubstrate<R> {
             resolved.push((key.clone(), value));
         }
         for key in &spec.secrets {
-            if let Some(value) = self.secrets.get(key) {
+            if let Some(value) = namespace.secrets.get(key) {
                 resolved.push((key.clone(), value.clone()));
             }
         }
+        stackless_core::security::validate_environment(
+            resolved.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+            &self.secrets,
+        )
+        .map_err(|detail| {
+            fault(VercelError::ConfigInvalid {
+                location: format!("services.{service}.env"),
+                detail,
+            })
+        })?;
         Ok(resolved)
     }
 
-    async fn ensure_project_and_env(
-        &self,
-        def: &StackDef,
-        instance: &str,
-    ) -> Result<(), SubstrateFault> {
+    async fn ensure_project_and_env(&self, ctx: &StepContext<'_>) -> Result<(), SubstrateFault> {
+        let def = ctx.def;
+        let instance = ctx.instance;
         let mut done = self.ensured.lock().await;
         if *done {
             return Ok(());
         }
-        let stripe = self.stripe();
+        let stripe = self
+            .stripe()
+            .with_journal(ctx, SUBSTRATE_NAME, "vercel-service");
         // Hobby/Pro catalog resources are Vercel-specific; shared prelude is
         // only project+env. Spend cap is set after plan provisioning.
         stackless_cloud::ensure::project_and_env(
             &stripe,
             def,
             &self.definition_dir,
-            instance,
+            instance.resource_namespace,
             None,
         )
         .await
@@ -372,16 +387,22 @@ impl<R: CommandRunner> VercelSubstrate<R> {
         Ok(())
     }
 
-    async fn start_service(
-        &self,
-        def: &StackDef,
-        instance: &str,
-        service: &str,
-        prior: &[Checkpoint],
-    ) -> Result<StepResource, SubstrateFault> {
+    async fn start_service(&self, ctx: &StepContext<'_>) -> Result<StepResource, SubstrateFault> {
+        let def = ctx.def;
+        let instance = ctx.instance;
+        let service = ctx.step.node.as_str();
+        let prior = ctx.prior;
+        let stripe = self
+            .stripe()
+            .with_journal(ctx, SUBSTRATE_NAME, "vercel-service");
+        let journal = stripe.journal().ok_or_else(|| {
+            projects_fault(ProjectsError::Journal {
+                detail: "hosting resource journal missing".into(),
+            })
+        })?;
         let vercel_cfg = ServiceVercel::parse(def, service).map_err(fault)?;
         let vercel_name = Self::resource_name(def, instance, service);
-        let resource = format!("{instance}-{service}");
+        let resource = instance.resource_name(service);
         let spec = def.services.get(service).ok_or_else(|| {
             fault(VercelError::ConfigInvalid {
                 location: format!("services.{service}"),
@@ -393,18 +414,43 @@ impl<R: CommandRunner> VercelSubstrate<R> {
         let config = VercelProjectConfig {
             name: vercel_name.clone(),
         };
-        let catalog = self
-            .stripe()
+        let catalog = stripe
             .catalog_for::<VercelProjectConfig>()
             .await
             .map_err(projects_fault)?;
-        let resource = add_catalog_resource(&self.stripe(), &catalog, &config, &resource)
+        let resource = add_catalog_resource(&stripe, &catalog, &config, &resource)
             .await
             .map_err(projects_fault)?
             .name;
 
-        let vercel = self.vercel(Some(instance)).await?;
+        let vercel = self.vercel(Some(instance.resource_namespace)).await?;
         let project_id = wait_for_project(&vercel, &vercel_name).await?;
+        let mut service_payload = ServicePayload {
+            stripe_resource: resource.clone(),
+            vercel_name: vercel_name.clone(),
+            project_id: project_id.clone(),
+            deployment_id: String::new(),
+            deployment_receipt: None,
+            origin: String::new(),
+        };
+        let mut service_resource = StepResource {
+            resource_kind: "vercel-service".into(),
+            resource_id: resource.clone(),
+            payload: serde_json::to_string(&service_payload).map_err(|e| {
+                projects_fault(ProjectsError::Journal {
+                    detail: e.to_string(),
+                })
+            })?,
+        };
+        journal
+            .outputs(&service_resource, false)
+            .map_err(projects_fault)?;
+        let parent = format!("catalog:vercel/project:{resource}");
+        let revision = self.step_revision(ctx)?;
+        let mut attempt =
+            lifecycle::DeploymentAttempt::begin(ctx, &project_id, &parent, &revision)?;
+        let vercel = vercel.with_receipt(&attempt.payload.receipt);
+        let recovered = attempt.recover(&vercel).await?;
         // Ephemeral stacks must be reachable for the health gate (and to be
         // used), so clear Vercel's deployment protection on the project we
         // provisioned.
@@ -417,85 +463,89 @@ impl<R: CommandRunner> VercelSubstrate<R> {
             .put_env_vars(&project_id, &env)
             .await
             .map_err(fault)?;
-        let deploy = match vercel_cfg.deploy {
-            DeployMode::Git => vercel
-                .create_git_deployment(
-                    &project_id,
-                    &vercel_name,
-                    &github,
-                    &spec.source.reference,
-                    &vercel_cfg,
-                )
-                .await
-                .map_err(fault)?,
-            DeployMode::Upload => {
-                let repo = spec.source.repo.clone();
-                let reference = spec.source.reference.clone();
-                let root = vercel_cfg.root.clone();
-                let service_owned = service.to_owned();
-                let files = tokio::task::spawn_blocking(move || {
-                    collect_upload_files(&repo, &reference, root.as_deref())
-                })
-                .await
-                .map_err(|err| {
-                    fault(VercelError::ProvisionFailed {
-                        resource: service_owned,
-                        detail: format!("upload task panicked: {err}"),
-                    })
-                })?
-                .map_err(fault)?;
-                vercel
-                    .create_file_deployment(&project_id, &vercel_name, &files)
-                    .await
-                    .map_err(fault)?
+        let deploy = if let Some(deploy) = recovered {
+            deploy
+        } else {
+            match vercel_cfg.deploy {
+                DeployMode::Git => {
+                    attempt.submit()?;
+                    vercel
+                        .create_git_deployment(
+                            &project_id,
+                            &vercel_name,
+                            &github,
+                            &spec.source.reference,
+                            stackless_cloud::source::recorded(ctx.prior, service)?.commit()?,
+                            &vercel_cfg,
+                        )
+                        .await
+                        .map_err(fault)?
+                }
+                DeployMode::Upload => {
+                    let source = stackless_cloud::source::recorded(ctx.prior, service)?;
+                    let files =
+                        upload_files(source.archive(vercel_cfg.root.as_deref())?).map_err(fault)?;
+                    attempt.submit()?;
+                    vercel
+                        .create_file_deployment(&project_id, &vercel_name, &files, &vercel_cfg)
+                        .await
+                        .map_err(fault)?
+                }
             }
         };
+        attempt.created(&deploy)?;
         let ready = vercel
             .wait_for_deployment(service, &deploy.id, DEPLOY_BUDGET)
             .await
             .map_err(fault)?;
-        let origin = deployment_origin(&ready.url);
-
-        let payload = ServicePayload {
-            stripe_resource: resource,
-            vercel_name: vercel_name.clone(),
-            project_id,
-            deployment_id: ready.id,
-            origin,
-        };
-        Ok(StepResource {
-            resource_kind: "vercel-service".into(),
-            resource_id: vercel_name,
-            payload: serde_json::to_string(&payload).unwrap_or_default(),
-        })
+        let owned = vercel
+            .owned_deployment(&project_id, &attempt.payload.receipt, &ready.id)
+            .await
+            .map_err(fault)?
+            .ok_or_else(|| {
+                projects_fault(ProjectsError::Journal {
+                    detail: "ready deployment disappeared before ownership verification".into(),
+                })
+            })?;
+        if owned.status != "READY" {
+            return Err(fault(VercelError::DeployFailed {
+                service: service.into(),
+                status: owned.status,
+            }));
+        }
+        attempt.ready()?;
+        service_payload.deployment_receipt = Some(attempt.payload.receipt.clone());
+        service_payload.deployment_id = ready.id;
+        service_payload.origin = deployment_origin(&ready.url);
+        service_resource.payload = serde_json::to_string(&service_payload).map_err(|e| {
+            projects_fault(ProjectsError::Journal {
+                detail: e.to_string(),
+            })
+        })?;
+        service_resource.payload = journal
+            .outputs(&service_resource, true)
+            .map_err(projects_fault)?;
+        Ok(service_resource)
     }
 
-    async fn run_prepare(
-        &self,
-        def: &StackDef,
-        instance: &str,
-        service: &str,
-        prior: &[Checkpoint],
-    ) -> Result<(), SubstrateFault> {
-        let Some(spec) = def.services.get(service) else {
-            return Ok(());
-        };
-        let namespace = self.namespace(def, instance, prior);
-        stackless_cloud::prepare::run_service_prepare(
-            &namespace,
+    async fn run_hook(&self, ctx: &StepContext<'_>) -> Result<StepResource, SubstrateFault> {
+        stackless_cloud::prepare::run_snapshot_hook(
+            ctx,
+            &self.definition_dir,
+            &self.namespace(ctx.def, ctx.instance, ctx.prior),
             &self.secrets,
-            service,
             SUBSTRATE_NAME,
-            spec,
         )
         .await
-        .map_err(prepare_fault)
+        .map_err(|failure| {
+            stackless_cloud::prepare::hook_fault(ctx.step.kind, failure, prepare_fault)
+        })
     }
 
     async fn health_gate(
         &self,
         def: &StackDef,
-        instance: &str,
+        _instance: &InstanceContext<'_>,
         service: &str,
         prior: &[Checkpoint],
     ) -> Result<(), SubstrateFault> {
@@ -513,12 +563,21 @@ impl<R: CommandRunner> VercelSubstrate<R> {
                     .ok()
                     .map(|payload| payload.origin)
             })
-            .unwrap_or_else(|| Self::origin(def, instance, service));
-        let url = format!("{origin}{}", spec.health.path);
+            .filter(|origin| !origin.trim().is_empty())
+            .ok_or_else(|| {
+                fault(VercelError::ConfigInvalid {
+                    location: format!("services.{service}.health"),
+                    detail: "deployment has no recorded provider endpoint".into(),
+                })
+            })?;
+        let Some(health) = &spec.health else {
+            return Ok(());
+        };
+        let url = format!("{origin}{}", health.path);
         stackless_cloud::health::poll(
             &url,
-            spec.health.status.get(),
-            spec.health.contains.as_deref(),
+            health.status.get(),
+            health.contains.as_deref(),
             HEALTH_BUDGET,
         )
         .await
@@ -562,68 +621,26 @@ fn deployment_origin(url: &str) -> String {
 
 /// Check out `repo`@`reference` into a temp dir and read every file under `root`
 /// (or the repo root) as [`UploadFile`]s (path relative to root + bytes) for the
-/// file-upload deploy mode — no Vercel↔GitHub connection required.
-fn collect_upload_files(
-    repo: &str,
-    reference: &str,
-    root: Option<&str>,
+fn upload_files(
+    archive: stackless_core::source_archive::SourceArchive,
 ) -> Result<Vec<UploadFile>, VercelError> {
-    let provision_fault = |detail: String| VercelError::ProvisionFailed {
-        resource: repo.to_owned(),
-        detail,
-    };
-    let tmp = tempfile::tempdir().map_err(|err| provision_fault(format!("tempdir: {err}")))?;
-    stackless_git::clone_checkout(
-        repo,
-        reference,
-        tmp.path(),
-        &stackless_git::Credentials::default(),
-    )
-    .map_err(|err| provision_fault(format!("clone {repo}@{reference} failed: {err}")))?;
-    let base = match root {
-        Some(root) => tmp.path().join(root),
-        None => tmp.path().to_path_buf(),
-    };
-    if !base.is_dir() {
-        return Err(provision_fault(format!(
-            "upload root {:?} not found in {repo}@{reference}",
-            root.unwrap_or(".")
-        )));
-    }
-    let mut files = Vec::new();
-    collect_dir(&base, &base, &mut files)
-        .map_err(|err| provision_fault(format!("reading upload files: {err}")))?;
-    if files.is_empty() {
-        return Err(provision_fault(format!(
-            "no files to upload under {:?}",
-            root.unwrap_or(".")
-        )));
-    }
-    Ok(files)
-}
-
-fn collect_dir(base: &Path, dir: &Path, out: &mut Vec<UploadFile>) -> std::io::Result<()> {
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
-        if entry.file_name() == ".git" {
-            continue;
-        }
-        let path = entry.path();
-        if path.is_dir() {
-            collect_dir(base, &path, out)?;
-        } else if path.is_file() {
-            let rel = path
-                .strip_prefix(base)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .replace('\\', "/");
-            out.push(UploadFile {
-                path: rel,
-                data: std::fs::read(&path)?,
-            });
-        }
-    }
-    Ok(())
+    use base64::Engine as _;
+    archive
+        .files
+        .into_iter()
+        .map(|file| {
+            let data = base64::engine::general_purpose::STANDARD
+                .decode(file.contents)
+                .map_err(|e| VercelError::ProvisionFailed {
+                    resource: "source snapshot".into(),
+                    detail: e.to_string(),
+                })?;
+            Ok(UploadFile {
+                path: file.path,
+                data,
+            })
+        })
+        .collect()
 }
 
 #[async_trait]
@@ -632,9 +649,20 @@ impl<R: CommandRunner> Substrate for VercelSubstrate<R> {
         SUBSTRATE_NAME
     }
 
+    fn capabilities(&self) -> stackless_core::capabilities::Capabilities {
+        stackless_core::capabilities::Capabilities::cloud(true, true)
+    }
+
     fn validate_definition(&self, def: &StackDef) -> Result<(), SubstrateFault> {
         StackVercel::validate(def).map_err(fault)?;
         for service in def.services.keys() {
+            if def.services[service]
+                .on
+                .as_deref()
+                .is_some_and(|on| on != SUBSTRATE_NAME)
+            {
+                continue;
+            }
             ServiceVercel::parse(def, service).map_err(fault)?;
             let spec = def.services.get(service).ok_or_else(|| {
                 fault(VercelError::ConfigInvalid {
@@ -655,67 +683,71 @@ impl<R: CommandRunner> Substrate for VercelSubstrate<R> {
         Duration::from_secs(8 * 3600)
     }
 
-    fn service_origin(&self, def: &StackDef, instance: &str, service: &str) -> String {
-        Self::origin(def, instance, service)
-    }
-
     fn build_namespace(
         &self,
         def: &StackDef,
-        instance: &str,
+        instance: &InstanceContext<'_>,
         prior: &[Checkpoint],
         secrets: &BTreeMap<String, String>,
         _purpose: stackless_core::substrate::NamespacePurpose,
     ) -> Namespace {
         let mut namespace = self.namespace(def, instance, prior);
-        namespace.secrets = secrets.clone();
+        namespace.secrets = stackless_core::security::application_secrets(secrets);
         namespace
     }
 
+    fn step_revision(&self, ctx: &StepContext<'_>) -> Result<String, SubstrateFault> {
+        let definition = stackless_core::engine::revision::step_revision(ctx, self)?;
+        if matches!(
+            ctx.step.kind,
+            StepKind::Start | StepKind::Setup | StepKind::Prepare
+        ) {
+            stackless_core::engine::revision::digest(&(
+                definition,
+                stackless_core::security::application_secrets(&self.secrets),
+            ))
+        } else {
+            Ok(definition)
+        }
+    }
+
+    fn refresh_each_operation(&self, step: &stackless_core::engine::Step) -> bool {
+        matches!(
+            step.kind,
+            StepKind::Materialize | StepKind::Prepare | StepKind::HealthGate
+        )
+    }
+
     async fn execute(&self, ctx: StepContext<'_>) -> Result<StepResource, SubstrateFault> {
-        self.ensure_project_and_env(ctx.def, ctx.instance).await?;
+        stackless_cloud::prepare::durable::require_host_grant(&ctx)?;
+        self.ensure_project_and_env(&ctx).await?;
         let node = ctx.step.node.as_str();
         match ctx.step.kind {
+            StepKind::RunJob => Err(stackless_core::capabilities::unsupported_feature(
+                SUBSTRATE_NAME,
+                &ctx.step.node,
+                "jobs",
+            )),
             StepKind::ProvisionIntegration => stackless_integrations::provision(
                 SUBSTRATE_NAME,
                 &self.stripe(),
-                ctx.def,
+                &ctx,
                 &self.definition_dir,
-                ctx.instance,
-                node,
                 true,
             )
             .await
             .map_err(integration_fault),
             StepKind::Materialize => {
-                let spec = ctx.def.services.get(node).ok_or_else(|| {
-                    fault(VercelError::ConfigInvalid {
-                        location: format!("services.{node}"),
-                        detail: "service not in definition".into(),
-                    })
-                })?;
-                let payload = SourceRefPayload {
-                    repo: spec.source.repo.clone(),
-                    reference: spec.source.reference.clone(),
-                    path: None,
-                    commit: None,
-                };
-                Ok(StepResource {
-                    resource_kind: "source-ref".into(),
-                    resource_id: format!("{}@{}", spec.source.repo, spec.source.reference),
-                    payload: serde_json::to_string(&payload).unwrap_or_default(),
-                })
+                stackless_cloud::source::materialize(
+                    &ctx,
+                    &self.definition_dir,
+                    SUBSTRATE_NAME,
+                    &self.secrets,
+                )
+                .await
             }
-            StepKind::Setup => Ok(stackless_core::substrate::action_resource(&ctx.step.id)),
-            StepKind::Prepare => {
-                self.run_prepare(ctx.def, ctx.instance, node, ctx.prior)
-                    .await?;
-                Ok(stackless_core::substrate::action_resource(&ctx.step.id))
-            }
-            StepKind::Start => {
-                self.start_service(ctx.def, ctx.instance, node, ctx.prior)
-                    .await
-            }
+            StepKind::Setup | StepKind::Prepare => self.run_hook(&ctx).await,
+            StepKind::Start => self.start_service(&ctx).await,
             StepKind::HealthGate => {
                 self.health_gate(ctx.def, ctx.instance, node, ctx.prior)
                     .await?;
@@ -726,10 +758,19 @@ impl<R: CommandRunner> Substrate for VercelSubstrate<R> {
 
     async fn observe(
         &self,
-        instance: &str,
+        instance: &InstanceContext<'_>,
         checkpoint: &Checkpoint,
     ) -> Result<Observation, SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
+            stackless_cloud::prepare::durable::KIND => stackless_cloud::prepare::durable::observe(
+                &self.definition_dir,
+                instance,
+                SUBSTRATE_NAME,
+                checkpoint,
+            ),
+            stackless_cloud::source::KIND => {
+                stackless_cloud::source::observe(&self.definition_dir, instance, checkpoint)
+            }
             "vercel-service" => {
                 let payload = stackless_cloud::checkpoint::parse_payload::<ServicePayload>(
                     &checkpoint.payload,
@@ -741,16 +782,36 @@ impl<R: CommandRunner> Substrate for VercelSubstrate<R> {
                     })
                 })?;
                 let project_id = payload
-                    .map(|p| p.project_id)
-                    .unwrap_or_else(|| checkpoint.resource_id.clone());
-                let present = self
-                    .vercel(Some(instance))
-                    .await?
-                    .get_project(&project_id)
-                    .await
-                    .map_err(fault)?
-                    .is_some();
-                Ok(stackless_core::substrate::present_or_gone(present))
+                    .as_ref()
+                    .map(|p| p.project_id.as_str())
+                    .unwrap_or(&checkpoint.resource_id);
+                let api = self.vercel(Some(instance.resource_namespace)).await?;
+                if api.get_project(project_id).await.map_err(fault)?.is_none() {
+                    return Ok(Observation::Gone);
+                }
+                if let Some(payload) = payload
+                    && let Some(receipt) = &payload.deployment_receipt
+                {
+                    return Ok(
+                        match api
+                            .owned_deployment(&payload.project_id, receipt, &payload.deployment_id)
+                            .await
+                            .map_err(fault)?
+                        {
+                            Some(deploy) if deploy.status == "READY" => Observation::Present,
+                            other => Observation::Drifted {
+                                settings: vec![stackless_core::substrate::SettingDrift {
+                                    setting: "deployment.readiness".into(),
+                                    expected: "READY".into(),
+                                    actual: other
+                                        .map(|deployment| deployment.status)
+                                        .unwrap_or_else(|| "missing".into()),
+                                }],
+                            },
+                        },
+                    );
+                }
+                Ok(Observation::Present)
             }
             "source-ref" => {
                 let payload = stackless_cloud::checkpoint::parse_payload::<SourceRefPayload>(
@@ -790,8 +851,15 @@ impl<R: CommandRunner> Substrate for VercelSubstrate<R> {
         }
     }
 
-    async fn destroy(&self, instance: &str, checkpoint: &Checkpoint) -> Result<(), SubstrateFault> {
+    async fn destroy(
+        &self,
+        instance: &InstanceContext<'_>,
+        checkpoint: &Checkpoint,
+    ) -> Result<(), SubstrateFault> {
         match checkpoint.resource_kind.as_str() {
+            stackless_cloud::source::KIND => {
+                stackless_cloud::source::destroy(&self.definition_dir, instance, checkpoint)
+            }
             "vercel-service" => {
                 let payload = stackless_cloud::checkpoint::parse_payload::<ServicePayload>(
                     &checkpoint.payload,
@@ -853,8 +921,107 @@ impl<R: CommandRunner> Substrate for VercelSubstrate<R> {
         }
     }
 
-    async fn finalize_teardown(&self, instance: &str) -> Result<(), SubstrateFault> {
-        stackless_integrations::finalize_stripe_instance(&self.stripe(), instance).await;
+    async fn destroy_record(
+        &self,
+        store: &stackless_core::state::Store,
+        instance: &InstanceContext<'_>,
+        record: &stackless_core::state::ResourceRecord,
+    ) -> Result<(), SubstrateFault> {
+        if record.resource_kind == stackless_cloud::prepare::durable::KIND {
+            return stackless_cloud::prepare::durable::destroy_record(
+                &self.definition_dir,
+                store,
+                instance,
+                SUBSTRATE_NAME,
+                record,
+            )
+            .await;
+        }
+        if record.resource_kind == lifecycle::DEPLOYMENT_KIND {
+            let attempt = lifecycle::DeploymentAttempt::load(store, record)?;
+            if !attempt.payload.submitted && attempt.payload.id.is_none() {
+                store
+                    .resource_absent(instance.id, &record.key)
+                    .map_err(|e| SubstrateFault::from_fault(&e))?;
+                return Ok(());
+            }
+            let api = self.vercel(Some(instance.resource_namespace)).await?;
+            return lifecycle::DeploymentAttempt::load(store, record)?
+                .destroy(&api)
+                .await;
+        }
+        if serde_json::from_str::<serde_json::Value>(&record.payload)
+            .ok()
+            .is_some_and(|value| value.get("_catalog_creation").is_some())
+        {
+            return stackless_stripe_projects::journal::destroy_record(
+                &self.stripe(),
+                store,
+                record,
+            )
+            .await
+            .map_err(projects_fault);
+        }
+        self.destroy(instance, &record.checkpoint(instance.name))
+            .await
+    }
+
+    async fn observe_record(
+        &self,
+        store: &stackless_core::state::Store,
+        instance: &InstanceContext<'_>,
+        record: &stackless_core::state::ResourceRecord,
+    ) -> Result<Observation, SubstrateFault> {
+        if record.resource_kind == stackless_cloud::prepare::durable::KIND {
+            return stackless_cloud::prepare::durable::observe_record(
+                &self.definition_dir,
+                store,
+                instance,
+                SUBSTRATE_NAME,
+                record,
+            );
+        }
+        let current = store
+            .resource(instance.id, &record.key)
+            .map_err(|e| SubstrateFault::from_fault(&e))?
+            .ok_or_else(|| {
+                projects_fault(ProjectsError::Journal {
+                    detail: "resource disappeared".into(),
+                })
+            })?;
+        if current.phase == stackless_core::state::ResourcePhase::Absent {
+            return Ok(Observation::Gone);
+        }
+        if current.resource_kind == lifecycle::DEPLOYMENT_KIND {
+            let api = self.vercel(Some(instance.resource_namespace)).await?;
+            return lifecycle::DeploymentAttempt::load(store, &current)?
+                .observe(&api)
+                .await;
+        }
+        if serde_json::from_str::<serde_json::Value>(&current.payload)
+            .ok()
+            .is_some_and(|value| value.get("_catalog_creation").is_some())
+        {
+            return stackless_stripe_projects::journal::observe_payload(
+                &self.stripe(),
+                &current.payload,
+            )
+            .await
+            .map_err(projects_fault);
+        }
+        self.observe(instance, &current.checkpoint(instance.name))
+            .await
+    }
+
+    async fn finalize_teardown(
+        &self,
+        instance: &InstanceContext<'_>,
+    ) -> Result<(), SubstrateFault> {
+        stackless_integrations::finalize_stripe_instance(
+            &self.stripe(),
+            instance.resource_namespace,
+        )
+        .await;
         Ok(())
     }
 
@@ -872,8 +1039,9 @@ impl<R: CommandRunner> Substrate for VercelSubstrate<R> {
 
     async fn fetch_logs(
         &self,
+        _store: &stackless_core::state::Store,
         _def: &StackDef,
-        instance: &str,
+        instance: &InstanceContext<'_>,
         services: &[String],
         tail: usize,
     ) -> Result<Option<Vec<ServiceLog>>, SubstrateFault> {
@@ -891,10 +1059,8 @@ impl<R: CommandRunner> Substrate for VercelSubstrate<R> {
     }
 }
 
-fn start_service_payload(instance: &str, service: &str) -> Option<ServicePayload> {
-    let store = stackless_core::state::Store::open_configured().ok()?;
-    let checkpoints = store.checkpoints(instance).ok()?;
-    checkpoints.into_iter().find_map(|checkpoint| {
+fn start_service_payload(instance: &InstanceContext<'_>, service: &str) -> Option<ServicePayload> {
+    instance.checkpoints.iter().find_map(|checkpoint| {
         if checkpoint.step_id == format!("start:{service}")
             && checkpoint.resource_kind == "vercel-service"
         {
@@ -908,7 +1074,7 @@ fn start_service_payload(instance: &str, service: &str) -> Option<ServicePayload
 impl<R: CommandRunner> VercelSubstrate<R> {
     async fn fetch_service_logs(
         &self,
-        instance: &str,
+        instance: &InstanceContext<'_>,
         service: &str,
         tail: usize,
     ) -> Result<Vec<String>, SubstrateFault> {
@@ -917,7 +1083,7 @@ impl<R: CommandRunner> VercelSubstrate<R> {
                 "(no start checkpoint for service {service}; run `stackless up` first)"
             )]);
         };
-        let vercel = self.vercel(Some(instance)).await?;
+        let vercel = self.vercel(Some(instance.resource_namespace)).await?;
         vercel
             .deployment_build_events(&payload.deployment_id, tail)
             .await
@@ -929,7 +1095,7 @@ impl<R: CommandRunner> VercelSubstrate<R> {
         stripe_resource: &str,
         project_id: &str,
         vercel_name: &str,
-        instance: &str,
+        instance: &InstanceContext<'_>,
     ) -> Result<(), SubstrateFault> {
         let stripe = self.stripe();
         // Already gone? Idempotent re-runs need no Vercel credentials.
@@ -942,7 +1108,7 @@ impl<R: CommandRunner> VercelSubstrate<R> {
         // Capture the Vercel client BEFORE removal: the managed token/org live in
         // the instance env, which `remove_resource` clears. Best-effort — a
         // bring-your-own-team teardown with no creds still verifies via Stripe.
-        let vercel = self.vercel(Some(instance)).await.ok();
+        let vercel = self.vercel(Some(instance.resource_namespace)).await.ok();
         project::remove_resource(&stripe, stripe_resource)
             .await
             .map_err(projects_fault)?;
@@ -988,14 +1154,13 @@ mod tests {
     use wiremock::matchers::{method, path_regex};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    struct NoRunner;
+    struct EnvironmentOnlyRunner;
 
     #[async_trait]
-    impl CommandRunner for NoRunner {
-        async fn run(&self, _args: &[String], _cwd: &Path) -> Result<CommandOutput, ProjectsError> {
-            Err(ProjectsError::Unavailable {
-                detail: "stripe should not be called in this test".into(),
-            })
+    impl CommandRunner for EnvironmentOnlyRunner {
+        async fn run(&self, args: &[String], _cwd: &Path) -> Result<CommandOutput, ProjectsError> {
+            assert_eq!(args[0], "env");
+            Ok(test_support::ok_empty())
         }
     }
 
@@ -1010,28 +1175,63 @@ mod tests {
         }
     }
 
-    fn subj(base: &str) -> (tempfile::TempDir, VercelSubstrate<NoRunner>) {
+    fn subj(base: &str) -> (tempfile::TempDir, VercelSubstrate<EnvironmentOnlyRunner>) {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join(api_key::KEY_FILE), "tok_test").unwrap();
-        let s = VercelSubstrate::for_test(NoRunner, dir.path(), base, false);
+        let s = VercelSubstrate::for_test(EnvironmentOnlyRunner, dir.path(), base, false);
         (dir, s)
     }
 
-    #[test]
-    fn resource_name_and_origin_are_dns_safe() {
+    #[tokio::test]
+    async fn resource_names_are_dns_safe_and_origins_wait_for_outputs() {
         let def = StackDef::parse(
             "[stack]\nname=\"atto\"\n[services.api]\nsource={repo=\"https://github.com/acme/api\",ref=\"main\"}\nenv={}\nhealth={path=\"/h\"}\n[services.api.vercel]\nframework=\"vite\"\n",
         )
         .unwrap();
         assert_eq!(
-            VercelSubstrate::<TokioRunner>::resource_name(&def, "demo", "api"),
+            VercelSubstrate::<TokioRunner>::resource_name(
+                &def,
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                "api"
+            ),
             "atto-demo-api"
         );
         let (_dir, substrate) = subj("http://127.0.0.1:1");
         assert_eq!(
-            substrate.service_origin(&def, "demo", "api"),
-            "https://atto-demo-api.vercel.app"
+            substrate.service_origin(
+                &def,
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                "api"
+            ),
+            ""
         );
+        let context = InstanceContext {
+            name: "demo",
+            id: "legacy-test",
+            resource_namespace: "demo",
+            checkpoints: &[],
+            routed_origins: None,
+        };
+        let error = tokio::time::timeout(
+            Duration::from_millis(100),
+            substrate.health_gate(&def, &context, "api", &[]),
+        )
+        .await
+        .expect("missing URL must fail before health polling")
+        .unwrap_err();
+        assert!(error.message.contains("recorded"), "{error}");
     }
 
     #[tokio::test]
@@ -1042,7 +1242,21 @@ mod tests {
             "materialize:api",
             r#"{"repo":"https://github.com/acme/api","ref":"main"}"#,
         );
-        assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Gone);
+        assert_eq!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .unwrap(),
+            Observation::Gone
+        );
     }
 
     #[tokio::test]
@@ -1077,7 +1291,18 @@ mod tests {
             "start:web",
             r#"{"stripe_resource":"s1-web","vercel_name":"smoke-vercel-s1-web","project_id":"prj_1","deployment_id":"dpl_1","origin":"https://x"}"#,
         );
-        s.destroy("demo", &cp).await.unwrap();
+        s.destroy(
+            &InstanceContext {
+                routed_origins: None,
+                name: "demo",
+                id: "legacy-test",
+                resource_namespace: "demo",
+                checkpoints: &[],
+            },
+            &cp,
+        )
+        .await
+        .unwrap();
 
         let calls = runner.calls();
         assert_eq!(calls.len(), 5, "calls: {calls:?}");
@@ -1107,7 +1332,21 @@ mod tests {
             "start:api",
             r#"{"stripe_resource":"demo-api","vercel_name":"atto-demo-api","project_id":"prj_1","deployment_id":"dpl_1","origin":"https://atto-demo-api.vercel.app"}"#,
         );
-        assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Present);
+        assert_eq!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .unwrap(),
+            Observation::Present
+        );
     }
 
     #[tokio::test]
@@ -1124,22 +1363,89 @@ mod tests {
             "start:api",
             r#"{"stripe_resource":"demo-api","vercel_name":"atto-demo-api","project_id":"prj_1","deployment_id":"dpl_1","origin":"https://atto-demo-api.vercel.app"}"#,
         );
-        assert_eq!(s.observe("demo", &cp).await.unwrap(), Observation::Gone);
+        assert_eq!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .unwrap(),
+            Observation::Gone
+        );
     }
 
     #[tokio::test]
     async fn unknown_resource_kind_fails_closed() {
         let (_dir, s) = subj("http://127.0.0.1:1");
         let cp = checkpoint("not-a-real-kind", "start:api", "{}");
-        assert!(s.observe("demo", &cp).await.is_err());
-        assert!(s.destroy("demo", &cp).await.is_err());
+        assert!(
+            s.observe(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            s.destroy(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .is_err()
+        );
     }
 
     #[tokio::test]
     async fn malformed_nonempty_payload_fails_on_destroy() {
         let (_dir, s) = subj("http://127.0.0.1:1");
         let cp = checkpoint("vercel-service", "start:api", "{");
-        assert!(s.destroy("demo", &cp).await.is_err());
+        assert!(
+            s.destroy(
+                &InstanceContext {
+                    routed_origins: None,
+                    name: "demo",
+                    id: "legacy-test",
+                    resource_namespace: "demo",
+                    checkpoints: &[]
+                },
+                &cp
+            )
+            .await
+            .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_managed_credentials_never_fall_back_to_another_team() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(api_key::KEY_FILE), "different-team-token").unwrap();
+        let runner = test_support::ScriptedRunner::new(vec![CommandOutput {
+            status: 1,
+            stdout: r#"{"ok":false,"error":{"code":"UNAUTHENTICATED","message":"expired"}}"#.into(),
+            stderr: String::new(),
+        }]);
+        let substrate = VercelSubstrate::for_test(&runner, dir.path(), "http://127.0.0.1:1", false);
+        assert!(substrate.vercel(Some("demo")).await.is_err());
+        assert_eq!(runner.calls().len(), 1);
     }
 
     #[test]

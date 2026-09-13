@@ -19,6 +19,8 @@ pub enum Reference {
     InstanceName,
     /// `${services.X.origin}`
     ServiceOrigin(String),
+    /// `${endpoints.X.url}`
+    EndpointUrl(String),
     /// `${datastores.X.url}` — legacy first-class datastore wiring kept
     /// so instance snapshots can still resolve URLs from journaled
     /// provision checkpoints after the section was removed from the schema.
@@ -67,6 +69,7 @@ impl Reference {
             ["instance", "name"] => Reference::InstanceName,
             ["stack", "name"] => Reference::StackName,
             ["services", name, "origin"] => Reference::ServiceOrigin((*name).to_owned()),
+            ["endpoints", name, "url"] => Reference::EndpointUrl((*name).to_owned()),
             ["datastores", name, "url"] => Reference::DatastoreUrl((*name).to_owned()),
             ["secrets", key] => Reference::Secret((*key).to_owned()),
             ["integrations", name, output] => Reference::IntegrationOutput {
@@ -92,6 +95,7 @@ pub struct Namespace {
     pub stack_name: DnsName,
     pub instance_name: DnsName,
     pub service_origins: BTreeMap<String, String>,
+    pub endpoint_urls: BTreeMap<String, String>,
     /// Legacy `${datastores.X.url}` values reconstructed from journaled
     /// `provision:` checkpoints (local container / render-postgres).
     pub datastore_urls: BTreeMap<String, String>,
@@ -105,6 +109,7 @@ impl Default for Namespace {
             stack_name: DnsName::from_stored("stack"),
             instance_name: DnsName::from_stored("instance"),
             service_origins: BTreeMap::new(),
+            endpoint_urls: BTreeMap::new(),
             datastore_urls: BTreeMap::new(),
             secrets: BTreeMap::new(),
             integrations: BTreeMap::new(),
@@ -113,6 +118,16 @@ impl Default for Namespace {
 }
 
 impl Namespace {
+    /// Bind named URLs without replacing the provider's service origins.
+    /// Rebind after changing origins, such as for a container's private network.
+    pub fn bind_endpoints(&mut self, def: &super::StackDef) {
+        self.endpoint_urls = def
+            .resolve_endpoints(&self.service_origins)
+            .into_iter()
+            .map(|(name, endpoint)| (name, endpoint.url))
+            .collect();
+    }
+
     fn lookup(&self, reference: &Reference, location: &str) -> Result<String, DefError> {
         match reference {
             Reference::StackName => Ok(self.stack_name.as_str().to_owned()),
@@ -125,6 +140,15 @@ impl Namespace {
                         name: name.clone(),
                     }
                 })
+            }
+            Reference::EndpointUrl(name) => {
+                self.endpoint_urls
+                    .get(name)
+                    .cloned()
+                    .ok_or_else(|| DefError::EndpointUnavailable {
+                        location: location.to_owned(),
+                        name: name.clone(),
+                    })
             }
             Reference::DatastoreUrl(name) => {
                 self.datastore_urls.get(name).cloned().ok_or_else(|| {

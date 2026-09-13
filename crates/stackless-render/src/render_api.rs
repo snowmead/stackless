@@ -1,14 +1,9 @@
-//! The Render REST client (ARCHITECTURE.md §4): the post-provisioning steps
-//! Stripe Projects can't express — env vars, the SPA rewrite route, deploy
-//! triggers, deploy polling with per-kind budgets, legacy postgres existence
-//! checks for teardown, recent logs, and the teardown survivors check.
-//!
-//! This is a thin adapter over the [`render_client`] crate, which is generated
-//! by progenitor from Render's OpenAPI spec (`specs/render-openapi.json`). The
-//! adapter maps the generated typed calls to our [`RenderError`]/`Fault` model
-//! and our `Unknown`-tolerant [`DeployStatus`]; the request/response shapes are
-//! the provider's, used out of the box.
+//! Render REST calls for service identity, deployment receipts, readiness,
+//! environment replacement, logs, and deletion. Generated types cover stable
+//! endpoints. Direct HTTP preserves the deployment body returned with HTTP 201,
+//! which the vendored generated client does not support.
 
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 use render_client::types;
@@ -33,12 +28,16 @@ pub struct RenderService {
     /// The workspace owner id (`ownerId`) — required to scope the `/logs`
     /// endpoint (the service id would 400).
     pub owner_id: Option<String>,
+    pub origin: Option<String>,
+    pub root_dir: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct RenderDeploy {
     pub id: String,
     pub status: DeployStatus,
+    pub commit: Option<String>,
+    pub trigger: Option<String>,
 }
 
 /// Minimal postgres identity for legacy `render-postgres` teardown.
@@ -51,6 +50,8 @@ pub struct RenderPostgres {
 
 pub struct RenderApi {
     client: render_client::Client,
+    http: reqwest::Client,
+    base: String,
     /// Overridable so deploy polling is fast in tests.
     poll_interval: Duration,
 }
@@ -96,10 +97,13 @@ impl RenderApi {
     }
 
     pub fn with_base(api_key: impl Into<String>, base: impl Into<String>) -> Self {
-        let client =
-            render_client::Client::new_with_client(&base.into(), authed_client(&api_key.into()));
+        let base = base.into();
+        let http = authed_client(&api_key.into());
+        let client = render_client::Client::new_with_client(&base, http.clone());
         Self {
             client,
+            http,
+            base,
             poll_interval: POLL_INTERVAL,
         }
     }
@@ -110,43 +114,198 @@ impl RenderApi {
         self
     }
 
+    pub(crate) fn poll_interval(&self) -> Duration {
+        self.poll_interval
+    }
+
     pub async fn find_service_by_name(
         &self,
         name: &str,
     ) -> Result<Option<RenderService>, RenderError> {
         let names = vec![name.to_owned()];
-        let response = self
-            .client
-            .list_services(
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                limit(20),
-                Some(&names),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-            .await
-            .map_err(|err| api_failed("GET", "/services", err))?;
-        for entry in response.into_inner().0 {
-            let Some(service) = entry.service else {
-                continue;
-            };
-            if service.name.as_deref() == Some(name) {
-                return Ok(Some(RenderService {
-                    id: service.id.unwrap_or_default(),
-                    owner_id: service.owner_id,
-                }));
+        let mut cursor = None;
+        let mut cursors = BTreeSet::new();
+        let mut ids = BTreeSet::new();
+        let mut found = None;
+        for _ in 0..1000 {
+            let page = self
+                .client
+                .list_services(
+                    None,
+                    None,
+                    cursor.as_deref(),
+                    None,
+                    None,
+                    None,
+                    limit(100),
+                    Some(&names),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+                .await
+                .map_err(|e| api_failed("GET", "/services", e))?
+                .into_inner()
+                .0;
+            let full = page.len() == 100;
+            let next = page
+                .last()
+                .and_then(|row| row.cursor.as_ref())
+                .map(|c| c.0.clone());
+            for row in page {
+                let service = row
+                    .service
+                    .ok_or_else(|| api_failed("GET", "/services", "missing service object"))?;
+                let id = service
+                    .id
+                    .filter(|id| !id.is_empty())
+                    .ok_or_else(|| api_failed("GET", "/services", "missing service ID"))?;
+                if !ids.insert(id.clone()) {
+                    return Err(api_failed("GET", "/services", "repeated service ID"));
+                }
+                let row_name = service
+                    .name
+                    .ok_or_else(|| api_failed("GET", "/services", "missing service name"))?;
+                if row_name == name {
+                    if found.is_some() {
+                        return Err(api_failed("GET", "/services", "service name is ambiguous"));
+                    }
+                    found = Some(RenderService {
+                        id,
+                        owner_id: service.owner_id,
+                        origin: None,
+                        root_dir: None,
+                    });
+                }
             }
+            if !full {
+                return Ok(found);
+            }
+            let next = next
+                .filter(|c| !c.is_empty())
+                .ok_or_else(|| api_failed("GET", "/services", "missing pagination cursor"))?;
+            if !cursors.insert(next.clone()) {
+                return Err(api_failed("GET", "/services", "repeated pagination cursor"));
+            }
+            cursor = Some(next);
         }
-        Ok(None)
+        Err(api_failed("GET", "/services", "pagination limit exceeded"))
+    }
+
+    /// Read the exact recorded service. A name or ID mismatch is an ownership conflict.
+    pub async fn service(
+        &self,
+        id: &str,
+        name: &str,
+    ) -> Result<Option<RenderService>, RenderError> {
+        let path = service_path(id)?;
+        let response = self
+            .http
+            .get(format!("{}{path}", self.base))
+            .send()
+            .await
+            .map_err(|e| api_failed("GET", &path, e))?;
+        if response.status().as_u16() == 404 {
+            return Ok(None);
+        }
+        if !response.status().is_success() {
+            return Err(api_failed("GET", &path, response.status()));
+        }
+        let value: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| api_failed("GET", &path, e))?;
+        if value["id"].as_str() != Some(id) || value["name"].as_str() != Some(name) {
+            return Err(api_failed(
+                "GET",
+                &path,
+                "service identity differs from the ownership record",
+            ));
+        }
+        Ok(Some(RenderService {
+            id: id.into(),
+            root_dir: value["rootDir"].as_str().map(str::to_owned),
+            owner_id: value["ownerId"].as_str().map(str::to_owned),
+            origin: value
+                .pointer("/serviceDetails/url")
+                .and_then(serde_json::Value::as_str)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned),
+        }))
+    }
+
+    pub async fn configure_source(
+        &self,
+        id: &str,
+        name: &str,
+        root: &str,
+    ) -> Result<(), RenderError> {
+        if self.service(id, name).await?.is_none() {
+            return Err(api_failed(
+                "PATCH",
+                "/services",
+                "owned service disappeared",
+            ));
+        }
+        let path = service_path(id)?;
+        let response = self
+            .http
+            .patch(format!("{}{path}", self.base))
+            .json(&serde_json::json!({"autoDeploy":"no", "rootDir":root}))
+            .send()
+            .await
+            .map_err(|e| api_failed("PATCH", &path, e))?;
+        if !response.status().is_success() {
+            return Err(api_failed("PATCH", &path, response.status()));
+        }
+        let value: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| api_failed("PATCH", &path, e))?;
+        if value["id"].as_str() != Some(id)
+            || value["name"].as_str() != Some(name)
+            || value["autoDeploy"].as_str() != Some("no")
+            || value["rootDir"].as_str() != Some(root)
+        {
+            return Err(api_failed(
+                "PATCH",
+                &path,
+                "source settings were not confirmed",
+            ));
+        }
+        let confirmed = self
+            .service(id, name)
+            .await?
+            .ok_or_else(|| api_failed("GET", &path, "owned service disappeared"))?;
+        if confirmed.root_dir.as_deref() != Some(root) {
+            return Err(api_failed(
+                "GET",
+                &path,
+                "source root update was not observed",
+            ));
+        }
+        Ok(())
+    }
+
+    /// The caller persists removal first and verifies absence after this request.
+    pub async fn delete_service(&self, id: &str, name: &str) -> Result<(), RenderError> {
+        if self.service(id, name).await?.is_none() {
+            return Ok(());
+        }
+        let path = service_path(id)?;
+        let response = self
+            .http
+            .delete(format!("{}{path}", self.base))
+            .send()
+            .await
+            .map_err(|e| api_failed("DELETE", &path, e))?;
+        if !response.status().is_success() && response.status().as_u16() != 404 {
+            return Err(api_failed("DELETE", &path, response.status()));
+        }
+        Ok(())
     }
 
     /// Look up a managed Postgres by name — used only to observe/teardown
@@ -241,49 +400,110 @@ impl RenderApi {
         Ok(())
     }
 
-    pub async fn trigger_deploy(&self, service_id: &str) -> Result<RenderDeploy, RenderError> {
-        // The create-deploy response is empty (`202 Queued`); recover the
-        // just-enqueued deploy from the deploys list (newest first).
-        self.client
-            .create_deploy(service_id, &types::CreateDeployBody::default())
+    /// The caller journals submission before POST. A queued response may have no handle.
+    pub async fn trigger_pinned_deploy(
+        &self,
+        service_id: &str,
+        commit: &str,
+    ) -> Result<Option<RenderDeploy>, RenderError> {
+        let path = format!("{}/deploys", service_path(service_id)?);
+        let response = self
+            .http
+            .post(format!("{}{path}", self.base))
+            .json(&serde_json::json!({"clearCache":"do_not_clear", "commitId":commit}))
+            .send()
             .await
-            .map_err(|err| api_failed("POST", "/services/{id}/deploys", err))?;
-        self.latest_deploy(service_id)
-            .await?
-            .ok_or_else(|| RenderError::ApiFailed {
-                method: "POST".into(),
-                path: format!("/services/{service_id}/deploys"),
-                detail: "deploy trigger returned no listed deploy".into(),
-            })
-    }
-
-    /// The most recent deploy for a service (newest first), or None when the
-    /// service has never deployed. Drives [`Self::wait_for_deploy`].
-    async fn latest_deploy(&self, service_id: &str) -> Result<Option<RenderDeploy>, RenderError> {
-        let list = self
-            .client
-            .list_deploys(
-                service_id,
-                None,
-                None,
-                None,
-                None,
-                None,
-                limit(1),
-                None,
-                None,
-                None,
-            )
+            .map_err(|e| api_failed("POST", &path, e))?;
+        let status = response.status().as_u16();
+        if status != 201 && status != 202 {
+            return Err(api_failed("POST", &path, response.status()));
+        }
+        let bytes = response
+            .bytes()
             .await
-            .map_err(|err| api_failed("GET", "/services/{id}/deploys", err))?
-            .into_inner();
-        let Some(deploy) = list.0.into_iter().next().and_then(|entry| entry.deploy) else {
+            .map_err(|e| api_failed("POST", &path, e))?;
+        if status == 202 && bytes.is_empty() {
             return Ok(None);
-        };
-        Ok(Some(into_render_deploy(deploy)))
+        }
+        let value: types::Deploy =
+            serde_json::from_slice(&bytes).map_err(|e| api_failed("POST", &path, e))?;
+        let deploy = into_render_deploy(value)?;
+        if deploy.commit.as_deref() != Some(commit) {
+            return Err(api_failed(
+                "POST",
+                &path,
+                "returned deployment has a different commit",
+            ));
+        }
+        Ok(Some(deploy))
     }
 
-    async fn get_deploy(
+    /// Complete inventory is required before a submitted request can be recovered.
+    pub async fn deployments(&self, service_id: &str) -> Result<Vec<RenderDeploy>, RenderError> {
+        let mut cursor = None;
+        let mut cursors = BTreeSet::new();
+        let mut ids = BTreeSet::new();
+        let mut result = Vec::new();
+        for _ in 0..1000 {
+            let page = self
+                .client
+                .list_deploys(
+                    service_id,
+                    None,
+                    None,
+                    cursor.as_deref(),
+                    None,
+                    None,
+                    limit(100),
+                    None,
+                    None,
+                    None,
+                )
+                .await
+                .map_err(|e| api_failed("GET", "/services/{id}/deploys", e))?
+                .into_inner()
+                .0;
+            let full = page.len() == 100;
+            let next = page
+                .last()
+                .and_then(|row| row.cursor.as_ref())
+                .map(|c| c.0.clone());
+            for row in page {
+                let deploy = into_render_deploy(row.deploy.ok_or_else(|| {
+                    api_failed("GET", "/services/{id}/deploys", "missing deploy object")
+                })?)?;
+                if !ids.insert(deploy.id.clone()) {
+                    return Err(api_failed(
+                        "GET",
+                        "/services/{id}/deploys",
+                        "repeated deployment ID",
+                    ));
+                }
+                result.push(deploy);
+            }
+            if !full {
+                return Ok(result);
+            }
+            let next = next.filter(|c| !c.is_empty()).ok_or_else(|| {
+                api_failed("GET", "/services/{id}/deploys", "missing pagination cursor")
+            })?;
+            if !cursors.insert(next.clone()) {
+                return Err(api_failed(
+                    "GET",
+                    "/services/{id}/deploys",
+                    "repeated pagination cursor",
+                ));
+            }
+            cursor = Some(next);
+        }
+        Err(api_failed(
+            "GET",
+            "/services/{id}/deploys",
+            "pagination limit exceeded",
+        ))
+    }
+
+    pub async fn get_deploy(
         &self,
         service_id: &str,
         deploy_id: &str,
@@ -292,22 +512,20 @@ impl RenderApi {
             .client
             .retrieve_deploy(service_id, deploy_id)
             .await
-            .map_err(|err| api_failed("GET", "/services/{id}/deploys/{deployId}", err))?
+            .map_err(|e| api_failed("GET", "/services/{id}/deploys/{deployId}", e))?
             .into_inner();
-        Ok(into_render_deploy(deploy))
+        let deploy = into_render_deploy(deploy)?;
+        if deploy.id != deploy_id {
+            return Err(api_failed(
+                "GET",
+                "/services/{id}/deploys/{deployId}",
+                "deployment ID changed",
+            ));
+        }
+        Ok(deploy)
     }
 
-    /// Wait until the service has a `live` deploy within `budget`.
-    ///
-    /// Service-centric, not deploy-id-centric: Render auto-creates an initial
-    /// deploy when a service is created — before stackless sets env vars — so
-    /// that deploy can fail (missing build secrets) while the deploy stackless
-    /// triggers afterward succeeds. Polling the service's *latest* deploy
-    /// follows the successful one. `deploy_id` seeds the tracked id. A failed
-    /// latest deploy is a real failure only when it is the deploy we are
-    /// tracking and it stays the newest across two polls (so a superseded
-    /// auto-deploy that is briefly newest before ours registers does not
-    /// false-fail).
+    /// Only the submitted deployment can satisfy readiness. Newer deployments are drift.
     pub async fn wait_for_deploy(
         &self,
         service: &str,
@@ -316,41 +534,27 @@ impl RenderApi {
         budget: Duration,
     ) -> Result<(), RenderError> {
         let deadline = tokio::time::Instant::now() + budget;
-        let mut pending_fail: Option<String> = None;
         loop {
-            // The newest deploy is the source of truth (Render auto-creates an
-            // initial deploy before env vars are set; we trigger another). Fall
-            // back to the tracked id only when the list is momentarily empty.
-            let latest = match self.latest_deploy(service_id).await? {
-                Some(latest) => latest,
-                None => self.get_deploy(service_id, deploy_id).await?,
-            };
-
-            if latest.status.is_live() {
+            let deploy = self.get_deploy(service_id, deploy_id).await?;
+            if deploy.status.is_live() {
                 return Ok(());
             }
-
-            if latest.status.is_terminal_failed() {
-                // Confirm the failure across two polls: a superseded auto-deploy
-                // can be the newest for a moment before our deploy registers,
-                // after which the newer (non-failed) deploy becomes the latest.
-                // A failure that stays newest is real, and fails fast.
-                if pending_fail.as_deref() == Some(latest.id.as_str()) {
-                    return Err(RenderError::DeployFailed {
-                        service: service.to_owned(),
-                        status: latest.status.as_str().to_owned(),
-                    });
-                }
-                pending_fail = Some(latest.id.clone());
-            } else {
-                pending_fail = None;
+            if deploy.status.is_terminal_failed()
+                || matches!(
+                    deploy.status,
+                    DeployStatus::Canceled | DeployStatus::Deactivated
+                )
+            {
+                return Err(RenderError::DeployFailed {
+                    service: service.into(),
+                    status: deploy.status.as_str().into(),
+                });
             }
-
             if tokio::time::Instant::now() >= deadline {
                 return Err(RenderError::DeployTimeout {
-                    service: service.to_owned(),
+                    service: service.into(),
                     budget_secs: budget.as_secs(),
-                    last_status: latest.status.as_str().to_owned(),
+                    last_status: deploy.status.as_str().into(),
                 });
             }
             tokio::time::sleep(self.poll_interval).await;
@@ -404,11 +608,33 @@ impl RenderApi {
     }
 }
 
-fn into_render_deploy(deploy: types::Deploy) -> RenderDeploy {
-    RenderDeploy {
-        id: deploy.id.unwrap_or_default(),
-        status: DeployStatus::from_api(deploy.status.map(|s| s.0).as_deref().unwrap_or("unknown")),
+fn service_path(id: &str) -> Result<String, RenderError> {
+    if id.is_empty()
+        || !id
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_'))
+    {
+        return Err(api_failed("GET", "/services", "invalid service ID"));
     }
+    Ok(format!("/services/{id}"))
+}
+
+fn into_render_deploy(deploy: types::Deploy) -> Result<RenderDeploy, RenderError> {
+    let id = deploy
+        .id
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| api_failed("GET", "/deploys", "missing deployment ID"))?;
+    let status = deploy
+        .status
+        .map(|s| s.0)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| api_failed("GET", "/deploys", "missing deployment status"))?;
+    Ok(RenderDeploy {
+        id,
+        status: DeployStatus::from_api(&status),
+        commit: deploy.commit.and_then(|c| c.id),
+        trigger: deploy.trigger,
+    })
 }
 
 /// A Render deploy status. Modeled as an enum so the polling logic is

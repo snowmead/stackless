@@ -1,31 +1,8 @@
-//! The SQL state store (ARCHITECTURE.md §2).
-//!
-//! Two backends behind one sync `Store` surface:
-//!
-//! - **Local** — `rusqlite` (bundled SQLite, WAL, busy timeout): the
-//!   default per-user file. (The `turso` crate was the intended local
-//!   engine but cannot share a database file across processes — see the
-//!   §2 note.)
-//! - **Remote** — the `libsql` crate's remote mode (synchronous-feeling
-//!   over HTTP to a Turso Cloud primary): the opt-in **fleet plane**
-//!   where multiple operator machines share one store, name uniqueness
-//!   becomes a real `UNIQUE` constraint, and lock/lease claims are
-//!   single-statement compare-and-swap against the primary.
-//!
-//! The `libsql` API is async; `Store` is sync (called from sync CLI
-//! paths and from inside the daemon, sometimes within a Tokio task). The
-//! remote backend therefore owns a dedicated worker thread running a
-//! current-thread runtime: helpers ship a job to it and block the
-//! *calling* thread on a reply channel. We never call `block_on` on the
-//! caller's thread, so the store is safe to use from inside an async
-//! context (the reaper's tick opens it mid-`async fn`).
-//!
-//! Every existing query site goes through the [`Store::execute`] /
-//! [`Store::query_row`] / [`Store::query_map`] helpers and the internal
-//! [`Value`]/[`Row`] bridge, so `instance.rs`/`lease.rs`/`lock.rs`/
-//! `journal.rs`/`reaper.rs` are driver-agnostic.
+//! SQLite state owned by one controller. Remote clients submit operations to
+//! that controller; they never share database connections.
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use rusqlite::Connection;
@@ -33,7 +10,6 @@ use rusqlite::Connection;
 use crate::paths::Paths;
 
 use super::error::StateError;
-use super::remote::{RemoteDb, from_libsql, rusqlite_shim, to_libsql_params};
 use super::row::Row;
 use super::value::Value;
 
@@ -43,25 +19,20 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/003_reaper.sql"),
     include_str!("migrations/004_lock_host.sql"),
     include_str!("migrations/005_dirty.sql"),
+    include_str!("migrations/006_operation_identity.sql"),
+    include_str!("migrations/007_resources.sql"),
+    include_str!("migrations/008_operations.sql"),
+    include_str!("migrations/009_stripe_contexts.sql"),
+    include_str!("migrations/010_secret_history.sql"),
+    include_str!("migrations/011_revisions.sql"),
+    include_str!("migrations/012_execution_grants.sql"),
+    include_str!("migrations/013_operation_inputs.sql"),
+    include_str!("migrations/014_placements.sql"),
 ];
 
-const MIGRATION_001_TABLES: &[&str] = &["instances", "leases", "op_locks", "checkpoints"];
-
-/// Turso Cloud makes `PRAGMA user_version` read-only; the remote backend
-/// tracks schema version in this table instead (see Turso limitations doc).
-const REMOTE_SCHEMA_VERSION_BOOTSTRAP: &str = r"
-CREATE TABLE IF NOT EXISTS _stackless_schema_version (
-    version INTEGER NOT NULL
-);
-";
-
-enum Backend {
-    Local(Connection),
-    Remote(RemoteDb),
-}
-
+#[derive(Clone)]
 pub struct Store {
-    backend: Backend,
+    conn: Arc<Mutex<Connection>>,
 }
 
 impl std::fmt::Debug for Store {
@@ -79,7 +50,49 @@ impl Store {
                 source,
             })?;
         }
-        let conn = Connection::open(path).map_err(|source| StateError::Open {
+        // Never open and close an existing SQLite file outside SQLite. POSIX
+        // closes release this process's database locks held by other connections.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+            let file_error = |source| StateError::StateFile {
+                path: path.display().to_string(),
+                source,
+            };
+            match std::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .mode(0o600)
+                .open(path)
+            {
+                Ok(file) => file
+                    .set_permissions(std::fs::Permissions::from_mode(0o600))
+                    .map_err(file_error)?,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if !std::fs::symlink_metadata(path)
+                        .map_err(file_error)?
+                        .file_type()
+                        .is_file()
+                    {
+                        return Err(file_error(std::io::Error::other(
+                            "state path must be an ordinary file",
+                        )));
+                    }
+                    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+                        .map_err(file_error)?;
+                }
+                Err(error) => return Err(file_error(error)),
+            }
+        }
+        let canonical = std::fs::canonicalize(path).map_err(|source| StateError::StateFile {
+            path: path.display().to_string(),
+            source,
+        })?;
+        let conn = Connection::open_with_flags(
+            &canonical,
+            rusqlite::OpenFlags::default() | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
+        )
+        .map_err(|source| StateError::Open {
             path: path.display().to_string(),
             source,
         })?;
@@ -87,49 +100,28 @@ impl Store {
         conn.pragma_update(None, "journal_mode", "wal")?;
         conn.pragma_update(None, "foreign_keys", "on")?;
         let store = Self {
-            backend: Backend::Local(conn),
+            conn: Arc::new(Mutex::new(conn)),
         };
         store.migrate()?;
         Ok(store)
     }
 
-    /// Open against a remote libsql primary (the fleet plane).
-    pub fn open_remote(url: &str, token: &str) -> Result<Self, StateError> {
-        let store = Self {
-            backend: Backend::Remote(RemoteDb::open_remote(url.to_owned(), token.to_owned())?),
-        };
-        store.migrate()?;
-        Ok(store)
+    /// Direct remote databases cannot own lifecycle execution. Kept as an
+    /// explicit error for callers migrating to the controller transport.
+    pub fn open_remote(_url: &str, _token: &str) -> Result<Self, StateError> {
+        Err(StateError::RemoteDisabled)
     }
 
-    /// Open against a local libsql database through the async driver
-    /// (`:memory:` or a file path). Exercises the whole remote helper
-    /// layer and migrations without a Turso Cloud account.
-    #[doc(hidden)]
-    pub fn open_libsql_local(path: &str) -> Result<Self, StateError> {
-        let store = Self {
-            backend: Backend::Remote(RemoteDb::open_local(path.to_owned())?),
-        };
-        store.migrate()?;
-        Ok(store)
-    }
-
-    /// Route by config: `STACKLESS_STATE_URL` (+ `STACKLESS_STATE_TOKEN`)
-    /// selects the remote fleet plane; absent, the local default file.
+    /// Open this controller's local state and reject obsolete fleet config.
     pub fn open_configured() -> Result<Self, StateError> {
         Self::open_with_paths(&Paths::from_env())
     }
 
-    /// Like [`Self::open_configured`], but uses `paths.db_path()` for the
-    /// local backend when no remote URL is set.
     pub fn open_with_paths(paths: &Paths) -> Result<Self, StateError> {
-        match std::env::var("STACKLESS_STATE_URL") {
-            Ok(url) if !url.is_empty() => {
-                let token = std::env::var("STACKLESS_STATE_TOKEN").unwrap_or_default();
-                Self::open_remote(&url, &token)
-            }
-            _ => Self::open(&paths.db_path()),
+        if std::env::var_os("STACKLESS_STATE_URL").is_some_and(|url| !url.is_empty()) {
+            return Err(StateError::RemoteDisabled);
         }
+        Self::open(&paths.db_path())
     }
 
     /// `$XDG_STATE_HOME/stackless`, falling back to `~/.local/state/stackless`.
@@ -144,256 +136,89 @@ impl Store {
     }
 
     fn migrate(&self) -> Result<(), StateError> {
-        if let Backend::Remote(db) = &self.backend {
-            self.repair_remote_migration_001()?;
-            self.reconcile_remote_schema_version(db)?;
-        }
-        let version = self.user_version()?;
-        for (index, sql) in MIGRATIONS.iter().enumerate() {
-            let target = index as i64 + 1;
-            if version >= target {
-                continue;
-            }
-            self.run_migration(sql, target)?;
-        }
-        Ok(())
-    }
-
-    /// Fill in any migration-001 tables missing after a partial remote apply.
-    fn repair_remote_migration_001(&self) -> Result<(), StateError> {
-        let Backend::Remote(db) = &self.backend else {
-            return Ok(());
-        };
-        if self.migration_001_complete()? || !self.migration_001_started()? {
-            return Ok(());
-        }
-        db.run(|conn, rt| {
-            rt.block_on(async {
-                conn.execute_batch(include_str!("migrations/001_init_repair.sql"))
-                    .await
-                    .map_err(|e| StateError::Migrate {
-                        source: rusqlite_shim(e),
-                    })?;
-                Ok(())
-            })
-        })
-    }
-
-    fn migration_001_complete(&self) -> Result<bool, StateError> {
-        for table in MIGRATION_001_TABLES {
-            if !self.table_exists(table)? {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    }
-
-    fn migration_001_started(&self) -> Result<bool, StateError> {
-        for table in MIGRATION_001_TABLES {
-            if self.table_exists(table)? {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
-    /// Recover from a partial remote migration (e.g. Turso rejected the old
-    /// `PRAGMA user_version` bump after DDL succeeded). Introspect the live
-    /// schema and advance the recorded version to match.
-    fn reconcile_remote_schema_version(&self, db: &RemoteDb) -> Result<(), StateError> {
-        let recorded = Self::remote_user_version(db)?;
-        let actual = self.detect_migration_level()?;
-        if actual > recorded {
-            Self::remote_set_user_version(db, actual)?;
-        }
-        Ok(())
-    }
-
-    fn detect_migration_level(&self) -> Result<i64, StateError> {
-        let mut level = 0;
-        if self.migration_001_complete()? {
-            level = 1;
-            if self.column_exists("instances", "definition_dir")? {
-                level = 2;
-            }
-            if self.table_exists("reap_attempts")? {
-                level = 3;
-            }
-            if self.column_exists("op_locks", "holder_host")? {
-                level = 4;
-            }
-            if self.column_exists("instances", "dirty")? {
-                level = 5;
-            }
-        }
-        Ok(level)
-    }
-
-    fn table_exists(&self, name: &str) -> Result<bool, StateError> {
-        Ok(self
-            .query_first(
-                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
-                &[name.into()],
-            )?
-            .is_some())
-    }
-
-    fn column_exists(&self, table: &str, column: &str) -> Result<bool, StateError> {
-        Ok(self
-            .query_first(
-                &format!("SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1"),
-                &[column.into()],
-            )?
-            .is_some())
-    }
-
-    fn user_version(&self) -> Result<i64, StateError> {
-        match &self.backend {
-            Backend::Local(conn) => conn
-                .pragma_query_value(None, "user_version", |row| row.get(0))
-                .map_err(Into::into),
-            Backend::Remote(db) => Self::remote_user_version(db),
-        }
-    }
-
-    fn ensure_remote_schema_version_table(db: &RemoteDb) -> Result<(), StateError> {
-        db.run(|conn, rt| {
-            rt.block_on(async {
-                conn.execute_batch(REMOTE_SCHEMA_VERSION_BOOTSTRAP)
-                    .await
-                    .map_err(|e| StateError::Migrate {
-                        source: rusqlite_shim(e),
-                    })?;
-                conn.execute(
-                    "INSERT INTO _stackless_schema_version (version)
-                     SELECT 0 WHERE NOT EXISTS (SELECT 1 FROM _stackless_schema_version)",
-                    (),
+        let mut conn = self.conn.lock().map_err(|_| StateError::Poisoned)?;
+        let migration_error = |source| StateError::Migrate { source };
+        let transaction = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(migration_error)?;
+        let mut version: i64 = transaction
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .map_err(migration_error)?;
+        let legacy: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='_stackless_schema_version')",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(migration_error)?;
+        if legacy {
+            let recorded: i64 = transaction
+                .query_row(
+                    "SELECT COALESCE(MAX(version), 0) FROM _stackless_schema_version",
+                    [],
+                    |row| row.get(0),
                 )
-                .await
-                .map_err(|e| StateError::Migrate {
-                    source: rusqlite_shim(e),
-                })?;
-                Ok(())
-            })
-        })
+                .map_err(migration_error)?;
+            if version != 0 && version != recorded {
+                return Err(schema_error("SQLite and legacy schema versions disagree"));
+            }
+            validate_legacy_schema(&transaction, recorded)?;
+            version = recorded;
+        }
+        if !(0..=MIGRATIONS.len() as i64).contains(&version) {
+            return Err(schema_error(
+                "state schema version is not supported by this controller",
+            ));
+        }
+        for sql in &MIGRATIONS[version as usize..] {
+            transaction.execute_batch(sql).map_err(migration_error)?;
+        }
+        transaction
+            .pragma_update(None, "user_version", MIGRATIONS.len() as i64)
+            .map_err(migration_error)?;
+        if legacy {
+            transaction
+                .execute_batch("DROP TABLE _stackless_schema_version")
+                .map_err(migration_error)?;
+        }
+        transaction.commit().map_err(migration_error)
     }
 
-    fn remote_user_version(db: &RemoteDb) -> Result<i64, StateError> {
-        Self::ensure_remote_schema_version_table(db)?;
-        db.run(|conn, rt| {
-            rt.block_on(async {
-                let mut rows = conn
-                    .query(
-                        "SELECT COALESCE(MAX(version), 0) FROM _stackless_schema_version",
-                        (),
-                    )
-                    .await
-                    .map_err(StateError::remote_query)?;
-                match rows.next().await.map_err(StateError::remote_query)? {
-                    Some(row) => row.get::<i64>(0).map_err(StateError::remote_query),
-                    None => Ok(0),
-                }
-            })
-        })
-    }
-
-    fn remote_set_user_version(db: &RemoteDb, target: i64) -> Result<(), StateError> {
-        Self::ensure_remote_schema_version_table(db)?;
-        db.run(move |conn, rt| {
-            rt.block_on(async {
-                let changed = conn
-                    .execute(
-                        "UPDATE _stackless_schema_version SET version = ?1",
-                        [libsql::Value::Integer(target)],
-                    )
-                    .await
-                    .map_err(|e| StateError::Migrate {
-                        source: rusqlite_shim(e),
-                    })?;
-                if changed == 0 {
-                    // SQLite reports zero changes when the version is already
-                    // current — only insert into an empty table.
-                    let mut rows = conn
-                        .query("SELECT 1 FROM _stackless_schema_version LIMIT 1", ())
-                        .await
-                        .map_err(|e| StateError::Migrate {
-                            source: rusqlite_shim(e),
-                        })?;
-                    if rows
-                        .next()
-                        .await
-                        .map_err(|e| StateError::Migrate {
-                            source: rusqlite_shim(e),
-                        })?
-                        .is_none()
-                    {
-                        conn.execute(
-                            "INSERT INTO _stackless_schema_version (version) VALUES (?1)",
-                            [libsql::Value::Integer(target)],
-                        )
-                        .await
-                        .map_err(|e| StateError::Migrate {
-                            source: rusqlite_shim(e),
-                        })?;
-                    }
-                }
-                Ok(())
-            })
-        })
-    }
-
-    fn run_migration(&self, sql: &str, target: i64) -> Result<(), StateError> {
-        match &self.backend {
-            Backend::Local(conn) => conn
-                .execute_batch(&format!(
-                    "BEGIN; {sql} ; PRAGMA user_version = {target}; COMMIT;"
-                ))
-                .map_err(|source| StateError::Migrate { source }),
-            Backend::Remote(db) => {
-                // Turso Cloud rejects `PRAGMA user_version = N` (read-only).
-                // Track version in `_stackless_schema_version` instead; each
-                // migration's DDL is individually durable and the version gate
-                // makes re-runs idempotent.
-                let sql = sql.to_owned();
-                db.run(move |conn, rt| {
-                    rt.block_on(async {
-                        conn.execute_batch(&sql)
-                            .await
-                            .map_err(|e| StateError::Migrate {
-                                source: rusqlite_shim(e),
-                            })?;
-                        Ok(())
-                    })
-                })?;
-                Self::remote_set_user_version(db, target)
+    /// Commit a batch only when every statement affects exactly one row.
+    pub(super) fn execute_atomic(
+        &self,
+        statements: &[(&str, Vec<Value>)],
+    ) -> Result<(), StateError> {
+        let mut conn = self.conn.lock().map_err(|_| StateError::Poisoned)?;
+        let transaction =
+            conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        for (sql, params) in statements {
+            if transaction.execute(
+                sql,
+                rusqlite::params_from_iter(params.iter().map(to_rusqlite)),
+            )? != 1
+            {
+                return Err(StateError::ResourceInvariant {
+                    detail: "atomic state update did not match its expected owner or revision"
+                        .into(),
+                });
             }
         }
+        transaction.commit()?;
+        Ok(())
     }
-
-    // ── the driver-agnostic helper layer ──────────────────────────────
 
     /// Run a statement, returning the number of rows changed.
     pub(super) fn execute(&self, sql: &str, params: &[Value]) -> Result<u64, StateError> {
-        match &self.backend {
-            Backend::Local(conn) => conn
-                .execute(
-                    sql,
-                    rusqlite::params_from_iter(params.iter().map(to_rusqlite)),
-                )
-                .map(|n| n as u64)
-                .map_err(Into::into),
-            Backend::Remote(db) => {
-                let sql = sql.to_owned();
-                let params = to_libsql_params(params);
-                db.run(move |conn, rt| {
-                    rt.block_on(async {
-                        conn.execute(&sql, params)
-                            .await
-                            .map_err(StateError::remote_query)
-                    })
-                })
-            }
-        }
+        self.conn
+            .lock()
+            .map_err(|_| StateError::Poisoned)?
+            .execute(
+                sql,
+                rusqlite::params_from_iter(params.iter().map(to_rusqlite)),
+            )
+            .map(|n| n as u64)
+            .map_err(Into::into)
     }
 
     /// Query a single row, mapping it to `T`. `None` only when no row
@@ -440,62 +265,32 @@ impl Store {
         params: &[Value],
         limit: usize,
     ) -> Result<Vec<Row>, StateError> {
-        match &self.backend {
-            Backend::Local(conn) => {
-                let mut stmt = conn.prepare(sql)?;
-                let col_count = stmt.column_count();
-                let mut out = Vec::new();
-                let mut rows =
-                    stmt.query(rusqlite::params_from_iter(params.iter().map(to_rusqlite)))?;
-                while let Some(row) = rows.next()? {
-                    let mut columns = Vec::with_capacity(col_count);
-                    for i in 0..col_count {
-                        columns.push(from_rusqlite(row, i)?);
-                    }
-                    out.push(Row::from_columns(columns));
-                    if out.len() >= limit {
-                        break;
-                    }
-                }
-                Ok(out)
+        let conn = self.conn.lock().map_err(|_| StateError::Poisoned)?;
+        let mut stmt = conn.prepare(sql)?;
+        let col_count = stmt.column_count();
+        let mut out = Vec::new();
+        let mut rows = stmt.query(rusqlite::params_from_iter(params.iter().map(to_rusqlite)))?;
+        while let Some(row) = rows.next()? {
+            let mut columns = Vec::with_capacity(col_count);
+            for i in 0..col_count {
+                columns.push(from_rusqlite(row, i)?);
             }
-            Backend::Remote(db) => {
-                let sql = sql.to_owned();
-                let params = to_libsql_params(params);
-                db.run(move |conn, rt| {
-                    rt.block_on(async {
-                        let mut rows = conn
-                            .query(&sql, params)
-                            .await
-                            .map_err(StateError::remote_query)?;
-                        let column_count = rows.column_count();
-                        let mut out = Vec::new();
-                        while let Some(row) = rows.next().await.map_err(StateError::remote_query)? {
-                            out.push(from_libsql(&row, column_count)?);
-                            if out.len() >= limit {
-                                break;
-                            }
-                        }
-                        Ok(out)
-                    })
-                })
+            out.push(Row::from_columns(columns));
+            if out.len() >= limit {
+                break;
             }
         }
+        Ok(out)
     }
 
-    /// Raw connection escape hatch for tests that need to corrupt state
-    /// deliberately. Only available on the local backend. Not API.
+    /// Raw connection access for tests that deliberately corrupt state.
     #[doc(hidden)]
-    pub fn conn_for_tests(&self) -> &Connection {
-        match &self.backend {
-            Backend::Local(conn) => conn,
-            Backend::Remote(_) => unreachable!("conn_for_tests is local-only"),
-        }
+    #[allow(clippy::expect_used)]
+    pub fn conn_for_tests(&self) -> MutexGuard<'_, Connection> {
+        self.conn.lock().expect("test database mutex poisoned")
     }
 
-    /// Run an arbitrary statement against either backend — the test
-    /// counterpart to `conn_for_tests` for the remote path (inject a
-    /// foreign holder_host, advance acquired_at, …).
+    /// Run an arbitrary statement for tests that inject stale or foreign claims.
     #[doc(hidden)]
     pub fn execute_for_tests(&self, sql: &str, params: &[&str]) -> Result<u64, StateError> {
         let owned: Vec<Value> = params
@@ -505,7 +300,7 @@ impl Store {
         self.execute(sql, &owned)
     }
 
-    /// This machine's hostname — the fleet-mode lock ownership tag.
+    /// This machine's hostname. Imported claims retain their original host.
     /// Empty only if the OS refuses to report one.
     pub(super) fn hostname() -> String {
         sysinfo::System::host_name().unwrap_or_default()
@@ -524,6 +319,61 @@ impl Store {
     pub fn now_secs() -> i64 {
         Self::now()
     }
+}
+
+fn schema_error(message: &str) -> StateError {
+    StateError::Migrate {
+        source: rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_SCHEMA),
+            Some(message.into()),
+        ),
+    }
+}
+
+/// A legacy export must match the schema its version table claims. Never skip
+/// migrations based only on that marker or infer ownership from missing tables.
+fn validate_legacy_schema(conn: &Connection, version: i64) -> Result<(), StateError> {
+    if !(0..=MIGRATIONS.len() as i64).contains(&version) {
+        return Err(schema_error(
+            "legacy export schema version is not supported",
+        ));
+    }
+    let expected = Connection::open_in_memory()?;
+    for sql in &MIGRATIONS[..version as usize] {
+        expected.execute_batch(sql)?;
+    }
+    if schema_shape(conn)? != schema_shape(&expected)? {
+        return Err(schema_error(
+            "legacy export schema does not match its recorded version; complete the export before migration",
+        ));
+    }
+    Ok(())
+}
+
+type ColumnShape = (String, String, bool, Option<String>, i64);
+type SchemaShape = Vec<(String, String, String, Vec<ColumnShape>)>;
+
+fn schema_shape(conn: &Connection) -> Result<SchemaShape, StateError> {
+    let mut objects = conn.prepare(
+        "SELECT type, name, tbl_name FROM sqlite_schema
+         WHERE name NOT LIKE 'sqlite_%' AND name != '_stackless_schema_version'
+         ORDER BY type, name",
+    )?;
+    let objects: Vec<(String, String, String)> = objects
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+        .collect::<Result<_, _>>()?;
+    let mut shape = Vec::new();
+    for (kind, name, table) in objects {
+        let columns = if kind == "table" {
+            conn.prepare(r#"SELECT name, type, "notnull", dflt_value, pk FROM pragma_table_info(?1) ORDER BY cid"#)?
+                .query_map([&name], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)))?
+                .collect::<Result<_, _>>()?
+        } else {
+            Vec::new()
+        };
+        shape.push((kind, name, table, columns));
+    }
+    Ok(shape)
 }
 
 // ── local driver bridges ──────────────────────────────────────────────

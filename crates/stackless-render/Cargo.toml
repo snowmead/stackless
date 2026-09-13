@@ -36,6 +36,7 @@ toml_edit = "0.25.12"
 tempfile = "3.27.0"
 
 [dev-dependencies]
+stackless-git             = { workspace = true, features = ["test-support"] }
 stackless-core            = { path = "../stackless-core" }
 stackless-stripe-projects = { workspace = true, features = ["test-support"] }
 tempfile                  = "3.27.0"

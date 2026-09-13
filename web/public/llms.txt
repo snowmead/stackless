@@ -48,7 +48,7 @@ Deploy-ready substrates at creation (`--on`): `local`, `render`, `vercel`, `fly`
 
 ## Parallel agents
 
-Same `stackless.toml`, many named instances. Prefer one git worktree per agent. For uncommitted local trees use `--source svc=PATH --dirty` (local only; cloud rejects `--source` / `--dirty` — commit and push). Optional fleet state plane via `STACKLESS_STATE_URL` + `STACKLESS_STATE_TOKEN`.
+Same `stackless.toml`, many named instances. Prefer one git worktree per agent. For uncommitted local trees use `--source svc=PATH --dirty` (local only; cloud rejects `--source` / `--dirty` — commit and push). A fleet uses one controller selected by `STACKLESS_CONTROLLER=ssh://host`. Direct shared-database execution is disabled.
 
 - [AGENT-FLEETS](https://github.com/snowmead/stackless/blob/main/docs/AGENT-FLEETS.md): worktree vs dirty, naming, shared Turso state
 

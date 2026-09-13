@@ -43,6 +43,7 @@ const PYTHON_RESERVED: &[&str] = &[
     "case",
     "type",
     "Origins",
+    "Endpoints",
     "BindError",
     "VerifyTier",
     "bind_origins",

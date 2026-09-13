@@ -5,7 +5,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-eval "$(mise activate bash)" 2>/dev/null || true
 BIN="${STACKLESS_BIN:-./target/debug/stackless}"
 DEF="examples/agent-demo/stackless.toml"
 SITE="examples/agent-demo/site"
@@ -16,7 +15,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cargo build -q -p stackless
+mise exec -- cargo build -q -p stackless
 
 assert_json_ok() {
   local label="$1"
@@ -31,7 +30,7 @@ assert doc.get("ok") is True, doc
 
 assert_json_ok check "$("$BIN" check "$DEF" --on local --json)"
 assert_json_ok doctor "$("$BIN" doctor --file "$DEF" --json)"
-assert_json_ok up "$("$BIN" up --name "$NAME" --on local --file "$DEF" --source web="$SITE" --json)"
+assert_json_ok up "$("$BIN" up --name "$NAME" --on local --file "$DEF" --source web="$SITE" --allow-host-execution --json)"
 assert_json_ok verify "$("$BIN" verify "$NAME" --json)"
 assert_json_ok status "$("$BIN" status "$NAME" --json)"
 assert_json_ok logs "$("$BIN" logs "$NAME" --tail 10 --json)"

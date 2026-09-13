@@ -31,7 +31,7 @@ pub struct ProvisionContext<'a> {
 impl ProvisionContext<'_> {
     /// The Stripe resource name: `{instance}-{logical_name}`.
     pub fn resource_name(&self) -> String {
-        format!("{}-{}", self.instance, self.logical_name)
+        stackless_core::substrate::namespaced_resource_name(self.instance, self.logical_name)
     }
 }
 
@@ -58,8 +58,8 @@ where
     R: CommandRunner,
 {
     if !ctx.skip_instance_context {
-        project::ensure_project(stripe, ctx.def, ctx.definition_dir).await?;
-        project::ensure_environment(stripe, ctx.instance).await?;
+        project::require_project(stripe, ctx.def).await?;
+        project::require_environment(stripe, ctx.instance).await?;
     }
     let requested = ctx.resource_name();
     let added = add_catalog_resource(stripe, catalog, config, &requested).await?;
@@ -100,8 +100,8 @@ where
     R: CommandRunner,
 {
     if !ctx.skip_instance_context {
-        project::ensure_project(stripe, ctx.def, ctx.definition_dir).await?;
-        project::ensure_environment(stripe, ctx.instance).await?;
+        project::require_project(stripe, ctx.def).await?;
+        project::require_environment(stripe, ctx.instance).await?;
     }
     let requested = ctx.resource_name();
     let added = add_catalog_resource(stripe, catalog, config, &requested).await?;
@@ -153,20 +153,30 @@ where
     R: CommandRunner,
 {
     if !ctx.skip_instance_context {
-        project::ensure_project(stripe, ctx.def, ctx.definition_dir).await?;
-        project::ensure_environment(stripe, ctx.instance).await?;
+        project::require_project(stripe, ctx.def).await?;
+        project::require_environment(stripe, ctx.instance).await?;
     }
     let requested = ctx.resource_name();
     let added = add_catalog_resource(stripe, catalog, config, &requested).await?;
     let resource_name = added.name;
     let resource_prefix = resource_name.to_ascii_uppercase().replace('-', "_");
+    let provider_key = |suffix: &str| {
+        if suffix.starts_with(&format!("{provider_prefix}_")) {
+            suffix.to_owned()
+        } else {
+            format!("{provider_prefix}_{suffix}")
+        }
+    };
     let candidates: Vec<String> = fields
         .iter()
         .flat_map(|(suffix, _, _)| {
-            [
-                format!("{resource_prefix}_{suffix}"),
-                format!("{provider_prefix}_{suffix}"),
-            ]
+            let mut keys = vec![format!("{resource_prefix}_{suffix}"), provider_key(suffix)];
+            // Older discovery fixtures and resource aliases include both prefixes.
+            let alias = format!("{provider_prefix}_{suffix}");
+            if !keys.contains(&alias) {
+                keys.push(alias);
+            }
+            keys
         })
         .collect();
     let mut values = BTreeMap::new();
@@ -191,6 +201,7 @@ where
     for (suffix, output, required) in fields {
         let value = values
             .get(&format!("{resource_prefix}_{suffix}"))
+            .or_else(|| values.get(&provider_key(suffix)))
             .or_else(|| values.get(&format!("{provider_prefix}_{suffix}")));
         match value {
             Some(value) => {

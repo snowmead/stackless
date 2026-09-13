@@ -1,10 +1,5 @@
-//! The fleet-mode CAS claim flow (M9) against the **local (rusqlite)**
-//! backend: self-reclaim, same-host dead takeover, live-holder
-//! liveness, foreign-host respect and stale-budget takeover. The same
-//! flow is exercised through
-//! the libsql driver in `libsql_backend.rs` (a separate test process —
-//! rusqlite and libsql-local both bundle SQLite and cannot share one
-//! process, so the two backends are tested in isolation).
+//! SQLite claims exclude overlapping operations and foreign hosts.
+//! Legacy-export coverage lives in `legacy_state.rs`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -52,12 +47,11 @@ fn this_host() -> String {
 }
 
 #[test]
-fn self_reclaim_succeeds() {
+fn overlapping_calls_in_one_process_are_rejected() {
     let (_dir, store) = store();
     let claim = store.claim_lock("demo", "up").unwrap();
-    // The same live process re-claiming its own lock takes the
-    // self-reclaim CAS path and succeeds.
-    store.claim_lock("demo", "verify").unwrap();
+    // A second operation is excluded even when it shares the holder PID.
+    assert!(store.claim_lock("demo", "verify").is_err());
     store.release_lock(&claim).unwrap();
 }
 
@@ -102,8 +96,7 @@ fn live_same_host_holder_reads_as_alive() {
 #[test]
 fn fresh_foreign_host_holder_is_respected() {
     let (_dir, store) = store();
-    // A foreign holder within the staleness budget is respected: its
-    // PID is unprobeable here, so claim fails fast with LockHeld.
+    // A foreign PID is unprobeable here, so claim fails with LockHeld.
     inject_holder(&store, "other-machine", 4242, 7, Store::now_secs());
     let err = store.claim_lock("demo", "up").unwrap_err();
     assert_eq!(err.code(), codes::STATE_LOCK_HELD);
@@ -112,10 +105,9 @@ fn fresh_foreign_host_holder_is_respected() {
 }
 
 #[test]
-fn stale_foreign_host_holder_is_taken_over() {
+fn stale_foreign_host_holder_is_not_stolen() {
     let (_dir, store) = store();
-    // Age a foreign holder past the 30-minute foreign stale budget:
-    // takeover succeeds via the exact-identity CAS.
+    // Age never proves that a foreign holder stopped running.
     inject_holder(
         &store,
         "other-machine",
@@ -123,5 +115,20 @@ fn stale_foreign_host_holder_is_taken_over() {
         7,
         Store::now_secs() - 31 * 60,
     );
-    store.claim_lock("demo", "down").unwrap();
+    assert!(store.claim_lock("demo", "down").is_err());
+}
+
+#[test]
+fn dropping_old_guard_cannot_release_successor() {
+    let (_dir, store) = store();
+    let old = store.claim_lock("demo", "up").unwrap();
+    store.release_lock(&old).unwrap();
+    let successor = store.claim_lock("demo", "down").unwrap();
+    drop(old);
+    assert_eq!(
+        store.claim_lock("demo", "verify").unwrap_err().code(),
+        codes::STATE_LOCK_HELD
+    );
+    drop(successor);
+    assert!(store.claim_lock("demo", "verify").is_ok());
 }

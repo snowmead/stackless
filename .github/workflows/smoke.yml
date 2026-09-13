@@ -3,7 +3,7 @@ name: Live smoke
 # The GATED live tier: a real `stackless up`/`down` against each cloud provider,
 # deploying fixtures/smoke/<provider> (this repo's own source). It is slow, costs
 # real (free-tier) resources, and needs account secrets. vercel/render/fly/netlify
-# also run on every PR via ci.yml `live-smoke` / `live-fleet`; Cloudflare
+# also run on every PR via ci.yml `live-smoke`; Cloudflare
 # integrations + Clerk (both `--on local`) are nightly-only here (CF PR runs hit
 # account rate limits). This workflow repeats the full matrix nightly and on
 # demand as a scheduled safety net.
@@ -104,6 +104,12 @@ jobs:
             crates/stackless-stripe-projects/tests/fixtures/plugin-version.txt \
             || { echo "::error::command surface is stale for plugin $pinned — run 'mise run stripe-refresh' and commit"; exit 1; }
 
+      - name: Install Fly CLI for source builds
+        if: matrix.provider == 'fly-build'
+        uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1
+        with:
+          version: '0.4.100'
+
       - name: Live ${{ matrix.provider }} up/down
         env:
           STACKLESS_LIVE_SMOKE_REQUIRED: "1"
@@ -113,12 +119,8 @@ jobs:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: mise run smoke-${{ matrix.provider }}
 
-  # Fleet state plane: run the CAS claim/lock tests against a live Turso
-  # database. `mise run smoke-fleet` self-skips (exit 0) when the secrets are
-  # absent, so this stays green on forks without them.
-  fleet:
-    name: smoke (fleet plane)
-    if: ${{ github.repository_owner == 'snowmead' }}
+  controller:
+    name: controller regression
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -134,9 +136,5 @@ jobs:
         run: bash .github/scripts/mise-install-retried.sh
       - name: Rust / Cargo cache
         uses: Swatinem/rust-cache@v2
-      - name: Live Turso fleet-lock tests
-        env:
-          STACKLESS_LIVE_SMOKE_REQUIRED: "1"
-          STACKLESS_STATE_URL: ${{ secrets.STACKLESS_STATE_URL }}
-          STACKLESS_STATE_TOKEN: ${{ secrets.STACKLESS_STATE_TOKEN }}
-        run: mise run smoke-fleet
+      - name: Controller transport and recovery tests
+        run: mise run controller-test

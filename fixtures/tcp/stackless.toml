@@ -1,0 +1,20 @@
+[stack]
+name = "tcp-echo"
+
+[stack.verify]
+run = "python3 check.py"
+env = { ECHO = "${endpoints.echo.url}" }
+
+[workloads.echo]
+source = { path = "." }
+run    = "python3 server.py"
+health = { protocol = "tcp" }
+
+[endpoints.echo]
+workload = "echo"
+
+[jobs.check]
+source     = { path = "." }
+run        = "python3 check.py"
+env        = { ECHO = "${endpoints.echo.url}" }
+depends_on = { echo = "ready" }

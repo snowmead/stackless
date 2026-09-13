@@ -10,16 +10,16 @@ use stackless_stripe_projects::ProjectsError;
 use stackless_stripe_projects::project;
 use stackless_stripe_projects::stripe::{CommandRunner, StripeProjects};
 
-/// Anchor the Stripe project, activate `instance`, and optionally set a spend cap.
+/// Require the controller-prepared project and environment, then set a spend cap.
 pub async fn project_and_env<R: CommandRunner>(
     stripe: &StripeProjects<R>,
     def: &StackDef,
-    definition_dir: &Path,
+    _definition_dir: &Path,
     instance: &str,
     spend_cap: Option<(u32, &str)>,
 ) -> Result<(), ProjectsError> {
-    project::ensure_project(stripe, def, definition_dir).await?;
-    project::ensure_environment(stripe, instance).await?;
+    project::require_project(stripe, def).await?;
+    project::require_environment(stripe, instance).await?;
     if let Some((usd, provider)) = spend_cap {
         project::set_spend_cap(stripe, usd, provider).await?;
     }

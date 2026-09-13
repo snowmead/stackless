@@ -36,11 +36,21 @@ Binary resolution: `STACKLESS_BIN`, then `stackless` on `PATH`.
 
 ## Secrets
 
-Successful `up --json` stdout may include integration credentials. Do not log raw
-JSON in CI without redaction.
+`up` returns secret references scoped to the immutable instance ID. Inject
+credentials into service or verify environments with `${integrations.<name>.<output>}`.
+The controller redacts known secrets from returned logs and errors.
 
 ## Tests
 
 ```bash
 cd sdks/python && python -m pytest
 ```
+
+Named endpoint bindings are in `out.endpoints`. Each entry has `workload`,
+`url`, and `source` (`provider` or `declared`). `out.endpoint_urls` supplies the
+map accepted by generated `bind_endpoints`. Declared URLs are unverified.
+TCP workloads return `tcp://host:port`; endpoint URLs do not imply HTTP support.
+
+Resolved hosting providers are in `outcome.placements.workloads` and the corresponding
+`resources` map. The top-level substrate is the default; individual workloads
+and resources can select other providers with `on`.

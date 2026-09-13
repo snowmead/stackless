@@ -33,12 +33,22 @@ pub fn service_cloudflare(
     service: &str,
 ) -> Result<ServiceCloudflare, CloudflareHostError> {
     let location = format!("services.{service}.cloudflare");
+    let root = def
+        .services
+        .get(service)
+        .map(|spec| spec.source_root(service, SUBSTRATE_NAME))
+        .transpose()
+        .map_err(|error| CloudflareHostError::ConfigInvalid {
+            location: location.clone(),
+            detail: error.to_string(),
+        })?
+        .flatten();
     let Some(block) = def
         .services
         .get(service)
         .and_then(|spec| spec.substrates.get(SUBSTRATE_NAME))
     else {
-        return Ok(ServiceCloudflare::default());
+        return Ok(ServiceCloudflare { root });
     };
     let table = block
         .as_table()
@@ -54,33 +64,7 @@ pub fn service_cloudflare(
             });
         }
     }
-    let root = optional_str(table, "root", &location)?;
     Ok(ServiceCloudflare { root })
-}
-
-fn optional_str(
-    table: &toml::Table,
-    key: &str,
-    location: &str,
-) -> Result<Option<String>, CloudflareHostError> {
-    match table.get(key) {
-        None => Ok(None),
-        Some(value) => {
-            let Some(text) = value.as_str() else {
-                return Err(CloudflareHostError::ConfigInvalid {
-                    location: format!("{location}.{key}"),
-                    detail: "must be a string".into(),
-                });
-            };
-            if text.trim().is_empty() {
-                return Err(CloudflareHostError::ConfigInvalid {
-                    location: format!("{location}.{key}"),
-                    detail: "must not be empty".into(),
-                });
-            }
-            Ok(Some(text.to_owned()))
-        }
-    }
 }
 
 /// Whether `name` is a legal Workers script label: lowercase letter then
@@ -137,6 +121,23 @@ health = { path = "/", contains = "ok" }
         let toml = BASE.to_owned() + "root = \"fixtures/smoke/site\"\n";
         let cfg = service_cloudflare(&parse(&toml), "web").unwrap();
         assert_eq!(cfg.root.as_deref(), Some("fixtures/smoke/site"));
+    }
+
+    #[test]
+    fn common_root_applies_without_a_provider_block() {
+        let mut def = parse(BASE);
+        let spec = def.services.get_mut("web").unwrap();
+        spec.substrates.clear();
+        spec.source.root = Some("./app/".into());
+        assert_eq!(
+            service_cloudflare(&def, "web").unwrap().root.as_deref(),
+            Some("app")
+        );
+        def.services.get_mut("web").unwrap().substrates.insert(
+            "cloudflare".into(),
+            toml::Value::Table(toml::toml! { root = "other" }),
+        );
+        assert!(service_cloudflare(&def, "web").is_err());
     }
 
     #[test]

@@ -52,6 +52,7 @@ const TS_RESERVED: &[&str] = &[
     "public",
     "type",
     "Origins",
+    "Endpoints",
     "VerifyTier",
     "bindOrigins",
     "ServiceDns",

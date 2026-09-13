@@ -12,7 +12,7 @@ share the same bare `--source` checkout without tripping
 `engine.source_override.shared`.
 
 **Preferred: one git worktree per agent.** Each agent gets its own checkout
-path, its own `definition_dir`, and its own Stripe Projects lock domain. Name
+path, its own `definition_dir`, and private controller-owned Stripe context. Name
 instances distinctly (`agent-a-demo`, `pr-42-smoke`, …) and omit `--source` so
 stackless clones from the pinned ref in `stackless.toml`.
 
@@ -32,40 +32,60 @@ heavier than a worktree and unsuitable for cloud substrates (cloud rejects
 See [ARCHITECTURE.md](../ARCHITECTURE.md) §2 (parallel `up`) for the locking
 model.
 
-## Fleet state plane: `STACKLESS_STATE_URL`
+## One controller for the fleet
 
-By default each machine keeps state in a local SQLite file under the XDG state
-dir. Instance names are unique on that machine; leases and operation locks are
-local.
-
-**Opt-in fleet mode** points every stackless process at a shared Turso Cloud
-database:
+Every agent submits operations to the same controller. It owns the SQLite file,
+provider calls, operation queue, and lease reaper. Names are unique within that
+controller. Different instances can run concurrently; operations on one instance
+are serialized.
 
 ```bash
-export STACKLESS_STATE_URL="libsql://your-db.turso.io"
-export STACKLESS_STATE_TOKEN="your-token"
-```
-
-Effects:
-
-- **Name uniqueness is fleet-wide** — the `UNIQUE` constraint on instance names
-  applies across all operators sharing the URL.
-- **Leases and locks are CAS on the primary** — compare-and-swap
-  `UPDATE`s replace PID-local assumptions; the reaper and mutating verbs
-  coordinate across machines.
-- **No cloud account required for solo local use** — unset the variables to
-  return to the default file backend.
-
-Verify connectivity before a fleet run:
-
-```bash
-stackless doctor --json
+export STACKLESS_CONTROLLER="ssh://controller-host"
+stackless controller --json
 stackless list --json
 ```
 
-If state open fails, the error code is `state.store.open_failed`; remediation
-mentions `STACKLESS_STATE_URL` and `STACKLESS_STATE_TOKEN`. Turso Cloud live
-verification runs via `mise run smoke-fleet` (`crates/stackless-core/tests/turso_fleet_lock.rs`).
+The CLI, SDKs, and MCP use this transport. OpenSSH checks the host key and uses
+the configured account. Install the controller on an always-on host for unattended
+leases. See [controller operations](CONTROLLER.md) and the
+[systemd service](../deploy/systemd/README.md).
+
+`STACKLESS_STATE_URL` is rejected with `state.remote.disabled` when opening a
+configured store. A shared database cannot supervise processes or prevent two
+machines from executing the same provider action. Unset `STACKLESS_STATE_URL`
+and `STACKLESS_STATE_TOKEN` after migrating old state.
+
+### Migrate a legacy fleet database
+
+Stop every old writer and reaper before taking a final export. Keep the original
+database and runtime directories until all existing instances have been audited
+and torn down. Local processes and their source paths belong to the original
+host; moving their database records does not move the processes.
+
+Create a private SQL dump and a new SQLite file using the
+[Turso dump workflow](https://docs.turso.tech/local-development):
+
+```bash
+umask 077
+stackless_migration_dir="$(mktemp -d)"
+turso db shell DATABASE .dump > "$stackless_migration_dir/fleet.sql"
+sqlite3 -bail "$stackless_migration_dir/state.db" < "$stackless_migration_dir/fleet.sql"
+```
+
+Use that `state.db` in a new controller state directory before its first startup.
+Do not overwrite an existing controller database or combine files from different
+controllers. Database files and dumps contain credentials and must remain private.
+
+On open, Stackless verifies the exported table and column layout against
+`_stackless_schema_version`. It converts the marker and applies later SQLite
+migrations in one transaction. Partial exports and newer schemas fail without
+rewriting the schema. Checkpoints, leases, foreign-host claims, and resource
+identities remain recorded. Reopening does not assign another instance identity.
+
+The conversion does not resolve foreign locks or establish ownership of legacy
+cloud resources. Those audits remain required before claiming migration and
+teardown conformance. The controller's Linux deployment and reboot survival also
+still need live host verification.
 
 ## Naming conventions
 
@@ -81,7 +101,7 @@ Suggested patterns for fleets:
 | `{stack}-{uuid}` | (auto when `--name` omitted) | Throwaway smokes |
 
 Avoid reusing a name while an instance is still **active** on any substrate
-sharing the state plane — `state.instance.exists` is global in fleet mode.
+owned by the same controller.
 
 ## Cost hygiene
 
@@ -96,8 +116,8 @@ Fleet practices:
 2. **Set explicit leases** — `stackless up --lease 2h …` for throwaway agents.
 3. **Run `stackless list --json`** periodically; tombstoned instances still
    appear with context; active instances show remaining lease.
-4. **Use local substrate for inner loops** — reserve cloud for integration
-   smokes; `--on local` avoids catalog spend entirely.
+4. Use local workloads for inner loops. Managed integrations can still create
+   billable resources when workloads run locally.
 5. **Branch on `error.code`** — e.g. `render.payment.not_confirmed` means rerun
    with `--confirm-paid`, not retry blindly.
 

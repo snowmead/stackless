@@ -37,6 +37,7 @@ const GITHUB_TOKEN_USER: &str = "x-access-token";
 /// Initial branch written into a freshly-initialized repo's `HEAD`. Overwritten
 /// by [`checkout_detached`]; otherwise just the default ref name.
 const DEFAULT_BRANCH: &str = "main";
+const REMOTE_HEAD: &str = "refs/stackless/remote-head";
 
 /// Errors from the git primitives. Callers map these onto their own faults; the
 /// operation (clone/fetch/resolve/checkout) is known at the call site.
@@ -147,13 +148,29 @@ pub fn fetch_bare(
         repo::init_bare_clone_minimal(git_dir, DEFAULT_BRANCH, "files")?;
     }
     let opts = fetch_options(refspecs, depth);
-    fetch_dispatch(git_dir, url, &opts, creds)
+    let outcome = fetch_dispatch(git_dir, url, &opts, creds)?;
+    let target = match outcome.default_branch {
+        Some(branch) => format!(
+            "refs/heads/{}",
+            branch.strip_prefix("refs/heads/").unwrap_or(&branch)
+        ),
+        None => "refs/stackless/unresolved-head".into(),
+    };
+    std::fs::create_dir_all(git_dir.join("refs/stackless"))?;
+    std::fs::write(git_dir.join(REMOTE_HEAD), format!("ref: {target}\n"))?;
+    Ok(())
 }
 
 /// Resolve `reference` (branch, tag, or full/abbrev SHA) to a full commit hex,
 /// using objects in `git_dir` and any alternates it points at.
 pub fn resolve_commit(git_dir: &Path, reference: &str) -> Result<String, GitError> {
     let repo = Repository::open(git_dir, None)?;
+    // Bare caches have a synthetic local HEAD. Resolve the fetched remote HEAD instead.
+    let reference = if reference == "HEAD" && git_dir.join(REMOTE_HEAD).is_file() {
+        REMOTE_HEAD
+    } else {
+        reference
+    };
     let oid = resolve_revision_as_commit_without_index_dwim(&repo, reference)?;
     Ok(oid.to_string())
 }
@@ -264,6 +281,41 @@ pub fn snapshot_worktree(dest: &Path, work_tree: &Path) -> Result<String, GitErr
     grit_lib::porcelain::checkout::checkout_between_trees(&dest_repo, old_tree.as_ref(), &tree)?;
     std::fs::write(dest_git.join("HEAD"), format!("{commit_hex}\n"))?;
     Ok(commit_hex)
+}
+
+/// Initialize metadata for a newly extracted source upload before taking a dirty snapshot.
+pub fn initialize_snapshot_source(path: &Path, files: &[String]) -> Result<(), GitError> {
+    use grit_lib::index::{Index, entry_from_stat};
+    use grit_lib::objects::ObjectKind;
+    use grit_lib::odb::Odb;
+    use std::os::unix::fs::PermissionsExt;
+    repo::init_repository(path, false, DEFAULT_BRANCH, None, "files")?;
+    let odb = Odb::new(&path.join(".git/objects"));
+    let mut index = Index::new();
+    for name in files {
+        if Path::new(name)
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+        {
+            return Err(GitError::InvalidWorkTree { path: path.into() });
+        }
+        let file = path.join(name);
+        let metadata = std::fs::symlink_metadata(&file)?;
+        if !metadata.is_file() {
+            return Err(GitError::InvalidWorkTree { path: file });
+        }
+        let bytes = std::fs::read(&file)?;
+        let oid = odb.write(ObjectKind::Blob, &bytes)?;
+        let mode = if metadata.permissions().mode() & 0o111 != 0 {
+            0o100755
+        } else {
+            0o100644
+        };
+        index.add_or_replace(entry_from_stat(&file, name.as_bytes(), oid, mode)?);
+    }
+    index.sort();
+    index.write(&path.join(".git/index"))?;
+    Ok(())
 }
 
 pub fn clone_checkout(
@@ -467,15 +519,13 @@ fn fetch_dispatch(
     url: &str,
     opts: &FetchOptions,
     creds: &Credentials,
-) -> Result<(), GitError> {
+) -> Result<transfer::FetchOutcome, GitError> {
     if let Some(remote_git_dir) = local_repo_path(url) {
-        transfer::fetch_local(git_dir, &remote_git_dir, opts)?;
-        return Ok(());
+        return Ok(transfer::fetch_local(git_dir, &remote_git_dir, opts)?);
     }
     if url.starts_with("https://") || url.starts_with("http://") {
         let client = creds.http_client(git_dir);
-        http_fetch(&client, git_dir, url, opts, &mut NoProgress)?;
-        return Ok(());
+        return Ok(http_fetch(&client, git_dir, url, opts, &mut NoProgress)?);
     }
     Err(GitError::UnsupportedScheme(url.to_owned()))
 }

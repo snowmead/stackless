@@ -46,7 +46,7 @@ pub enum WordPressError {
 }
 
 impl Fault for WordPressError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             Self::ConfigInvalid { .. } => codes::WORDPRESS_CONFIG_INVALID,
             Self::ApiFailed { .. } => codes::WORDPRESS_API_FAILED,

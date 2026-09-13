@@ -47,6 +47,8 @@ pub struct RenderWebServiceConfig {
     pub health_check_path: String,
     pub region: String,
     pub auto_deploy: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_dir: Option<String>,
 }
 
 impl CatalogService for RenderWebServiceConfig {
@@ -256,6 +258,7 @@ static = { build = "bun run build", publish = "./dist", spa_rewrite = true }
                 health_check_path: "/health".into(),
                 region: "oregon".into(),
                 auto_deploy: "no".into(),
+                root_dir: None,
             },
         ));
         failures.extend(stackless_stripe_projects::verify_service(

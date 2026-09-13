@@ -17,6 +17,8 @@ pub struct InterfaceV1 {
 pub struct BodyV1 {
     pub source: SourceMeta,
     pub services: Vec<ServiceEntry>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub endpoints: Vec<EndpointEntry>,
     pub verify: VerifySection,
     pub integrations: Vec<IntegrationEntry>,
     pub secrets_required: Vec<String>,
@@ -34,6 +36,13 @@ pub struct SourceMeta {
 pub struct ServiceEntry {
     pub dns: String,
     pub root_origin: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EndpointEntry {
+    pub dns: String,
+    pub workload: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -76,6 +85,7 @@ mod tests {
                     toml_sha256: "sha256:00".into(),
                 },
                 services: vec![],
+                endpoints: vec![],
                 verify: VerifySection {
                     has_default: false,
                     tiers: vec![],
