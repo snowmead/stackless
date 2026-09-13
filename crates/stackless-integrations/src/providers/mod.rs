@@ -20,7 +20,6 @@ pub mod firecrawl;
 pub mod flyio;
 pub mod gitlab;
 pub mod herenow;
-pub mod huggingface;
 pub mod inngest;
 pub mod kernel;
 pub mod laravel_cloud;
@@ -60,10 +59,10 @@ mod tests {
     use crate::providers::{
         agentmail, agentphone, amplitude, auth0, base44_projects, blaxel, browserbase, chatbase,
         clickhouse, cloudflare, composio, customerio, datadog, depot, e2b, elevenlabs, exa,
-        firecrawl, flyio, gitlab, herenow, huggingface, inngest, kernel, laravel_cloud, metronome,
-        mixpanel, neon, openrouter, parallel, perplexity, planetscale, postalform, posthog, prisma,
-        pydantic, railway, render_db, revenuecat, runloop, schematic, sentry, shopify, steel,
-        supabase, supermemory, tabstack, turso, upstash, wix, wordpress_com, workos,
+        firecrawl, flyio, gitlab, herenow, inngest, kernel, laravel_cloud, metronome, mixpanel,
+        neon, openrouter, parallel, perplexity, planetscale, postalform, posthog, prisma, pydantic,
+        railway, render_db, revenuecat, runloop, schematic, sentry, shopify, steel, supabase,
+        supermemory, tabstack, turso, upstash, wix, wordpress_com, workos,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -109,8 +108,6 @@ mod tests {
         assert_outputs_match::<flyio::sprite::FlyioSprite>();
         assert_outputs_match::<gitlab::project::GitLabProject>();
         assert_outputs_match::<herenow::hosting::HerenowHosting>();
-        assert_outputs_match::<huggingface::bucket::HuggingFaceBucket>();
-        assert_outputs_match::<huggingface::platform::HuggingFacePlatform>();
         assert_outputs_match::<inngest::app::InngestApp>();
         assert_outputs_match::<kernel::project::KERNELProject>();
         assert_outputs_match::<laravel_cloud::application::LaravelCloudApplication>();

@@ -98,8 +98,6 @@ register_providers! {
     (flyio::sprite, FlyioSprite),
     (gitlab::project, GitLabProject),
     (herenow::hosting, HerenowHosting),
-    (huggingface::bucket, HuggingFaceBucket),
-    (huggingface::platform, HuggingFacePlatform),
     (inngest::app, InngestApp),
     (kernel::project, KERNELProject),
     (laravel_cloud::application, LaravelCloudApplication),
