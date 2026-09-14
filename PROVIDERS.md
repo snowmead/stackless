@@ -73,6 +73,7 @@ Stripe Projects catalog reference. Offline catalog detail:
 | `flyio-mpg` | `flyio/mpg` |
 | `flyio-sprite` | `flyio/sprite` |
 | `gitlab` | `gitlab/project` |
+| `herenow` | `herenow/hosting` |
 | `inngest` | `inngest/app` |
 | `kernel` | `kernel/project` |
 | `laravel-cloud` | `laravel_cloud/application` |
@@ -83,6 +84,7 @@ Stripe Projects catalog reference. Offline catalog detail:
 | `neon` | `neon/postgres` |
 | `openrouter` | `openrouter/api` |
 | `parallel` | `parallel/api` |
+| `perplexity` | `perplexity/api` |
 | `planetscale-mysql` | `planetscale/mysql` |
 | `planetscale-postgresql` | `planetscale/postgresql` |
 | `postalform` | `postalform/mail` |
