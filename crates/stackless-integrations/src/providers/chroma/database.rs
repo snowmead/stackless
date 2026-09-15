@@ -89,7 +89,7 @@ mod tests {
         );
     }
 
-    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_database","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_chroma","provider_name":"Chroma","service_id":"database","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"paid"},"configuration_schema":{"properties":{"name":{"description":"Name for the database (defaults to 'agent'). Must be at least 3 characters, using only letters, numbers, underscores, and hyphens.","minLength":3,"type":"string"}},"required":["name"],"type":"object"}}]}}"##;
+    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_database","object":"v2.provisioning.provider_service_detail","provider":"prvdr_chroma","provider_name":"Chroma","service_id":"database","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"paid"},"configuration_schema":{"properties":{"name":{"description":"Name for the database (defaults to 'agent'). Must be at least 3 characters, using only letters, numbers, underscores, and hyphens.","minLength":3,"type":"string"}},"required":["name"],"type":"object"}}]}}"##;
 
     fn test_def() -> StackDef {
         StackDef::parse(
