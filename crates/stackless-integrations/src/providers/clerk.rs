@@ -481,7 +481,7 @@ mod tests {
     const CLERK_CATALOG_ENVELOPE: &str = r#"{"ok":true,"command":"projects catalog","data":{
         "last_updated":"2026-06-12T00:00:00Z","services":[{
             "id":"prvsvc_clerk","object":"v2.provisioning.provider_service_detail",
-            "provider_id":"prvdr_clerk","provider_name":"Clerk","service_id":"auth",
+            "provider":"prvdr_clerk","provider_name":"Clerk","service_id":"auth",
             "categories":["auth"],"kind":"deployable","scope":"project","availability":"available",
             "development":false,"livemode":true,"pricing":{"type":"component"},
             "configuration_schema":{"type":"object","required":["app_name"],"additionalProperties":false,

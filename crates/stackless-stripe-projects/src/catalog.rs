@@ -72,7 +72,7 @@ impl Catalog {
 pub struct ServiceDetail {
     pub id: String,
     pub object: String,
-    pub provider_id: String,
+    pub provider: String,
     pub provider_name: String,
     pub service_id: String,
     #[serde(default)]

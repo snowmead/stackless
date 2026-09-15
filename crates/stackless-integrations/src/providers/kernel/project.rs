@@ -93,7 +93,7 @@ mod tests {
         );
     }
 
-    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_project","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_kernel","provider_name":"KERNEL","service_id":"project","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"component"},"configuration_schema":{"properties":{"name":{"description":"A name for this API key","type":"string"}},"required":["name"],"type":"object"}}]}}"##;
+    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_project","object":"v2.provisioning.provider_service_detail","provider":"prvdr_kernel","provider_name":"KERNEL","service_id":"project","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"component"},"configuration_schema":{"properties":{"name":{"description":"A name for this API key","type":"string"}},"required":["name"],"type":"object"}}]}}"##;
 
     fn test_def() -> StackDef {
         StackDef::parse(

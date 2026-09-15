@@ -119,7 +119,7 @@ mod tests {
     const R2_CATALOG_ENVELOPE: &str = r#"{"ok":true,"command":"projects catalog","data":{
         "last_updated":"2026-06-16T00:00:00Z","services":[{
             "id":"prvsvc_r2","object":"v2.provisioning.provider_service_detail",
-            "provider_id":"prvdr_cloudflare","provider_name":"Cloudflare","service_id":"r2:bucket",
+            "provider":"prvdr_cloudflare","provider_name":"Cloudflare","service_id":"r2:bucket",
             "categories":["storage"],"kind":"deployable","scope":"project","availability":"available",
             "development":false,"livemode":true,
             "pricing":{"type":"paid","paid_pricing":[{"type":"freeform","freeform":"usage-based"}]},

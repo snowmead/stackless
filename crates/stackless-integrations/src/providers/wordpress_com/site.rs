@@ -100,7 +100,7 @@ mod tests {
         );
     }
 
-    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_site","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_wordpress_com","provider_name":"WordPress.com","service_id":"site","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"paid"},"configuration_schema":{"properties":{"plan":{"description":"Which WordPress.com plan to provision. See the pricing options for what each plan includes.","enum":["free","personal","premium","business","commerce"],"type":"string"}},"required":["plan"],"type":"object"}}]}}"##;
+    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_site","object":"v2.provisioning.provider_service_detail","provider":"prvdr_wordpress_com","provider_name":"WordPress.com","service_id":"site","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"paid"},"configuration_schema":{"properties":{"plan":{"description":"Which WordPress.com plan to provision. See the pricing options for what each plan includes.","enum":["free","personal","premium","business","commerce"],"type":"string"}},"required":["plan"],"type":"object"}}]}}"##;
 
     fn test_def() -> StackDef {
         StackDef::parse(
