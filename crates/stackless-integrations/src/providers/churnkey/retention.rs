@@ -1,5 +1,3 @@
-//! `churnkey/retention` integration.
-
 use std::collections::BTreeMap;
 
 use serde::Serialize;

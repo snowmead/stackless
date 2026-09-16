@@ -90,6 +90,7 @@ SHORT_PROVIDER = {
     "turso/database": "turso",
     "prisma/database": "prisma",
     "chroma/database": "chroma",
+    "churnkey/retention": "churnkey",
     "algolia/application": "algolia",
     "openrouter/api": "openrouter",
     "exa/api": "exa",
@@ -188,6 +189,12 @@ OUTPUT_HINTS = {
     "clickhouse/clickhouse": [("CONNECTION_STRING", "connection_string", True)],
     "clickhouse/postgres": [("CONNECTION_STRING", "connection_string", True)],
     "chroma/database": [("API_KEY", "api_key", True)],
+    "churnkey/retention": [
+        ("APP_ID", "app_id", True),
+        ("API_KEY", "api_key", True),
+        ("DATA_API_KEY", "data_api_key", True),
+        ("MODE", "mode", True),
+    ],
     "sentry/project": [
         ("AUTH_TOKEN", "auth_token", True),
         ("DSN", "dsn", True),
