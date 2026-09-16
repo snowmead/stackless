@@ -84,6 +84,7 @@ register_providers! {
     (blaxel::sandbox, BlaxelSandbox),
     (browserbase::project, BrowserbaseProject),
     (chatbase::agent, ChatbaseAgent),
+    (churnkey::retention, ChurnkeyRetention),
     (clickhouse::cluster, ClickHouseClickhouse),
     (clickhouse::postgres, ClickHousePostgres),
     (composio::project, ComposioProject),

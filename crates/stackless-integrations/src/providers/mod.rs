@@ -6,6 +6,7 @@ pub mod base44_projects;
 pub mod blaxel;
 pub mod browserbase;
 pub mod chatbase;
+pub mod churnkey;
 pub mod clerk;
 pub mod clickhouse;
 pub mod cloudflare;
@@ -58,11 +59,11 @@ mod tests {
 
     use crate::providers::{
         agentmail, agentphone, amplitude, auth0, base44_projects, blaxel, browserbase, chatbase,
-        clickhouse, cloudflare, composio, customerio, datadog, depot, e2b, elevenlabs, exa,
-        firecrawl, flyio, gitlab, herenow, inngest, kernel, laravel_cloud, metronome, mixpanel,
-        neon, openrouter, parallel, perplexity, planetscale, postalform, posthog, prisma, pydantic,
-        railway, render_db, revenuecat, runloop, schematic, sentry, shopify, steel, supabase,
-        supermemory, tabstack, turso, upstash, wix, wordpress_com, workos,
+        churnkey, clickhouse, cloudflare, composio, customerio, datadog, depot, e2b, elevenlabs,
+        exa, firecrawl, flyio, gitlab, herenow, inngest, kernel, laravel_cloud, metronome,
+        mixpanel, neon, openrouter, parallel, perplexity, planetscale, postalform, posthog, prisma,
+        pydantic, railway, render_db, revenuecat, runloop, schematic, sentry, shopify, steel,
+        supabase, supermemory, tabstack, turso, upstash, wix, wordpress_com, workos,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -94,6 +95,7 @@ mod tests {
         assert_outputs_match::<blaxel::sandbox::BlaxelSandbox>();
         assert_outputs_match::<browserbase::project::BrowserbaseProject>();
         assert_outputs_match::<chatbase::agent::ChatbaseAgent>();
+        assert_outputs_match::<churnkey::retention::ChurnkeyRetention>();
         assert_outputs_match::<clickhouse::cluster::ClickHouseClickhouse>();
         assert_outputs_match::<clickhouse::postgres::ClickHousePostgres>();
         assert_outputs_match::<composio::project::ComposioProject>();
