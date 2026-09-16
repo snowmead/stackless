@@ -85,6 +85,7 @@ Stripe Projects catalog reference. Offline catalog detail:
 | `neon` | `neon/postgres` |
 | `openrouter` | `openrouter/api` |
 | `parallel` | `parallel/api` |
+| `perplexity` | `perplexity/api` |
 | `planetscale-mysql` | `planetscale/mysql` |
 | `planetscale-postgresql` | `planetscale/postgresql` |
 | `postalform` | `postalform/mail` |
