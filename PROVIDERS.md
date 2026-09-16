@@ -51,6 +51,7 @@ Stripe Projects catalog reference. Offline catalog detail:
 | `blaxel-sandbox` | `blaxel/sandbox` |
 | `browserbase` | `browserbase/project` |
 | `chatbase` | `chatbase/agent` |
+| `churnkey` | `churnkey/retention` |
 | `clerk` | `clerk/auth` |
 | `clickhouse` | `clickhouse/clickhouse` |
 | `clickhouse-postgres` | `clickhouse/postgres` |
@@ -73,6 +74,7 @@ Stripe Projects catalog reference. Offline catalog detail:
 | `flyio-mpg` | `flyio/mpg` |
 | `flyio-sprite` | `flyio/sprite` |
 | `gitlab` | `gitlab/project` |
+| `herenow` | `herenow/hosting` |
 | `inngest` | `inngest/app` |
 | `kernel` | `kernel/project` |
 | `laravel-cloud` | `laravel_cloud/application` |
