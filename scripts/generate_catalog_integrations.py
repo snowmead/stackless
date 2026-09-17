@@ -90,7 +90,9 @@ SHORT_PROVIDER = {
     "turso/database": "turso",
     "prisma/database": "prisma",
     "chroma/database": "chroma",
+    "chatbase/agent": "chatbase",
     "churnkey/retention": "churnkey",
+    "athena/agents": "athena",
     "algolia/application": "algolia",
     "openrouter/api": "openrouter",
     "exa/api": "exa",
@@ -189,6 +191,16 @@ OUTPUT_HINTS = {
     "clickhouse/clickhouse": [("CONNECTION_STRING", "connection_string", True)],
     "clickhouse/postgres": [("CONNECTION_STRING", "connection_string", True)],
     "chroma/database": [("API_KEY", "api_key", True)],
+    "athena/agents": [
+        ("AGENT_ID", "agent_id", True),
+        ("API_KEY", "api_key", True),
+        ("API_URL", "api_url", True),
+    ],
+    "chatbase/agent": [
+        ("CHATBASE_AGENT_ID", "chatbase_agent_id", True),
+        ("CHATBASE_API_KEY", "chatbase_api_key", True),
+        ("CHATBASE_API_URL", "chatbase_api_url", True),
+    ],
     "churnkey/retention": [
         ("APP_ID", "app_id", True),
         ("API_KEY", "api_key", True),
