@@ -1,6 +1,7 @@
 pub mod agentmail;
 pub mod agentphone;
 pub mod amplitude;
+pub mod athena;
 pub mod auth0;
 pub mod base44_projects;
 pub mod blaxel;
@@ -58,12 +59,13 @@ mod tests {
     use stackless_provider_sdk::Hostable;
 
     use crate::providers::{
-        agentmail, agentphone, amplitude, auth0, base44_projects, blaxel, browserbase, chatbase,
-        churnkey, clickhouse, cloudflare, composio, customerio, datadog, depot, e2b, elevenlabs,
-        exa, firecrawl, flyio, gitlab, herenow, inngest, kernel, laravel_cloud, metronome,
-        mixpanel, neon, openrouter, parallel, perplexity, planetscale, postalform, posthog, prisma,
-        pydantic, railway, render_db, revenuecat, runloop, schematic, sentry, shopify, steel,
-        supabase, supermemory, tabstack, turso, upstash, wix, wordpress_com, workos,
+        agentmail, agentphone, amplitude, athena, auth0, base44_projects, blaxel, browserbase,
+        chatbase, churnkey, clickhouse, cloudflare, composio, customerio, datadog, depot, e2b,
+        elevenlabs, exa, firecrawl, flyio, gitlab, herenow, inngest, kernel, laravel_cloud,
+        metronome, mixpanel, neon, openrouter, parallel, perplexity, planetscale, postalform,
+        posthog, prisma, pydantic, railway, render_db, revenuecat, runloop, schematic, sentry,
+        shopify, steel, supabase, supermemory, tabstack, turso, upstash, wix, wordpress_com,
+        workos,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -90,6 +92,7 @@ mod tests {
         assert_outputs_match::<agentmail::api::AgentMailApi>();
         assert_outputs_match::<agentphone::number::AgentPhoneNumber>();
         assert_outputs_match::<amplitude::analytics::AmplitudeAnalytics>();
+        assert_outputs_match::<athena::agents::AthenaAgents>();
         assert_outputs_match::<auth0::client::Auth0Client>();
         assert_outputs_match::<base44_projects::app::Base44ProjectsApp>();
         assert_outputs_match::<blaxel::sandbox::BlaxelSandbox>();

@@ -46,6 +46,7 @@ Stripe Projects catalog reference. Offline catalog detail:
 | `agentmail` | `agentmail/api` |
 | `agentphone` | `agentphone/number` |
 | `amplitude` | `amplitude/analytics` |
+| `athena` | `athena/agents` |
 | `auth0` | `auth0/client` |
 | `base44` | `base44_projects/app` |
 | `blaxel-sandbox` | `blaxel/sandbox` |

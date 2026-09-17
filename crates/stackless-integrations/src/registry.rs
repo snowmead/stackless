@@ -79,6 +79,7 @@ register_providers! {
     (agentmail::api, AgentMailApi),
     (agentphone::number, AgentPhoneNumber),
     (amplitude::analytics, AmplitudeAnalytics),
+    (athena::agents, AthenaAgents),
     (auth0::client, Auth0Client),
     (base44_projects::app, Base44ProjectsApp),
     (blaxel::sandbox, BlaxelSandbox),
