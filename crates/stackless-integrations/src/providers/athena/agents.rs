@@ -1,5 +1,3 @@
-//! `athena/agents` integration.
-
 use std::collections::BTreeMap;
 
 use serde::Serialize;
@@ -112,7 +110,6 @@ pub fn validate_config(
             detail: err.to_string(),
         })?;
     }
-    let _ = (name, config);
     Ok(())
 }
 
