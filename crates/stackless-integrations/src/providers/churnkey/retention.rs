@@ -1,5 +1,3 @@
-//! `customerio/workspace` integration.
-
 use std::collections::BTreeMap;
 
 use serde::Serialize;
@@ -10,48 +8,47 @@ use super::FamilyResource;
 use crate::error::IntegrationError;
 use crate::hostable::{ConfigScope, Hostable, IntegrationHosting};
 
-pub const RESOURCE_KIND: &str = "integration-customerio";
+pub const RESOURCE_KIND: &str = "integration-churnkey";
 
 #[derive(Debug, Serialize)]
-pub struct CustomerioWorkspaceConfig {}
+pub struct ChurnkeyRetentionConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub company_name: Option<String>,
+}
 
-impl CatalogService for CustomerioWorkspaceConfig {
-    const REFERENCE: &'static str = "customerio/workspace";
+impl CatalogService for ChurnkeyRetentionConfig {
+    const REFERENCE: &'static str = "churnkey/retention";
 }
 
 #[derive(Debug)]
-pub struct CustomerioWorkspace;
+pub struct ChurnkeyRetention;
 
-impl Hostable for CustomerioWorkspace {
-    const PROVIDER: &'static str = "customerio";
+impl Hostable for ChurnkeyRetention {
+    const PROVIDER: &'static str = "churnkey";
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &[
-        "account_id",
-        "api_key",
-        "sa_token",
-        "site_id",
-        "workspace_id",
-    ];
+    const OUTPUTS: &'static [&'static str] = &["app_id", "api_key", "data_api_key", "mode"];
 }
 
-impl FamilyResource for CustomerioWorkspace {
-    type Config = CustomerioWorkspaceConfig;
-    const PROVIDER_PREFIX: &'static str = "CUSTOMERIO";
+impl FamilyResource for ChurnkeyRetention {
+    type Config = ChurnkeyRetentionConfig;
+    const PROVIDER_PREFIX: &'static str = "CHURNKEY";
+    // Provisional until pinned by `mise run discover churnkey/retention`.
     const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
-        ("ACCOUNT_ID", "account_id", true),
+        ("APP_ID", "app_id", true),
         ("API_KEY", "api_key", true),
-        ("SA_TOKEN", "sa_token", true),
-        ("SITE_ID", "site_id", true),
-        ("WORKSPACE_ID", "workspace_id", true),
+        ("DATA_API_KEY", "data_api_key", true),
+        ("MODE", "mode", true),
     ];
 
     fn build_config(
         ctx: &ProvisionContext<'_>,
-    ) -> Result<CustomerioWorkspaceConfig, IntegrationError> {
-        let _ = super::integration_config(ctx)?;
-        Ok(CustomerioWorkspaceConfig {})
+    ) -> Result<ChurnkeyRetentionConfig, IntegrationError> {
+        let config = super::integration_config(ctx)?;
+        Ok(ChurnkeyRetentionConfig {
+            company_name: super::interp_optional(ctx, &config, "company_name")?,
+        })
     }
 }
 
@@ -79,16 +76,18 @@ mod tests {
             "/../stackless-stripe-projects/tests/fixtures/catalog.json"
         ));
         let catalog = stackless_stripe_projects::Catalog::from_json_envelope(FIXTURE).unwrap();
-        let failures =
-            stackless_stripe_projects::verify_service(&catalog, &CustomerioWorkspaceConfig {});
+        let failures = stackless_stripe_projects::verify_service(
+            &catalog,
+            &ChurnkeyRetentionConfig { company_name: None },
+        );
         assert!(
             failures.is_empty(),
-            "customerio/workspace catalog gaps:\n{}",
+            "churnkey/retention catalog gaps:\n{}",
             failures.join("\n")
         );
     }
 
-    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_workspace","object":"v2.provisioning.provider_service_detail","provider":"prvdr_customerio","provider_name":"customerio","service_id":"workspace","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"component"},"configuration_schema":{}}]}}"##;
+    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_retention","object":"v2.provisioning.provider_service_detail","provider":"prvdr_churnkey","provider_name":"Churnkey","service_id":"retention","categories":["payments"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"free"},"configuration_schema":{"properties":{"company_name":{"description":"Your company name as shown to customers in the cancel flow","type":"string"}},"type":"object"}}]}}"##;
 
     fn test_def() -> StackDef {
         StackDef::parse(
@@ -98,7 +97,7 @@ name = "atto"
 [stack.projects.stripe]
 project = "project_1"
 [integrations.res]
-provider = "customerio"
+provider = "churnkey"
 [services.api]
 source = { repo = "r", ref = "main" }
 env = { OUT = "${integrations.res.api_key}" }
@@ -114,7 +113,12 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"CUSTOMERIO_ACCOUNT_ID": "val_account_id", "CUSTOMERIO_API_KEY": "val_api_key", "CUSTOMERIO_SA_TOKEN": "val_sa_token", "CUSTOMERIO_SITE_ID": "val_site_id", "CUSTOMERIO_WORKSPACE_ID": "val_workspace_id"}),
+            serde_json::json!({
+                "CHURNKEY_APP_ID": "val_app_id",
+                "CHURNKEY_API_KEY": "val_api_key",
+                "CHURNKEY_DATA_API_KEY": "val_data_api_key",
+                "CHURNKEY_MODE": "val_mode"
+            }),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -125,7 +129,7 @@ run = "true"
         .unwrap();
         let stripe = StripeProjects::new(&runner, dir.path());
 
-        let resource = CustomerioWorkspace
+        let resource = ChurnkeyRetention
             .provision(
                 &stripe.as_dyn(),
                 &test_def(),
@@ -137,8 +141,11 @@ run = "true"
             )
             .await
             .unwrap();
-        assert_eq!(resource.resource_kind, "integration-customerio");
+        assert_eq!(resource.resource_kind, "integration-churnkey");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
+        assert_eq!(payload.outputs["app_id"], "val_app_id");
         assert_eq!(payload.outputs["api_key"], "val_api_key");
+        assert_eq!(payload.outputs["data_api_key"], "val_data_api_key");
+        assert_eq!(payload.outputs["mode"], "val_mode");
     }
 }

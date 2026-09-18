@@ -7,6 +7,184 @@
     "provider_filter": null,
     "services": [
       {
+        "allowed_updates": [],
+        "availability": "available",
+        "categories": [
+          "payments"
+        ],
+        "configuration_schema": {
+          "properties": {
+            "company_name": {
+              "description": "Your company name as shown to customers in the cancel flow",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "constraints": [],
+        "created": null,
+        "description": "Cancel flows, failed payment recovery, and reactivation for Stripe subscriptions. Free 14-day trial, then billed by Churnkey (see churnkey.co/pricing). Returns Churnkey SDK credentials for one environment.",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61VPMO4IPcRRbwDld5UUq",
+        "kind": "deployable",
+        "livemode": true,
+        "llm_context": "https://sdk.churnkey.co/llm.md",
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": null,
+          "paid_pricing": [],
+          "type": "free"
+        },
+        "provider": "prvdr_61VPMO2NNE73fBT3S5Ljc",
+        "provider_configuration_schema": {},
+        "provider_name": "Churnkey",
+        "scope": "project",
+        "service_id": "retention",
+        "updateable_to": [
+          "retention"
+        ]
+      },
+      {
+        "allowed_updates": [],
+        "availability": "available",
+        "categories": [
+          "ai"
+        ],
+        "configuration_schema": {
+          "properties": {
+            "connect_mcp": {
+              "default": "no",
+              "description": "Connect one public HTTPS MCP server?",
+              "enum": [
+                "no",
+                "yes"
+              ],
+              "type": "string"
+            },
+            "enable_coding": {
+              "default": "no",
+              "description": "Enable coding and deep thinking?",
+              "enum": [
+                "no",
+                "yes"
+              ],
+              "type": "string"
+            },
+            "enable_deep_research": {
+              "default": "no",
+              "description": "Enable deep research?",
+              "enum": [
+                "no",
+                "yes"
+              ],
+              "type": "string"
+            },
+            "enable_google_maps": {
+              "default": "no",
+              "description": "Enable Google Maps?",
+              "enum": [
+                "no",
+                "yes"
+              ],
+              "type": "string"
+            },
+            "enable_image_generation": {
+              "default": "no",
+              "description": "Enable image generation?",
+              "enum": [
+                "no",
+                "yes"
+              ],
+              "type": "string"
+            },
+            "enable_live": {
+              "default": "no",
+              "description": "Enable live voice sessions?",
+              "enum": [
+                "no",
+                "yes"
+              ],
+              "type": "string"
+            },
+            "enable_music_generation": {
+              "default": "no",
+              "description": "Enable music generation?",
+              "enum": [
+                "no",
+                "yes"
+              ],
+              "type": "string"
+            },
+            "google_maps_api_key": {
+              "description": "Google Maps API key. Required only when Google Maps is enabled.",
+              "type": "string"
+            },
+            "instructions": {
+              "description": "Instructions for the Athena agent (maximum 2,000 characters).",
+              "type": "string"
+            },
+            "mcp_url": {
+              "description": "Public HTTPS MCP server URL. Leave blank when no MCP server is connected.",
+              "type": "string"
+            },
+            "name": {
+              "description": "Name for the Athena agent.",
+              "type": "string"
+            },
+            "starter_1": {
+              "description": "Optional first conversation starter shown on the public agent.",
+              "type": "string"
+            },
+            "starter_2": {
+              "description": "Optional second conversation starter shown on the public agent.",
+              "type": "string"
+            },
+            "starter_3": {
+              "description": "Optional third conversation starter shown on the public agent.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "instructions",
+            "connect_mcp",
+            "enable_image_generation",
+            "enable_music_generation",
+            "enable_live",
+            "enable_coding",
+            "enable_deep_research",
+            "enable_google_maps"
+          ],
+          "type": "object"
+        },
+        "constraints": [],
+        "created": null,
+        "description": "Configurable Athena AI agent with an optional public HTTPS MCP server.",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61VNv58mq1zOThOYP5VZA",
+        "kind": "deployable",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": null,
+          "paid_pricing": [],
+          "type": "free"
+        },
+        "provider": "prvdr_61VNueP9cELmCU01Z5DFA",
+        "provider_configuration_schema": {},
+        "provider_name": "Athena",
+        "scope": "project",
+        "service_id": "agents",
+        "updateable_to": [
+          "agents"
+        ]
+      },
+      {
         "allowed_updates": [
           {
             "direction": "any",
@@ -77,8 +255,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61VGMON1XIsZqQ3Fd5Cro",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61VGMON1XIsZqQ3Fd5Cro",
         "provider_name": "Perplexity",
         "scope": "project",
         "service_id": "api",
@@ -111,7 +289,7 @@
           }
         ],
         "created": null,
-        "description": "here.now Developer plan — $20/month: unlimited sites, 2 TB storage, 20 custom domains, vanity subdomain namespaces, and a higher publish rate limit.",
+        "description": "here.now Developer plan — $20/month: unlimited sites, 2 TB storage, 20 custom domains, vanity subdomain namespaces, and a higher publish rate limit. Includes $5/month of Editor credits.",
         "development": false,
         "group": "plan",
         "id": "prvsvc_61VFZkEhYvWqln2mM5L4i",
@@ -137,8 +315,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61VFZkDcte0pRsAFj5BFo",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61VFZkDcte0pRsAFj5BFo",
         "provider_name": "herenow",
         "scope": "account",
         "service_id": "developer",
@@ -196,8 +374,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61VFZkDcte0pRsAFj5BFo",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61VFZkDcte0pRsAFj5BFo",
         "provider_name": "herenow",
         "scope": "project",
         "service_id": "hosting",
@@ -230,7 +408,7 @@
           }
         ],
         "created": null,
-        "description": "here.now Hobby plan — $4/month: up to 1,000 sites, 500 GB storage, 5 custom domains, vanity subdomain namespaces, and a higher publish rate limit.",
+        "description": "here.now Hobby plan — $4/month: up to 1,000 sites, 500 GB storage, 5 custom domains, vanity subdomain namespaces, and a higher publish rate limit. Includes $2/month of Editor credits.",
         "development": false,
         "group": "plan",
         "id": "prvsvc_61VFZkE0r3eb7UjQR5AK0",
@@ -256,8 +434,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61VFZkDcte0pRsAFj5BFo",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61VFZkDcte0pRsAFj5BFo",
         "provider_name": "herenow",
         "scope": "account",
         "service_id": "hobby",
@@ -356,12 +534,12 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61V3J0dhwegIR1fhV5Jx2",
         "provider_configuration_schema": {
           "additionalProperties": false,
           "properties": {},
           "type": "object"
         },
-        "provider_id": "prvdr_61V3J0dhwegIR1fhV5Jx2",
         "provider_name": "Shopify",
         "scope": "project",
         "service_id": "store",
@@ -415,6 +593,7 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61V2Z15R0ek7uaOxE57Z2",
         "provider_configuration_schema": {
           "properties": {
             "org_name": {
@@ -427,7 +606,6 @@
           ],
           "type": "object"
         },
-        "provider_id": "prvdr_61V2Z15R0ek7uaOxE57Z2",
         "provider_name": "Datadog",
         "scope": "account",
         "service_id": "pay-as-you-go",
@@ -488,6 +666,7 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61V2Z15R0ek7uaOxE57Z2",
         "provider_configuration_schema": {
           "properties": {
             "org_name": {
@@ -500,7 +679,6 @@
           ],
           "type": "object"
         },
-        "provider_id": "prvdr_61V2Z15R0ek7uaOxE57Z2",
         "provider_name": "Datadog",
         "scope": "project",
         "service_id": "observability",
@@ -547,6 +725,7 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61V2Z15R0ek7uaOxE57Z2",
         "provider_configuration_schema": {
           "properties": {
             "org_name": {
@@ -559,7 +738,6 @@
           ],
           "type": "object"
         },
-        "provider_id": "prvdr_61V2Z15R0ek7uaOxE57Z2",
         "provider_name": "Datadog",
         "scope": "account",
         "service_id": "trial",
@@ -629,11 +807,11 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61V2d6KyQRdM5XHd4505o",
         "provider_configuration_schema": {
           "properties": {},
           "type": "object"
         },
-        "provider_id": "prvdr_61V2d6KyQRdM5XHd4505o",
         "provider_name": "Steel",
         "scope": "project",
         "service_id": "browser",
@@ -680,11 +858,11 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61V2d6KyQRdM5XHd4505o",
         "provider_configuration_schema": {
           "properties": {},
           "type": "object"
         },
-        "provider_id": "prvdr_61V2d6KyQRdM5XHd4505o",
         "provider_name": "Steel",
         "scope": "account",
         "service_id": "plan-launch",
@@ -744,11 +922,11 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61V2d6KyQRdM5XHd4505o",
         "provider_configuration_schema": {
           "properties": {},
           "type": "object"
         },
-        "provider_id": "prvdr_61V2d6KyQRdM5XHd4505o",
         "provider_name": "Steel",
         "scope": "account",
         "service_id": "plan-scale",
@@ -785,8 +963,8 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61V2MN5n5dVBeEEIX5S8m",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61V2MN5n5dVBeEEIX5S8m",
         "provider_name": "Schematic",
         "scope": "account",
         "service_id": "schematic-free",
@@ -844,8 +1022,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61V2MN5n5dVBeEEIX5S8m",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61V2MN5n5dVBeEEIX5S8m",
         "provider_name": "Schematic",
         "scope": "project",
         "service_id": "schematic-environment",
@@ -893,8 +1071,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61V2MN5n5dVBeEEIX5S8m",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61V2MN5n5dVBeEEIX5S8m",
         "provider_name": "Schematic",
         "scope": "account",
         "service_id": "schematic-growth",
@@ -938,11 +1116,11 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61V0NO7jETrcGDKod57JY",
         "provider_configuration_schema": {
           "properties": {},
           "type": "object"
         },
-        "provider_id": "prvdr_61V0NO7jETrcGDKod57JY",
         "provider_name": "customerio",
         "scope": "account",
         "service_id": "builder:sandbox",
@@ -1006,11 +1184,11 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61V0NO7jETrcGDKod57JY",
         "provider_configuration_schema": {
           "properties": {},
           "type": "object"
         },
-        "provider_id": "prvdr_61V0NO7jETrcGDKod57JY",
         "provider_name": "customerio",
         "scope": "account",
         "service_id": "builder",
@@ -1055,6 +1233,7 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61V0eUvURNJSjPY2J5WfY",
         "provider_configuration_schema": {
           "properties": {
             "account": {
@@ -1064,7 +1243,6 @@
           },
           "type": "object"
         },
-        "provider_id": "prvdr_61V0eUvURNJSjPY2J5WfY",
         "provider_name": "Pydantic",
         "scope": "account",
         "service_id": "personal",
@@ -1141,6 +1319,7 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61V0eUvURNJSjPY2J5WfY",
         "provider_configuration_schema": {
           "properties": {
             "account": {
@@ -1150,7 +1329,6 @@
           },
           "type": "object"
         },
-        "provider_id": "prvdr_61V0eUvURNJSjPY2J5WfY",
         "provider_name": "Pydantic",
         "scope": "project",
         "service_id": "logfire",
@@ -1200,8 +1378,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61V0tIZIwN9RMcR2T54Yi",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61V0tIZIwN9RMcR2T54Yi",
         "provider_name": "Composio",
         "scope": "account",
         "service_id": "starter",
@@ -1239,8 +1417,8 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61V0tIZIwN9RMcR2T54Yi",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61V0tIZIwN9RMcR2T54Yi",
         "provider_name": "Composio",
         "scope": "account",
         "service_id": "hobby",
@@ -1286,8 +1464,8 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61V0tIZIwN9RMcR2T54Yi",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61V0tIZIwN9RMcR2T54Yi",
         "provider_name": "Composio",
         "scope": "project",
         "service_id": "project",
@@ -1339,11 +1517,11 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61V0NO7jETrcGDKod57JY",
         "provider_configuration_schema": {
           "properties": {},
           "type": "object"
         },
-        "provider_id": "prvdr_61V0NO7jETrcGDKod57JY",
         "provider_name": "customerio",
         "scope": "project",
         "service_id": "workspace",
@@ -1355,7 +1533,7 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "beginner-monthly"
+            "service": "free"
           },
           {
             "direction": "any",
@@ -1363,7 +1541,7 @@
           },
           {
             "direction": "any",
-            "service": "free"
+            "service": "beginner-monthly"
           }
         ],
         "availability": "available",
@@ -1399,15 +1577,15 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61V0eGC6sUPXoATb051se",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61V0eGC6sUPXoATb051se",
         "provider_name": "createos",
         "scope": "account",
         "service_id": "enterprise-monthly",
         "updateable_to": [
-          "beginner-monthly",
-          "pro-monthly",
           "free",
+          "pro-monthly",
+          "beginner-monthly",
           "enterprise-monthly"
         ]
       },
@@ -1415,15 +1593,15 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "enterprise-monthly"
-          },
-          {
-            "direction": "any",
             "service": "free"
           },
           {
             "direction": "any",
             "service": "pro-monthly"
+          },
+          {
+            "direction": "any",
+            "service": "enterprise-monthly"
           }
         ],
         "availability": "available",
@@ -1459,15 +1637,15 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61V0eGC6sUPXoATb051se",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61V0eGC6sUPXoATb051se",
         "provider_name": "createos",
         "scope": "account",
         "service_id": "beginner-monthly",
         "updateable_to": [
-          "enterprise-monthly",
           "free",
           "pro-monthly",
+          "enterprise-monthly",
           "beginner-monthly"
         ]
       },
@@ -1475,7 +1653,7 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "enterprise-monthly"
+            "service": "free"
           },
           {
             "direction": "any",
@@ -1483,7 +1661,7 @@
           },
           {
             "direction": "any",
-            "service": "free"
+            "service": "enterprise-monthly"
           }
         ],
         "availability": "available",
@@ -1519,15 +1697,15 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61V0eGC6sUPXoATb051se",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61V0eGC6sUPXoATb051se",
         "provider_name": "createos",
         "scope": "account",
         "service_id": "pro-monthly",
         "updateable_to": [
-          "enterprise-monthly",
-          "beginner-monthly",
           "free",
+          "beginner-monthly",
+          "enterprise-monthly",
           "pro-monthly"
         ]
       },
@@ -1535,15 +1713,15 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "enterprise-monthly"
-          },
-          {
-            "direction": "any",
             "service": "beginner-monthly"
           },
           {
             "direction": "any",
             "service": "pro-monthly"
+          },
+          {
+            "direction": "any",
+            "service": "enterprise-monthly"
           }
         ],
         "availability": "available",
@@ -1567,15 +1745,15 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61V0eGC6sUPXoATb051se",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61V0eGC6sUPXoATb051se",
         "provider_name": "createos",
         "scope": "account",
         "service_id": "free",
         "updateable_to": [
-          "enterprise-monthly",
           "beginner-monthly",
           "pro-monthly",
+          "enterprise-monthly",
           "free"
         ]
       },
@@ -1603,10 +1781,10 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
+                  "free",
                   "pro-monthly",
                   "enterprise-monthly",
-                  "beginner-monthly",
-                  "free"
+                  "beginner-monthly"
                 ],
                 "type": "free"
               }
@@ -1616,8 +1794,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61V0eGC6sUPXoATb051se",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61V0eGC6sUPXoATb051se",
         "provider_name": "createos",
         "scope": "project",
         "service_id": "project",
@@ -1693,6 +1871,7 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61V0eUvURNJSjPY2J5WfY",
         "provider_configuration_schema": {
           "properties": {
             "account": {
@@ -1702,7 +1881,6 @@
           },
           "type": "object"
         },
-        "provider_id": "prvdr_61V0eUvURNJSjPY2J5WfY",
         "provider_name": "Pydantic",
         "scope": "account",
         "service_id": "growth",
@@ -1785,6 +1963,7 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61V0eUvURNJSjPY2J5WfY",
         "provider_configuration_schema": {
           "properties": {
             "account": {
@@ -1794,7 +1973,6 @@
           },
           "type": "object"
         },
-        "provider_id": "prvdr_61V0eUvURNJSjPY2J5WfY",
         "provider_name": "Pydantic",
         "scope": "account",
         "service_id": "team",
@@ -1858,11 +2036,11 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61V0Na4Yx14hBk8Yw5WG8",
         "provider_configuration_schema": {
           "properties": {},
           "type": "object"
         },
-        "provider_id": "prvdr_61V0Na4Yx14hBk8Yw5WG8",
         "provider_name": "Chatbase",
         "scope": "account",
         "service_id": "pro",
@@ -1929,11 +2107,11 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61V0Na4Yx14hBk8Yw5WG8",
         "provider_configuration_schema": {
           "properties": {},
           "type": "object"
         },
-        "provider_id": "prvdr_61V0Na4Yx14hBk8Yw5WG8",
         "provider_name": "Chatbase",
         "scope": "project",
         "service_id": "agent",
@@ -1945,11 +2123,11 @@
         "allowed_updates": [
           {
             "direction": "up",
-            "service": "standard"
+            "service": "pro"
           },
           {
             "direction": "up",
-            "service": "pro"
+            "service": "standard"
           }
         ],
         "availability": "available",
@@ -1996,17 +2174,17 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61V0Na4Yx14hBk8Yw5WG8",
         "provider_configuration_schema": {
           "properties": {},
           "type": "object"
         },
-        "provider_id": "prvdr_61V0Na4Yx14hBk8Yw5WG8",
         "provider_name": "Chatbase",
         "scope": "account",
         "service_id": "hobby",
         "updateable_to": [
-          "standard",
           "pro",
+          "standard",
           "hobby"
         ]
       },
@@ -2065,11 +2243,11 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61V0Na4Yx14hBk8Yw5WG8",
         "provider_configuration_schema": {
           "properties": {},
           "type": "object"
         },
-        "provider_id": "prvdr_61V0Na4Yx14hBk8Yw5WG8",
         "provider_name": "Chatbase",
         "scope": "account",
         "service_id": "standard",
@@ -2136,8 +2314,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UwKuCVtXVMFgprf59Ng",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UwKuCVtXVMFgprf59Ng",
         "provider_name": "Depot",
         "scope": "account",
         "service_id": "startup-plan",
@@ -2187,8 +2365,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UwKuCVtXVMFgprf59Ng",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UwKuCVtXVMFgprf59Ng",
         "provider_name": "Depot",
         "scope": "project",
         "service_id": "api",
@@ -2253,8 +2431,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UwKuCVtXVMFgprf59Ng",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UwKuCVtXVMFgprf59Ng",
         "provider_name": "Depot",
         "scope": "account",
         "service_id": "developer-plan",
@@ -2348,8 +2526,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61Uuf4oXg8bVlDmma51z6",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61Uuf4oXg8bVlDmma51z6",
         "provider_name": "Tabstack",
         "scope": "project",
         "service_id": "api",
@@ -2405,8 +2583,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UvW0H6W4mhL335F54SW",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UvW0H6W4mhL335F54SW",
         "provider_name": "Spaceship",
         "scope": "project",
         "service_id": "domain",
@@ -2438,11 +2616,8 @@
           "paid_pricing": [],
           "type": "free"
         },
-        "provider_configuration_schema": {
-          "properties": {},
-          "type": "object"
-        },
-        "provider_id": "prvdr_61UvIBCNECigaYpha53zM",
+        "provider": "prvdr_61UvIBCNECigaYpha53zM",
+        "provider_configuration_schema": {},
         "provider_name": "RevenueCat",
         "scope": "project",
         "service_id": "app",
@@ -2502,8 +2677,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61Unj5D2LO6EYhGmo5DBQ",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61Unj5D2LO6EYhGmo5DBQ",
         "provider_name": "Exa",
         "scope": "project",
         "service_id": "pay_as_you_go",
@@ -2552,8 +2727,8 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61Unj5D2LO6EYhGmo5DBQ",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61Unj5D2LO6EYhGmo5DBQ",
         "provider_name": "Exa",
         "scope": "project",
         "service_id": "free",
@@ -2613,8 +2788,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61Um10GcB4A0pdo6z56Bk",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61Um10GcB4A0pdo6z56Bk",
         "provider_name": "E2B",
         "scope": "project",
         "service_id": "sandbox",
@@ -2763,8 +2938,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UnUOEpxbShf2sSK5NYO",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UnUOEpxbShf2sSK5NYO",
         "provider_name": "ClickHouse",
         "scope": "account",
         "service_id": "clickhouse",
@@ -2822,8 +2997,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UnUOEpxbShf2sSK5NYO",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UnUOEpxbShf2sSK5NYO",
         "provider_name": "ClickHouse",
         "scope": "account",
         "service_id": "scale",
@@ -2994,8 +3169,8 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61UnUOEpxbShf2sSK5NYO",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UnUOEpxbShf2sSK5NYO",
         "provider_name": "ClickHouse",
         "scope": "account",
         "service_id": "postgres",
@@ -3007,11 +3182,11 @@
         "allowed_updates": [
           {
             "direction": "up",
-            "service": "enterprise"
+            "service": "scale"
           },
           {
             "direction": "up",
-            "service": "scale"
+            "service": "enterprise"
           }
         ],
         "availability": "available",
@@ -3053,14 +3228,14 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UnUOEpxbShf2sSK5NYO",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UnUOEpxbShf2sSK5NYO",
         "provider_name": "ClickHouse",
         "scope": "account",
         "service_id": "basic",
         "updateable_to": [
-          "enterprise",
           "scale",
+          "enterprise",
           "basic"
         ]
       },
@@ -3114,8 +3289,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UnUOEpxbShf2sSK5NYO",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UnUOEpxbShf2sSK5NYO",
         "provider_name": "ClickHouse",
         "scope": "account",
         "service_id": "enterprise",
@@ -3178,8 +3353,8 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61UnoL4ZPCBLxqCQW5WJU",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UnoL4ZPCBLxqCQW5WJU",
         "provider_name": "Blaxel",
         "scope": "project",
         "service_id": "agent-drive",
@@ -3265,8 +3440,8 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61UnoL4ZPCBLxqCQW5WJU",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UnoL4ZPCBLxqCQW5WJU",
         "provider_name": "Blaxel",
         "scope": "project",
         "service_id": "sandbox",
@@ -3278,11 +3453,7 @@
         "allowed_updates": [
           {
             "direction": "up",
-            "service": "tier-2"
-          },
-          {
-            "direction": "up",
-            "service": "tier-3"
+            "service": "tier-5"
           },
           {
             "direction": "up",
@@ -3290,7 +3461,11 @@
           },
           {
             "direction": "up",
-            "service": "tier-5"
+            "service": "tier-3"
+          },
+          {
+            "direction": "up",
+            "service": "tier-2"
           },
           {
             "direction": "up",
@@ -3336,16 +3511,16 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UnoL4ZPCBLxqCQW5WJU",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UnoL4ZPCBLxqCQW5WJU",
         "provider_name": "Blaxel",
         "scope": "account",
         "service_id": "tier-1",
         "updateable_to": [
-          "tier-2",
-          "tier-3",
-          "tier-4",
           "tier-5",
+          "tier-4",
+          "tier-3",
+          "tier-2",
           "tier-6",
           "tier-1"
         ]
@@ -3353,8 +3528,12 @@
       {
         "allowed_updates": [
           {
+            "direction": "up",
+            "service": "tier-5"
+          },
+          {
             "direction": "down",
-            "service": "tier-1"
+            "service": "tier-3"
           },
           {
             "direction": "down",
@@ -3362,11 +3541,7 @@
           },
           {
             "direction": "down",
-            "service": "tier-3"
-          },
-          {
-            "direction": "up",
-            "service": "tier-5"
+            "service": "tier-1"
           },
           {
             "direction": "up",
@@ -3412,16 +3587,16 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UnoL4ZPCBLxqCQW5WJU",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UnoL4ZPCBLxqCQW5WJU",
         "provider_name": "Blaxel",
         "scope": "account",
         "service_id": "tier-4",
         "updateable_to": [
-          "tier-1",
-          "tier-2",
-          "tier-3",
           "tier-5",
+          "tier-3",
+          "tier-2",
+          "tier-1",
           "tier-6",
           "tier-4"
         ]
@@ -3430,11 +3605,7 @@
         "allowed_updates": [
           {
             "direction": "down",
-            "service": "tier-1"
-          },
-          {
-            "direction": "down",
-            "service": "tier-2"
+            "service": "tier-4"
           },
           {
             "direction": "down",
@@ -3442,7 +3613,11 @@
           },
           {
             "direction": "down",
-            "service": "tier-4"
+            "service": "tier-2"
+          },
+          {
+            "direction": "down",
+            "service": "tier-1"
           },
           {
             "direction": "up",
@@ -3488,16 +3663,16 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UnoL4ZPCBLxqCQW5WJU",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UnoL4ZPCBLxqCQW5WJU",
         "provider_name": "Blaxel",
         "scope": "account",
         "service_id": "tier-5",
         "updateable_to": [
-          "tier-1",
-          "tier-2",
-          "tier-3",
           "tier-4",
+          "tier-3",
+          "tier-2",
+          "tier-1",
           "tier-6",
           "tier-5"
         ]
@@ -3506,19 +3681,19 @@
         "allowed_updates": [
           {
             "direction": "up",
-            "service": "tier-3"
-          },
-          {
-            "direction": "down",
-            "service": "tier-1"
-          },
-          {
-            "direction": "up",
             "service": "tier-5"
           },
           {
             "direction": "up",
             "service": "tier-4"
+          },
+          {
+            "direction": "up",
+            "service": "tier-3"
+          },
+          {
+            "direction": "down",
+            "service": "tier-1"
           },
           {
             "direction": "up",
@@ -3564,16 +3739,16 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UnoL4ZPCBLxqCQW5WJU",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UnoL4ZPCBLxqCQW5WJU",
         "provider_name": "Blaxel",
         "scope": "account",
         "service_id": "tier-2",
         "updateable_to": [
-          "tier-3",
-          "tier-1",
           "tier-5",
           "tier-4",
+          "tier-3",
+          "tier-1",
           "tier-6",
           "tier-2"
         ]
@@ -3582,15 +3757,7 @@
         "allowed_updates": [
           {
             "direction": "down",
-            "service": "tier-1"
-          },
-          {
-            "direction": "down",
-            "service": "tier-2"
-          },
-          {
-            "direction": "down",
-            "service": "tier-3"
+            "service": "tier-5"
           },
           {
             "direction": "down",
@@ -3598,7 +3765,15 @@
           },
           {
             "direction": "down",
-            "service": "tier-5"
+            "service": "tier-3"
+          },
+          {
+            "direction": "down",
+            "service": "tier-2"
+          },
+          {
+            "direction": "down",
+            "service": "tier-1"
           }
         ],
         "availability": "available",
@@ -3640,30 +3815,22 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UnoL4ZPCBLxqCQW5WJU",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UnoL4ZPCBLxqCQW5WJU",
         "provider_name": "Blaxel",
         "scope": "account",
         "service_id": "tier-6",
         "updateable_to": [
-          "tier-1",
-          "tier-2",
-          "tier-3",
-          "tier-4",
           "tier-5",
+          "tier-4",
+          "tier-3",
+          "tier-2",
+          "tier-1",
           "tier-6"
         ]
       },
       {
         "allowed_updates": [
-          {
-            "direction": "down",
-            "service": "tier-1"
-          },
-          {
-            "direction": "down",
-            "service": "tier-2"
-          },
           {
             "direction": "up",
             "service": "tier-5"
@@ -3671,6 +3838,14 @@
           {
             "direction": "up",
             "service": "tier-4"
+          },
+          {
+            "direction": "down",
+            "service": "tier-2"
+          },
+          {
+            "direction": "down",
+            "service": "tier-1"
           },
           {
             "direction": "up",
@@ -3716,16 +3891,16 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UnoL4ZPCBLxqCQW5WJU",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UnoL4ZPCBLxqCQW5WJU",
         "provider_name": "Blaxel",
         "scope": "account",
         "service_id": "tier-3",
         "updateable_to": [
-          "tier-1",
-          "tier-2",
           "tier-5",
           "tier-4",
+          "tier-2",
+          "tier-1",
           "tier-6",
           "tier-3"
         ]
@@ -3797,8 +3972,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61Uo1AQvDtb7Wseng5OHw",
         "provider_configuration_schema": null,
-        "provider_id": "prvdr_61Uo1AQvDtb7Wseng5OHw",
         "provider_name": "PostalForm",
         "scope": "project",
         "service_id": "mail",
@@ -3870,8 +4045,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UnkAFYNcaD50TOY54Q4",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UnkAFYNcaD50TOY54Q4",
         "provider_name": "HeyGen",
         "scope": "project",
         "service_id": "api",
@@ -3924,8 +4099,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61Unj5D2LO6EYhGmo5DBQ",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61Unj5D2LO6EYhGmo5DBQ",
         "provider_name": "Exa",
         "scope": "project",
         "service_id": "api",
@@ -3947,14 +4122,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -3984,8 +4159,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61Um10GcB4A0pdo6z56Bk",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61Um10GcB4A0pdo6z56Bk",
         "provider_name": "E2B",
         "scope": "project",
         "service_id": "hobby",
@@ -4008,14 +4183,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -4045,8 +4220,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61Um10GcB4A0pdo6z56Bk",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61Um10GcB4A0pdo6z56Bk",
         "provider_name": "E2B",
         "scope": "project",
         "service_id": "pro",
@@ -4139,8 +4314,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UnTCu1qlHAWbYZU5Sv2",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UnTCu1qlHAWbYZU5Sv2",
         "provider_name": "Supermemory",
         "scope": "project",
         "service_id": "memory",
@@ -4195,8 +4370,8 @@
                 "paid": null,
                 "parent_services": [
                   "hobbyist",
-                  "developer",
-                  "startup"
+                  "startup",
+                  "developer"
                 ],
                 "type": "free"
               }
@@ -4206,8 +4381,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UnOfhF7jlP9Fcxr55Z2",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UnOfhF7jlP9Fcxr55Z2",
         "provider_name": "KERNEL",
         "scope": "project",
         "service_id": "project",
@@ -4233,14 +4408,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -4258,8 +4433,8 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61UnOfhF7jlP9Fcxr55Z2",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UnOfhF7jlP9Fcxr55Z2",
         "provider_name": "KERNEL",
         "scope": "account",
         "service_id": "developer",
@@ -4287,14 +4462,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -4324,8 +4499,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UnOfhF7jlP9Fcxr55Z2",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UnOfhF7jlP9Fcxr55Z2",
         "provider_name": "KERNEL",
         "scope": "account",
         "service_id": "startup",
@@ -4338,12 +4513,12 @@
       {
         "allowed_updates": [
           {
-            "direction": "down",
-            "service": "developer"
-          },
-          {
             "direction": "up",
             "service": "startup"
+          },
+          {
+            "direction": "down",
+            "service": "developer"
           }
         ],
         "availability": "available",
@@ -4353,14 +4528,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -4390,14 +4565,14 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UnOfhF7jlP9Fcxr55Z2",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UnOfhF7jlP9Fcxr55Z2",
         "provider_name": "KERNEL",
         "scope": "account",
         "service_id": "hobbyist",
         "updateable_to": [
-          "developer",
           "startup",
+          "developer",
           "hobbyist"
         ]
       },
@@ -4476,8 +4651,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61Uj2YmiyLwllzQQX5Vui",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61Uj2YmiyLwllzQQX5Vui",
         "provider_name": "Wix",
         "scope": "project",
         "service_id": "headless",
@@ -4692,8 +4867,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UnKXcVflBIkLCbX54aW",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UnKXcVflBIkLCbX54aW",
         "provider_name": "Parallel",
         "scope": "project",
         "service_id": "api",
@@ -4746,8 +4921,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61Ulotgugv9hEYa1b5HwO",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61Ulotgugv9hEYa1b5HwO",
         "provider_name": "Laravel_Cloud",
         "scope": "account",
         "service_id": "growth",
@@ -4819,8 +4994,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "growth",
-                  "starter"
+                  "starter",
+                  "growth"
                 ],
                 "type": "paid"
               }
@@ -4830,8 +5005,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61Ulotgugv9hEYa1b5HwO",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61Ulotgugv9hEYa1b5HwO",
         "provider_name": "Laravel_Cloud",
         "scope": "project",
         "service_id": "valkey",
@@ -4921,8 +5096,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "growth",
-                  "starter"
+                  "starter",
+                  "growth"
                 ],
                 "type": "paid"
               }
@@ -4932,8 +5107,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61Ulotgugv9hEYa1b5HwO",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61Ulotgugv9hEYa1b5HwO",
         "provider_name": "Laravel_Cloud",
         "scope": "project",
         "service_id": "application",
@@ -5004,8 +5179,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "growth",
-                  "starter"
+                  "starter",
+                  "growth"
                 ],
                 "type": "paid"
               }
@@ -5015,8 +5190,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61Ulotgugv9hEYa1b5HwO",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61Ulotgugv9hEYa1b5HwO",
         "provider_name": "Laravel_Cloud",
         "scope": "project",
         "service_id": "mysql",
@@ -5069,8 +5244,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61Ulotgugv9hEYa1b5HwO",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61Ulotgugv9hEYa1b5HwO",
         "provider_name": "Laravel_Cloud",
         "scope": "account",
         "service_id": "starter",
@@ -5166,8 +5341,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UmxGkoAMSyI59y25SzA",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UmxGkoAMSyI59y25SzA",
         "provider_name": "WordPress.com",
         "scope": "project",
         "service_id": "site",
@@ -5221,8 +5396,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UmxGkoAMSyI59y25SzA",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UmxGkoAMSyI59y25SzA",
         "provider_name": "WordPress.com",
         "scope": "project",
         "service_id": "domain",
@@ -5276,8 +5451,8 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61UlD0fxuDb9nsZ7c5VfE",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UlD0fxuDb9nsZ7c5VfE",
         "provider_name": "Base44_Projects",
         "scope": "project",
         "service_id": "app",
@@ -5330,9 +5505,9 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
-                  "pro",
-                  "starter",
                   "business",
+                  "starter",
+                  "pro",
                   "free"
                 ],
                 "type": "free"
@@ -5343,8 +5518,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61Ulq2NBoEkAzhMKC50vA",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61Ulq2NBoEkAzhMKC50vA",
         "provider_name": "Prisma",
         "scope": "project",
         "service_id": "database",
@@ -5356,11 +5531,11 @@
         "allowed_updates": [
           {
             "direction": "up",
-            "service": "business"
+            "service": "starter"
           },
           {
             "direction": "up",
-            "service": "starter"
+            "service": "business"
           },
           {
             "direction": "any",
@@ -5392,14 +5567,14 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61Ulq2NBoEkAzhMKC50vA",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61Ulq2NBoEkAzhMKC50vA",
         "provider_name": "Prisma",
         "scope": "account",
         "service_id": "free",
         "updateable_to": [
-          "business",
           "starter",
+          "business",
           "free",
           "pro"
         ]
@@ -5408,11 +5583,7 @@
         "allowed_updates": [
           {
             "direction": "down",
-            "service": "pro"
-          },
-          {
-            "direction": "any",
-            "service": "business"
+            "service": "starter"
           },
           {
             "direction": "down",
@@ -5420,7 +5591,11 @@
           },
           {
             "direction": "down",
-            "service": "starter"
+            "service": "pro"
+          },
+          {
+            "direction": "any",
+            "service": "business"
           }
         ],
         "availability": "available",
@@ -5456,23 +5631,23 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61Ulq2NBoEkAzhMKC50vA",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61Ulq2NBoEkAzhMKC50vA",
         "provider_name": "Prisma",
         "scope": "account",
         "service_id": "business",
         "updateable_to": [
-          "pro",
-          "business",
+          "starter",
           "free",
-          "starter"
+          "pro",
+          "business"
         ]
       },
       {
         "allowed_updates": [
           {
             "direction": "down",
-            "service": "free"
+            "service": "starter"
           },
           {
             "direction": "up",
@@ -5484,7 +5659,7 @@
           },
           {
             "direction": "down",
-            "service": "starter"
+            "service": "free"
           }
         ],
         "availability": "available",
@@ -5520,20 +5695,24 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61Ulq2NBoEkAzhMKC50vA",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61Ulq2NBoEkAzhMKC50vA",
         "provider_name": "Prisma",
         "scope": "account",
         "service_id": "pro",
         "updateable_to": [
-          "free",
+          "starter",
           "business",
           "pro",
-          "starter"
+          "free"
         ]
       },
       {
         "allowed_updates": [
+          {
+            "direction": "up",
+            "service": "business"
+          },
           {
             "direction": "down",
             "service": "free"
@@ -5541,10 +5720,6 @@
           {
             "direction": "any",
             "service": "starter"
-          },
-          {
-            "direction": "up",
-            "service": "business"
           },
           {
             "direction": "up",
@@ -5584,15 +5759,15 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61Ulq2NBoEkAzhMKC50vA",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61Ulq2NBoEkAzhMKC50vA",
         "provider_name": "Prisma",
         "scope": "account",
         "service_id": "starter",
         "updateable_to": [
+          "business",
           "free",
           "starter",
-          "business",
           "pro"
         ]
       },
@@ -5626,8 +5801,8 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61Uko2Ae2S1CUgAxI54kS",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61Uko2Ae2S1CUgAxI54kS",
         "provider_name": "Metronome",
         "scope": "project",
         "service_id": "sandbox",
@@ -5693,8 +5868,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UjQLgXIM0R40WnZ5S8m",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UjQLgXIM0R40WnZ5S8m",
         "provider_name": "AgentPhone",
         "scope": "project",
         "service_id": "number",
@@ -5744,8 +5919,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UQsPLOiNuyFxFP45ADo",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UQsPLOiNuyFxFP45ADo",
         "provider_name": "Twilio",
         "scope": "project",
         "service_id": "business",
@@ -5795,8 +5970,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UQsPLOiNuyFxFP45ADo",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UQsPLOiNuyFxFP45ADo",
         "provider_name": "Twilio",
         "scope": "project",
         "service_id": "hobbyist",
@@ -5828,9 +6003,9 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
+                  "startup",
                   "free",
-                  "developer",
-                  "startup"
+                  "developer"
                 ],
                 "type": "free"
               }
@@ -5840,8 +6015,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UWNSVKoGlVDwbHX5IUK",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UWNSVKoGlVDwbHX5IUK",
         "provider_name": "AgentMail",
         "scope": "project",
         "service_id": "api",
@@ -5898,8 +6073,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UacoeBnJSHilBZJ5FIm",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UacoeBnJSHilBZJ5FIm",
         "provider_name": "Squarespace",
         "scope": "project",
         "service_id": "domain",
@@ -5930,8 +6105,8 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61UYtnmm5DvySq8Ol56tE",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UYtnmm5DvySq8Ol56tE",
         "provider_name": "ElevenLabs",
         "scope": "project",
         "service_id": "tts",
@@ -6021,8 +6196,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UU7UnQL58lBHk2p55uC",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UU7UnQL58lBHk2p55uC",
         "provider_name": "Algolia",
         "scope": "project",
         "service_id": "application",
@@ -6071,6 +6246,7 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UWLVjDZyzuP1BCY5EAi",
         "provider_configuration_schema": {
           "additionalProperties": false,
           "properties": {
@@ -6084,7 +6260,6 @@
           ],
           "type": "object"
         },
-        "provider_id": "prvdr_61UWLVjDZyzuP1BCY5EAi",
         "provider_name": "Privy",
         "scope": "account",
         "service_id": "scale",
@@ -6126,6 +6301,7 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61UWLVjDZyzuP1BCY5EAi",
         "provider_configuration_schema": {
           "additionalProperties": false,
           "properties": {
@@ -6139,7 +6315,6 @@
           ],
           "type": "object"
         },
-        "provider_id": "prvdr_61UWLVjDZyzuP1BCY5EAi",
         "provider_name": "Privy",
         "scope": "account",
         "service_id": "free",
@@ -6190,6 +6365,7 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UWLVjDZyzuP1BCY5EAi",
         "provider_configuration_schema": {
           "additionalProperties": false,
           "properties": {
@@ -6203,7 +6379,6 @@
           ],
           "type": "object"
         },
-        "provider_id": "prvdr_61UWLVjDZyzuP1BCY5EAi",
         "provider_name": "Privy",
         "scope": "account",
         "service_id": "core",
@@ -6271,8 +6446,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UQRSWMdrciFdBNs5Ipc",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UQRSWMdrciFdBNs5Ipc",
         "provider_name": "Cloudflare",
         "scope": "project",
         "service_id": "r2:bucket",
@@ -6316,8 +6491,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UYA33tkF5l7Dkwz5KGG",
         "provider_configuration_schema": null,
-        "provider_id": "prvdr_61UYA33tkF5l7Dkwz5KGG",
         "provider_name": "Browserbase",
         "scope": "project",
         "service_id": "project",
@@ -6329,6 +6504,10 @@
         "allowed_updates": [
           {
             "direction": "any",
+            "service": "free"
+          },
+          {
+            "direction": "any",
             "service": "b2c-professional"
           },
           {
@@ -6338,10 +6517,6 @@
           {
             "direction": "any",
             "service": "b2c-essentials"
-          },
-          {
-            "direction": "any",
-            "service": "free"
           }
         ],
         "availability": "available",
@@ -6377,6 +6552,7 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UVctyxfLOj4FpVw5Bmi",
         "provider_configuration_schema": {
           "additionalProperties": false,
           "properties": {
@@ -6406,20 +6582,23 @@
           ],
           "type": "object"
         },
-        "provider_id": "prvdr_61UVctyxfLOj4FpVw5Bmi",
         "provider_name": "Auth0",
         "scope": "project",
         "service_id": "b2b-professional",
         "updateable_to": [
+          "free",
           "b2c-professional",
           "b2b-essentials",
           "b2c-essentials",
-          "free",
           "b2b-professional"
         ]
       },
       {
         "allowed_updates": [
+          {
+            "direction": "any",
+            "service": "free"
+          },
           {
             "direction": "any",
             "service": "b2b-professional"
@@ -6431,10 +6610,6 @@
           {
             "direction": "any",
             "service": "b2c-essentials"
-          },
-          {
-            "direction": "any",
-            "service": "free"
           }
         ],
         "availability": "available",
@@ -6470,6 +6645,7 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UVctyxfLOj4FpVw5Bmi",
         "provider_configuration_schema": {
           "additionalProperties": false,
           "properties": {
@@ -6499,20 +6675,23 @@
           ],
           "type": "object"
         },
-        "provider_id": "prvdr_61UVctyxfLOj4FpVw5Bmi",
         "provider_name": "Auth0",
         "scope": "project",
         "service_id": "b2b-essentials",
         "updateable_to": [
+          "free",
           "b2b-professional",
           "b2c-professional",
           "b2c-essentials",
-          "free",
           "b2b-essentials"
         ]
       },
       {
         "allowed_updates": [
+          {
+            "direction": "any",
+            "service": "free"
+          },
           {
             "direction": "any",
             "service": "b2b-professional"
@@ -6524,10 +6703,6 @@
           {
             "direction": "any",
             "service": "b2c-essentials"
-          },
-          {
-            "direction": "any",
-            "service": "free"
           }
         ],
         "availability": "available",
@@ -6563,6 +6738,7 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UVctyxfLOj4FpVw5Bmi",
         "provider_configuration_schema": {
           "additionalProperties": false,
           "properties": {
@@ -6592,15 +6768,14 @@
           ],
           "type": "object"
         },
-        "provider_id": "prvdr_61UVctyxfLOj4FpVw5Bmi",
         "provider_name": "Auth0",
         "scope": "project",
         "service_id": "b2c-professional",
         "updateable_to": [
+          "free",
           "b2b-professional",
           "b2b-essentials",
           "b2c-essentials",
-          "free",
           "b2c-professional"
         ]
       },
@@ -6644,6 +6819,7 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61UVctyxfLOj4FpVw5Bmi",
         "provider_configuration_schema": {
           "additionalProperties": false,
           "properties": {
@@ -6673,7 +6849,6 @@
           ],
           "type": "object"
         },
-        "provider_id": "prvdr_61UVctyxfLOj4FpVw5Bmi",
         "provider_name": "Auth0",
         "scope": "project",
         "service_id": "free",
@@ -6689,6 +6864,10 @@
         "allowed_updates": [
           {
             "direction": "any",
+            "service": "free"
+          },
+          {
+            "direction": "any",
             "service": "b2b-professional"
           },
           {
@@ -6698,10 +6877,6 @@
           {
             "direction": "any",
             "service": "b2b-essentials"
-          },
-          {
-            "direction": "any",
-            "service": "free"
           }
         ],
         "availability": "available",
@@ -6737,6 +6912,7 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UVctyxfLOj4FpVw5Bmi",
         "provider_configuration_schema": {
           "additionalProperties": false,
           "properties": {
@@ -6766,15 +6942,14 @@
           ],
           "type": "object"
         },
-        "provider_id": "prvdr_61UVctyxfLOj4FpVw5Bmi",
         "provider_name": "Auth0",
         "scope": "project",
         "service_id": "b2c-essentials",
         "updateable_to": [
+          "free",
           "b2b-professional",
           "b2c-professional",
           "b2b-essentials",
-          "free",
           "b2c-essentials"
         ]
       },
@@ -6915,8 +7090,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UVwArXdJpejOfkn5POi",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UVwArXdJpejOfkn5POi",
         "provider_name": "Render",
         "scope": "project",
         "service_id": "web-service",
@@ -6960,6 +7135,7 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UWLVjDZyzuP1BCY5EAi",
         "provider_configuration_schema": {
           "additionalProperties": false,
           "properties": {
@@ -6973,7 +7149,6 @@
           ],
           "type": "object"
         },
-        "provider_id": "prvdr_61UWLVjDZyzuP1BCY5EAi",
         "provider_name": "Privy",
         "scope": "account",
         "service_id": "enterprise",
@@ -7085,8 +7260,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UVa3kQyvSOEnWgd5Naa",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UVa3kQyvSOEnWgd5Naa",
         "provider_name": "Upstash",
         "scope": "project",
         "service_id": "vector",
@@ -7171,8 +7346,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UVa3kQyvSOEnWgd5Naa",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UVa3kQyvSOEnWgd5Naa",
         "provider_name": "Upstash",
         "scope": "project",
         "service_id": "search",
@@ -7252,8 +7427,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UVa3kQyvSOEnWgd5Naa",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UVa3kQyvSOEnWgd5Naa",
         "provider_name": "Upstash",
         "scope": "project",
         "service_id": "qstash",
@@ -7376,8 +7551,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UVa3kQyvSOEnWgd5Naa",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UVa3kQyvSOEnWgd5Naa",
         "provider_name": "Upstash",
         "scope": "project",
         "service_id": "redis",
@@ -7435,8 +7610,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UZ9SrkCMLr94xp859Vo",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UZ9SrkCMLr94xp859Vo",
         "provider_name": "Daytona",
         "scope": "project",
         "service_id": "top-up-0500",
@@ -7451,7 +7626,7 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "top-up-0500"
+            "service": "top-up-2000"
           },
           {
             "direction": "any",
@@ -7459,7 +7634,7 @@
           },
           {
             "direction": "any",
-            "service": "top-up-2000"
+            "service": "top-up-0500"
           }
         ],
         "availability": "available",
@@ -7497,15 +7672,15 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UZ9SrkCMLr94xp859Vo",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UZ9SrkCMLr94xp859Vo",
         "provider_name": "Daytona",
         "scope": "project",
         "service_id": "top-up-1000",
         "updateable_to": [
-          "top-up-0500",
-          "top-up-0025",
           "top-up-2000",
+          "top-up-0025",
+          "top-up-0500",
           "top-up-1000"
         ]
       },
@@ -7513,7 +7688,7 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "top-up-0500"
+            "service": "top-up-2000"
           },
           {
             "direction": "any",
@@ -7521,7 +7696,7 @@
           },
           {
             "direction": "any",
-            "service": "top-up-2000"
+            "service": "top-up-0500"
           }
         ],
         "availability": "available",
@@ -7559,15 +7734,15 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UZ9SrkCMLr94xp859Vo",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UZ9SrkCMLr94xp859Vo",
         "provider_name": "Daytona",
         "scope": "project",
         "service_id": "top-up-0025",
         "updateable_to": [
-          "top-up-0500",
-          "top-up-1000",
           "top-up-2000",
+          "top-up-1000",
+          "top-up-0500",
           "top-up-0025"
         ]
       },
@@ -7575,15 +7750,15 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "top-up-0500"
-          },
-          {
-            "direction": "any",
             "service": "top-up-1000"
           },
           {
             "direction": "any",
             "service": "top-up-0025"
+          },
+          {
+            "direction": "any",
+            "service": "top-up-0500"
           }
         ],
         "availability": "available",
@@ -7621,15 +7796,15 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UZ9SrkCMLr94xp859Vo",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UZ9SrkCMLr94xp859Vo",
         "provider_name": "Daytona",
         "scope": "project",
         "service_id": "top-up-2000",
         "updateable_to": [
-          "top-up-0500",
           "top-up-1000",
           "top-up-0025",
+          "top-up-0500",
           "top-up-2000"
         ]
       },
@@ -7751,10 +7926,10 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "top-up-0025",
-                  "top-up-0500",
+                  "top-up-1000",
                   "top-up-2000",
-                  "top-up-1000"
+                  "top-up-0500",
+                  "top-up-0025"
                 ],
                 "type": "paid"
               }
@@ -7764,8 +7939,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UZ9SrkCMLr94xp859Vo",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UZ9SrkCMLr94xp859Vo",
         "provider_name": "Daytona",
         "scope": "project",
         "service_id": "sandbox",
@@ -7819,8 +7994,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UIXYHdsyF69pZbG52n2",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UIXYHdsyF69pZbG52n2",
         "provider_name": "Supabase",
         "scope": "project",
         "service_id": "pro",
@@ -7834,11 +8009,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "free"
+            "service": "pro"
           },
           {
             "direction": "any",
-            "service": "pro"
+            "service": "free"
           }
         ],
         "availability": "available",
@@ -7876,14 +8051,14 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UIXYHdsyF69pZbG52n2",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UIXYHdsyF69pZbG52n2",
         "provider_name": "Supabase",
         "scope": "project",
         "service_id": "team",
         "updateable_to": [
-          "free",
           "pro",
+          "free",
           "team"
         ]
       },
@@ -7930,8 +8105,8 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61UWhMpOMGYc7qQhs53su",
         "provider_configuration_schema": null,
-        "provider_id": "prvdr_61UWhMpOMGYc7qQhs53su",
         "provider_name": "Sentry",
         "scope": "account",
         "service_id": "developer",
@@ -7996,8 +8171,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UWhMpOMGYc7qQhs53su",
         "provider_configuration_schema": null,
-        "provider_id": "prvdr_61UWhMpOMGYc7qQhs53su",
         "provider_name": "Sentry",
         "scope": "account",
         "service_id": "business",
@@ -8062,8 +8237,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UWhMpOMGYc7qQhs53su",
         "provider_configuration_schema": null,
-        "provider_id": "prvdr_61UWhMpOMGYc7qQhs53su",
         "provider_name": "Sentry",
         "scope": "account",
         "service_id": "team",
@@ -8117,8 +8292,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UYA33tkF5l7Dkwz5KGG",
         "provider_configuration_schema": null,
-        "provider_id": "prvdr_61UYA33tkF5l7Dkwz5KGG",
         "provider_name": "Browserbase",
         "scope": "project",
         "service_id": "developer",
@@ -8160,8 +8335,8 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61UYA33tkF5l7Dkwz5KGG",
         "provider_configuration_schema": null,
-        "provider_id": "prvdr_61UYA33tkF5l7Dkwz5KGG",
         "provider_name": "Browserbase",
         "scope": "project",
         "service_id": "free",
@@ -8215,8 +8390,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UYA33tkF5l7Dkwz5KGG",
         "provider_configuration_schema": null,
-        "provider_id": "prvdr_61UYA33tkF5l7Dkwz5KGG",
         "provider_name": "Browserbase",
         "scope": "project",
         "service_id": "startup",
@@ -8317,8 +8492,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UVwArXdJpejOfkn5POi",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UVwArXdJpejOfkn5POi",
         "provider_name": "Render",
         "scope": "project",
         "service_id": "postgres",
@@ -8330,7 +8505,7 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "plus-v3-25k-mtu-monthly"
+            "service": "plus-v3-50k-mtu-monthly"
           },
           {
             "direction": "any",
@@ -8338,7 +8513,7 @@
           },
           {
             "direction": "any",
-            "service": "plus-v3-50k-mtu-monthly"
+            "service": "plus-v3-25k-mtu-monthly"
           }
         ],
         "availability": "available",
@@ -8376,6 +8551,7 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UQYwVkrCANKYQdE5BLM",
         "provider_configuration_schema": {
           "properties": {
             "marketing": {
@@ -8397,14 +8573,13 @@
           ],
           "type": "object"
         },
-        "provider_id": "prvdr_61UQYwVkrCANKYQdE5BLM",
         "provider_name": "Amplitude",
         "scope": "project",
         "service_id": "plus-v3-10k-mtu-monthly",
         "updateable_to": [
-          "plus-v3-25k-mtu-monthly",
-          "free",
           "plus-v3-50k-mtu-monthly",
+          "free",
+          "plus-v3-25k-mtu-monthly",
           "plus-v3-10k-mtu-monthly"
         ]
       },
@@ -8412,7 +8587,7 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "plus-v3-10k-mtu-monthly"
+            "service": "plus-v3-50k-mtu-monthly"
           },
           {
             "direction": "any",
@@ -8420,7 +8595,7 @@
           },
           {
             "direction": "any",
-            "service": "plus-v3-50k-mtu-monthly"
+            "service": "plus-v3-10k-mtu-monthly"
           }
         ],
         "availability": "available",
@@ -8458,6 +8633,7 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UQYwVkrCANKYQdE5BLM",
         "provider_configuration_schema": {
           "properties": {
             "marketing": {
@@ -8479,14 +8655,13 @@
           ],
           "type": "object"
         },
-        "provider_id": "prvdr_61UQYwVkrCANKYQdE5BLM",
         "provider_name": "Amplitude",
         "scope": "project",
         "service_id": "plus-v3-25k-mtu-monthly",
         "updateable_to": [
-          "plus-v3-10k-mtu-monthly",
-          "free",
           "plus-v3-50k-mtu-monthly",
+          "free",
+          "plus-v3-10k-mtu-monthly",
           "plus-v3-25k-mtu-monthly"
         ]
       },
@@ -8494,11 +8669,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "plus-v3-25k-mtu-monthly"
+            "service": "free"
           },
           {
             "direction": "any",
-            "service": "free"
+            "service": "plus-v3-25k-mtu-monthly"
           },
           {
             "direction": "any",
@@ -8540,6 +8715,7 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UQYwVkrCANKYQdE5BLM",
         "provider_configuration_schema": {
           "properties": {
             "marketing": {
@@ -8561,13 +8737,12 @@
           ],
           "type": "object"
         },
-        "provider_id": "prvdr_61UQYwVkrCANKYQdE5BLM",
         "provider_name": "Amplitude",
         "scope": "project",
         "service_id": "plus-v3-50k-mtu-monthly",
         "updateable_to": [
-          "plus-v3-25k-mtu-monthly",
           "free",
+          "plus-v3-25k-mtu-monthly",
           "plus-v3-10k-mtu-monthly",
           "plus-v3-50k-mtu-monthly"
         ]
@@ -8602,8 +8777,8 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61UXju1taz9UCvkk95GEK",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UXju1taz9UCvkk95GEK",
         "provider_name": "Netlify",
         "scope": "project",
         "service_id": "project",
@@ -8654,8 +8829,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UK2uWsoydL7tUBp57Fg",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UK2uWsoydL7tUBp57Fg",
         "provider_name": "Railway",
         "scope": "project",
         "service_id": "hobby",
@@ -8702,8 +8877,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UK2uWsoydL7tUBp57Fg",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UK2uWsoydL7tUBp57Fg",
         "provider_name": "Railway",
         "scope": "project",
         "service_id": "pro",
@@ -8747,10 +8922,10 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
-                  "core",
-                  "enterprise",
+                  "free",
                   "scale",
-                  "free"
+                  "enterprise",
+                  "core"
                 ],
                 "type": "free"
               }
@@ -8760,6 +8935,7 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UWLVjDZyzuP1BCY5EAi",
         "provider_configuration_schema": {
           "additionalProperties": false,
           "properties": {
@@ -8773,7 +8949,6 @@
           ],
           "type": "object"
         },
-        "provider_id": "prvdr_61UWLVjDZyzuP1BCY5EAi",
         "provider_name": "Privy",
         "scope": "project",
         "service_id": "app",
@@ -8785,11 +8960,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "free"
+            "service": "startup"
           },
           {
             "direction": "any",
-            "service": "startup"
+            "service": "free"
           }
         ],
         "availability": "available",
@@ -8827,14 +9002,14 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UWNSVKoGlVDwbHX5IUK",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UWNSVKoGlVDwbHX5IUK",
         "provider_name": "AgentMail",
         "scope": "project",
         "service_id": "developer",
         "updateable_to": [
-          "free",
           "startup",
+          "free",
           "developer"
         ]
       },
@@ -8884,8 +9059,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UWNSVKoGlVDwbHX5IUK",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UWNSVKoGlVDwbHX5IUK",
         "provider_name": "AgentMail",
         "scope": "project",
         "service_id": "startup",
@@ -8929,8 +9104,8 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61UWNSVKoGlVDwbHX5IUK",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UWNSVKoGlVDwbHX5IUK",
         "provider_name": "AgentMail",
         "scope": "project",
         "service_id": "free",
@@ -8995,8 +9170,8 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61UVwArXdJpejOfkn5POi",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UVwArXdJpejOfkn5POi",
         "provider_name": "Render",
         "scope": "project",
         "service_id": "static-site",
@@ -9061,8 +9236,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UWhMpOMGYc7qQhs53su",
         "provider_configuration_schema": null,
-        "provider_id": "prvdr_61UWhMpOMGYc7qQhs53su",
         "provider_name": "Sentry",
         "scope": "account",
         "service_id": "seer",
@@ -9130,8 +9305,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UWhMpOMGYc7qQhs53su",
         "provider_configuration_schema": null,
-        "provider_id": "prvdr_61UWhMpOMGYc7qQhs53su",
         "provider_name": "Sentry",
         "scope": "project",
         "service_id": "project",
@@ -9143,11 +9318,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "launch"
+            "service": "free"
           },
           {
             "direction": "any",
-            "service": "free"
+            "service": "launch"
           }
         ],
         "availability": "available",
@@ -9183,25 +9358,25 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UH8uNXFdoJUJOtT54AC",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UH8uNXFdoJUJOtT54AC",
         "provider_name": "Neon",
         "scope": "project",
         "service_id": "launch",
         "updateable_to": [
-          "launch",
-          "free"
+          "free",
+          "launch"
         ]
       },
       {
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "launch"
+            "service": "free"
           },
           {
             "direction": "any",
-            "service": "free"
+            "service": "launch"
           }
         ],
         "availability": "available",
@@ -9225,14 +9400,14 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61UH8uNXFdoJUJOtT54AC",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UH8uNXFdoJUJOtT54AC",
         "provider_name": "Neon",
         "scope": "project",
         "service_id": "free",
         "updateable_to": [
-          "launch",
-          "free"
+          "free",
+          "launch"
         ]
       },
       {
@@ -9276,8 +9451,8 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
-                  "hobby",
-                  "pro"
+                  "pro",
+                  "hobby"
                 ],
                 "type": "free"
               }
@@ -9287,8 +9462,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UQ7Ta2evjv111Sl5Tqa",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UQ7Ta2evjv111Sl5Tqa",
         "provider_name": "Inngest",
         "scope": "project",
         "service_id": "app",
@@ -9300,11 +9475,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "hobby"
+            "service": "pro"
           },
           {
             "direction": "any",
-            "service": "pro"
+            "service": "hobby"
           }
         ],
         "availability": "available",
@@ -9328,25 +9503,25 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61UQ7Ta2evjv111Sl5Tqa",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UQ7Ta2evjv111Sl5Tqa",
         "provider_name": "Inngest",
         "scope": "project",
         "service_id": "hobby",
         "updateable_to": [
-          "hobby",
-          "pro"
+          "pro",
+          "hobby"
         ]
       },
       {
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "team"
+            "service": "pro"
           },
           {
             "direction": "any",
-            "service": "pro"
+            "service": "team"
           }
         ],
         "availability": "available",
@@ -9372,14 +9547,14 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61UIXYHdsyF69pZbG52n2",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UIXYHdsyF69pZbG52n2",
         "provider_name": "Supabase",
         "scope": "project",
         "service_id": "free",
         "updateable_to": [
-          "team",
           "pro",
+          "team",
           "free"
         ]
       },
@@ -9440,8 +9615,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "pro",
-                  "team"
+                  "team",
+                  "pro"
                 ],
                 "type": "paid"
               }
@@ -9451,8 +9626,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UIXYHdsyF69pZbG52n2",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UIXYHdsyF69pZbG52n2",
         "provider_name": "Supabase",
         "scope": "project",
         "service_id": "project",
@@ -9515,8 +9690,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UQRSWMdrciFdBNs5Ipc",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UQRSWMdrciFdBNs5Ipc",
         "provider_name": "Cloudflare",
         "scope": "project",
         "service_id": "workers-ai",
@@ -9585,8 +9760,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UQRSWMdrciFdBNs5Ipc",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UQRSWMdrciFdBNs5Ipc",
         "provider_name": "Cloudflare",
         "scope": "project",
         "service_id": "browser-run",
@@ -9740,8 +9915,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UQRSWMdrciFdBNs5Ipc",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UQRSWMdrciFdBNs5Ipc",
         "provider_name": "Cloudflare",
         "scope": "project",
         "service_id": "hyperdrive",
@@ -9819,8 +9994,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UQRSWMdrciFdBNs5Ipc",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UQRSWMdrciFdBNs5Ipc",
         "provider_name": "Cloudflare",
         "scope": "project",
         "service_id": "kv",
@@ -9910,8 +10085,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UQRSWMdrciFdBNs5Ipc",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UQRSWMdrciFdBNs5Ipc",
         "provider_name": "Cloudflare",
         "scope": "project",
         "service_id": "d1",
@@ -9989,8 +10164,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UQRSWMdrciFdBNs5Ipc",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UQRSWMdrciFdBNs5Ipc",
         "provider_name": "Cloudflare",
         "scope": "project",
         "service_id": "queues",
@@ -10051,8 +10226,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UQRSWMdrciFdBNs5Ipc",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UQRSWMdrciFdBNs5Ipc",
         "provider_name": "Cloudflare",
         "scope": "project",
         "service_id": "containers",
@@ -10111,6 +10286,7 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UVctyxfLOj4FpVw5Bmi",
         "provider_configuration_schema": {
           "additionalProperties": false,
           "properties": {
@@ -10140,7 +10316,6 @@
           ],
           "type": "object"
         },
-        "provider_id": "prvdr_61UVctyxfLOj4FpVw5Bmi",
         "provider_name": "Auth0",
         "scope": "project",
         "service_id": "client",
@@ -10190,8 +10365,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61URImmFACEuDHEx651IO",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61URImmFACEuDHEx651IO",
         "provider_name": "OpenRouter",
         "scope": "project",
         "service_id": "api",
@@ -10234,8 +10409,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61URImmFACEuDHEx651IO",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61URImmFACEuDHEx651IO",
         "provider_name": "OpenRouter",
         "scope": "project",
         "service_id": "pay_as_you_go",
@@ -10299,8 +10474,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UVpYy9KwOpOlUVw5WD2",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UVpYy9KwOpOlUVw5WD2",
         "provider_name": "WorkOS",
         "scope": "project",
         "service_id": "auth",
@@ -10316,15 +10491,15 @@
           },
           {
             "direction": "any",
-            "service": "free"
-          },
-          {
-            "direction": "any",
             "service": "hobby"
           },
           {
             "direction": "any",
             "service": "api"
+          },
+          {
+            "direction": "any",
+            "service": "free"
           }
         ],
         "availability": "available",
@@ -10387,16 +10562,16 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61URa0AjsVCYCdagK5Xqy",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61URa0AjsVCYCdagK5Xqy",
         "provider_name": "Firecrawl",
         "scope": "project",
         "service_id": "growth",
         "updateable_to": [
           "standard",
-          "free",
           "hobby",
           "api",
+          "free",
           "growth"
         ]
       },
@@ -10408,7 +10583,7 @@
           },
           {
             "direction": "any",
-            "service": "free"
+            "service": "growth"
           },
           {
             "direction": "any",
@@ -10416,7 +10591,7 @@
           },
           {
             "direction": "any",
-            "service": "growth"
+            "service": "free"
           }
         ],
         "availability": "available",
@@ -10479,16 +10654,16 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61URa0AjsVCYCdagK5Xqy",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61URa0AjsVCYCdagK5Xqy",
         "provider_name": "Firecrawl",
         "scope": "project",
         "service_id": "hobby",
         "updateable_to": [
           "standard",
-          "free",
-          "api",
           "growth",
+          "api",
+          "free",
           "hobby"
         ]
       },
@@ -10496,7 +10671,7 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "free"
+            "service": "growth"
           },
           {
             "direction": "any",
@@ -10508,7 +10683,7 @@
           },
           {
             "direction": "any",
-            "service": "growth"
+            "service": "free"
           }
         ],
         "availability": "available",
@@ -10571,16 +10746,16 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61URa0AjsVCYCdagK5Xqy",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61URa0AjsVCYCdagK5Xqy",
         "provider_name": "Firecrawl",
         "scope": "project",
         "service_id": "standard",
         "updateable_to": [
-          "free",
+          "growth",
           "hobby",
           "api",
-          "growth",
+          "free",
           "standard"
         ]
       },
@@ -10612,8 +10787,8 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61URImmFACEuDHEx651IO",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61URImmFACEuDHEx651IO",
         "provider_name": "OpenRouter",
         "scope": "project",
         "service_id": "free",
@@ -10630,7 +10805,7 @@
           },
           {
             "direction": "any",
-            "service": "free"
+            "service": "growth"
           },
           {
             "direction": "any",
@@ -10638,7 +10813,7 @@
           },
           {
             "direction": "any",
-            "service": "growth"
+            "service": "free"
           }
         ],
         "availability": "available",
@@ -10679,8 +10854,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "standard",
                   "growth",
+                  "standard",
                   "hobby"
                 ],
                 "type": "paid"
@@ -10691,16 +10866,16 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61URa0AjsVCYCdagK5Xqy",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61URa0AjsVCYCdagK5Xqy",
         "provider_name": "Firecrawl",
         "scope": "project",
         "service_id": "api",
         "updateable_to": [
           "standard",
-          "free",
-          "hobby",
           "growth",
+          "hobby",
+          "free",
           "api"
         ]
       },
@@ -10712,15 +10887,15 @@
           },
           {
             "direction": "any",
+            "service": "growth"
+          },
+          {
+            "direction": "any",
             "service": "hobby"
           },
           {
             "direction": "any",
             "service": "api"
-          },
-          {
-            "direction": "any",
-            "service": "growth"
           }
         ],
         "availability": "available",
@@ -10748,16 +10923,16 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61URa0AjsVCYCdagK5Xqy",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61URa0AjsVCYCdagK5Xqy",
         "provider_name": "Firecrawl",
         "scope": "project",
         "service_id": "free",
         "updateable_to": [
           "standard",
+          "growth",
           "hobby",
           "api",
-          "growth",
           "free"
         ]
       },
@@ -10793,8 +10968,8 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61UQRSWMdrciFdBNs5Ipc",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UQRSWMdrciFdBNs5Ipc",
         "provider_name": "Cloudflare",
         "scope": "project",
         "service_id": "workers:free",
@@ -10852,8 +11027,8 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61UU5TYtG0f1neJCz5EwK",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UU5TYtG0f1neJCz5EwK",
         "provider_name": "GitLab",
         "scope": "project",
         "service_id": "project",
@@ -10865,11 +11040,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "hobby"
+            "service": "pro"
           },
           {
             "direction": "any",
-            "service": "pro"
+            "service": "hobby"
           }
         ],
         "availability": "available",
@@ -10893,25 +11068,25 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61ULUAr4zlQgZkvXY5LsG",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61ULUAr4zlQgZkvXY5LsG",
         "provider_name": "Vercel",
         "scope": "project",
         "service_id": "hobby",
         "updateable_to": [
-          "hobby",
-          "pro"
+          "pro",
+          "hobby"
         ]
       },
       {
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "hobby"
+            "service": "pro"
           },
           {
             "direction": "any",
-            "service": "pro"
+            "service": "hobby"
           }
         ],
         "availability": "available",
@@ -10947,14 +11122,14 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61ULUAr4zlQgZkvXY5LsG",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61ULUAr4zlQgZkvXY5LsG",
         "provider_name": "Vercel",
         "scope": "project",
         "service_id": "pro",
         "updateable_to": [
-          "hobby",
-          "pro"
+          "pro",
+          "hobby"
         ]
       },
       {
@@ -11003,8 +11178,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UTLwCr8KIRpEaZS54mu",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UTLwCr8KIRpEaZS54mu",
         "provider_name": "Mixpanel",
         "scope": "project",
         "service_id": "analytics",
@@ -11016,19 +11191,19 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "free"
-          },
-          {
-            "direction": "any",
             "service": "plus-v3-50k-mtu-monthly"
           },
           {
             "direction": "any",
-            "service": "plus-v3-25k-mtu-monthly"
+            "service": "free"
           },
           {
             "direction": "any",
             "service": "plus-v3-10k-mtu-monthly"
+          },
+          {
+            "direction": "any",
+            "service": "plus-v3-25k-mtu-monthly"
           }
         ],
         "availability": "available",
@@ -11101,6 +11276,7 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UQYwVkrCANKYQdE5BLM",
         "provider_configuration_schema": {
           "properties": {
             "marketing": {
@@ -11122,15 +11298,14 @@
           ],
           "type": "object"
         },
-        "provider_id": "prvdr_61UQYwVkrCANKYQdE5BLM",
         "provider_name": "Amplitude",
         "scope": "project",
         "service_id": "analytics",
         "updateable_to": [
-          "free",
           "plus-v3-50k-mtu-monthly",
-          "plus-v3-25k-mtu-monthly",
+          "free",
           "plus-v3-10k-mtu-monthly",
+          "plus-v3-25k-mtu-monthly",
           "analytics"
         ]
       },
@@ -11138,11 +11313,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "plus-v3-25k-mtu-monthly"
+            "service": "plus-v3-50k-mtu-monthly"
           },
           {
             "direction": "any",
-            "service": "plus-v3-50k-mtu-monthly"
+            "service": "plus-v3-25k-mtu-monthly"
           },
           {
             "direction": "any",
@@ -11172,6 +11347,7 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61UQYwVkrCANKYQdE5BLM",
         "provider_configuration_schema": {
           "properties": {
             "marketing": {
@@ -11193,13 +11369,12 @@
           ],
           "type": "object"
         },
-        "provider_id": "prvdr_61UQYwVkrCANKYQdE5BLM",
         "provider_name": "Amplitude",
         "scope": "project",
         "service_id": "free",
         "updateable_to": [
-          "plus-v3-25k-mtu-monthly",
           "plus-v3-50k-mtu-monthly",
+          "plus-v3-25k-mtu-monthly",
           "plus-v3-10k-mtu-monthly",
           "free"
         ]
@@ -11247,6 +11422,7 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UGMHNyOleb3A55m5Pg8",
         "provider_configuration_schema": {
           "additionalProperties": false,
           "properties": {
@@ -11268,7 +11444,6 @@
           ],
           "type": "object"
         },
-        "provider_id": "prvdr_61UGMHNyOleb3A55m5Pg8",
         "provider_name": "PostHog",
         "scope": "project",
         "service_id": "pay_as_you_go",
@@ -11308,6 +11483,7 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61UGMHNyOleb3A55m5Pg8",
         "provider_configuration_schema": {
           "additionalProperties": false,
           "properties": {
@@ -11329,7 +11505,6 @@
           ],
           "type": "object"
         },
-        "provider_id": "prvdr_61UGMHNyOleb3A55m5Pg8",
         "provider_name": "PostHog",
         "scope": "project",
         "service_id": "free",
@@ -11382,8 +11557,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UQRSWMdrciFdBNs5Ipc",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UQRSWMdrciFdBNs5Ipc",
         "provider_name": "Cloudflare",
         "scope": "project",
         "service_id": "registrar:domain",
@@ -11431,8 +11606,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UTLwCr8KIRpEaZS54mu",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UTLwCr8KIRpEaZS54mu",
         "provider_name": "Mixpanel",
         "scope": "account",
         "service_id": "growth",
@@ -11469,8 +11644,8 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61UTLwCr8KIRpEaZS54mu",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UTLwCr8KIRpEaZS54mu",
         "provider_name": "Mixpanel",
         "scope": "account",
         "service_id": "free",
@@ -11523,8 +11698,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UQRSWMdrciFdBNs5Ipc",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UQRSWMdrciFdBNs5Ipc",
         "provider_name": "Cloudflare",
         "scope": "project",
         "service_id": "workers:paid",
@@ -11651,8 +11826,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UQUoA4NItxbLNIU5FF2",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UQUoA4NItxbLNIU5FF2",
         "provider_name": "Flyio",
         "scope": "project",
         "service_id": "mpg",
@@ -11695,8 +11870,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UGOeSW4e0T9Etwn537w",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UGOeSW4e0T9Etwn537w",
         "provider_name": "Clerk",
         "scope": "project",
         "service_id": "pro",
@@ -11758,8 +11933,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UQUoA4NItxbLNIU5FF2",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UQUoA4NItxbLNIU5FF2",
         "provider_name": "Flyio",
         "scope": "project",
         "service_id": "sprite",
@@ -11802,9 +11977,9 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "62.5K_emails+auto-replenish",
-                  "business",
                   "hobbyist",
+                  "business",
+                  "62.5K_emails+auto-replenish",
                   "25K_emails+auto-replenish"
                 ],
                 "type": "paid"
@@ -11815,8 +11990,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UQsPLOiNuyFxFP45ADo",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UQsPLOiNuyFxFP45ADo",
         "provider_name": "Twilio",
         "scope": "project",
         "service_id": "email",
@@ -11870,8 +12045,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UQUoA4NItxbLNIU5FF2",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UQUoA4NItxbLNIU5FF2",
         "provider_name": "Flyio",
         "scope": "project",
         "service_id": "app",
@@ -11883,11 +12058,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "hobby"
+            "service": "pro"
           },
           {
             "direction": "any",
-            "service": "pro"
+            "service": "hobby"
           }
         ],
         "availability": "available",
@@ -11923,14 +12098,14 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UQ7Ta2evjv111Sl5Tqa",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UQ7Ta2evjv111Sl5Tqa",
         "provider_name": "Inngest",
         "scope": "project",
         "service_id": "pro",
         "updateable_to": [
-          "hobby",
-          "pro"
+          "pro",
+          "hobby"
         ]
       },
       {
@@ -11992,8 +12167,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UQRSWMdrciFdBNs5Ipc",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UQRSWMdrciFdBNs5Ipc",
         "provider_name": "Cloudflare",
         "scope": "project",
         "service_id": "workers",
@@ -12055,8 +12230,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UH8uNXFdoJUJOtT54AC",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UH8uNXFdoJUJOtT54AC",
         "provider_name": "Neon",
         "scope": "project",
         "service_id": "postgres",
@@ -12104,8 +12279,8 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
-                  "hobby",
-                  "pro"
+                  "pro",
+                  "hobby"
                 ],
                 "type": "free"
               }
@@ -12115,8 +12290,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61ULUAr4zlQgZkvXY5LsG",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61ULUAr4zlQgZkvXY5LsG",
         "provider_name": "Vercel",
         "scope": "project",
         "service_id": "project",
@@ -12175,8 +12350,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UGhvzdmhefqNXre5WIS",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UGhvzdmhefqNXre5WIS",
         "provider_name": "Runloop",
         "scope": "account",
         "service_id": "sandbox",
@@ -12238,6 +12413,7 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UGMHNyOleb3A55m5Pg8",
         "provider_configuration_schema": {
           "additionalProperties": false,
           "properties": {
@@ -12259,7 +12435,6 @@
           ],
           "type": "object"
         },
-        "provider_id": "prvdr_61UGMHNyOleb3A55m5Pg8",
         "provider_name": "PostHog",
         "scope": "project",
         "service_id": "analytics",
@@ -12332,8 +12507,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UGOeSW4e0T9Etwn537w",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UGOeSW4e0T9Etwn537w",
         "provider_name": "Clerk",
         "scope": "project",
         "service_id": "auth",
@@ -12369,8 +12544,8 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61UGOeSW4e0T9Etwn537w",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UGOeSW4e0T9Etwn537w",
         "provider_name": "Clerk",
         "scope": "project",
         "service_id": "hobby",
@@ -13601,8 +13776,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UGL5sd8z0WkMArr5Jlo",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UGL5sd8z0WkMArr5Jlo",
         "provider_name": "PlanetScale",
         "scope": "project",
         "service_id": "mysql",
@@ -15030,8 +15205,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UGL5sd8z0WkMArr5Jlo",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UGL5sd8z0WkMArr5Jlo",
         "provider_name": "PlanetScale",
         "scope": "project",
         "service_id": "postgresql",
@@ -15087,8 +15262,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "hobby",
-                  "pro"
+                  "pro",
+                  "hobby"
                 ],
                 "type": "paid"
               }
@@ -15098,8 +15273,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UK2uWsoydL7tUBp57Fg",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UK2uWsoydL7tUBp57Fg",
         "provider_name": "Railway",
         "scope": "project",
         "service_id": "bucket",
@@ -15152,8 +15327,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "hobby",
-                  "pro"
+                  "pro",
+                  "hobby"
                 ],
                 "type": "paid"
               }
@@ -15163,8 +15338,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UK2uWsoydL7tUBp57Fg",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UK2uWsoydL7tUBp57Fg",
         "provider_name": "Railway",
         "scope": "project",
         "service_id": "redis",
@@ -15176,11 +15351,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "hobby"
+            "service": "pro"
           },
           {
             "direction": "any",
-            "service": "pro"
+            "service": "hobby"
           }
         ],
         "availability": "available",
@@ -15207,14 +15382,14 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61UK2uWsoydL7tUBp57Fg",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UK2uWsoydL7tUBp57Fg",
         "provider_name": "Railway",
         "scope": "project",
         "service_id": "free",
         "updateable_to": [
-          "hobby",
           "pro",
+          "hobby",
           "free"
         ]
       },
@@ -15262,8 +15437,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "hobby",
-                  "pro"
+                  "pro",
+                  "hobby"
                 ],
                 "type": "paid"
               }
@@ -15273,8 +15448,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UK2uWsoydL7tUBp57Fg",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UK2uWsoydL7tUBp57Fg",
         "provider_name": "Railway",
         "scope": "project",
         "service_id": "postgres",
@@ -15321,8 +15496,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "hobby",
-                  "pro"
+                  "pro",
+                  "hobby"
                 ],
                 "type": "paid"
               }
@@ -15332,8 +15507,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UK2uWsoydL7tUBp57Fg",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UK2uWsoydL7tUBp57Fg",
         "provider_name": "Railway",
         "scope": "project",
         "service_id": "hosting",
@@ -15385,8 +15560,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "hobby",
-                  "pro"
+                  "pro",
+                  "hobby"
                 ],
                 "type": "paid"
               }
@@ -15396,8 +15571,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UK2uWsoydL7tUBp57Fg",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UK2uWsoydL7tUBp57Fg",
         "provider_name": "Railway",
         "scope": "project",
         "service_id": "mongo",
@@ -15446,8 +15621,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UGhvzdmhefqNXre5WIS",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UGhvzdmhefqNXre5WIS",
         "provider_name": "Runloop",
         "scope": "account",
         "service_id": "pro",
@@ -15497,8 +15672,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UGhvzdmhefqNXre5WIS",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UGhvzdmhefqNXre5WIS",
         "provider_name": "Runloop",
         "scope": "account",
         "service_id": "basic",
@@ -15555,8 +15730,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UIblE5uGbHmAZLq5BgG",
         "provider_configuration_schema": null,
-        "provider_id": "prvdr_61UIblE5uGbHmAZLq5BgG",
         "provider_name": "Chroma",
         "scope": "project",
         "service_id": "database",
@@ -15568,15 +15743,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "scaler"
-          },
-          {
-            "direction": "any",
-            "service": "scaler_overages"
-          },
-          {
-            "direction": "any",
             "service": "pro"
+          },
+          {
+            "direction": "any",
+            "service": "pro_overages"
           },
           {
             "direction": "any",
@@ -15584,7 +15755,11 @@
           },
           {
             "direction": "any",
-            "service": "pro_overages"
+            "service": "scaler_overages"
+          },
+          {
+            "direction": "any",
+            "service": "scaler"
           }
         ],
         "availability": "available",
@@ -15594,14 +15769,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -15631,17 +15806,17 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UGLtrGjcXK8rTq15RWq",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UGLtrGjcXK8rTq15RWq",
         "provider_name": "Turso",
         "scope": "account",
         "service_id": "developer",
         "updateable_to": [
-          "scaler",
-          "scaler_overages",
           "pro",
-          "developer_overages",
           "pro_overages",
+          "developer_overages",
+          "scaler_overages",
+          "scaler",
           "developer"
         ]
       },
@@ -15663,14 +15838,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -15700,8 +15875,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UGLtrGjcXK8rTq15RWq",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UGLtrGjcXK8rTq15RWq",
         "provider_name": "Turso",
         "scope": "account",
         "service_id": "scaler_overages",
@@ -15725,14 +15900,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -15762,8 +15937,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UGLtrGjcXK8rTq15RWq",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UGLtrGjcXK8rTq15RWq",
         "provider_name": "Turso",
         "scope": "account",
         "service_id": "pro",
@@ -15776,11 +15951,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "pro"
+            "service": "pro_overages"
           },
           {
             "direction": "any",
-            "service": "pro_overages"
+            "service": "pro"
           },
           {
             "direction": "any",
@@ -15794,14 +15969,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -15831,14 +16006,14 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UGLtrGjcXK8rTq15RWq",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UGLtrGjcXK8rTq15RWq",
         "provider_name": "Turso",
         "scope": "account",
         "service_id": "scaler",
         "updateable_to": [
-          "pro",
           "pro_overages",
+          "pro",
           "scaler_overages",
           "scaler"
         ]
@@ -15891,13 +16066,13 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
-                  "scaler",
                   "starter",
-                  "developer_overages",
-                  "developer",
-                  "pro",
+                  "scaler",
+                  "pro_overages",
                   "scaler_overages",
-                  "pro_overages"
+                  "pro",
+                  "developer",
+                  "developer_overages"
                 ],
                 "type": "free"
               }
@@ -15907,8 +16082,8 @@
           "paid_pricing": [],
           "type": "component"
         },
+        "provider": "prvdr_61UGLtrGjcXK8rTq15RWq",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UGLtrGjcXK8rTq15RWq",
         "provider_name": "Turso",
         "scope": "project",
         "service_id": "database",
@@ -15920,19 +16095,19 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "pro"
-          },
-          {
-            "direction": "any",
             "service": "pro_overages"
           },
           {
             "direction": "any",
-            "service": "scaler"
+            "service": "pro"
           },
           {
             "direction": "any",
             "service": "scaler_overages"
+          },
+          {
+            "direction": "any",
+            "service": "scaler"
           }
         ],
         "availability": "available",
@@ -15942,14 +16117,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -15979,16 +16154,16 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UGLtrGjcXK8rTq15RWq",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UGLtrGjcXK8rTq15RWq",
         "provider_name": "Turso",
         "scope": "account",
         "service_id": "developer_overages",
         "updateable_to": [
-          "pro",
           "pro_overages",
-          "scaler",
+          "pro",
           "scaler_overages",
+          "scaler",
           "developer_overages"
         ]
       },
@@ -16001,14 +16176,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -16038,8 +16213,8 @@
           ],
           "type": "paid"
         },
+        "provider": "prvdr_61UGLtrGjcXK8rTq15RWq",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UGLtrGjcXK8rTq15RWq",
         "provider_name": "Turso",
         "scope": "account",
         "service_id": "pro_overages",
@@ -16051,14 +16226,6 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "developer_overages"
-          },
-          {
-            "direction": "any",
-            "service": "scaler"
-          },
-          {
-            "direction": "any",
             "service": "developer"
           },
           {
@@ -16067,11 +16234,19 @@
           },
           {
             "direction": "any",
-            "service": "scaler_overages"
+            "service": "scaler"
+          },
+          {
+            "direction": "any",
+            "service": "developer_overages"
           },
           {
             "direction": "any",
             "service": "pro"
+          },
+          {
+            "direction": "any",
+            "service": "scaler_overages"
           }
         ],
         "availability": "available",
@@ -16081,14 +16256,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -16106,18 +16281,18 @@
           "paid_pricing": [],
           "type": "free"
         },
+        "provider": "prvdr_61UGLtrGjcXK8rTq15RWq",
         "provider_configuration_schema": {},
-        "provider_id": "prvdr_61UGLtrGjcXK8rTq15RWq",
         "provider_name": "Turso",
         "scope": "account",
         "service_id": "starter",
         "updateable_to": [
-          "developer_overages",
-          "scaler",
           "developer",
           "pro_overages",
-          "scaler_overages",
+          "scaler",
+          "developer_overages",
           "pro",
+          "scaler_overages",
           "starter"
         ]
       }
