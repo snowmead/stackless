@@ -38,6 +38,7 @@ pub mod prisma;
 pub mod pydantic;
 pub mod railway;
 pub mod render_db;
+pub mod resend;
 pub mod revenuecat;
 pub mod runloop;
 pub mod schematic;
@@ -63,9 +64,9 @@ mod tests {
         chatbase, churnkey, clickhouse, cloudflare, composio, customerio, datadog, depot, e2b,
         elevenlabs, exa, firecrawl, flyio, gitlab, herenow, inngest, kernel, laravel_cloud,
         metronome, mixpanel, neon, openrouter, parallel, perplexity, planetscale, postalform,
-        posthog, prisma, pydantic, railway, render_db, revenuecat, runloop, schematic, sentry,
-        shopify, steel, supabase, supermemory, tabstack, turso, upstash, wix, wordpress_com,
-        workos,
+        posthog, prisma, pydantic, railway, render_db, resend, revenuecat, runloop, schematic,
+        sentry, shopify, steel, supabase, supermemory, tabstack, turso, upstash, wix,
+        wordpress_com, workos,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -136,6 +137,7 @@ mod tests {
         assert_outputs_match::<railway::postgres::RailwayPostgres>();
         assert_outputs_match::<railway::redis::RailwayRedis>();
         assert_outputs_match::<render_db::postgres::RenderPostgres>();
+        assert_outputs_match::<resend::email::ResendEmail>();
         assert_outputs_match::<revenuecat::app::RevenuecatApp>();
         assert_outputs_match::<runloop::sandbox::RunloopSandbox>();
         assert_outputs_match::<schematic::schematic_environment::SchematicEnvironment>();

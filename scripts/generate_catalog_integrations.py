@@ -124,6 +124,7 @@ SHORT_PROVIDER = {
     "sentry/project": "sentry",
     "sentry/seer": "sentry-seer",
     "render/postgres": "render-postgres",
+    "resend/email": "resend",
     "railway/hosting": "railway-hosting",
     "railway/postgres": "railway-postgres",
     "railway/redis": "railway-redis",
@@ -253,6 +254,7 @@ OUTPUT_HINTS = {
     "metronome/sandbox": [("API_KEY", "api_key", True)],
     "supermemory/memory": [("API_KEY", "api_key", True)],
     "render/postgres": [("DATABASE_URL", "database_url", True)],
+    "resend/email": [("API_KEY", "api_key", True)],
     "flyio/mpg": [("DATABASE_URL", "database_url", True)],
     "flyio/sprite": [("SPRITE_URL", "sprite_url", True)],
 }

@@ -11,4 +11,5 @@ athena/agents
 churnkey/retention
 herenow/hosting
 perplexity/api
+resend/email
 shopify/store

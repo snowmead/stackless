@@ -99,6 +99,7 @@ Stripe Projects catalog reference. Offline catalog detail:
 | `railway-postgres` | `railway/postgres` |
 | `railway-redis` | `railway/redis` |
 | `render-postgres` | `render/postgres` |
+| `resend` | `resend/email` |
 | `revenuecat` | `revenuecat/app` |
 | `runloop` | `runloop/sandbox` |
 | `schematic` | `schematic/schematic-environment` |

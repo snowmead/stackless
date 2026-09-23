@@ -123,6 +123,7 @@ register_providers! {
     (railway::postgres, RailwayPostgres),
     (railway::redis, RailwayRedis),
     (render_db::postgres, RenderPostgres),
+    (resend::email, ResendEmail),
     (revenuecat::app, RevenuecatApp),
     (runloop::sandbox, RunloopSandbox),
     (schematic::schematic_environment, SchematicEnvironment),
