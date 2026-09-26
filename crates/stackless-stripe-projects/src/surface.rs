@@ -8,15 +8,8 @@
 use crate::error::ProjectsError;
 use crate::stripe::{CommandRunner, StripeProjects};
 
-/// Every `stripe projects` invocation we snapshot, as the argv *after* `projects`.
-/// The order is fixed in code, not discovered from the plugin, so the snapshot
-/// never self-reorders — a newly shipped command surfaces as a diff in the
-/// top-level `--help` block and is then added here in the same change. Groups
-/// (`services`/`env`/`billing`) are listed immediately before their children.
-/// Verified against plugin 0.39.1.
 const TRAVERSAL: &[&[&str]] = &[
     &[],
-    // GET STARTED
     &["init"],
     &["build"],
     &["list"],
@@ -27,7 +20,6 @@ const TRAVERSAL: &[&[&str]] = &[
     &["catalog"],
     &["search"],
     &["switch-account"],
-    // MANAGE SERVICES
     &["add"],
     &["update"],
     &["upgrade"],
@@ -37,7 +29,6 @@ const TRAVERSAL: &[&[&str]] = &[
     &["link"],
     &["unlink"],
     &["open"],
-    // ENVIRONMENT
     &["env"],
     &["env", "list"],
     &["env", "show"],
@@ -52,13 +43,11 @@ const TRAVERSAL: &[&[&str]] = &[
     &["variables", "list"],
     &["variables", "delete"],
     &["llm-context"],
-    // BILLING
     &["billing"],
     &["billing", "show"],
     &["billing", "add"],
     &["billing", "update"],
     &["spend"],
-    // FEEDBACK
     &["feedback"],
 ];
 
@@ -186,8 +175,6 @@ mod tests {
     use async_trait::async_trait;
     use std::path::Path;
 
-    /// Returns canned help text echoing the argv it was called with, so we can
-    /// assert the assembly logic without scripting one output per command.
     struct EchoRunner;
 
     #[async_trait]
@@ -195,7 +182,6 @@ mod tests {
         async fn run(&self, args: &[String], _cwd: &Path) -> Result<CommandOutput, ProjectsError> {
             Ok(CommandOutput {
                 status: 0,
-                // Pad with blank lines + trailing spaces to exercise normalization.
                 stdout: format!("\n\nhelp for: {}   \n\n", args.join(" ")),
                 stderr: String::new(),
             })
@@ -257,11 +243,9 @@ GET STARTED\n  init [name]  Initialize a new project\n";
         let body = command_surface(&driver()).await.unwrap();
         let seps: Vec<&str> = body.lines().filter(|l| l.starts_with("===== ")).collect();
         assert_eq!(seps, command_separators());
-        // Top-level uses the bare label and the echo carries the normalized args.
         assert!(body.starts_with("===== stripe projects --help =====\n"));
         assert!(body.contains("help for: --help --color off"));
         assert!(body.contains("help for: env list --help --color off"));
-        // Trimmed: no trailing blank line.
         assert!(!body.ends_with('\n'));
     }
 }

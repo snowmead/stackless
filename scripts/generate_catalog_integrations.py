@@ -90,6 +90,9 @@ SHORT_PROVIDER = {
     "turso/database": "turso",
     "prisma/database": "prisma",
     "chroma/database": "chroma",
+    "chatbase/agent": "chatbase",
+    "churnkey/retention": "churnkey",
+    "athena/agents": "athena",
     "algolia/application": "algolia",
     "openrouter/api": "openrouter",
     "exa/api": "exa",
@@ -121,6 +124,7 @@ SHORT_PROVIDER = {
     "sentry/project": "sentry",
     "sentry/seer": "sentry-seer",
     "render/postgres": "render-postgres",
+    "resend/email": "resend",
     "railway/hosting": "railway-hosting",
     "railway/postgres": "railway-postgres",
     "railway/redis": "railway-redis",
@@ -188,6 +192,22 @@ OUTPUT_HINTS = {
     "clickhouse/clickhouse": [("CONNECTION_STRING", "connection_string", True)],
     "clickhouse/postgres": [("CONNECTION_STRING", "connection_string", True)],
     "chroma/database": [("API_KEY", "api_key", True)],
+    "athena/agents": [
+        ("AGENT_ID", "agent_id", True),
+        ("API_KEY", "api_key", True),
+        ("API_URL", "api_url", True),
+    ],
+    "chatbase/agent": [
+        ("CHATBASE_AGENT_ID", "chatbase_agent_id", True),
+        ("CHATBASE_API_KEY", "chatbase_api_key", True),
+        ("CHATBASE_API_URL", "chatbase_api_url", True),
+    ],
+    "churnkey/retention": [
+        ("APP_ID", "app_id", True),
+        ("API_KEY", "api_key", True),
+        ("DATA_API_KEY", "data_api_key", True),
+        ("MODE", "mode", True),
+    ],
     "sentry/project": [
         ("AUTH_TOKEN", "auth_token", True),
         ("DSN", "dsn", True),
@@ -234,6 +254,7 @@ OUTPUT_HINTS = {
     "metronome/sandbox": [("API_KEY", "api_key", True)],
     "supermemory/memory": [("API_KEY", "api_key", True)],
     "render/postgres": [("DATABASE_URL", "database_url", True)],
+    "resend/email": [("API_KEY", "api_key", True)],
     "flyio/mpg": [("DATABASE_URL", "database_url", True)],
     "flyio/sprite": [("SPRITE_URL", "sprite_url", True)],
 }

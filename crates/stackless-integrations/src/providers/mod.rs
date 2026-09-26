@@ -1,11 +1,13 @@
 pub mod agentmail;
 pub mod agentphone;
 pub mod amplitude;
+pub mod athena;
 pub mod auth0;
 pub mod base44_projects;
 pub mod blaxel;
 pub mod browserbase;
 pub mod chatbase;
+pub mod churnkey;
 pub mod clerk;
 pub mod clickhouse;
 pub mod cloudflare;
@@ -36,6 +38,7 @@ pub mod prisma;
 pub mod pydantic;
 pub mod railway;
 pub mod render_db;
+pub mod resend;
 pub mod revenuecat;
 pub mod runloop;
 pub mod schematic;
@@ -57,12 +60,13 @@ mod tests {
     use stackless_provider_sdk::Hostable;
 
     use crate::providers::{
-        agentmail, agentphone, amplitude, auth0, base44_projects, blaxel, browserbase, chatbase,
-        clickhouse, cloudflare, composio, customerio, datadog, depot, e2b, elevenlabs, exa,
-        firecrawl, flyio, gitlab, herenow, inngest, kernel, laravel_cloud, metronome, mixpanel,
-        neon, openrouter, parallel, perplexity, planetscale, postalform, posthog, prisma, pydantic,
-        railway, render_db, revenuecat, runloop, schematic, sentry, shopify, steel, supabase,
-        supermemory, tabstack, turso, upstash, wix, wordpress_com, workos,
+        agentmail, agentphone, amplitude, athena, auth0, base44_projects, blaxel, browserbase,
+        chatbase, churnkey, clickhouse, cloudflare, composio, customerio, datadog, depot, e2b,
+        elevenlabs, exa, firecrawl, flyio, gitlab, herenow, inngest, kernel, laravel_cloud,
+        metronome, mixpanel, neon, openrouter, parallel, perplexity, planetscale, postalform,
+        posthog, prisma, pydantic, railway, render_db, resend, revenuecat, runloop, schematic,
+        sentry, shopify, steel, supabase, supermemory, tabstack, turso, upstash, wix,
+        wordpress_com, workos,
     };
 
     fn assert_outputs_match<T: CatalogResource>() {
@@ -89,11 +93,13 @@ mod tests {
         assert_outputs_match::<agentmail::api::AgentMailApi>();
         assert_outputs_match::<agentphone::number::AgentPhoneNumber>();
         assert_outputs_match::<amplitude::analytics::AmplitudeAnalytics>();
+        assert_outputs_match::<athena::agents::AthenaAgents>();
         assert_outputs_match::<auth0::client::Auth0Client>();
         assert_outputs_match::<base44_projects::app::Base44ProjectsApp>();
         assert_outputs_match::<blaxel::sandbox::BlaxelSandbox>();
         assert_outputs_match::<browserbase::project::BrowserbaseProject>();
         assert_outputs_match::<chatbase::agent::ChatbaseAgent>();
+        assert_outputs_match::<churnkey::retention::ChurnkeyRetention>();
         assert_outputs_match::<clickhouse::cluster::ClickHouseClickhouse>();
         assert_outputs_match::<clickhouse::postgres::ClickHousePostgres>();
         assert_outputs_match::<composio::project::ComposioProject>();
@@ -131,6 +137,7 @@ mod tests {
         assert_outputs_match::<railway::postgres::RailwayPostgres>();
         assert_outputs_match::<railway::redis::RailwayRedis>();
         assert_outputs_match::<render_db::postgres::RenderPostgres>();
+        assert_outputs_match::<resend::email::ResendEmail>();
         assert_outputs_match::<revenuecat::app::RevenuecatApp>();
         assert_outputs_match::<runloop::sandbox::RunloopSandbox>();
         assert_outputs_match::<schematic::schematic_environment::SchematicEnvironment>();

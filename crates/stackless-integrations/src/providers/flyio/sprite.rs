@@ -91,7 +91,7 @@ mod tests {
         );
     }
 
-    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_sprite","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_flyio","provider_name":"Flyio","service_id":"sprite","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"paid"},"configuration_schema":{"properties":{"name":{"description":"Sprite name","maxLength":63,"minLength":5,"pattern":"^[a-z0-9][a-z0-9-]*[a-z0-9]$","type":"string"}},"required":["name"],"type":"object"}}]}}"##;
+    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_sprite","object":"v2.provisioning.provider_service_detail","provider":"prvdr_flyio","provider_name":"Flyio","service_id":"sprite","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"paid"},"configuration_schema":{"properties":{"name":{"description":"Sprite name","maxLength":63,"minLength":5,"pattern":"^[a-z0-9][a-z0-9-]*[a-z0-9]$","type":"string"}},"required":["name"],"type":"object"}}]}}"##;
 
     fn test_def() -> StackDef {
         StackDef::parse(

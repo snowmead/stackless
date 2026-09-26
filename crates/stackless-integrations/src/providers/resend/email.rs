@@ -1,5 +1,3 @@
-//! `customerio/workspace` integration.
-
 use std::collections::BTreeMap;
 
 use serde::Serialize;
@@ -10,48 +8,36 @@ use super::FamilyResource;
 use crate::error::IntegrationError;
 use crate::hostable::{ConfigScope, Hostable, IntegrationHosting};
 
-pub const RESOURCE_KIND: &str = "integration-customerio";
+pub const RESOURCE_KIND: &str = "integration-resend";
 
 #[derive(Debug, Serialize)]
-pub struct CustomerioWorkspaceConfig {}
+pub struct ResendEmailConfig {}
 
-impl CatalogService for CustomerioWorkspaceConfig {
-    const REFERENCE: &'static str = "customerio/workspace";
+impl CatalogService for ResendEmailConfig {
+    const REFERENCE: &'static str = "resend/email";
 }
 
 #[derive(Debug)]
-pub struct CustomerioWorkspace;
+pub struct ResendEmail;
 
-impl Hostable for CustomerioWorkspace {
-    const PROVIDER: &'static str = "customerio";
+impl Hostable for ResendEmail {
+    const PROVIDER: &'static str = "resend";
     const HOSTING: IntegrationHosting = IntegrationHosting::Managed;
     const CONFIG_SCOPE: ConfigScope = ConfigScope::GlobalOnly;
     const RESOURCE_KIND: &'static str = RESOURCE_KIND;
-    const OUTPUTS: &'static [&'static str] = &[
-        "account_id",
-        "api_key",
-        "sa_token",
-        "site_id",
-        "workspace_id",
-    ];
+    const OUTPUTS: &'static [&'static str] = &["api_key"];
 }
 
-impl FamilyResource for CustomerioWorkspace {
-    type Config = CustomerioWorkspaceConfig;
-    const PROVIDER_PREFIX: &'static str = "CUSTOMERIO";
-    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] = &[
-        ("ACCOUNT_ID", "account_id", true),
-        ("API_KEY", "api_key", true),
-        ("SA_TOKEN", "sa_token", true),
-        ("SITE_ID", "site_id", true),
-        ("WORKSPACE_ID", "workspace_id", true),
-    ];
+impl FamilyResource for ResendEmail {
+    type Config = ResendEmailConfig;
+    const PROVIDER_PREFIX: &'static str = "RESEND";
+    // Provisional until pinned by `mise run discover resend/email`.
+    const OUTPUT_FIELDS: &'static [(&'static str, &'static str, bool)] =
+        &[("API_KEY", "api_key", true)];
 
-    fn build_config(
-        ctx: &ProvisionContext<'_>,
-    ) -> Result<CustomerioWorkspaceConfig, IntegrationError> {
+    fn build_config(ctx: &ProvisionContext<'_>) -> Result<ResendEmailConfig, IntegrationError> {
         let _ = super::integration_config(ctx)?;
-        Ok(CustomerioWorkspaceConfig {})
+        Ok(ResendEmailConfig {})
     }
 }
 
@@ -79,16 +65,15 @@ mod tests {
             "/../stackless-stripe-projects/tests/fixtures/catalog.json"
         ));
         let catalog = stackless_stripe_projects::Catalog::from_json_envelope(FIXTURE).unwrap();
-        let failures =
-            stackless_stripe_projects::verify_service(&catalog, &CustomerioWorkspaceConfig {});
+        let failures = stackless_stripe_projects::verify_service(&catalog, &ResendEmailConfig {});
         assert!(
             failures.is_empty(),
-            "customerio/workspace catalog gaps:\n{}",
+            "resend/email catalog gaps:\n{}",
             failures.join("\n")
         );
     }
 
-    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_workspace","object":"v2.provisioning.provider_service_detail","provider":"prvdr_customerio","provider_name":"customerio","service_id":"workspace","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"component"},"configuration_schema":{}}]}}"##;
+    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"allowed_updates":[],"availability":"available","categories":["email"],"configuration_schema":{},"constraints":[{"count":{"at_most":1},"type":"count"}],"created":null,"description":"Email for developers. One API key per project, one shared sending quota.","development":false,"group":"resend","id":"prvsvc_61VFx44H4RKHoEjct5QIi","kind":"deployable","livemode":true,"llm_context":"https://raw.githubusercontent.com/resend/resend-skills/main/skills/resend/SKILL.md","object":"v2.provisioning.provider_service_detail","pricing":{"component":{"options":[{"is_default":null,"paid":null,"parent_services":["pro","free"],"type":"free"}]},"paid":null,"paid_pricing":[],"type":"component"},"provider":"prvdr_61VFXTzsszWb1r1S25KMa","provider_configuration_schema":{},"provider_name":"Resend","scope":"project","service_id":"email","updateable_to":["email"]}]}}"##;
 
     fn test_def() -> StackDef {
         StackDef::parse(
@@ -98,7 +83,7 @@ name = "atto"
 [stack.projects.stripe]
 project = "project_1"
 [integrations.res]
-provider = "customerio"
+provider = "resend"
 [services.api]
 source = { repo = "r", ref = "main" }
 env = { OUT = "${integrations.res.api_key}" }
@@ -114,7 +99,7 @@ run = "true"
     async fn provision_records_outputs() {
         let runner = test_support::provision_script(
             CATALOG_ENVELOPE,
-            serde_json::json!({"CUSTOMERIO_ACCOUNT_ID": "val_account_id", "CUSTOMERIO_API_KEY": "val_api_key", "CUSTOMERIO_SA_TOKEN": "val_sa_token", "CUSTOMERIO_SITE_ID": "val_site_id", "CUSTOMERIO_WORKSPACE_ID": "val_workspace_id"}),
+            serde_json::json!({"RESEND_API_KEY": "val_api_key"}),
             0,
         );
         let dir = tempfile::tempdir().unwrap();
@@ -125,7 +110,7 @@ run = "true"
         .unwrap();
         let stripe = StripeProjects::new(&runner, dir.path());
 
-        let resource = CustomerioWorkspace
+        let resource = ResendEmail
             .provision(
                 &stripe.as_dyn(),
                 &test_def(),
@@ -137,7 +122,7 @@ run = "true"
             )
             .await
             .unwrap();
-        assert_eq!(resource.resource_kind, "integration-customerio");
+        assert_eq!(resource.resource_kind, "integration-resend");
         let payload: ResourcePayload = serde_json::from_str(&resource.payload).unwrap();
         assert_eq!(payload.outputs["api_key"], "val_api_key");
     }
