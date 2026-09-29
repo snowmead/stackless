@@ -125,6 +125,7 @@ SHORT_PROVIDER = {
     "sentry/seer": "sentry-seer",
     "render/postgres": "render-postgres",
     "resend/email": "resend",
+    "quo/app": "quo-app",
     "railway/hosting": "railway-hosting",
     "railway/postgres": "railway-postgres",
     "railway/redis": "railway-redis",
@@ -255,6 +256,7 @@ OUTPUT_HINTS = {
     "supermemory/memory": [("API_KEY", "api_key", True)],
     "render/postgres": [("DATABASE_URL", "database_url", True)],
     "resend/email": [("API_KEY", "api_key", True)],
+    "quo/app": [("API_KEY", "api_key", True)],
     "flyio/mpg": [("DATABASE_URL", "database_url", True)],
     "flyio/sprite": [("SPRITE_URL", "sprite_url", True)],
 }

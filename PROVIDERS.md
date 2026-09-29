@@ -93,6 +93,7 @@ Stripe Projects catalog reference. Offline catalog detail:
 | `posthog` | `posthog/analytics` |
 | `prisma` | `prisma/database` |
 | `pydantic` | `pydantic/logfire` |
+| `quo-app` | `quo/app` |
 | `railway-bucket` | `railway/bucket` |
 | `railway-hosting` | `railway/hosting` |
 | `railway-mongo` | `railway/mongo` |
