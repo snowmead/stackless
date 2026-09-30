@@ -10,6 +10,103 @@
         "allowed_updates": [],
         "availability": "available",
         "categories": [
+          "ecommerce"
+        ],
+        "configuration_schema": {},
+        "constraints": [],
+        "created": null,
+        "description": "Subscribe to a Squarespace website — hosting, professional templates, unlimited pages, SEO tools, and integrated commerce. Pick a plan and billing term when you provision. See https://www.squarespace.com/pricing",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61VUQiD3p5cKuX93B53eC",
+        "kind": "deployable",
+        "livemode": true,
+        "llm_context": "https://production.squarespace.thisdotstripeapps.com/stripe/provisioning/llm/website",
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": {
+            "description": "Templates, unlimited pages, SEO, and a standard online store",
+            "freeform": "USD 220.80 / year",
+            "type": "freeform"
+          },
+          "paid_pricing": [
+            {
+              "configuration": {
+                "plan": "CORE",
+                "term": "ANNUAL"
+              },
+              "description": "Templates, unlimited pages, SEO, and a standard online store",
+              "freeform": "USD 220.80 / year",
+              "is_default": true,
+              "type": "freeform"
+            },
+            {
+              "configuration": {
+                "plan": "CORE",
+                "term": "MONTHLY"
+              },
+              "description": "Templates, unlimited pages, SEO, and a standard online store",
+              "freeform": "USD 28.80 / month",
+              "is_default": false,
+              "type": "freeform"
+            },
+            {
+              "configuration": {
+                "plan": "PLUS",
+                "term": "ANNUAL"
+              },
+              "description": "Adds commerce — subscriptions, advanced discounts, and video",
+              "freeform": "USD 374.40 / year",
+              "is_default": false,
+              "type": "freeform"
+            },
+            {
+              "configuration": {
+                "plan": "PLUS",
+                "term": "MONTHLY"
+              },
+              "description": "Adds commerce — subscriptions, advanced discounts, and video",
+              "freeform": "USD 44.80 / month",
+              "is_default": false,
+              "type": "freeform"
+            },
+            {
+              "configuration": {
+                "plan": "ADVANCED",
+                "term": "ANNUAL"
+              },
+              "description": "Adds point of sale, top AI credits, and premium integrations",
+              "freeform": "USD 950.40 / year",
+              "is_default": false,
+              "type": "freeform"
+            },
+            {
+              "configuration": {
+                "plan": "ADVANCED",
+                "term": "MONTHLY"
+              },
+              "description": "Adds point of sale, top AI credits, and premium integrations",
+              "freeform": "USD 111.20 / month",
+              "is_default": false,
+              "type": "freeform"
+            }
+          ],
+          "type": "paid"
+        },
+        "provider": "prvdr_61UacoeBnJSHilBZJ5FIm",
+        "provider_configuration_schema": {},
+        "provider_name": "Squarespace",
+        "scope": "project",
+        "service_id": "website",
+        "updateable_to": [
+          "website"
+        ]
+      },
+      {
+        "allowed_updates": [],
+        "availability": "available",
+        "categories": [
           "queue"
         ],
         "configuration_schema": {},
@@ -423,14 +520,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -472,14 +569,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -550,8 +647,8 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
-                  "pro",
-                  "free"
+                  "free",
+                  "pro"
                 ],
                 "type": "free"
               }
@@ -584,14 +681,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -669,8 +766,8 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
-                  "hobby",
-                  "developer"
+                  "developer",
+                  "hobby"
                 ],
                 "type": "free"
               }
@@ -703,14 +800,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -862,14 +959,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -1006,14 +1103,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -1139,14 +1236,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -1191,14 +1288,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -1317,8 +1414,8 @@
                 "is_default": true,
                 "paid": null,
                 "parent_services": [
-                  "schematic-growth",
-                  "schematic-free"
+                  "schematic-free",
+                  "schematic-growth"
                 ],
                 "type": "free"
               }
@@ -1514,14 +1611,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -1839,11 +1936,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "beginner-monthly"
+            "service": "pro-monthly"
           },
           {
             "direction": "any",
-            "service": "pro-monthly"
+            "service": "beginner-monthly"
           },
           {
             "direction": "any",
@@ -1889,8 +1986,8 @@
         "scope": "account",
         "service_id": "enterprise-monthly",
         "updateable_to": [
-          "beginner-monthly",
           "pro-monthly",
+          "beginner-monthly",
           "free",
           "enterprise-monthly"
         ]
@@ -1903,11 +2000,11 @@
           },
           {
             "direction": "any",
-            "service": "enterprise-monthly"
+            "service": "free"
           },
           {
             "direction": "any",
-            "service": "free"
+            "service": "enterprise-monthly"
           }
         ],
         "availability": "available",
@@ -1950,8 +2047,8 @@
         "service_id": "beginner-monthly",
         "updateable_to": [
           "pro-monthly",
-          "enterprise-monthly",
           "free",
+          "enterprise-monthly",
           "beginner-monthly"
         ]
       },
@@ -1963,11 +2060,11 @@
           },
           {
             "direction": "any",
-            "service": "enterprise-monthly"
+            "service": "free"
           },
           {
             "direction": "any",
-            "service": "free"
+            "service": "enterprise-monthly"
           }
         ],
         "availability": "available",
@@ -2010,8 +2107,8 @@
         "service_id": "pro-monthly",
         "updateable_to": [
           "beginner-monthly",
-          "enterprise-monthly",
           "free",
+          "enterprise-monthly",
           "pro-monthly"
         ]
       },
@@ -2023,11 +2120,11 @@
           },
           {
             "direction": "any",
-            "service": "enterprise-monthly"
+            "service": "beginner-monthly"
           },
           {
             "direction": "any",
-            "service": "beginner-monthly"
+            "service": "enterprise-monthly"
           }
         ],
         "availability": "available",
@@ -2058,8 +2155,8 @@
         "service_id": "free",
         "updateable_to": [
           "pro-monthly",
-          "enterprise-monthly",
           "beginner-monthly",
+          "enterprise-monthly",
           "free"
         ]
       },
@@ -2087,10 +2184,10 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
-                  "enterprise-monthly",
-                  "beginner-monthly",
+                  "pro-monthly",
                   "free",
-                  "pro-monthly"
+                  "beginner-monthly",
+                  "enterprise-monthly"
                 ],
                 "type": "free"
               }
@@ -2140,14 +2237,14 @@
         },
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -2232,14 +2329,14 @@
         },
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -2291,11 +2388,11 @@
         "allowed_updates": [
           {
             "direction": "down",
-            "service": "hobby"
+            "service": "standard"
           },
           {
             "direction": "down",
-            "service": "standard"
+            "service": "hobby"
           }
         ],
         "availability": "available",
@@ -2305,14 +2402,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -2351,8 +2448,8 @@
         "scope": "account",
         "service_id": "pro",
         "updateable_to": [
-          "hobby",
           "standard",
+          "hobby",
           "pro"
         ]
       },
@@ -2391,8 +2488,8 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
-                  "standard",
                   "pro",
+                  "standard",
                   "hobby"
                 ],
                 "type": "free"
@@ -2443,14 +2540,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -2497,12 +2594,12 @@
       {
         "allowed_updates": [
           {
-            "direction": "down",
-            "service": "hobby"
-          },
-          {
             "direction": "up",
             "service": "pro"
+          },
+          {
+            "direction": "down",
+            "service": "hobby"
           }
         ],
         "availability": "available",
@@ -2512,14 +2609,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -2558,8 +2655,8 @@
         "scope": "account",
         "service_id": "standard",
         "updateable_to": [
-          "hobby",
           "pro",
+          "hobby",
           "standard"
         ]
       },
@@ -2583,14 +2680,14 @@
         },
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -2660,8 +2757,8 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
-                  "developer-plan",
-                  "startup-plan"
+                  "startup-plan",
+                  "developer-plan"
                 ],
                 "type": "free"
               }
@@ -2700,14 +2797,14 @@
         },
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -2946,14 +3043,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -3008,14 +3105,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -3759,15 +3856,7 @@
         "allowed_updates": [
           {
             "direction": "up",
-            "service": "tier-2"
-          },
-          {
-            "direction": "up",
-            "service": "tier-3"
-          },
-          {
-            "direction": "up",
-            "service": "tier-4"
+            "service": "tier-6"
           },
           {
             "direction": "up",
@@ -3775,7 +3864,15 @@
           },
           {
             "direction": "up",
-            "service": "tier-6"
+            "service": "tier-4"
+          },
+          {
+            "direction": "up",
+            "service": "tier-3"
+          },
+          {
+            "direction": "up",
+            "service": "tier-2"
           }
         ],
         "availability": "available",
@@ -3823,11 +3920,11 @@
         "scope": "account",
         "service_id": "tier-1",
         "updateable_to": [
-          "tier-2",
-          "tier-3",
-          "tier-4",
-          "tier-5",
           "tier-6",
+          "tier-5",
+          "tier-4",
+          "tier-3",
+          "tier-2",
           "tier-1"
         ]
       },
@@ -3835,15 +3932,15 @@
         "allowed_updates": [
           {
             "direction": "up",
-            "service": "tier-5"
-          },
-          {
-            "direction": "up",
             "service": "tier-6"
           },
           {
+            "direction": "up",
+            "service": "tier-5"
+          },
+          {
             "direction": "down",
-            "service": "tier-1"
+            "service": "tier-3"
           },
           {
             "direction": "down",
@@ -3851,7 +3948,7 @@
           },
           {
             "direction": "down",
-            "service": "tier-3"
+            "service": "tier-1"
           }
         ],
         "availability": "available",
@@ -3899,27 +3996,27 @@
         "scope": "account",
         "service_id": "tier-4",
         "updateable_to": [
-          "tier-5",
           "tier-6",
-          "tier-1",
-          "tier-2",
+          "tier-5",
           "tier-3",
+          "tier-2",
+          "tier-1",
           "tier-4"
         ]
       },
       {
         "allowed_updates": [
           {
-            "direction": "down",
-            "service": "tier-4"
-          },
-          {
             "direction": "up",
             "service": "tier-6"
           },
           {
             "direction": "down",
-            "service": "tier-1"
+            "service": "tier-4"
+          },
+          {
+            "direction": "down",
+            "service": "tier-3"
           },
           {
             "direction": "down",
@@ -3927,7 +4024,7 @@
           },
           {
             "direction": "down",
-            "service": "tier-3"
+            "service": "tier-1"
           }
         ],
         "availability": "available",
@@ -3975,11 +4072,11 @@
         "scope": "account",
         "service_id": "tier-5",
         "updateable_to": [
-          "tier-4",
           "tier-6",
-          "tier-1",
-          "tier-2",
+          "tier-4",
           "tier-3",
+          "tier-2",
+          "tier-1",
           "tier-5"
         ]
       },
@@ -3987,11 +4084,7 @@
         "allowed_updates": [
           {
             "direction": "up",
-            "service": "tier-3"
-          },
-          {
-            "direction": "up",
-            "service": "tier-4"
+            "service": "tier-6"
           },
           {
             "direction": "up",
@@ -3999,7 +4092,11 @@
           },
           {
             "direction": "up",
-            "service": "tier-6"
+            "service": "tier-4"
+          },
+          {
+            "direction": "up",
+            "service": "tier-3"
           },
           {
             "direction": "down",
@@ -4051,10 +4148,10 @@
         "scope": "account",
         "service_id": "tier-2",
         "updateable_to": [
-          "tier-3",
-          "tier-4",
-          "tier-5",
           "tier-6",
+          "tier-5",
+          "tier-4",
+          "tier-3",
           "tier-1",
           "tier-2"
         ]
@@ -4063,15 +4160,15 @@
         "allowed_updates": [
           {
             "direction": "down",
-            "service": "tier-4"
-          },
-          {
-            "direction": "down",
             "service": "tier-5"
           },
           {
             "direction": "down",
-            "service": "tier-1"
+            "service": "tier-4"
+          },
+          {
+            "direction": "down",
+            "service": "tier-3"
           },
           {
             "direction": "down",
@@ -4079,7 +4176,7 @@
           },
           {
             "direction": "down",
-            "service": "tier-3"
+            "service": "tier-1"
           }
         ],
         "availability": "available",
@@ -4127,11 +4224,11 @@
         "scope": "account",
         "service_id": "tier-6",
         "updateable_to": [
-          "tier-4",
           "tier-5",
-          "tier-1",
-          "tier-2",
+          "tier-4",
           "tier-3",
+          "tier-2",
+          "tier-1",
           "tier-6"
         ]
       },
@@ -4139,7 +4236,7 @@
         "allowed_updates": [
           {
             "direction": "up",
-            "service": "tier-4"
+            "service": "tier-6"
           },
           {
             "direction": "up",
@@ -4147,15 +4244,15 @@
           },
           {
             "direction": "up",
-            "service": "tier-6"
-          },
-          {
-            "direction": "down",
-            "service": "tier-1"
+            "service": "tier-4"
           },
           {
             "direction": "down",
             "service": "tier-2"
+          },
+          {
+            "direction": "down",
+            "service": "tier-1"
           }
         ],
         "availability": "available",
@@ -4203,11 +4300,11 @@
         "scope": "account",
         "service_id": "tier-3",
         "updateable_to": [
-          "tier-4",
-          "tier-5",
           "tier-6",
-          "tier-1",
+          "tier-5",
+          "tier-4",
           "tier-2",
+          "tier-1",
           "tier-3"
         ]
       },
@@ -4428,14 +4525,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -4489,14 +4586,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -4675,8 +4772,8 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
-                  "developer",
                   "startup",
+                  "developer",
                   "hobbyist"
                 ],
                 "type": "free"
@@ -4700,11 +4797,11 @@
         "allowed_updates": [
           {
             "direction": "up",
-            "service": "hobbyist"
+            "service": "startup"
           },
           {
             "direction": "up",
-            "service": "startup"
+            "service": "hobbyist"
           }
         ],
         "availability": "available",
@@ -4714,14 +4811,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -4745,8 +4842,8 @@
         "scope": "account",
         "service_id": "developer",
         "updateable_to": [
-          "hobbyist",
           "startup",
+          "hobbyist",
           "developer"
         ]
       },
@@ -4754,11 +4851,11 @@
         "allowed_updates": [
           {
             "direction": "down",
-            "service": "hobbyist"
+            "service": "developer"
           },
           {
             "direction": "down",
-            "service": "developer"
+            "service": "hobbyist"
           }
         ],
         "availability": "available",
@@ -4768,14 +4865,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -4811,20 +4908,20 @@
         "scope": "account",
         "service_id": "startup",
         "updateable_to": [
-          "hobbyist",
           "developer",
+          "hobbyist",
           "startup"
         ]
       },
       {
         "allowed_updates": [
           {
-            "direction": "down",
-            "service": "developer"
-          },
-          {
             "direction": "up",
             "service": "startup"
+          },
+          {
+            "direction": "down",
+            "service": "developer"
           }
         ],
         "availability": "available",
@@ -4834,14 +4931,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -4877,8 +4974,8 @@
         "scope": "account",
         "service_id": "hobbyist",
         "updateable_to": [
-          "developer",
           "startup",
+          "developer",
           "hobbyist"
         ]
       },
@@ -5300,8 +5397,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "growth",
-                  "starter"
+                  "starter",
+                  "growth"
                 ],
                 "type": "paid"
               }
@@ -5402,8 +5499,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "growth",
-                  "starter"
+                  "starter",
+                  "growth"
                 ],
                 "type": "paid"
               }
@@ -5485,8 +5582,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "growth",
-                  "starter"
+                  "starter",
+                  "growth"
                 ],
                 "type": "paid"
               }
@@ -5811,10 +5908,10 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
-                  "starter",
-                  "business",
+                  "pro",
                   "free",
-                  "pro"
+                  "business",
+                  "starter"
                 ],
                 "type": "free"
               }
@@ -5841,11 +5938,11 @@
           },
           {
             "direction": "up",
-            "service": "business"
+            "service": "starter"
           },
           {
             "direction": "up",
-            "service": "starter"
+            "service": "business"
           },
           {
             "direction": "up",
@@ -5880,8 +5977,8 @@
         "service_id": "free",
         "updateable_to": [
           "free",
-          "business",
           "starter",
+          "business",
           "pro"
         ]
       },
@@ -5889,7 +5986,11 @@
         "allowed_updates": [
           {
             "direction": "down",
-            "service": "starter"
+            "service": "free"
+          },
+          {
+            "direction": "down",
+            "service": "pro"
           },
           {
             "direction": "any",
@@ -5897,11 +5998,7 @@
           },
           {
             "direction": "down",
-            "service": "pro"
-          },
-          {
-            "direction": "down",
-            "service": "free"
+            "service": "starter"
           }
         ],
         "availability": "available",
@@ -5943,14 +6040,22 @@
         "scope": "account",
         "service_id": "business",
         "updateable_to": [
-          "starter",
-          "business",
+          "free",
           "pro",
-          "free"
+          "business",
+          "starter"
         ]
       },
       {
         "allowed_updates": [
+          {
+            "direction": "any",
+            "service": "pro"
+          },
+          {
+            "direction": "down",
+            "service": "free"
+          },
           {
             "direction": "up",
             "service": "business"
@@ -5958,14 +6063,6 @@
           {
             "direction": "down",
             "service": "starter"
-          },
-          {
-            "direction": "down",
-            "service": "free"
-          },
-          {
-            "direction": "any",
-            "service": "pro"
           }
         ],
         "availability": "available",
@@ -6007,29 +6104,29 @@
         "scope": "account",
         "service_id": "pro",
         "updateable_to": [
-          "business",
-          "starter",
+          "pro",
           "free",
-          "pro"
+          "business",
+          "starter"
         ]
       },
       {
         "allowed_updates": [
           {
             "direction": "up",
-            "service": "business"
+            "service": "pro"
           },
           {
-            "direction": "up",
-            "service": "pro"
+            "direction": "any",
+            "service": "starter"
           },
           {
             "direction": "down",
             "service": "free"
           },
           {
-            "direction": "any",
-            "service": "starter"
+            "direction": "up",
+            "service": "business"
           }
         ],
         "availability": "available",
@@ -6071,10 +6168,10 @@
         "scope": "account",
         "service_id": "starter",
         "updateable_to": [
-          "business",
           "pro",
+          "starter",
           "free",
-          "starter"
+          "business"
         ]
       },
       {
@@ -6309,8 +6406,8 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
-                  "developer",
                   "startup",
+                  "developer",
                   "free"
                 ],
                 "type": "free"
@@ -6814,7 +6911,7 @@
           },
           {
             "direction": "any",
-            "service": "b2c-professional"
+            "service": "b2c-essentials"
           },
           {
             "direction": "any",
@@ -6822,7 +6919,7 @@
           },
           {
             "direction": "any",
-            "service": "b2c-essentials"
+            "service": "b2c-professional"
           }
         ],
         "availability": "available",
@@ -6893,9 +6990,9 @@
         "service_id": "b2b-professional",
         "updateable_to": [
           "free",
-          "b2c-professional",
-          "b2b-essentials",
           "b2c-essentials",
+          "b2b-essentials",
+          "b2c-professional",
           "b2b-professional"
         ]
       },
@@ -6907,7 +7004,7 @@
           },
           {
             "direction": "any",
-            "service": "b2b-professional"
+            "service": "b2c-essentials"
           },
           {
             "direction": "any",
@@ -6915,7 +7012,7 @@
           },
           {
             "direction": "any",
-            "service": "b2c-essentials"
+            "service": "b2b-professional"
           }
         ],
         "availability": "available",
@@ -6986,9 +7083,9 @@
         "service_id": "b2b-essentials",
         "updateable_to": [
           "free",
-          "b2b-professional",
-          "b2c-professional",
           "b2c-essentials",
+          "b2c-professional",
+          "b2b-professional",
           "b2b-essentials"
         ]
       },
@@ -7000,7 +7097,7 @@
           },
           {
             "direction": "any",
-            "service": "b2b-professional"
+            "service": "b2c-essentials"
           },
           {
             "direction": "any",
@@ -7008,7 +7105,7 @@
           },
           {
             "direction": "any",
-            "service": "b2c-essentials"
+            "service": "b2b-professional"
           }
         ],
         "availability": "available",
@@ -7079,9 +7176,9 @@
         "service_id": "b2c-professional",
         "updateable_to": [
           "free",
-          "b2b-professional",
-          "b2b-essentials",
           "b2c-essentials",
+          "b2b-essentials",
+          "b2b-professional",
           "b2c-professional"
         ]
       },
@@ -7089,11 +7186,7 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "b2b-professional"
-          },
-          {
-            "direction": "any",
-            "service": "b2c-professional"
+            "service": "b2c-essentials"
           },
           {
             "direction": "any",
@@ -7101,7 +7194,11 @@
           },
           {
             "direction": "any",
-            "service": "b2c-essentials"
+            "service": "b2c-professional"
+          },
+          {
+            "direction": "any",
+            "service": "b2b-professional"
           }
         ],
         "availability": "available",
@@ -7159,10 +7256,10 @@
         "scope": "project",
         "service_id": "free",
         "updateable_to": [
-          "b2b-professional",
-          "b2c-professional",
-          "b2b-essentials",
           "b2c-essentials",
+          "b2b-essentials",
+          "b2c-professional",
+          "b2b-professional",
           "free"
         ]
       },
@@ -7174,7 +7271,7 @@
           },
           {
             "direction": "any",
-            "service": "b2b-professional"
+            "service": "b2b-essentials"
           },
           {
             "direction": "any",
@@ -7182,7 +7279,7 @@
           },
           {
             "direction": "any",
-            "service": "b2b-essentials"
+            "service": "b2b-professional"
           }
         ],
         "availability": "available",
@@ -7253,9 +7350,9 @@
         "service_id": "b2c-essentials",
         "updateable_to": [
           "free",
-          "b2b-professional",
-          "b2c-professional",
           "b2b-essentials",
+          "b2c-professional",
+          "b2b-professional",
           "b2c-essentials"
         ]
       },
@@ -7870,15 +7967,15 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "top-up-1000"
-          },
-          {
-            "direction": "any",
             "service": "top-up-2000"
           },
           {
             "direction": "any",
             "service": "top-up-0025"
+          },
+          {
+            "direction": "any",
+            "service": "top-up-1000"
           }
         ],
         "availability": "available",
@@ -7922,9 +8019,9 @@
         "scope": "project",
         "service_id": "top-up-0500",
         "updateable_to": [
-          "top-up-1000",
           "top-up-2000",
           "top-up-0025",
+          "top-up-1000",
           "top-up-0500"
         ]
       },
@@ -7932,11 +8029,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "top-up-0025"
+            "service": "top-up-2000"
           },
           {
             "direction": "any",
-            "service": "top-up-2000"
+            "service": "top-up-0025"
           },
           {
             "direction": "any",
@@ -7984,8 +8081,8 @@
         "scope": "project",
         "service_id": "top-up-1000",
         "updateable_to": [
-          "top-up-0025",
           "top-up-2000",
+          "top-up-0025",
           "top-up-0500",
           "top-up-1000"
         ]
@@ -7994,11 +8091,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "top-up-1000"
+            "service": "top-up-2000"
           },
           {
             "direction": "any",
-            "service": "top-up-2000"
+            "service": "top-up-1000"
           },
           {
             "direction": "any",
@@ -8046,8 +8143,8 @@
         "scope": "project",
         "service_id": "top-up-0025",
         "updateable_to": [
-          "top-up-1000",
           "top-up-2000",
+          "top-up-1000",
           "top-up-0500",
           "top-up-0025"
         ]
@@ -8232,10 +8329,10 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "top-up-0500",
-                  "top-up-2000",
+                  "top-up-0025",
                   "top-up-1000",
-                  "top-up-0025"
+                  "top-up-2000",
+                  "top-up-0500"
                 ],
                 "type": "paid"
               }
@@ -8258,11 +8355,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "free"
+            "service": "team"
           },
           {
             "direction": "any",
-            "service": "team"
+            "service": "free"
           }
         ],
         "availability": "available",
@@ -8306,8 +8403,8 @@
         "scope": "project",
         "service_id": "pro",
         "updateable_to": [
-          "free",
           "team",
+          "free",
           "pro"
         ]
       },
@@ -8315,11 +8412,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "free"
+            "service": "pro"
           },
           {
             "direction": "any",
-            "service": "pro"
+            "service": "free"
           }
         ],
         "availability": "available",
@@ -8363,8 +8460,8 @@
         "scope": "project",
         "service_id": "team",
         "updateable_to": [
-          "free",
           "pro",
+          "free",
           "team"
         ]
       },
@@ -8811,11 +8908,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "plus-v3-50k-mtu-monthly"
+            "service": "plus-v3-25k-mtu-monthly"
           },
           {
             "direction": "any",
-            "service": "plus-v3-25k-mtu-monthly"
+            "service": "plus-v3-50k-mtu-monthly"
           },
           {
             "direction": "any",
@@ -8883,8 +8980,8 @@
         "scope": "project",
         "service_id": "plus-v3-10k-mtu-monthly",
         "updateable_to": [
-          "plus-v3-50k-mtu-monthly",
           "plus-v3-25k-mtu-monthly",
+          "plus-v3-50k-mtu-monthly",
           "free",
           "plus-v3-10k-mtu-monthly"
         ]
@@ -8975,11 +9072,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "plus-v3-10k-mtu-monthly"
+            "service": "plus-v3-25k-mtu-monthly"
           },
           {
             "direction": "any",
-            "service": "plus-v3-25k-mtu-monthly"
+            "service": "plus-v3-10k-mtu-monthly"
           },
           {
             "direction": "any",
@@ -9047,8 +9144,8 @@
         "scope": "project",
         "service_id": "plus-v3-50k-mtu-monthly",
         "updateable_to": [
-          "plus-v3-10k-mtu-monthly",
           "plus-v3-25k-mtu-monthly",
+          "plus-v3-10k-mtu-monthly",
           "free",
           "plus-v3-50k-mtu-monthly"
         ]
@@ -9228,10 +9325,10 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
-                  "core",
-                  "enterprise",
+                  "free",
                   "scale",
-                  "free"
+                  "enterprise",
+                  "core"
                 ],
                 "type": "free"
               }
@@ -9266,11 +9363,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "startup"
+            "service": "free"
           },
           {
             "direction": "any",
-            "service": "free"
+            "service": "startup"
           }
         ],
         "availability": "available",
@@ -9314,8 +9411,8 @@
         "scope": "project",
         "service_id": "developer",
         "updateable_to": [
-          "startup",
           "free",
+          "startup",
           "developer"
         ]
       },
@@ -9323,11 +9420,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "developer"
+            "service": "free"
           },
           {
             "direction": "any",
-            "service": "free"
+            "service": "developer"
           }
         ],
         "availability": "available",
@@ -9371,8 +9468,8 @@
         "scope": "project",
         "service_id": "startup",
         "updateable_to": [
-          "developer",
           "free",
+          "developer",
           "startup"
         ]
       },
@@ -9624,11 +9721,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "free"
+            "service": "launch"
           },
           {
             "direction": "any",
-            "service": "launch"
+            "service": "free"
           }
         ],
         "availability": "available",
@@ -9670,19 +9767,19 @@
         "scope": "project",
         "service_id": "launch",
         "updateable_to": [
-          "free",
-          "launch"
+          "launch",
+          "free"
         ]
       },
       {
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "free"
+            "service": "launch"
           },
           {
             "direction": "any",
-            "service": "launch"
+            "service": "free"
           }
         ],
         "availability": "available",
@@ -9712,8 +9809,8 @@
         "scope": "project",
         "service_id": "free",
         "updateable_to": [
-          "free",
-          "launch"
+          "launch",
+          "free"
         ]
       },
       {
@@ -9757,8 +9854,8 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
-                  "hobby",
-                  "pro"
+                  "pro",
+                  "hobby"
                 ],
                 "type": "free"
               }
@@ -9781,11 +9878,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "hobby"
+            "service": "pro"
           },
           {
             "direction": "any",
-            "service": "pro"
+            "service": "hobby"
           }
         ],
         "availability": "available",
@@ -9815,8 +9912,8 @@
         "scope": "project",
         "service_id": "hobby",
         "updateable_to": [
-          "hobby",
-          "pro"
+          "pro",
+          "hobby"
         ]
       },
       {
@@ -9921,8 +10018,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "pro",
-                  "team"
+                  "team",
+                  "pro"
                 ],
                 "type": "paid"
               }
@@ -9945,11 +10042,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "workers:paid"
+            "service": "workers:free"
           },
           {
             "direction": "any",
-            "service": "workers:free"
+            "service": "workers:paid"
           }
         ],
         "availability": "available",
@@ -10002,8 +10099,8 @@
         "scope": "project",
         "service_id": "workers-ai",
         "updateable_to": [
-          "workers:paid",
           "workers:free",
+          "workers:paid",
           "workers-ai"
         ]
       },
@@ -10011,11 +10108,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "workers:paid"
+            "service": "workers:free"
           },
           {
             "direction": "any",
-            "service": "workers:free"
+            "service": "workers:paid"
           }
         ],
         "availability": "available",
@@ -10072,8 +10169,8 @@
         "scope": "project",
         "service_id": "browser-run",
         "updateable_to": [
-          "workers:paid",
           "workers:free",
+          "workers:paid",
           "browser-run"
         ]
       },
@@ -10081,11 +10178,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "workers:paid"
+            "service": "workers:free"
           },
           {
             "direction": "any",
-            "service": "workers:free"
+            "service": "workers:paid"
           }
         ],
         "availability": "available",
@@ -10227,8 +10324,8 @@
         "scope": "project",
         "service_id": "hyperdrive",
         "updateable_to": [
-          "workers:paid",
           "workers:free",
+          "workers:paid",
           "hyperdrive"
         ]
       },
@@ -10236,11 +10333,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "workers:paid"
+            "service": "workers:free"
           },
           {
             "direction": "any",
-            "service": "workers:free"
+            "service": "workers:paid"
           }
         ],
         "availability": "available",
@@ -10306,8 +10403,8 @@
         "scope": "project",
         "service_id": "kv",
         "updateable_to": [
-          "workers:paid",
           "workers:free",
+          "workers:paid",
           "kv"
         ]
       },
@@ -10315,11 +10412,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "workers:paid"
+            "service": "workers:free"
           },
           {
             "direction": "any",
-            "service": "workers:free"
+            "service": "workers:paid"
           }
         ],
         "availability": "available",
@@ -10397,8 +10494,8 @@
         "scope": "project",
         "service_id": "d1",
         "updateable_to": [
-          "workers:paid",
           "workers:free",
+          "workers:paid",
           "d1"
         ]
       },
@@ -10406,11 +10503,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "workers:paid"
+            "service": "workers:free"
           },
           {
             "direction": "any",
-            "service": "workers:free"
+            "service": "workers:paid"
           }
         ],
         "availability": "available",
@@ -10476,8 +10573,8 @@
         "scope": "project",
         "service_id": "queues",
         "updateable_to": [
-          "workers:paid",
           "workers:free",
+          "workers:paid",
           "queues"
         ]
       },
@@ -10485,11 +10582,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "workers:paid"
+            "service": "workers:free"
           },
           {
             "direction": "any",
-            "service": "workers:free"
+            "service": "workers:paid"
           }
         ],
         "availability": "available",
@@ -10538,8 +10635,8 @@
         "scope": "project",
         "service_id": "containers",
         "updateable_to": [
-          "workers:paid",
           "workers:free",
+          "workers:paid",
           "containers"
         ]
       },
@@ -10578,11 +10675,11 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
-                  "b2c-professional",
-                  "free",
-                  "b2c-essentials",
+                  "b2b-professional",
                   "b2b-essentials",
-                  "b2b-professional"
+                  "b2c-essentials",
+                  "free",
+                  "b2c-professional"
                 ],
                 "type": "free"
               }
@@ -10797,15 +10894,15 @@
           },
           {
             "direction": "any",
+            "service": "standard"
+          },
+          {
+            "direction": "any",
             "service": "hobby"
           },
           {
             "direction": "any",
             "service": "api"
-          },
-          {
-            "direction": "any",
-            "service": "standard"
           }
         ],
         "availability": "available",
@@ -10875,9 +10972,9 @@
         "service_id": "growth",
         "updateable_to": [
           "free",
+          "standard",
           "hobby",
           "api",
-          "standard",
           "growth"
         ]
       },
@@ -10889,7 +10986,7 @@
           },
           {
             "direction": "any",
-            "service": "api"
+            "service": "standard"
           },
           {
             "direction": "any",
@@ -10897,7 +10994,7 @@
           },
           {
             "direction": "any",
-            "service": "standard"
+            "service": "api"
           }
         ],
         "availability": "available",
@@ -10967,9 +11064,9 @@
         "service_id": "hobby",
         "updateable_to": [
           "free",
-          "api",
-          "growth",
           "standard",
+          "growth",
+          "api",
           "hobby"
         ]
       },
@@ -10981,15 +11078,15 @@
           },
           {
             "direction": "any",
+            "service": "growth"
+          },
+          {
+            "direction": "any",
             "service": "hobby"
           },
           {
             "direction": "any",
             "service": "api"
-          },
-          {
-            "direction": "any",
-            "service": "growth"
           }
         ],
         "availability": "available",
@@ -11059,9 +11156,9 @@
         "service_id": "standard",
         "updateable_to": [
           "free",
+          "growth",
           "hobby",
           "api",
-          "growth",
           "standard"
         ]
       },
@@ -11111,7 +11208,7 @@
           },
           {
             "direction": "any",
-            "service": "hobby"
+            "service": "standard"
           },
           {
             "direction": "any",
@@ -11119,7 +11216,7 @@
           },
           {
             "direction": "any",
-            "service": "standard"
+            "service": "hobby"
           }
         ],
         "availability": "available",
@@ -11160,8 +11257,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "standard",
                   "growth",
+                  "standard",
                   "hobby"
                 ],
                 "type": "paid"
@@ -11179,9 +11276,9 @@
         "service_id": "api",
         "updateable_to": [
           "free",
-          "hobby",
-          "growth",
           "standard",
+          "growth",
+          "hobby",
           "api"
         ]
       },
@@ -11189,11 +11286,7 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "hobby"
-          },
-          {
-            "direction": "any",
-            "service": "api"
+            "service": "standard"
           },
           {
             "direction": "any",
@@ -11201,7 +11294,11 @@
           },
           {
             "direction": "any",
-            "service": "standard"
+            "service": "hobby"
+          },
+          {
+            "direction": "any",
+            "service": "api"
           }
         ],
         "availability": "available",
@@ -11235,10 +11332,10 @@
         "scope": "project",
         "service_id": "free",
         "updateable_to": [
+          "standard",
+          "growth",
           "hobby",
           "api",
-          "growth",
-          "standard",
           "free"
         ]
       },
@@ -11346,11 +11443,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "hobby"
+            "service": "pro"
           },
           {
             "direction": "any",
-            "service": "pro"
+            "service": "hobby"
           }
         ],
         "availability": "available",
@@ -11380,19 +11477,19 @@
         "scope": "project",
         "service_id": "hobby",
         "updateable_to": [
-          "hobby",
-          "pro"
+          "pro",
+          "hobby"
         ]
       },
       {
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "hobby"
+            "service": "pro"
           },
           {
             "direction": "any",
-            "service": "pro"
+            "service": "hobby"
           }
         ],
         "availability": "available",
@@ -11434,8 +11531,8 @@
         "scope": "project",
         "service_id": "pro",
         "updateable_to": [
-          "hobby",
-          "pro"
+          "pro",
+          "hobby"
         ]
       },
       {
@@ -11497,7 +11594,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "free"
+            "service": "plus-v3-25k-mtu-monthly"
+          },
+          {
+            "direction": "any",
+            "service": "plus-v3-10k-mtu-monthly"
           },
           {
             "direction": "any",
@@ -11505,11 +11606,7 @@
           },
           {
             "direction": "any",
-            "service": "plus-v3-25k-mtu-monthly"
-          },
-          {
-            "direction": "any",
-            "service": "plus-v3-10k-mtu-monthly"
+            "service": "free"
           }
         ],
         "availability": "available",
@@ -11608,10 +11705,10 @@
         "scope": "project",
         "service_id": "analytics",
         "updateable_to": [
-          "free",
-          "plus-v3-50k-mtu-monthly",
           "plus-v3-25k-mtu-monthly",
           "plus-v3-10k-mtu-monthly",
+          "plus-v3-50k-mtu-monthly",
+          "free",
           "analytics"
         ]
       },
@@ -11619,15 +11716,15 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "plus-v3-10k-mtu-monthly"
-          },
-          {
-            "direction": "any",
             "service": "plus-v3-25k-mtu-monthly"
           },
           {
             "direction": "any",
             "service": "plus-v3-50k-mtu-monthly"
+          },
+          {
+            "direction": "any",
+            "service": "plus-v3-10k-mtu-monthly"
           }
         ],
         "availability": "available",
@@ -11679,9 +11776,9 @@
         "scope": "project",
         "service_id": "free",
         "updateable_to": [
-          "plus-v3-10k-mtu-monthly",
           "plus-v3-25k-mtu-monthly",
           "plus-v3-50k-mtu-monthly",
+          "plus-v3-10k-mtu-monthly",
           "free"
         ]
       },
@@ -12283,10 +12380,10 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "62.5K_emails+auto-replenish",
-                  "business",
+                  "25K_emails+auto-replenish",
                   "hobbyist",
-                  "25K_emails+auto-replenish"
+                  "business",
+                  "62.5K_emails+auto-replenish"
                 ],
                 "type": "paid"
               }
@@ -12364,11 +12461,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "hobby"
+            "service": "pro"
           },
           {
             "direction": "any",
-            "service": "pro"
+            "service": "hobby"
           }
         ],
         "availability": "available",
@@ -12410,19 +12507,19 @@
         "scope": "project",
         "service_id": "pro",
         "updateable_to": [
-          "hobby",
-          "pro"
+          "pro",
+          "hobby"
         ]
       },
       {
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "workers:paid"
+            "service": "workers:free"
           },
           {
             "direction": "any",
-            "service": "workers:free"
+            "service": "workers:paid"
           }
         ],
         "availability": "available",
@@ -12479,8 +12576,8 @@
         "scope": "project",
         "service_id": "workers",
         "updateable_to": [
-          "workers:paid",
           "workers:free",
+          "workers:paid",
           "workers"
         ]
       },
@@ -12585,8 +12682,8 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
-                  "hobby",
-                  "pro"
+                  "pro",
+                  "hobby"
                 ],
                 "type": "free"
               }
@@ -15568,8 +15665,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "hobby",
-                  "pro"
+                  "pro",
+                  "hobby"
                 ],
                 "type": "paid"
               }
@@ -15633,8 +15730,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "hobby",
-                  "pro"
+                  "pro",
+                  "hobby"
                 ],
                 "type": "paid"
               }
@@ -15657,11 +15754,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "hobby"
+            "service": "pro"
           },
           {
             "direction": "any",
-            "service": "pro"
+            "service": "hobby"
           }
         ],
         "availability": "available",
@@ -15694,8 +15791,8 @@
         "scope": "project",
         "service_id": "free",
         "updateable_to": [
-          "hobby",
           "pro",
+          "hobby",
           "free"
         ]
       },
@@ -15743,8 +15840,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "hobby",
-                  "pro"
+                  "pro",
+                  "hobby"
                 ],
                 "type": "paid"
               }
@@ -15802,8 +15899,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "hobby",
-                  "pro"
+                  "pro",
+                  "hobby"
                 ],
                 "type": "paid"
               }
@@ -15866,8 +15963,8 @@
                   "type": "freeform"
                 },
                 "parent_services": [
-                  "hobby",
-                  "pro"
+                  "pro",
+                  "hobby"
                 ],
                 "type": "paid"
               }
@@ -16049,15 +16146,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "scaler"
-          },
-          {
-            "direction": "any",
             "service": "scaler_overages"
           },
           {
             "direction": "any",
-            "service": "pro"
+            "service": "scaler"
           },
           {
             "direction": "any",
@@ -16066,6 +16159,10 @@
           {
             "direction": "any",
             "service": "pro_overages"
+          },
+          {
+            "direction": "any",
+            "service": "pro"
           }
         ],
         "availability": "available",
@@ -16075,14 +16172,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -16118,11 +16215,11 @@
         "scope": "account",
         "service_id": "developer",
         "updateable_to": [
-          "scaler",
           "scaler_overages",
-          "pro",
+          "scaler",
           "developer_overages",
           "pro_overages",
+          "pro",
           "developer"
         ]
       },
@@ -16130,11 +16227,11 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "pro_overages"
+            "service": "pro"
           },
           {
             "direction": "any",
-            "service": "pro"
+            "service": "pro_overages"
           }
         ],
         "availability": "available",
@@ -16144,14 +16241,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -16187,8 +16284,8 @@
         "scope": "account",
         "service_id": "scaler_overages",
         "updateable_to": [
-          "pro_overages",
           "pro",
+          "pro_overages",
           "scaler_overages"
         ]
       },
@@ -16206,14 +16303,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -16261,11 +16358,11 @@
           },
           {
             "direction": "any",
-            "service": "pro"
+            "service": "pro_overages"
           },
           {
             "direction": "any",
-            "service": "pro_overages"
+            "service": "pro"
           }
         ],
         "availability": "available",
@@ -16275,14 +16372,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -16319,8 +16416,8 @@
         "service_id": "scaler",
         "updateable_to": [
           "scaler_overages",
-          "pro",
           "pro_overages",
+          "pro",
           "scaler"
         ]
       },
@@ -16372,13 +16469,13 @@
                 "is_default": null,
                 "paid": null,
                 "parent_services": [
-                  "pro_overages",
-                  "scaler",
-                  "starter",
-                  "developer_overages",
-                  "developer",
+                  "scaler_overages",
                   "pro",
-                  "scaler_overages"
+                  "developer",
+                  "developer_overages",
+                  "starter",
+                  "scaler",
+                  "pro_overages"
                 ],
                 "type": "free"
               }
@@ -16401,11 +16498,7 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "pro_overages"
-          },
-          {
-            "direction": "any",
-            "service": "scaler"
+            "service": "pro"
           },
           {
             "direction": "any",
@@ -16413,7 +16506,11 @@
           },
           {
             "direction": "any",
-            "service": "pro"
+            "service": "scaler"
+          },
+          {
+            "direction": "any",
+            "service": "pro_overages"
           }
         ],
         "availability": "available",
@@ -16423,14 +16520,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -16466,10 +16563,10 @@
         "scope": "account",
         "service_id": "developer_overages",
         "updateable_to": [
-          "pro_overages",
-          "scaler",
-          "scaler_overages",
           "pro",
+          "scaler_overages",
+          "scaler",
+          "pro_overages",
           "developer_overages"
         ]
       },
@@ -16482,14 +16579,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -16532,11 +16629,7 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "pro_overages"
-          },
-          {
-            "direction": "any",
-            "service": "scaler_overages"
+            "service": "developer_overages"
           },
           {
             "direction": "any",
@@ -16544,7 +16637,11 @@
           },
           {
             "direction": "any",
-            "service": "developer_overages"
+            "service": "developer"
+          },
+          {
+            "direction": "any",
+            "service": "scaler_overages"
           },
           {
             "direction": "any",
@@ -16552,7 +16649,7 @@
           },
           {
             "direction": "any",
-            "service": "developer"
+            "service": "pro_overages"
           }
         ],
         "availability": "available",
@@ -16562,14 +16659,14 @@
         "configuration_schema": {},
         "constraints": [
           {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          },
-          {
             "count": {
               "at_most": 1
             },
             "type": "count"
+          },
+          {
+            "mutual_exclusion_allowed_updates": true,
+            "type": "mutual_exclusion_allowed_updates"
           }
         ],
         "created": null,
@@ -16593,12 +16690,12 @@
         "scope": "account",
         "service_id": "starter",
         "updateable_to": [
-          "pro_overages",
-          "scaler_overages",
-          "pro",
           "developer_overages",
-          "scaler",
+          "pro",
           "developer",
+          "scaler_overages",
+          "scaler",
+          "pro_overages",
           "starter"
         ]
       }
