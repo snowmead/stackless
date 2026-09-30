@@ -29,6 +29,10 @@ EXCL: dict[str, str] = {
     "squarespace/domain": (
         "Non-refundable domain purchase; never in the leased lifecycle"
     ),
+    "squarespace/website": (
+        "Provision pauses on needs_information to buy a domain; "
+        "non-refundable domain purchases stay out of the leased lifecycle"
+    ),
     "wordpress.com/domain": (
         "Non-refundable domain purchase; never in the leased lifecycle"
     ),
