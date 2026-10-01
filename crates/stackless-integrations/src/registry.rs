@@ -88,6 +88,7 @@ register_providers! {
     (churnkey::retention, ChurnkeyRetention),
     (clickhouse::cluster, ClickHouseClickhouse),
     (clickhouse::postgres, ClickHousePostgres),
+    (cloudinary::media, CloudinaryMedia),
     (composio::project, ComposioProject),
     (customerio::workspace, CustomerioWorkspace),
     (datadog::observability, DatadogObservability),

@@ -64,6 +64,7 @@ Stripe Projects catalog reference. Offline catalog detail:
 | `cloudflare-r2` | `cloudflare/r2:bucket` |
 | `cloudflare-workers` | `cloudflare/workers` |
 | `cloudflare-workers-ai` | `cloudflare/workers-ai` |
+| `cloudinary` | `cloudinary/media` |
 | `composio` | `composio/project` |
 | `customerio` | `customerio/workspace` |
 | `datadog-observability` | `datadog/observability` |

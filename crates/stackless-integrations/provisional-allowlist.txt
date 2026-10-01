@@ -9,6 +9,7 @@
 # § External pin blockers. Those files are not scanned here.
 athena/agents
 churnkey/retention
+cloudinary/media
 herenow/hosting
 perplexity/api
 quo/app

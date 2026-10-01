@@ -143,6 +143,7 @@ SHORT_PROVIDER = {
     "planetscale/postgresql": "planetscale-postgresql",
     "clickhouse/clickhouse": "clickhouse",
     "clickhouse/postgres": "clickhouse-postgres",
+    "cloudinary/media": "cloudinary",
     "blaxel/agent-drive": "blaxel-agent-drive",
     "blaxel/sandbox": "blaxel-sandbox",
     "laravel_cloud/application": "laravel-cloud",
@@ -196,6 +197,7 @@ OUTPUT_HINTS = {
     "planetscale/postgresql": [("DATABASE_URL", "database_url", True)],
     "clickhouse/clickhouse": [("CONNECTION_STRING", "connection_string", True)],
     "clickhouse/postgres": [("CONNECTION_STRING", "connection_string", True)],
+    "cloudinary/media": [("API_KEY", "api_key", True)],
     "chroma/database": [("API_KEY", "api_key", True)],
     "athena/agents": [
         ("AGENT_ID", "agent_id", True),
