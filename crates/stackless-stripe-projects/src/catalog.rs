@@ -283,6 +283,7 @@ pub enum Category {
     Ecommerce,
     Email,
     FeatureFlags,
+    Media,
     Messaging,
     Notification,
     Observability,

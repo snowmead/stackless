@@ -32,6 +32,7 @@ const CATALOG_CATEGORY_FILTERS: &[&str] = &[
     "ecommerce",
     "email",
     "feature_flags",
+    "media",
     "messaging",
     "notification",
     "observability",
@@ -866,6 +867,13 @@ mod tests {
         assert_eq!(catalog.services.len(), 1);
         assert_eq!(catalog.services[0].reference(), "neon/postgres");
         assert!(catalog.category_filter.is_none());
+    }
+
+    #[test]
+    fn media_category_is_a_fallback_filter() {
+        assert!(CATALOG_CATEGORY_FILTERS.contains(&"media"));
+        let category: crate::catalog::Category = serde_json::from_str("\"media\"").unwrap();
+        assert_eq!(category, crate::catalog::Category::Media);
     }
 
     #[tokio::test]
