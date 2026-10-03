@@ -170,7 +170,7 @@ mod tests {
                     {
                         "id": "prvsvc_app",
                         "object": "v2.provisioning.provider_service_detail",
-                        "provider_id": "prvdr_example",
+                        "provider": "prvdr_example",
                         "provider_name": "Example",
                         "service_id": "app",
                         "categories": ["communications"],
@@ -198,7 +198,7 @@ mod tests {
                     {
                         "id": "prvsvc_starter",
                         "object": "v2.provisioning.provider_service_detail",
-                        "provider_id": "prvdr_example",
+                        "provider": "prvdr_example",
                         "provider_name": "Example",
                         "service_id": "starter",
                         "categories": ["communications"],

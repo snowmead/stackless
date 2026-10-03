@@ -29,6 +29,10 @@ EXCL: dict[str, str] = {
     "squarespace/domain": (
         "Non-refundable domain purchase; never in the leased lifecycle"
     ),
+    "squarespace/website": (
+        "Provision pauses on needs_information to buy a domain; "
+        "non-refundable domain purchases stay out of the leased lifecycle"
+    ),
     "wordpress.com/domain": (
         "Non-refundable domain purchase; never in the leased lifecycle"
     ),
@@ -90,6 +94,9 @@ SHORT_PROVIDER = {
     "turso/database": "turso",
     "prisma/database": "prisma",
     "chroma/database": "chroma",
+    "chatbase/agent": "chatbase",
+    "churnkey/retention": "churnkey",
+    "athena/agents": "athena",
     "algolia/application": "algolia",
     "openrouter/api": "openrouter",
     "exa/api": "exa",
@@ -112,6 +119,7 @@ SHORT_PROVIDER = {
     "supermemory/memory": "supermemory",
     "postalform/mail": "postalform",
     "shopify/store": "shopify",
+    "stigg/environment": "stigg",
     "wix/headless": "wix",
     "base44_projects/app": "base44",
     "wordpress.com/site": "wordpress-com",
@@ -121,6 +129,8 @@ SHORT_PROVIDER = {
     "sentry/project": "sentry",
     "sentry/seer": "sentry-seer",
     "render/postgres": "render-postgres",
+    "resend/email": "resend",
+    "quo/app": "quo-app",
     "railway/hosting": "railway-hosting",
     "railway/postgres": "railway-postgres",
     "railway/redis": "railway-redis",
@@ -134,6 +144,7 @@ SHORT_PROVIDER = {
     "planetscale/postgresql": "planetscale-postgresql",
     "clickhouse/clickhouse": "clickhouse",
     "clickhouse/postgres": "clickhouse-postgres",
+    "cloudinary/media": "cloudinary",
     "blaxel/agent-drive": "blaxel-agent-drive",
     "blaxel/sandbox": "blaxel-sandbox",
     "laravel_cloud/application": "laravel-cloud",
@@ -187,7 +198,30 @@ OUTPUT_HINTS = {
     "planetscale/postgresql": [("DATABASE_URL", "database_url", True)],
     "clickhouse/clickhouse": [("CONNECTION_STRING", "connection_string", True)],
     "clickhouse/postgres": [("CONNECTION_STRING", "connection_string", True)],
+    "cloudinary/media": [("API_KEY", "api_key", True)],
+    "stigg/environment": [
+        ("SERVER_API_KEY", "server_api_key", True),
+        ("CLIENT_API_KEY", "client_api_key", True),
+        ("ENVIRONMENT_ID", "environment_id", True),
+        ("ENVIRONMENT_SLUG", "environment_slug", True),
+    ],
     "chroma/database": [("API_KEY", "api_key", True)],
+    "athena/agents": [
+        ("AGENT_ID", "agent_id", True),
+        ("API_KEY", "api_key", True),
+        ("API_URL", "api_url", True),
+    ],
+    "chatbase/agent": [
+        ("CHATBASE_AGENT_ID", "chatbase_agent_id", True),
+        ("CHATBASE_API_KEY", "chatbase_api_key", True),
+        ("CHATBASE_API_URL", "chatbase_api_url", True),
+    ],
+    "churnkey/retention": [
+        ("APP_ID", "app_id", True),
+        ("API_KEY", "api_key", True),
+        ("DATA_API_KEY", "data_api_key", True),
+        ("MODE", "mode", True),
+    ],
     "sentry/project": [
         ("AUTH_TOKEN", "auth_token", True),
         ("DSN", "dsn", True),
@@ -234,6 +268,8 @@ OUTPUT_HINTS = {
     "metronome/sandbox": [("API_KEY", "api_key", True)],
     "supermemory/memory": [("API_KEY", "api_key", True)],
     "render/postgres": [("DATABASE_URL", "database_url", True)],
+    "resend/email": [("API_KEY", "api_key", True)],
+    "quo/app": [("API_KEY", "api_key", True)],
     "flyio/mpg": [("DATABASE_URL", "database_url", True)],
     "flyio/sprite": [("SPRITE_URL", "sprite_url", True)],
 }

@@ -186,8 +186,10 @@ fixture dir (see "One-time setup" above) — the smoke fails at the first
   `mise run catalog-orphans` (also part of `mise run check`) fails on new
   unowned deployables. Current exclusions:
   - `cloudflare/containers` — `PRICE_CONFIRMATION_REQUIRED` / unknown cost
-  - `cloudflare/registrar:domain`, `squarespace/domain`, `wordpress.com/domain`,
-    `spaceship/domain` — non-refundable domain purchases
+  - `cloudflare/registrar:domain`, `squarespace/domain`, `squarespace/website`,
+    `wordpress.com/domain`, `spaceship/domain` — non-refundable domain purchases.
+    `squarespace/website` is the subscription, and its provision still pauses to
+    buy a domain (`needs_information`), which this lifecycle does not handle
   - `createos/project` — catalog orphan; no stackless surface (do not register)
   - External pin blockers below (unregistered so users cannot select them)
 

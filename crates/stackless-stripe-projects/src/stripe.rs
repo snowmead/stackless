@@ -32,6 +32,7 @@ const CATALOG_CATEGORY_FILTERS: &[&str] = &[
     "ecommerce",
     "email",
     "feature_flags",
+    "media",
     "messaging",
     "notification",
     "observability",
@@ -790,7 +791,7 @@ mod tests {
                 "services": [{
                     "id": "clerk_auth",
                     "object": "service",
-                    "provider_id": "clerk",
+                    "provider": "clerk",
                     "provider_name": "Clerk",
                     "service_id": "auth",
                     "kind": "saas",
@@ -842,7 +843,7 @@ mod tests {
 
     #[tokio::test]
     async fn catalog_envelope_falls_back_to_category_filters() {
-        let service = r#"{"id":"prvsvc_1","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_1","provider_name":"Neon","service_id":"postgres","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"free"}}"#;
+        let service = r#"{"id":"prvsvc_1","object":"v2.provisioning.provider_service_detail","provider":"prvdr_1","provider_name":"Neon","service_id":"postgres","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"free"}}"#;
         let filtered = format!(
             r#"{{"ok":true,"command":"projects catalog","version":"0.1","data":{{"last_updated":"t","provider":null,"category_filter":"database","provider_filter":null,"services":[{service}],"source":null}}}}"#
         );
@@ -866,6 +867,13 @@ mod tests {
         assert_eq!(catalog.services.len(), 1);
         assert_eq!(catalog.services[0].reference(), "neon/postgres");
         assert!(catalog.category_filter.is_none());
+    }
+
+    #[test]
+    fn media_category_is_a_fallback_filter() {
+        assert!(CATALOG_CATEGORY_FILTERS.contains(&"media"));
+        let category: crate::catalog::Category = serde_json::from_str("\"media\"").unwrap();
+        assert_eq!(category, crate::catalog::Category::Media);
     }
 
     #[tokio::test]

@@ -6,7 +6,7 @@ fn service(reference: &str, schema: Value, pricing: Value) -> ServiceDetail {
     serde_json::from_value(json!({
         "id": "prvsvc_test",
         "object": "v2.provisioning.provider_service_detail",
-        "provider_id": "prvdr_test",
+        "provider": "prvdr_test",
         "provider_name": provider,
         "service_id": service_id,
         "categories": [],
