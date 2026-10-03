@@ -109,6 +109,7 @@ Stripe Projects catalog reference. Offline catalog detail:
 | `sentry-seer` | `sentry/seer` |
 | `shopify` | `shopify/store` |
 | `steel` | `steel/browser` |
+| `stigg` | `stigg/environment` |
 | `supabase` | `supabase/project` |
 | `supermemory` | `supermemory/memory` |
 | `tabstack` | `tabstack/api` |

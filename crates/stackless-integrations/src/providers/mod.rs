@@ -47,6 +47,7 @@ pub mod schematic;
 pub mod sentry;
 pub mod shopify;
 pub mod steel;
+pub mod stigg;
 pub mod supabase;
 pub mod supermemory;
 pub mod tabstack;
@@ -67,7 +68,7 @@ mod tests {
         depot, e2b, elevenlabs, exa, firecrawl, flyio, gitlab, herenow, inngest, kernel,
         laravel_cloud, metronome, mixpanel, neon, openrouter, parallel, perplexity, planetscale,
         postalform, posthog, prisma, pydantic, quo, railway, render_db, resend, revenuecat,
-        runloop, schematic, sentry, shopify, steel, supabase, supermemory, tabstack, turso,
+        runloop, schematic, sentry, shopify, steel, stigg, supabase, supermemory, tabstack, turso,
         upstash, wix, wordpress_com, workos,
     };
 
@@ -149,6 +150,7 @@ mod tests {
         assert_outputs_match::<sentry::seer::SentrySeer>();
         assert_outputs_match::<shopify::store::ShopifyStore>();
         assert_outputs_match::<steel::browser::SteelBrowser>();
+        assert_outputs_match::<stigg::environment::StiggEnvironment>();
         assert_outputs_match::<supabase::project::SupabaseProject>();
         assert_outputs_match::<supermemory::memory::SupermemoryMemory>();
         assert_outputs_match::<tabstack::api::TabstackApi>();

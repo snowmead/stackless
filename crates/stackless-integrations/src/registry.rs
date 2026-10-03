@@ -133,6 +133,7 @@ register_providers! {
     (sentry::seer, SentrySeer),
     (shopify::store, ShopifyStore),
     (steel::browser, SteelBrowser),
+    (stigg::environment, StiggEnvironment),
     (supabase::project, SupabaseProject),
     (supermemory::memory, SupermemoryMemory),
     (tabstack::api, TabstackApi),

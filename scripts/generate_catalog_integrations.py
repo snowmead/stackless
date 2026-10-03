@@ -119,6 +119,7 @@ SHORT_PROVIDER = {
     "supermemory/memory": "supermemory",
     "postalform/mail": "postalform",
     "shopify/store": "shopify",
+    "stigg/environment": "stigg",
     "wix/headless": "wix",
     "base44_projects/app": "base44",
     "wordpress.com/site": "wordpress-com",
@@ -198,6 +199,12 @@ OUTPUT_HINTS = {
     "clickhouse/clickhouse": [("CONNECTION_STRING", "connection_string", True)],
     "clickhouse/postgres": [("CONNECTION_STRING", "connection_string", True)],
     "cloudinary/media": [("API_KEY", "api_key", True)],
+    "stigg/environment": [
+        ("SERVER_API_KEY", "server_api_key", True),
+        ("CLIENT_API_KEY", "client_api_key", True),
+        ("ENVIRONMENT_ID", "environment_id", True),
+        ("ENVIRONMENT_SLUG", "environment_slug", True),
+    ],
     "chroma/database": [("API_KEY", "api_key", True)],
     "athena/agents": [
         ("AGENT_ID", "agent_id", True),
