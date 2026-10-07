@@ -68,6 +68,13 @@ endpoints, TCP health, mixed placement). Stripe Projects plugin 0.40.0 pin.
   confirmed instead of failing; without consent it is still blocked (#108).
 - GitLab Pages deploys no longer make a private repository public (#109).
 
+### Security
+
+- rustls 0.23.40 → 0.23.45 for [RUSTSEC-2026-0285](https://rustsec.org/advisories/RUSTSEC-2026-0285)
+  (TLS 1.3 handshake messages accepted across encryption levels), with
+  rustls-webpki, aws-lc-rs, and aws-lc-sys updates; cargo-vet exemptions move
+  to the new versions.
+
 ### Commits
 
 - [e94437d](https://github.com/snowmead/stackless/commit/e94437d61fe814afe76e2627835f4b00749e2bfc) docs: add stackless.toml example
