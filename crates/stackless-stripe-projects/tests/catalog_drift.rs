@@ -56,7 +56,7 @@ fn shopify_store_optional_is_modeled() {
         .expect("shopify/store has a configuration_schema");
     assert_eq!(
         schema.optional,
-        ["store_name", "plan"],
+        ["plan", "store_name"],
         "shopify/store optional keys must stay modeled, not extra"
     );
 }

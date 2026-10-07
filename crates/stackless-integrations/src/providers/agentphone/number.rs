@@ -109,7 +109,7 @@ mod tests {
         );
     }
 
-    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_number","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_agentphone","provider_name":"AgentPhone","service_id":"number","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"paid"},"configuration_schema":{"properties":{"agent_name":{"description":"Name for the AI agent","type":"string"},"area_code":{"description":"Preferred 3-digit area code (optional)","type":"string"},"country":{"description":"Country for the phone number","enum":["US","CA"],"type":"string"}},"required":["agent_name"],"type":"object"}}]}}"##;
+    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_number","object":"v2.provisioning.provider_service_detail","provider":"prvdr_agentphone","provider_name":"AgentPhone","service_id":"number","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"paid"},"configuration_schema":{"properties":{"agent_name":{"description":"Name for the AI agent","type":"string"},"area_code":{"description":"Preferred 3-digit area code (optional)","type":"string"},"country":{"description":"Country for the phone number","enum":["US","CA"],"type":"string"}},"required":["agent_name"],"type":"object"}}]}}"##;
 
     fn test_def() -> StackDef {
         StackDef::parse(

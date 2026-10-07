@@ -92,7 +92,7 @@ mod tests {
         );
     }
 
-    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_store","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_shopify","provider_name":"Shopify","service_id":"store","categories":["ecommerce"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"paid"},"configuration_schema":{"additionalProperties":false,"properties":{"plan":{"enum":["trial","basic","grow","advanced"],"type":"string"},"store_name":{"maxLength":50,"minLength":1,"type":"string"}},"optional":["store_name","plan"],"type":"object"}}]}}"##;
+    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_store","object":"v2.provisioning.provider_service_detail","provider":"prvdr_shopify","provider_name":"Shopify","service_id":"store","categories":["ecommerce"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"paid"},"configuration_schema":{"additionalProperties":false,"properties":{"plan":{"enum":["trial","basic","grow","advanced"],"type":"string"},"store_name":{"maxLength":50,"minLength":1,"type":"string"}},"optional":["store_name","plan"],"type":"object"}}]}}"##;
 
     fn test_def() -> StackDef {
         StackDef::parse(

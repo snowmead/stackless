@@ -32,6 +32,7 @@ const CATALOG_CATEGORY_FILTERS: &[&str] = &[
     "ecommerce",
     "email",
     "feature_flags",
+    "media",
     "messaging",
     "notification",
     "observability",
@@ -790,7 +791,7 @@ mod tests {
                 "services": [{
                     "id": "clerk_auth",
                     "object": "service",
-                    "provider_id": "clerk",
+                    "provider": "clerk",
                     "provider_name": "Clerk",
                     "service_id": "auth",
                     "kind": "saas",
@@ -842,7 +843,7 @@ mod tests {
 
     #[tokio::test]
     async fn catalog_envelope_falls_back_to_category_filters() {
-        let service = r#"{"id":"prvsvc_1","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_1","provider_name":"Neon","service_id":"postgres","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"free"}}"#;
+        let service = r#"{"id":"prvsvc_1","object":"v2.provisioning.provider_service_detail","provider":"prvdr_1","provider_name":"Neon","service_id":"postgres","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"free"}}"#;
         let filtered = format!(
             r#"{{"ok":true,"command":"projects catalog","version":"0.1","data":{{"last_updated":"t","provider":null,"category_filter":"database","provider_filter":null,"services":[{service}],"source":null}}}}"#
         );
@@ -866,6 +867,13 @@ mod tests {
         assert_eq!(catalog.services.len(), 1);
         assert_eq!(catalog.services[0].reference(), "neon/postgres");
         assert!(catalog.category_filter.is_none());
+    }
+
+    #[test]
+    fn media_category_is_a_fallback_filter() {
+        assert!(CATALOG_CATEGORY_FILTERS.contains(&"media"));
+        let category: crate::catalog::Category = serde_json::from_str("\"media\"").unwrap();
+        assert_eq!(category, crate::catalog::Category::Media);
     }
 
     #[tokio::test]
@@ -912,6 +920,63 @@ mod tests {
             report.is_empty(),
             "LIVE catalog drift — refresh tests/fixtures/catalog.json and update the model:\n{}",
             report.join("\n")
+        );
+    }
+
+    /// Sort arrays in a catalog envelope. Leave `data.services` in plugin order.
+    fn stabilize_catalog_arrays(value: &mut serde_json::Value) {
+        stabilize_catalog_arrays_inner(value, false);
+    }
+
+    fn stabilize_catalog_arrays_inner(value: &mut serde_json::Value, sort_this_array: bool) {
+        match value {
+            serde_json::Value::Array(items) => {
+                for item in items.iter_mut() {
+                    stabilize_catalog_arrays_inner(item, true);
+                }
+                if sort_this_array {
+                    items.sort_by(|left, right| {
+                        serde_json::to_string(left)
+                            .unwrap_or_default()
+                            .cmp(&serde_json::to_string(right).unwrap_or_default())
+                    });
+                }
+            }
+            serde_json::Value::Object(map) => {
+                let preserve_services =
+                    map.contains_key("services") && map.contains_key("last_updated");
+                for (key, child) in map.iter_mut() {
+                    let sort_child = !(preserve_services && key == "services");
+                    stabilize_catalog_arrays_inner(child, sort_child);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn stabilize_catalog_arrays_sorts_nested_lists_only() {
+        let mut value = serde_json::json!({
+            "data": {
+                "last_updated": "1970-01-01T00:00:00.000Z",
+                "services": [
+                    {"service_id": "b", "updateable_to": ["pro", "free"]},
+                    {"service_id": "a", "updateable_to": ["z", "a"]}
+                ]
+            }
+        });
+        stabilize_catalog_arrays(&mut value);
+        assert_eq!(
+            value["data"]["services"][0]["service_id"], "b",
+            "top-level service order stays as the plugin sent it"
+        );
+        assert_eq!(
+            value["data"]["services"][0]["updateable_to"],
+            serde_json::json!(["free", "pro"])
+        );
+        assert_eq!(
+            value["data"]["services"][1]["updateable_to"],
+            serde_json::json!(["a", "z"])
         );
     }
 
@@ -967,6 +1032,10 @@ mod tests {
                 serde_json::Value::String(NORMALIZED_TIMESTAMP.into()),
             );
         }
+        // The plugin republishes the same services with unstable array order.
+        // Sort every array except the top-level service list so a daily bless
+        // does not rewrite the fixture when nothing else changed.
+        stabilize_catalog_arrays(&mut envelope);
         let catalog_pretty = format!(
             "{}\n",
             serde_json::to_string_pretty(&envelope).expect("serialize catalog")

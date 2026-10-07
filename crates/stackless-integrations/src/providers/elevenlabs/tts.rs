@@ -74,7 +74,7 @@ mod tests {
         );
     }
 
-    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_tts","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_elevenlabs","provider_name":"ElevenLabs","service_id":"tts","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"free"},"configuration_schema":{"type":"object","required":[],"additionalProperties":false,"properties":{}}}]}}"##;
+    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_tts","object":"v2.provisioning.provider_service_detail","provider":"prvdr_elevenlabs","provider_name":"ElevenLabs","service_id":"tts","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"free"},"configuration_schema":{"type":"object","required":[],"additionalProperties":false,"properties":{}}}]}}"##;
 
     fn test_def() -> StackDef {
         StackDef::parse(

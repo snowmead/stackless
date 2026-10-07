@@ -462,7 +462,7 @@ async fn recover_remote<R: crate::CommandRunner>(
         .ok_or_else(|| ProjectsError::CreationUnknown {
             resource: name.into(),
         })?;
-    if remote.provider != service.provider_id || remote.service_ref != service.service_id {
+    if remote.provider != service.provider || remote.service_ref != service.service_id {
         return Err(crate::remote::invalid(
             "remote resource name has a different catalog identity",
         ));
@@ -640,7 +640,7 @@ mod tests {
                             .unwrap();
                     let mut service = catalog["data"]["services"][0].clone();
                     service["provider_name"] = json!("Example");
-                    service["provider_id"] = json!("provider_1");
+                    service["provider"] = json!("provider_1");
                     service["service_id"] = json!("database");
                     catalog["data"]["services"] = json!([service]);
                     Ok(ok(catalog["data"].clone()))

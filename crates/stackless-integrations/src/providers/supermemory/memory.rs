@@ -92,7 +92,7 @@ mod tests {
         );
     }
 
-    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_memory","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_supermemory","provider_name":"Supermemory","service_id":"memory","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"paid"},"configuration_schema":{"properties":{"plan":{"description":"Subscription tier","enum":["free","pro","max","scale"],"type":"string"}},"required":["plan"],"type":"object"}}]}}"##;
+    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_memory","object":"v2.provisioning.provider_service_detail","provider":"prvdr_supermemory","provider_name":"Supermemory","service_id":"memory","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"paid"},"configuration_schema":{"properties":{"plan":{"description":"Subscription tier","enum":["free","pro","max","scale"],"type":"string"}},"required":["plan"],"type":"object"}}]}}"##;
 
     fn test_def() -> StackDef {
         StackDef::parse(

@@ -93,7 +93,7 @@ mod tests {
         );
     }
 
-    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_app","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_base44_projects","provider_name":"Base44_Projects","service_id":"app","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"free"},"configuration_schema":{"additionalProperties":false,"properties":{"app_name":{"description":"Human-readable name for the Base44 app. Shown in the Base44 dashboard.","maxLength":50,"minLength":1,"title":"App name","type":"string"}},"required":[],"type":"object"}}]}}"##;
+    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_app","object":"v2.provisioning.provider_service_detail","provider":"prvdr_base44_projects","provider_name":"Base44_Projects","service_id":"app","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"free"},"configuration_schema":{"additionalProperties":false,"properties":{"app_name":{"description":"Human-readable name for the Base44 app. Shown in the Base44 dashboard.","maxLength":50,"minLength":1,"title":"App name","type":"string"}},"required":[],"type":"object"}}]}}"##;
 
     fn test_def() -> StackDef {
         StackDef::parse(
