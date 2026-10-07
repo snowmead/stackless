@@ -943,7 +943,8 @@ mod tests {
                 }
             }
             serde_json::Value::Object(map) => {
-                let preserve_services = map.contains_key("services") && map.contains_key("last_updated");
+                let preserve_services =
+                    map.contains_key("services") && map.contains_key("last_updated");
                 for (key, child) in map.iter_mut() {
                     let sort_child = !(preserve_services && key == "services");
                     stabilize_catalog_arrays_inner(child, sort_child);
@@ -966,8 +967,7 @@ mod tests {
         });
         stabilize_catalog_arrays(&mut value);
         assert_eq!(
-            value["data"]["services"][0]["service_id"],
-            "b",
+            value["data"]["services"][0]["service_id"], "b",
             "top-level service order stays as the plugin sent it"
         );
         assert_eq!(
