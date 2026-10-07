@@ -100,7 +100,7 @@ mod tests {
         );
     }
 
-    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_app","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_inngest","provider_name":"Inngest","service_id":"app","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"component"},"configuration_schema":{"properties":{"id":{"description":"Inngest app ID. This should match the id passed to your Inngest SDK client, e.g. new Inngest({ id: \"my-app\" }).","minLength":1,"type":"string"}},"required":["id"],"type":"object"}}]}}"##;
+    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_app","object":"v2.provisioning.provider_service_detail","provider":"prvdr_inngest","provider_name":"Inngest","service_id":"app","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"component"},"configuration_schema":{"properties":{"id":{"description":"Inngest app ID. This should match the id passed to your Inngest SDK client, e.g. new Inngest({ id: \"my-app\" }).","minLength":1,"type":"string"}},"required":["id"],"type":"object"}}]}}"##;
 
     fn test_def() -> StackDef {
         StackDef::parse(

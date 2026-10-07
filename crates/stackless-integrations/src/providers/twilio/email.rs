@@ -75,7 +75,7 @@ mod tests {
         );
     }
 
-    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_61UQvwE7qadLu0Kgo5BZg","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_61UQsPLOiNuyFxFP45ADo","provider_name":"Twilio","service_id":"email","categories":["email"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"component"},"configuration_schema":{}}]}}"##;
+    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_61UQvwE7qadLu0Kgo5BZg","object":"v2.provisioning.provider_service_detail","provider":"prvdr_61UQsPLOiNuyFxFP45ADo","provider_name":"Twilio","service_id":"email","categories":["email"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"component"},"configuration_schema":{}}]}}"##;
 
     fn test_def() -> StackDef {
         StackDef::parse(

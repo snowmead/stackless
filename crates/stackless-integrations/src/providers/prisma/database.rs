@@ -97,7 +97,7 @@ mod tests {
         );
     }
 
-    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_database","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_prisma","provider_name":"Prisma","service_id":"database","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"component"},"configuration_schema":{"additionalProperties":false,"properties":{"region":{"default":"us-east-1","description":"Prisma Postgres region identifier (Defaults to \"us-east-1\").","enum":["us-east-1","us-west-1","eu-west-3","eu-central-1","ap-northeast-1","ap-southeast-1"],"type":"string"}},"required":["region"],"type":"object"}}]}}"##;
+    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_database","object":"v2.provisioning.provider_service_detail","provider":"prvdr_prisma","provider_name":"Prisma","service_id":"database","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"component"},"configuration_schema":{"additionalProperties":false,"properties":{"region":{"default":"us-east-1","description":"Prisma Postgres region identifier (Defaults to \"us-east-1\").","enum":["us-east-1","us-west-1","eu-west-3","eu-central-1","ap-northeast-1","ap-southeast-1"],"type":"string"}},"required":["region"],"type":"object"}}]}}"##;
 
     fn test_def() -> StackDef {
         StackDef::parse(

@@ -82,7 +82,7 @@ mod tests {
         );
     }
 
-    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_mongo","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_railway","provider_name":"Railway","service_id":"mongo","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"component"},"configuration_schema":{"properties":{"region":{"description":"Deployment region (e.g. us-west1, us-east4)","type":"string"}},"type":"object"}}]}}"##;
+    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_mongo","object":"v2.provisioning.provider_service_detail","provider":"prvdr_railway","provider_name":"Railway","service_id":"mongo","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"component"},"configuration_schema":{"properties":{"region":{"description":"Deployment region (e.g. us-west1, us-east4)","type":"string"}},"type":"object"}}]}}"##;
 
     fn test_def() -> StackDef {
         StackDef::parse(

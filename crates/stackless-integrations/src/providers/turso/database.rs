@@ -97,7 +97,7 @@ mod tests {
         );
     }
 
-    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_database","object":"v2.provisioning.provider_service_detail","provider_id":"prvdr_turso","provider_name":"Turso","service_id":"database","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"component"},"configuration_schema":{"properties":{"location":{"description":"Primary location (e.g. aws-us-east-1, aws-eu-west-1)","enum":["aws-us-east-1","aws-us-east-2","aws-us-west-2","aws-eu-west-1","aws-ap-south-1","aws-ap-northeast-1"],"type":"string"},"name":{"description":"Database name","type":"string"}},"required":["name","location"],"type":"object"}}]}}"##;
+    const CATALOG_ENVELOPE: &str = r##"{"ok":true,"command":"projects catalog","data":{"last_updated":"2026-07-11T00:00:00Z","services":[{"id":"prvsvc_database","object":"v2.provisioning.provider_service_detail","provider":"prvdr_turso","provider_name":"Turso","service_id":"database","categories":["database"],"kind":"deployable","scope":"project","availability":"available","development":false,"livemode":true,"pricing":{"type":"component"},"configuration_schema":{"properties":{"location":{"description":"Primary location (e.g. aws-us-east-1, aws-eu-west-1)","enum":["aws-us-east-1","aws-us-east-2","aws-us-west-2","aws-eu-west-1","aws-ap-south-1","aws-ap-northeast-1"],"type":"string"},"name":{"description":"Database name","type":"string"}},"required":["name","location"],"type":"object"}}]}}"##;
 
     fn test_def() -> StackDef {
         StackDef::parse(
