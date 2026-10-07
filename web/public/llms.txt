@@ -15,7 +15,7 @@
 
 ```
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/latest/download/stackless-installer.sh | sh
-stackless --version   # expect 0.2.1 or newer
+stackless --version   # expect 0.4.0 or newer
 ```
 
 From source: `cargo build --release` → `target/release/stackless`.

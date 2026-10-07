@@ -15,6 +15,75 @@ Generate with:
 
 ## Unreleased
 
+## v0.4.0 — 2026-10-07
+
+Lifecycle overhaul: a single controller owns every operation, with durable
+recovery, explicit ownership, and a broader execution model (workers, jobs,
+endpoints, TCP health, mixed placement). Stripe Projects plugin 0.40.0 pin.
+
+### Breaking
+
+- Lifecycle JSON envelopes are `schema_version: 2`. Integration outputs are
+  instance-scoped `secret_ref` objects instead of plaintext credentials; the
+  controller resolves `${integrations.<name>.<output>}` inside workload and
+  verify environments (#109).
+- Host commands (local workloads without `image`, operator-side cloud hooks,
+  native verification) require an explicit `--allow-host-execution` grant
+  (`allowHostExecution` / `allow_host_execution` / `AllowHostExecution` in the
+  SDKs). The application file cannot grant it (#109).
+- The shared-database fleet backend is removed. `STACKLESS_STATE_URL` fails
+  with `state.remote.disabled`; use `--controller ssh://host` and migrate
+  legacy exports per `docs/AGENT-FLEETS.md` (#109).
+- HuggingFace catalog integrations removed after the plugin catalog dropped
+  them (#110).
+
+### Added
+
+- Controller-owned operations: `up --no-wait`, `down --no-wait`, and
+  `stackless operation get|wait|cancel|list` with durable IDs, reconnectable
+  progress, and restart recovery; remote controllers over SSH and a systemd
+  user service (#109).
+- Execution model: `kind = "worker"` and `[jobs.*]`, `depends_on` with
+  `started` / `ready` / `completed`, `[endpoints.*]`, TCP health, `source.root`,
+  per-workload `on` placement for mixed stacks, and verify `timeout_secs` (#109).
+- Resource inventory with owned / borrowed / shared ownership; teardown
+  verifies absence and never removes a sibling's resources (#109).
+- Catalog integrations: `herenow/hosting`, `perplexity/api` (#108), and
+  `churnkey/retention` (#112).
+
+### Changed
+
+- CLI, SDKs, MCP, and the lease reaper all submit to the same controller
+  operation service (#109).
+- Stackless no longer writes the Stripe project ID into `stackless.toml`;
+  Stripe files live in private per-instance runtime directories (#109).
+- Stripe Projects plugin pin 0.35.0 → 0.40.0; catalog snapshot re-blessed and
+  `ServiceDetail.provider` follows the 0.40.0 wire rename (#108, #110, #112).
+- README includes a complete `stackless.toml` example; PROVIDERS.md synced
+  with the registries (#111).
+
+### Fixed
+
+- With paid consent, a paid parent plan required by a free child option is
+  confirmed instead of failing; without consent it is still blocked (#108).
+- GitLab Pages deploys no longer make a private repository public (#109).
+
+### Commits
+
+- [e94437d](https://github.com/snowmead/stackless/commit/e94437d61fe814afe76e2627835f4b00749e2bfc) docs: add stackless.toml example
+- [a4ff500](https://github.com/snowmead/stackless/commit/a4ff5001459f140ab0bed02961e2e3dba49ce73c) feat(stripe-projects): integrate plugin 0.35.0 → 0.36.0 (#108)
+- [45e8c87](https://github.com/snowmead/stackless/commit/45e8c872745dbe029cab7d8118e12f1d43d685c4) Overhaul lifecycle ownership, recovery, and execution (#109)
+- [46d34e1](https://github.com/snowmead/stackless/commit/46d34e1cd04839364496831d95adc0fde6365752) feat(stripe-projects): integrate plugin 0.37.0 → 0.39.1 (#110)
+- [20bbc2e](https://github.com/snowmead/stackless/commit/20bbc2eb984aae6a0714b4b5e596d7057caa4f86) feat(stripe-projects): integrate plugin 0.39.1 → 0.40.0 (#112)
+- [07ce0d5](https://github.com/snowmead/stackless/commit/07ce0d524f60cda68ee6d4b112fbb4bde1c7d4c0) sync provider docs with registries (#111)
+
+### Install
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/snowmead/stackless/releases/download/v0.4.0/stackless-installer.sh | sh
+stackless --version
+```
+
 ## v0.3.3 — 2026-08-26
 
 Stripe Projects plugin 0.35.0 pin and provider docs synced with registries.
