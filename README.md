@@ -213,7 +213,7 @@ npm i stackless-sdk
 pip install stackless-sdk
 
 # Go
-go get github.com/snowmead/stackless/sdks/go@v0.3.3
+go get github.com/snowmead/stackless/sdks/go@v0.4.0
 ```
 
 All clients need the `stackless` CLI on `PATH` (or `STACKLESS_BIN`) for the
