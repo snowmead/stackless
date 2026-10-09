@@ -5489,6 +5489,7 @@
                 "eu-central-1",
                 "eu-west-1",
                 "eu-west-2",
+                "eu-west-3",
                 "me-central-1",
                 "us-east-1",
                 "us-east-2"
@@ -5585,6 +5586,7 @@
                 "eu-central-1",
                 "eu-west-1",
                 "eu-west-2",
+                "eu-west-3",
                 "me-central-1",
                 "us-east-1",
                 "us-east-2"
@@ -5674,6 +5676,7 @@
                 "eu-central-1",
                 "eu-west-1",
                 "eu-west-2",
+                "eu-west-3",
                 "me-central-1",
                 "us-east-1",
                 "us-east-2"
@@ -6048,7 +6051,7 @@
           "type": "component"
         },
         "provider": "prvdr_61Ulq2NBoEkAzhMKC50vA",
-        "provider_configuration_schema": {},
+        "provider_configuration_schema": null,
         "provider_name": "Prisma",
         "scope": "project",
         "service_id": "database",
@@ -6097,7 +6100,7 @@
           "type": "free"
         },
         "provider": "prvdr_61Ulq2NBoEkAzhMKC50vA",
-        "provider_configuration_schema": {},
+        "provider_configuration_schema": null,
         "provider_name": "Prisma",
         "scope": "account",
         "service_id": "free",
@@ -6161,7 +6164,7 @@
           "type": "paid"
         },
         "provider": "prvdr_61Ulq2NBoEkAzhMKC50vA",
-        "provider_configuration_schema": {},
+        "provider_configuration_schema": null,
         "provider_name": "Prisma",
         "scope": "account",
         "service_id": "business",
@@ -6225,7 +6228,7 @@
           "type": "paid"
         },
         "provider": "prvdr_61Ulq2NBoEkAzhMKC50vA",
-        "provider_configuration_schema": {},
+        "provider_configuration_schema": null,
         "provider_name": "Prisma",
         "scope": "account",
         "service_id": "pro",
@@ -6289,7 +6292,7 @@
           "type": "paid"
         },
         "provider": "prvdr_61Ulq2NBoEkAzhMKC50vA",
-        "provider_configuration_schema": {},
+        "provider_configuration_schema": null,
         "provider_name": "Prisma",
         "scope": "account",
         "service_id": "starter",
@@ -8063,7 +8066,7 @@
               "configuration": {
                 "price": "free"
               },
-              "description": "Free tier: 500,000 commands/month, 256MB storage",
+              "description": "Free tier: 500,000 commands/month, 250MB storage",
               "freeform": null,
               "is_default": null,
               "type": "free"
