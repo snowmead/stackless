@@ -5489,6 +5489,7 @@
                 "eu-central-1",
                 "eu-west-1",
                 "eu-west-2",
+                "eu-west-3",
                 "me-central-1",
                 "us-east-1",
                 "us-east-2"
@@ -5585,6 +5586,7 @@
                 "eu-central-1",
                 "eu-west-1",
                 "eu-west-2",
+                "eu-west-3",
                 "me-central-1",
                 "us-east-1",
                 "us-east-2"
@@ -5674,6 +5676,7 @@
                 "eu-central-1",
                 "eu-west-1",
                 "eu-west-2",
+                "eu-west-3",
                 "me-central-1",
                 "us-east-1",
                 "us-east-2"
@@ -8063,7 +8066,7 @@
               "configuration": {
                 "price": "free"
               },
-              "description": "Free tier: 500,000 commands/month, 256MB storage",
+              "description": "Free tier: 500,000 commands/month, 250MB storage",
               "freeform": null,
               "is_default": null,
               "type": "free"
