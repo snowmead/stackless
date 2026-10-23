@@ -10,6 +10,406 @@
         "allowed_updates": [],
         "availability": "available",
         "categories": [
+          "payments"
+        ],
+        "configuration_schema": {},
+        "constraints": [
+          {
+            "count": {
+              "at_most": 1
+            },
+            "type": "count"
+          }
+        ],
+        "created": null,
+        "description": "Stripe sandbox API key for test payments, customers, subscriptions, and invoices. Requires an existing active sandbox linked to your Stripe account. Create one in the Stripe Dashboard before provisioning; this service does not create a sandbox and cannot use legacy test mode.",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_stripe_native_sandbox",
+        "kind": "deployable",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": null,
+          "paid_pricing": [],
+          "type": "free"
+        },
+        "provider": "prvdr_stripe_native",
+        "provider_configuration_schema": {},
+        "provider_name": "stripe",
+        "scope": "project",
+        "service_id": "sandbox",
+        "updateable_to": [
+          "sandbox"
+        ]
+      },
+      {
+        "allowed_updates": [],
+        "availability": "available",
+        "categories": [
+          "payments"
+        ],
+        "configuration_schema": {},
+        "constraints": [
+          {
+            "count": {
+              "at_most": 1
+            },
+            "type": "count"
+          }
+        ],
+        "created": null,
+        "description": "Stripe livemode API key. Process payments, create customers and subscriptions, and send invoices.",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_stripe_native_livemode",
+        "kind": "deployable",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": null,
+          "paid_pricing": [],
+          "type": "free"
+        },
+        "provider": "prvdr_stripe_native",
+        "provider_configuration_schema": {},
+        "provider_name": "stripe",
+        "scope": "project",
+        "service_id": "livemode",
+        "updateable_to": [
+          "livemode"
+        ]
+      },
+      {
+        "allowed_updates": [
+          {
+            "direction": "any",
+            "service": "free"
+          },
+          {
+            "direction": "any",
+            "service": "plus-v3-10k-mtu-monthly"
+          },
+          {
+            "direction": "any",
+            "service": "plus-v3-25k-mtu-monthly"
+          }
+        ],
+        "availability": "available",
+        "categories": [
+          "ai",
+          "analytics",
+          "feature_flags"
+        ],
+        "configuration_schema": {},
+        "constraints": [],
+        "created": null,
+        "description": "Plus plan - 50k MTU (Monthly) - Advanced analytics, unlimited feature flags, and session replay",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61Vblr5qLDkex4qkr58JU",
+        "kind": "plan",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": {
+            "description": null,
+            "freeform": "$561.00 per month",
+            "type": "freeform"
+          },
+          "paid_pricing": [
+            {
+              "configuration": null,
+              "description": null,
+              "freeform": "$561.00 per month",
+              "is_default": null,
+              "type": "freeform"
+            }
+          ],
+          "type": "paid"
+        },
+        "provider": "prvdr_61UQYwVkrCANKYQdE5BLM",
+        "provider_configuration_schema": {
+          "properties": {
+            "marketing": {
+              "description": "Receive product updates and marketing communications from Amplitude. [Y/n]",
+              "title": "Marketing emails",
+              "type": "boolean"
+            },
+            "region": {
+              "description": "Data center region where your data will be stored and processed. This cannot be changed after provisioning.",
+              "enum": [
+                "eu",
+                "us"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "region"
+          ],
+          "type": "object"
+        },
+        "provider_name": "Amplitude",
+        "scope": "project",
+        "service_id": "plus-v3-50k-mtu-monthly",
+        "updateable_to": [
+          "free",
+          "plus-v3-10k-mtu-monthly",
+          "plus-v3-25k-mtu-monthly",
+          "plus-v3-50k-mtu-monthly"
+        ]
+      },
+      {
+        "allowed_updates": [
+          {
+            "direction": "any",
+            "service": "free"
+          },
+          {
+            "direction": "any",
+            "service": "plus-v3-10k-mtu-monthly"
+          },
+          {
+            "direction": "any",
+            "service": "plus-v3-50k-mtu-monthly"
+          }
+        ],
+        "availability": "available",
+        "categories": [
+          "ai",
+          "analytics",
+          "feature_flags"
+        ],
+        "configuration_schema": {},
+        "constraints": [],
+        "created": null,
+        "description": "Plus plan - 25k MTU (Monthly) - Advanced analytics, unlimited feature flags, and session replay",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61Vblr5jTGky9dUaZ5CA4",
+        "kind": "plan",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": {
+            "description": null,
+            "freeform": "$311.00 per month",
+            "type": "freeform"
+          },
+          "paid_pricing": [
+            {
+              "configuration": null,
+              "description": null,
+              "freeform": "$311.00 per month",
+              "is_default": null,
+              "type": "freeform"
+            }
+          ],
+          "type": "paid"
+        },
+        "provider": "prvdr_61UQYwVkrCANKYQdE5BLM",
+        "provider_configuration_schema": {
+          "properties": {
+            "marketing": {
+              "description": "Receive product updates and marketing communications from Amplitude. [Y/n]",
+              "title": "Marketing emails",
+              "type": "boolean"
+            },
+            "region": {
+              "description": "Data center region where your data will be stored and processed. This cannot be changed after provisioning.",
+              "enum": [
+                "eu",
+                "us"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "region"
+          ],
+          "type": "object"
+        },
+        "provider_name": "Amplitude",
+        "scope": "project",
+        "service_id": "plus-v3-25k-mtu-monthly",
+        "updateable_to": [
+          "free",
+          "plus-v3-10k-mtu-monthly",
+          "plus-v3-25k-mtu-monthly",
+          "plus-v3-50k-mtu-monthly"
+        ]
+      },
+      {
+        "allowed_updates": [
+          {
+            "direction": "any",
+            "service": "free"
+          },
+          {
+            "direction": "any",
+            "service": "plus-v3-25k-mtu-monthly"
+          },
+          {
+            "direction": "any",
+            "service": "plus-v3-50k-mtu-monthly"
+          }
+        ],
+        "availability": "available",
+        "categories": [
+          "ai",
+          "analytics",
+          "feature_flags"
+        ],
+        "configuration_schema": {},
+        "constraints": [],
+        "created": null,
+        "description": "Plus plan - 10k MTU (Monthly) - Advanced analytics, unlimited feature flags, and session replay",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61Vblr4O6i6jKz0zG57n6",
+        "kind": "plan",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": {
+            "description": null,
+            "freeform": "$186.00 per month",
+            "type": "freeform"
+          },
+          "paid_pricing": [
+            {
+              "configuration": null,
+              "description": null,
+              "freeform": "$186.00 per month",
+              "is_default": null,
+              "type": "freeform"
+            }
+          ],
+          "type": "paid"
+        },
+        "provider": "prvdr_61UQYwVkrCANKYQdE5BLM",
+        "provider_configuration_schema": {
+          "properties": {
+            "marketing": {
+              "description": "Receive product updates and marketing communications from Amplitude. [Y/n]",
+              "title": "Marketing emails",
+              "type": "boolean"
+            },
+            "region": {
+              "description": "Data center region where your data will be stored and processed. This cannot be changed after provisioning.",
+              "enum": [
+                "eu",
+                "us"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "region"
+          ],
+          "type": "object"
+        },
+        "provider_name": "Amplitude",
+        "scope": "project",
+        "service_id": "plus-v3-10k-mtu-monthly",
+        "updateable_to": [
+          "free",
+          "plus-v3-10k-mtu-monthly",
+          "plus-v3-25k-mtu-monthly",
+          "plus-v3-50k-mtu-monthly"
+        ]
+      },
+      {
+        "allowed_updates": [],
+        "availability": "available",
+        "categories": [
+          "notification"
+        ],
+        "configuration_schema": {
+          "properties": {
+            "plan": {
+              "default": "developer",
+              "description": "The Knock plan for the account. Starter is billed monthly.",
+              "enum": [
+                "developer",
+                "starter"
+              ],
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "constraints": [
+          {
+            "count": {
+              "at_most": 1
+            },
+            "type": "count"
+          }
+        ],
+        "created": null,
+        "description": "Knock – cross-channel messaging, built for agents.",
+        "development": false,
+        "group": null,
+        "id": "prvsvc_61VZSaAdPFQ7RGMmT58vg",
+        "kind": "deployable",
+        "livemode": true,
+        "llm_context": null,
+        "object": "v2.provisioning.provider_service_detail",
+        "pricing": {
+          "component": null,
+          "paid": {
+            "description": "Free. Includes 10,000 notifications per month.",
+            "freeform": null,
+            "type": "free"
+          },
+          "paid_pricing": [
+            {
+              "configuration": {
+                "plan": "developer"
+              },
+              "description": "Free. Includes 10,000 notifications per month.",
+              "freeform": null,
+              "is_default": true,
+              "type": "free"
+            },
+            {
+              "configuration": {
+                "plan": "starter",
+                "tos_url": "https://knock.app/legal/terms-of-service"
+              },
+              "description": "Billed monthly to the payment method shared through Stripe Projects.",
+              "freeform": "$250/month. Includes 50,000 notifications; additional notifications are $5 per 1,000.",
+              "is_default": null,
+              "type": "freeform"
+            }
+          ],
+          "type": "paid"
+        },
+        "provider": "prvdr_61VZSPb7y0e1IKB9853C4",
+        "provider_configuration_schema": {},
+        "provider_name": "Knock",
+        "scope": "project",
+        "service_id": "project",
+        "updateable_to": [
+          "project"
+        ]
+      },
+      {
+        "allowed_updates": [],
+        "availability": "available",
+        "categories": [
           "ecommerce"
         ],
         "configuration_schema": {},
@@ -5489,6 +5889,7 @@
                 "eu-central-1",
                 "eu-west-1",
                 "eu-west-2",
+                "eu-west-3",
                 "me-central-1",
                 "us-east-1",
                 "us-east-2"
@@ -5585,6 +5986,7 @@
                 "eu-central-1",
                 "eu-west-1",
                 "eu-west-2",
+                "eu-west-3",
                 "me-central-1",
                 "us-east-1",
                 "us-east-2"
@@ -5674,6 +6076,7 @@
                 "eu-central-1",
                 "eu-west-1",
                 "eu-west-2",
+                "eu-west-3",
                 "me-central-1",
                 "us-east-1",
                 "us-east-2"
@@ -6082,7 +6485,7 @@
         "configuration_schema": {},
         "constraints": [],
         "created": null,
-        "description": "Free: includes 100k queries and 0.5 GiB-month storage per billing cycle; hard limits, no paid overages.",
+        "description": "Free: includes 100k queries and 2 GiB-month storage per billing cycle; hard limits, no paid overages.",
         "development": false,
         "group": "postgresql",
         "id": "prvsvc_61UlrybmuvcOTXGBn5T20",
@@ -6562,6 +6965,16 @@
         "configuration_schema": {
           "additionalProperties": false,
           "properties": {
+            "CNAME": {
+              "description": "Optional. The hostname www.example.com should point to, such as the CNAME Vercel recommends for your project. Once the domain is registered, we set the www CNAME record to it.",
+              "title": "CNAME",
+              "type": "string"
+            },
+            "IPv4": {
+              "description": "Optional. The IPv4 addresses the root domain (example.com) should point to, separated by commas, such as the IPv4s Vercel recommends for your project. Once the domain is registered, we replace its root A records with these.",
+              "title": "IPv4",
+              "type": "string"
+            },
             "domainName": {
               "description": "The domain name you want to register (e.g. example.com). If the domain is not available, we'll show available alternatives.",
               "minLength": 1,
@@ -6582,7 +6995,7 @@
         "id": "prvsvc_61UadC9N2zRR6Edxg5AF6",
         "kind": "deployable",
         "livemode": true,
-        "llm_context": null,
+        "llm_context": "https://production.squarespace.thisdotstripeapps.com/stripe/provisioning/llm/domain",
         "object": "v2.provisioning.provider_service_detail",
         "pricing": {
           "component": null,
@@ -8063,7 +8476,7 @@
               "configuration": {
                 "price": "free"
               },
-              "description": "Free tier: 500,000 commands/month, 256MB storage",
+              "description": "Free tier: 500,000 commands/month, 250MB storage",
               "freeform": null,
               "is_default": null,
               "type": "free"
@@ -8595,192 +9008,6 @@
         "allowed_updates": [
           {
             "direction": "any",
-            "service": "business"
-          },
-          {
-            "direction": "any",
-            "service": "team"
-          }
-        ],
-        "availability": "available",
-        "categories": [
-          "observability"
-        ],
-        "configuration_schema": {},
-        "constraints": [
-          {
-            "count": {
-              "at_most": 1
-            },
-            "type": "count"
-          },
-          {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          }
-        ],
-        "created": null,
-        "description": "Sentry Developer -- error monitoring, performance, and session replay",
-        "development": false,
-        "group": null,
-        "id": "prvsvc_61UZ68OxDFNL5oYPg53oO",
-        "kind": "plan",
-        "livemode": true,
-        "llm_context": null,
-        "object": "v2.provisioning.provider_service_detail",
-        "pricing": {
-          "component": null,
-          "paid": null,
-          "paid_pricing": [],
-          "type": "free"
-        },
-        "provider": "prvdr_61UWhMpOMGYc7qQhs53su",
-        "provider_configuration_schema": null,
-        "provider_name": "Sentry",
-        "scope": "account",
-        "service_id": "developer",
-        "updateable_to": [
-          "business",
-          "developer",
-          "team"
-        ]
-      },
-      {
-        "allowed_updates": [
-          {
-            "direction": "any",
-            "service": "developer"
-          },
-          {
-            "direction": "any",
-            "service": "team"
-          }
-        ],
-        "availability": "available",
-        "categories": [
-          "observability"
-        ],
-        "configuration_schema": {},
-        "constraints": [
-          {
-            "count": {
-              "at_most": 1
-            },
-            "type": "count"
-          },
-          {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          }
-        ],
-        "created": null,
-        "description": "Sentry Business -- error monitoring, performance, and session replay",
-        "development": false,
-        "group": null,
-        "id": "prvsvc_61UZ68OBHksq3Nzwd5WPQ",
-        "kind": "plan",
-        "livemode": true,
-        "llm_context": null,
-        "object": "v2.provisioning.provider_service_detail",
-        "pricing": {
-          "component": null,
-          "paid": {
-            "description": null,
-            "freeform": "$89/month",
-            "type": "freeform"
-          },
-          "paid_pricing": [
-            {
-              "configuration": null,
-              "description": null,
-              "freeform": "$89/month",
-              "is_default": null,
-              "type": "freeform"
-            }
-          ],
-          "type": "paid"
-        },
-        "provider": "prvdr_61UWhMpOMGYc7qQhs53su",
-        "provider_configuration_schema": null,
-        "provider_name": "Sentry",
-        "scope": "account",
-        "service_id": "business",
-        "updateable_to": [
-          "business",
-          "developer",
-          "team"
-        ]
-      },
-      {
-        "allowed_updates": [
-          {
-            "direction": "any",
-            "service": "business"
-          },
-          {
-            "direction": "any",
-            "service": "developer"
-          }
-        ],
-        "availability": "available",
-        "categories": [
-          "observability"
-        ],
-        "configuration_schema": {},
-        "constraints": [
-          {
-            "count": {
-              "at_most": 1
-            },
-            "type": "count"
-          },
-          {
-            "mutual_exclusion_allowed_updates": true,
-            "type": "mutual_exclusion_allowed_updates"
-          }
-        ],
-        "created": null,
-        "description": "Sentry Team -- error monitoring, performance, and session replay",
-        "development": false,
-        "group": null,
-        "id": "prvsvc_61UZ68OAXFie2t6X85Ldo",
-        "kind": "plan",
-        "livemode": true,
-        "llm_context": null,
-        "object": "v2.provisioning.provider_service_detail",
-        "pricing": {
-          "component": null,
-          "paid": {
-            "description": null,
-            "freeform": "$29/month",
-            "type": "freeform"
-          },
-          "paid_pricing": [
-            {
-              "configuration": null,
-              "description": null,
-              "freeform": "$29/month",
-              "is_default": null,
-              "type": "freeform"
-            }
-          ],
-          "type": "paid"
-        },
-        "provider": "prvdr_61UWhMpOMGYc7qQhs53su",
-        "provider_configuration_schema": null,
-        "provider_name": "Sentry",
-        "scope": "account",
-        "service_id": "team",
-        "updateable_to": [
-          "business",
-          "developer",
-          "team"
-        ]
-      },
-      {
-        "allowed_updates": [
-          {
-            "direction": "any",
             "service": "free"
           },
           {
@@ -9028,252 +9255,6 @@
         "service_id": "postgres",
         "updateable_to": [
           "postgres"
-        ]
-      },
-      {
-        "allowed_updates": [
-          {
-            "direction": "any",
-            "service": "free"
-          },
-          {
-            "direction": "any",
-            "service": "plus-v3-25k-mtu-monthly"
-          },
-          {
-            "direction": "any",
-            "service": "plus-v3-50k-mtu-monthly"
-          }
-        ],
-        "availability": "available",
-        "categories": [
-          "ai",
-          "analytics",
-          "feature_flags"
-        ],
-        "configuration_schema": {},
-        "constraints": [],
-        "created": null,
-        "description": "Plus plan - 10k MTU (Monthly) - Advanced analytics, unlimited feature flags, and session replay",
-        "development": false,
-        "group": null,
-        "id": "prvsvc_61UYI1ViexI3ZlTL451N2",
-        "kind": "plan",
-        "livemode": true,
-        "llm_context": null,
-        "object": "v2.provisioning.provider_service_detail",
-        "pricing": {
-          "component": null,
-          "paid": {
-            "description": null,
-            "freeform": "$186.00 per month",
-            "type": "freeform"
-          },
-          "paid_pricing": [
-            {
-              "configuration": null,
-              "description": null,
-              "freeform": "$186.00 per month",
-              "is_default": null,
-              "type": "freeform"
-            }
-          ],
-          "type": "paid"
-        },
-        "provider": "prvdr_61UQYwVkrCANKYQdE5BLM",
-        "provider_configuration_schema": {
-          "properties": {
-            "marketing": {
-              "description": "Receive product updates and marketing communications from Amplitude. [Y/n]",
-              "title": "Marketing emails",
-              "type": "boolean"
-            },
-            "region": {
-              "description": "Data center region where your data will be stored and processed. This cannot be changed after provisioning.",
-              "enum": [
-                "eu",
-                "us"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "region"
-          ],
-          "type": "object"
-        },
-        "provider_name": "Amplitude",
-        "scope": "project",
-        "service_id": "plus-v3-10k-mtu-monthly",
-        "updateable_to": [
-          "free",
-          "plus-v3-10k-mtu-monthly",
-          "plus-v3-25k-mtu-monthly",
-          "plus-v3-50k-mtu-monthly"
-        ]
-      },
-      {
-        "allowed_updates": [
-          {
-            "direction": "any",
-            "service": "free"
-          },
-          {
-            "direction": "any",
-            "service": "plus-v3-10k-mtu-monthly"
-          },
-          {
-            "direction": "any",
-            "service": "plus-v3-50k-mtu-monthly"
-          }
-        ],
-        "availability": "available",
-        "categories": [
-          "ai",
-          "analytics",
-          "feature_flags"
-        ],
-        "configuration_schema": {},
-        "constraints": [],
-        "created": null,
-        "description": "Plus plan - 25k MTU (Monthly) - Advanced analytics, unlimited feature flags, and session replay",
-        "development": false,
-        "group": null,
-        "id": "prvsvc_61UYI1VfuBJJcm1M55R2O",
-        "kind": "plan",
-        "livemode": true,
-        "llm_context": null,
-        "object": "v2.provisioning.provider_service_detail",
-        "pricing": {
-          "component": null,
-          "paid": {
-            "description": null,
-            "freeform": "$311.00 per month",
-            "type": "freeform"
-          },
-          "paid_pricing": [
-            {
-              "configuration": null,
-              "description": null,
-              "freeform": "$311.00 per month",
-              "is_default": null,
-              "type": "freeform"
-            }
-          ],
-          "type": "paid"
-        },
-        "provider": "prvdr_61UQYwVkrCANKYQdE5BLM",
-        "provider_configuration_schema": {
-          "properties": {
-            "marketing": {
-              "description": "Receive product updates and marketing communications from Amplitude. [Y/n]",
-              "title": "Marketing emails",
-              "type": "boolean"
-            },
-            "region": {
-              "description": "Data center region where your data will be stored and processed. This cannot be changed after provisioning.",
-              "enum": [
-                "eu",
-                "us"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "region"
-          ],
-          "type": "object"
-        },
-        "provider_name": "Amplitude",
-        "scope": "project",
-        "service_id": "plus-v3-25k-mtu-monthly",
-        "updateable_to": [
-          "free",
-          "plus-v3-10k-mtu-monthly",
-          "plus-v3-25k-mtu-monthly",
-          "plus-v3-50k-mtu-monthly"
-        ]
-      },
-      {
-        "allowed_updates": [
-          {
-            "direction": "any",
-            "service": "free"
-          },
-          {
-            "direction": "any",
-            "service": "plus-v3-10k-mtu-monthly"
-          },
-          {
-            "direction": "any",
-            "service": "plus-v3-25k-mtu-monthly"
-          }
-        ],
-        "availability": "available",
-        "categories": [
-          "ai",
-          "analytics",
-          "feature_flags"
-        ],
-        "configuration_schema": {},
-        "constraints": [],
-        "created": null,
-        "description": "Plus plan - 50k MTU (Monthly) - Advanced analytics, unlimited feature flags, and session replay",
-        "development": false,
-        "group": null,
-        "id": "prvsvc_61UYI1VWx1o2eop3w5EEi",
-        "kind": "plan",
-        "livemode": true,
-        "llm_context": null,
-        "object": "v2.provisioning.provider_service_detail",
-        "pricing": {
-          "component": null,
-          "paid": {
-            "description": null,
-            "freeform": "$561.00 per month",
-            "type": "freeform"
-          },
-          "paid_pricing": [
-            {
-              "configuration": null,
-              "description": null,
-              "freeform": "$561.00 per month",
-              "is_default": null,
-              "type": "freeform"
-            }
-          ],
-          "type": "paid"
-        },
-        "provider": "prvdr_61UQYwVkrCANKYQdE5BLM",
-        "provider_configuration_schema": {
-          "properties": {
-            "marketing": {
-              "description": "Receive product updates and marketing communications from Amplitude. [Y/n]",
-              "title": "Marketing emails",
-              "type": "boolean"
-            },
-            "region": {
-              "description": "Data center region where your data will be stored and processed. This cannot be changed after provisioning.",
-              "enum": [
-                "eu",
-                "us"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "region"
-          ],
-          "type": "object"
-        },
-        "provider_name": "Amplitude",
-        "scope": "project",
-        "service_id": "plus-v3-50k-mtu-monthly",
-        "updateable_to": [
-          "free",
-          "plus-v3-10k-mtu-monthly",
-          "plus-v3-25k-mtu-monthly",
-          "plus-v3-50k-mtu-monthly"
         ]
       },
       {
@@ -9706,141 +9687,6 @@
         "service_id": "static-site",
         "updateable_to": [
           "static-site"
-        ]
-      },
-      {
-        "allowed_updates": [],
-        "availability": "available",
-        "categories": [
-          "observability"
-        ],
-        "configuration_schema": {},
-        "constraints": [
-          {
-            "count": {
-              "at_most": 1
-            },
-            "type": "count"
-          }
-        ],
-        "created": null,
-        "description": "Sentry Seer AI -- automated issue fixes and root cause analysis powered by AI",
-        "development": false,
-        "group": null,
-        "id": "prvsvc_61UXcp6h8xCmVayfc5O1g",
-        "kind": "deployable",
-        "livemode": true,
-        "llm_context": null,
-        "object": "v2.provisioning.provider_service_detail",
-        "pricing": {
-          "component": {
-            "options": [
-              {
-                "is_default": null,
-                "paid": {
-                  "description": null,
-                  "freeform": "$40/active contributor/month",
-                  "type": "freeform"
-                },
-                "parent_services": [
-                  "business"
-                ],
-                "type": "paid"
-              },
-              {
-                "is_default": null,
-                "paid": {
-                  "description": null,
-                  "freeform": "$40/active contributor/month",
-                  "type": "freeform"
-                },
-                "parent_services": [
-                  "team"
-                ],
-                "type": "paid"
-              }
-            ]
-          },
-          "paid": null,
-          "paid_pricing": [],
-          "type": "component"
-        },
-        "provider": "prvdr_61UWhMpOMGYc7qQhs53su",
-        "provider_configuration_schema": null,
-        "provider_name": "Sentry",
-        "scope": "account",
-        "service_id": "seer",
-        "updateable_to": [
-          "seer"
-        ]
-      },
-      {
-        "allowed_updates": [],
-        "availability": "available",
-        "categories": [
-          "observability"
-        ],
-        "configuration_schema": {
-          "properties": {
-            "platform": {
-              "description": "Platform/language (e.g. python, javascript, node, react)",
-              "type": "string"
-            },
-            "project_name": {
-              "description": "Name for the Sentry project",
-              "type": "string"
-            }
-          },
-          "type": "object"
-        },
-        "constraints": [],
-        "created": null,
-        "description": "Sentry project -- error tracking, performance monitoring, and session replay for your application",
-        "development": false,
-        "group": null,
-        "id": "prvsvc_61UXcp6VHZ7WibLbg5SQC",
-        "kind": "deployable",
-        "livemode": true,
-        "llm_context": null,
-        "object": "v2.provisioning.provider_service_detail",
-        "pricing": {
-          "component": {
-            "options": [
-              {
-                "is_default": null,
-                "paid": null,
-                "parent_services": [
-                  "business"
-                ],
-                "type": "free"
-              },
-              {
-                "is_default": null,
-                "paid": null,
-                "parent_services": [
-                  "team"
-                ],
-                "type": "free"
-              },
-              {
-                "is_default": true,
-                "paid": null,
-                "parent_services": [],
-                "type": "free"
-              }
-            ]
-          },
-          "paid": null,
-          "paid_pricing": [],
-          "type": "component"
-        },
-        "provider": "prvdr_61UWhMpOMGYc7qQhs53su",
-        "provider_configuration_schema": null,
-        "provider_name": "Sentry",
-        "scope": "project",
-        "service_id": "project",
-        "updateable_to": [
-          "project"
         ]
       },
       {
@@ -12829,66 +12675,6 @@
         ]
       },
       {
-        "allowed_updates": [],
-        "availability": "available",
-        "categories": [
-          "ai",
-          "sandbox"
-        ],
-        "configuration_schema": {},
-        "constraints": [],
-        "created": null,
-        "description": "Runloop Sandbox — cloud sandbox environment for Agents and RL workloads. Projects accounts get $300 in trial value",
-        "development": false,
-        "group": null,
-        "id": "prvsvc_61ULmCPEWP9tpygdH57Am",
-        "kind": "deployable",
-        "livemode": true,
-        "llm_context": null,
-        "object": "v2.provisioning.provider_service_detail",
-        "pricing": {
-          "component": {
-            "options": [
-              {
-                "is_default": null,
-                "paid": {
-                  "description": null,
-                  "freeform": "Usage-based compute and storage, 1 TB storage included",
-                  "type": "freeform"
-                },
-                "parent_services": [
-                  "pro"
-                ],
-                "type": "paid"
-              },
-              {
-                "is_default": null,
-                "paid": {
-                  "description": null,
-                  "freeform": "Usage-based compute and storage, 100 GB storage included",
-                  "type": "freeform"
-                },
-                "parent_services": [
-                  "basic"
-                ],
-                "type": "paid"
-              }
-            ]
-          },
-          "paid": null,
-          "paid_pricing": [],
-          "type": "component"
-        },
-        "provider": "prvdr_61UGhvzdmhefqNXre5WIS",
-        "provider_configuration_schema": {},
-        "provider_name": "Runloop",
-        "scope": "account",
-        "service_id": "sandbox",
-        "updateable_to": [
-          "sandbox"
-        ]
-      },
-      {
         "allowed_updates": [
           {
             "direction": "any",
@@ -12905,7 +12691,7 @@
         "configuration_schema": {},
         "constraints": [],
         "created": null,
-        "description": "PostHog — product analytics, session replay, realtime destinations, feature flags & experiments, surveys, data warehouse, error tracking, ai observability, logs, posthog ai, replay vision, inbox, posthog desktop (usage-based), emails, and more.",
+        "description": "PostHog — product analytics, session replay, destinations, feature flags & experiments, surveys, sources, error tracking, ai observability, logs, posthog ai, replay vision, inbox, posthog desktop (usage-based), emails, and more.",
         "development": false,
         "group": null,
         "id": "prvsvc_61ULYJXN0ZO3MN4Oh5Dho",
@@ -16110,108 +15896,6 @@
         ]
       },
       {
-        "allowed_updates": [
-          {
-            "direction": "any",
-            "service": "basic"
-          }
-        ],
-        "availability": "available",
-        "categories": [
-          "ai",
-          "sandbox"
-        ],
-        "configuration_schema": {},
-        "constraints": [],
-        "created": null,
-        "description": "Runloop Pro — cloud sandboxes for production AI workloads at scale",
-        "development": false,
-        "group": null,
-        "id": "prvsvc_61ULB7Txc7GGTYaCf5M6a",
-        "kind": "plan",
-        "livemode": true,
-        "llm_context": null,
-        "object": "v2.provisioning.provider_service_detail",
-        "pricing": {
-          "component": null,
-          "paid": {
-            "description": null,
-            "freeform": "First month free, then $250/mo + usage-based pricing",
-            "type": "freeform"
-          },
-          "paid_pricing": [
-            {
-              "configuration": null,
-              "description": null,
-              "freeform": "First month free, then $250/mo + usage-based pricing",
-              "is_default": null,
-              "type": "freeform"
-            }
-          ],
-          "type": "paid"
-        },
-        "provider": "prvdr_61UGhvzdmhefqNXre5WIS",
-        "provider_configuration_schema": {},
-        "provider_name": "Runloop",
-        "scope": "account",
-        "service_id": "pro",
-        "updateable_to": [
-          "basic",
-          "pro"
-        ]
-      },
-      {
-        "allowed_updates": [
-          {
-            "direction": "any",
-            "service": "pro"
-          }
-        ],
-        "availability": "available",
-        "categories": [
-          "ai",
-          "sandbox"
-        ],
-        "configuration_schema": {},
-        "constraints": [],
-        "created": null,
-        "description": "Runloop Basic — cloud sandboxes with high concurrency and compute",
-        "development": false,
-        "group": null,
-        "id": "prvsvc_61ULB7TIyUnWXR2qG5QYS",
-        "kind": "plan",
-        "livemode": true,
-        "llm_context": null,
-        "object": "v2.provisioning.provider_service_detail",
-        "pricing": {
-          "component": null,
-          "paid": {
-            "description": null,
-            "freeform": "Usage-based pricing",
-            "type": "freeform"
-          },
-          "paid_pricing": [
-            {
-              "configuration": null,
-              "description": null,
-              "freeform": "Usage-based pricing",
-              "is_default": null,
-              "type": "freeform"
-            }
-          ],
-          "type": "paid"
-        },
-        "provider": "prvdr_61UGhvzdmhefqNXre5WIS",
-        "provider_configuration_schema": {},
-        "provider_name": "Runloop",
-        "scope": "account",
-        "service_id": "basic",
-        "updateable_to": [
-          "basic",
-          "pro"
-        ]
-      },
-      {
         "allowed_updates": [],
         "availability": "available",
         "categories": [
@@ -16826,7 +16510,7 @@
         ]
       }
     ],
-    "source": "cache"
+    "source": "api"
   },
   "meta": {
     "authenticated": false,
